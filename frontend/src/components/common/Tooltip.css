@@ -1,0 +1,41 @@
+/* Tooltip styles - Minimal, matches product style */
+.tooltip-content {
+  padding: 3px 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.3;
+  max-width: 350px;
+  z-index: 10000;
+  user-select: none;
+  white-space: normal;
+  word-break: break-all;
+}
+
+.tooltip-content:has(.alloc-tooltip),
+.tooltip-content:has(.node-tooltip),
+.tooltip-content:has(.hpa-tooltip),
+.tooltip-content:has(.vpa-tooltip) {
+  padding: 8px 10px;
+  white-space: normal;
+}
+
+/* No arrow */
+.tooltip-arrow {
+  display: none;
+}
+
+/* Keyboard shortcut styling in tooltips */
+.tooltip-content kbd {
+  display: inline-block;
+  padding: 0 3px;
+  margin-left: 4px;
+  background: var(--bg-secondary);
+  border-radius: 2px;
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--text-muted);
+}

@@ -1,0 +1,1102 @@
+.cloud-discovery {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+.cloud-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cloud-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.cloud-tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.cloud-tab.active {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
+
+.cloud-tab svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cloud-tab.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.cloud-tab.disabled:hover {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.cloud-split-layout {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.cloud-left-panel {
+  width: 50%;
+  min-width: 280px;
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cloud-right-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.cloud-settings-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--border);
+  height: 100%;
+  min-height: 0;
+}
+
+.cloud-settings-section {
+  background: var(--bg-primary);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cloud-settings-section:last-child {
+  flex: 1;
+}
+
+.cloud-settings-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.cloud-settings-section-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.cloud-settings-section-header h3 svg {
+  width: 14px;
+  height: 14px;
+  opacity: 0.7;
+}
+
+.cloud-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cloud-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.cloud-icon-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.cloud-icon-btn-danger:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+  background: var(--danger-bg);
+}
+
+.cloud-add-sso-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 10px;
+}
+
+.cloud-input {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  transition: all 0.15s ease;
+}
+
+.cloud-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.cloud-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cloud-select {
+  width: 100%;
+  padding: 7px 10px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  cursor: pointer;
+}
+
+.cloud-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.cloud-sso-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.cloud-sso-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.cloud-sso-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.cloud-sso-item.expired {
+  opacity: 0.6;
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+.cloud-sso-item.expiring {
+  background: color-mix(in srgb, var(--warning) 8%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--warning) 30%, transparent);
+}
+
+.cloud-sso-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.cloud-sso-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cloud-sso-item-label {
+  display: block;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-sso-label-input {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 2px 6px;
+  outline: none;
+  width: 120px;
+}
+
+.cloud-sso-label-input::placeholder {
+  color: var(--text-muted);
+}
+
+.cloud-sso-item-time {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.cloud-sso-item-time svg {
+  width: 11px;
+  height: 11px;
+}
+
+.cloud-sso-item.expired .cloud-sso-item-time {
+  color: var(--danger);
+}
+
+.cloud-sso-item.expiring .cloud-sso-item-time {
+  color: var(--warning);
+}
+
+.cloud-sso-item-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.cloud-profile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+.cloud-profile-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cloud-profile-item:hover {
+  background: var(--bg-hover);
+}
+
+.cloud-profile-item.selected {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.cloud-profile-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  flex-shrink: 0;
+}
+
+.cloud-profile-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cloud-profile-name {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-profile-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cloud-profile-region {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.cloud-badge {
+  padding: 2px 6px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--radius-xs);
+  text-transform: uppercase;
+}
+
+.cloud-badge.success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.cloud-badge.credentials {
+  background: color-mix(in srgb, var(--text-secondary) 15%, transparent);
+  color: var(--text-secondary);
+}
+
+.cloud-empty-hint {
+  padding: 16px;
+  text-align: center;
+  font-size: var(--font-sm);
+  color: var(--text-muted);
+}
+
+.cloud-auth-prompt-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.cloud-auth-prompt-inline svg {
+  width: 32px;
+  height: 32px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+}
+
+.cloud-auth-prompt-inline p {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+}
+
+.cloud-clusters-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.cloud-clusters-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cloud-clusters-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cloud-clusters-header h3 svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+}
+
+.cloud-clusters-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+.cloud-message {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+}
+
+.cloud-message.error {
+  background: var(--danger-bg);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  color: var(--danger);
+}
+
+.cloud-message.success {
+  background: var(--success-bg);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  color: var(--success);
+}
+
+.cloud-message svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+.cloud-clusters-actions {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.cloud-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.cloud-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.cloud-btn-sm {
+  padding: 6px 12px;
+  font-size: var(--font-xs);
+}
+
+.cloud-btn-sm svg {
+  width: 14px;
+  height: 14px;
+}
+
+.cloud-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.cloud-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.cloud-btn-secondary {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
+
+.cloud-btn-secondary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.cloud-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cloud-loading-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.cloud-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: cloudSpin 0.8s linear infinite;
+}
+
+@keyframes cloudSpin {
+  to { transform: rotate(360deg); }
+}
+
+.cloud-clusters-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 16px;
+}
+
+.cloud-clusters-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 200px;
+  text-align: center;
+  color: var(--text-muted);
+}
+
+.cloud-clusters-empty svg {
+  width: 48px;
+  height: 48px;
+  opacity: 0.3;
+  margin-bottom: 16px;
+}
+
+.cloud-clusters-empty p {
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.cloud-clusters-empty span {
+  font-size: var(--font-xs);
+}
+
+.cloud-cluster-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  transition: all 0.15s ease;
+}
+
+.cloud-cluster-item:last-child {
+  margin-bottom: 0;
+}
+
+.cloud-cluster-item:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--shadow) 20%, transparent);
+}
+
+.cloud-cluster-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.cloud-cluster-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.cloud-cluster-icon.aws {
+  color: #ff9900;
+  background: color-mix(in srgb, #ff9900 8%, var(--bg-primary));
+  border-color: color-mix(in srgb, #ff9900 20%, var(--border));
+}
+
+.cloud-cluster-icon.gcp {
+  color: #4285f4;
+  background: color-mix(in srgb, #4285f4 8%, var(--bg-primary));
+  border-color: color-mix(in srgb, #4285f4 20%, var(--border));
+}
+
+.cloud-cluster-icon.azure {
+  color: #0078d4;
+  background: color-mix(in srgb, #0078d4 8%, var(--bg-primary));
+  border-color: color-mix(in srgb, #0078d4 20%, var(--border));
+}
+
+.cloud-cluster-info {
+  min-width: 0;
+}
+
+.cloud-cluster-name {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-cluster-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.cloud-cluster-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+}
+
+.cloud-cluster-meta-item svg {
+  width: 11px;
+  height: 11px;
+  opacity: 0.7;
+}
+
+.cloud-cluster-account {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 2px 6px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+}
+
+.cloud-role-select {
+  padding: 5px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  min-width: 120px;
+  max-width: 180px;
+}
+
+.cloud-role-select:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.cloud-role-select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cloud-cluster-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.cloud-cluster-status.status-active,
+.cloud-cluster-status.status-running,
+.cloud-cluster-status.status-succeeded {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.cloud-cluster-status.status-creating,
+.cloud-cluster-status.status-updating,
+.cloud-cluster-status.status-provisioning {
+  background: var(--info-bg);
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.cloud-cluster-status.status-failed,
+.cloud-cluster-status.status-error {
+  background: var(--danger-bg);
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
+.cloud-cluster-status-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.cloud-import-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 12px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: white;
+  font-size: var(--font-xs);
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.cloud-import-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.cloud-import-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.cloud-import-btn.imported {
+  background: var(--success-bg);
+  color: var(--success);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+}
+
+.cloud-import-btn svg {
+  width: 13px;
+  height: 13px;
+}
+
+.cloud-clusters-list::-webkit-scrollbar,
+.cloud-profile-list::-webkit-scrollbar,
+.cloud-sso-list::-webkit-scrollbar,
+.cloud-left-panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.cloud-clusters-list::-webkit-scrollbar-track,
+.cloud-profile-list::-webkit-scrollbar-track,
+.cloud-sso-list::-webkit-scrollbar-track,
+.cloud-left-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.cloud-clusters-list::-webkit-scrollbar-thumb,
+.cloud-profile-list::-webkit-scrollbar-thumb,
+.cloud-sso-list::-webkit-scrollbar-thumb,
+.cloud-left-panel::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  border-radius: 3px;
+}
+
+.cloud-clusters-list::-webkit-scrollbar-thumb:hover,
+.cloud-profile-list::-webkit-scrollbar-thumb:hover,
+.cloud-sso-list::-webkit-scrollbar-thumb:hover,
+.cloud-left-panel::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+.cloud-clusters-header-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.cloud-new-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  background: var(--success-bg);
+  color: var(--success);
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  cursor: pointer;
+  animation: newBadgePulse 2s ease-in-out infinite;
+}
+
+.cloud-new-badge:hover {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+}
+
+@keyframes newBadgePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.cloud-last-discovered {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.cloud-last-discovered svg {
+  width: 12px;
+  height: 12px;
+  opacity: 0.7;
+}
+
+.cloud-bg-spinner {
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: cloudSpin 0.8s linear infinite;
+  margin-left: auto;
+}
+
+.cloud-sso-accounts {
+  padding: 4px 8px 4px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cloud-sso-accounts-header {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 4px;
+}
+
+.cloud-link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: var(--font-xs);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+
+.cloud-link-btn:hover {
+  background: var(--bg-hover);
+  text-decoration: underline;
+}
+
+.cloud-sso-account-count {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+
+.cloud-sso-item-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cloud-sso-item-wrapper.expired {
+  opacity: 0.6;
+}
+
+.cloud-sso-item-wrapper.expired .cloud-sso-item {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger) 20%, transparent);
+}
+
+.cloud-sso-item-info {
+  flex: 1;
+  min-width: 0;
+  cursor: pointer;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.cloud-expand-btn {
+  background: transparent;
+  border: none;
+  padding: 4px;
+}
+
+.cloud-expand-btn:hover {
+  background: var(--bg-hover);
+}
+
+.cloud-loading-sm {
+  padding: 12px;
+  font-size: var(--font-xs);
+}
+
+.cloud-loading-sm .cloud-spinner {
+  width: 14px;
+  height: 14px;
+}
+
+.cloud-cluster-item.no-access {
+  background: color-mix(in srgb, var(--warning) 6%, var(--bg-secondary));
+  border-color: color-mix(in srgb, var(--warning) 25%, transparent);
+}
+
+.cloud-cluster-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cloud-no-access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--warning) 15%, transparent);
+  color: var(--warning);
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: var(--radius-xs);
+  border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
+  cursor: help;
+  white-space: nowrap;
+}
+
+.cloud-no-access-badge svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cloud-checking-access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: color-mix(in srgb, var(--text-tertiary) 15%, transparent);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 500;
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+
+.cloud-mini-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--text-tertiary);
+  border-top-color: var(--text-secondary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.cloud-profile-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cloud-profile-group-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.cloud-profile-group-header input[type="checkbox"],
+.cloud-sso-item input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.cloud-profile-group-header:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.cloud-profile-group-label {
+  flex: 1;
+  font-size: var(--font-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cloud-profile-group-count {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.cloud-profile-group-items {
+  padding: 4px 8px 4px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cloud-profile-group-actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 2px 4px;
+}

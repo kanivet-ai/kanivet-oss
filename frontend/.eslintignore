@@ -1,0 +1,11 @@
+node_modules/
+dist/
+build/
+public/
+*.config.js
+*.config.ts
+resources/
+scripts/
+*.log
+coverage/
+.husky/

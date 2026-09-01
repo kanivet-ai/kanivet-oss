@@ -1,0 +1,91 @@
+/* Resource References - Compact List */
+.cr-refs {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+}
+
+.cr-ref-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px var(--property-padding-x);
+  min-height: var(--property-row-height);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.cr-ref-item:last-child {
+  border-bottom: none;
+}
+
+.cr-ref-item:hover {
+  background: var(--bg-subtle);
+}
+
+.cr-ref-kind {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg-subtle-2);
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+  min-width: 50px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+}
+
+.cr-ref-item .link-button {
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--accent);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.cr-ref-item .link-button:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.cr-ref-item .clipboard-copy-btn {
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  flex-shrink: 0;
+  padding: 2px;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 3px;
+}
+
+.cr-ref-item:hover .clipboard-copy-btn {
+  opacity: 0.6;
+}
+
+.cr-ref-item .clipboard-copy-btn:hover {
+  opacity: 1;
+  background: var(--bg-subtle-2);
+  color: var(--text-primary);
+}
+
+.cr-ref-item .clipboard-copy-btn svg {
+  width: 12px;
+  height: 12px;
+}

@@ -1,0 +1,160 @@
+.pod-shell-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--bg-primary);
+  position: relative;
+}
+
+.shell-container-selector {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.shell-waiting {
+  color: var(--text-secondary);
+  font-size: 14px;
+  margin-top: 20px;
+}
+
+.shell-container-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 20px;
+}
+
+.shell-error-message {
+  color: var(--danger);
+  font-size: 14px;
+  padding: 10px 20px;
+  background-color: color-mix(in srgb, var(--danger) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  border-radius: 4px;
+}
+
+.shell-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+  position: relative;
+  z-index: 1;
+  overflow: visible;
+}
+
+.shell-header-label {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.shell-switch-container {
+  padding: 4px 8px;
+  background-color: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.shell-switch-container:hover {
+  opacity: 0.8;
+}
+
+.pod-shell-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.pod-shell-info {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  font-size: 13px;
+}
+
+.connection-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.connection-status.connected {
+  color: var(--success);
+}
+
+.connection-status.disconnected {
+  color: var(--danger);
+}
+
+.pod-info {
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.pod-shell-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.reconnect-btn {
+  padding: 4px 12px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.reconnect-btn:hover {
+  background: var(--accent-hover);
+}
+
+.pod-shell-error {
+  padding: 8px 16px;
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  color: var(--danger);
+  font-size: 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
+  flex-shrink: 0;
+}
+
+.terminal-container {
+  flex: 1;
+  width: 100%;
+  padding: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+  width: 100%;
+  padding: 8px;
+}
+
+.terminal-container .xterm-viewport {
+  width: 100% !important;
+}
+
+.terminal-container .xterm-screen {
+  width: 100% !important;
+}

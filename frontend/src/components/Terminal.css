@@ -1,0 +1,84 @@
+.terminal-instance {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-container {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  background: #1e1e1e;
+  padding: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  cursor: text;
+  user-select: none; /* Let xterm handle selection */
+  position: relative;
+}
+
+/* Remove padding when in center pane for maximum space usage */
+.resource-list-tab-content .terminal-container {
+  padding: 0;
+}
+
+.terminal-wrapper {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+  width: 100%;
+}
+
+.terminal-container .xterm-viewport {
+  background-color: transparent !important;
+  height: 100% !important;
+  width: 100% !important;
+}
+
+.terminal-container .xterm-screen {
+  height: 100%;
+  width: 100%;
+}
+
+/* Ensure proper sizing in split panes */
+.terminal-split-leaf .terminal-instance {
+  width: 100%;
+  height: 100%;
+}
+
+/* Ensure proper sizing in bottom dock */
+.bottom-dock .resource-list-bottom-tab-shell {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Ensure proper sizing when terminal is in center pane */
+.resource-list-tab-content .resource-list-bottom-tab-content {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.resource-list-tab-content .resource-list-bottom-tab-shell {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}

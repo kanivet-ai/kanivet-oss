@@ -1,0 +1,114 @@
+.argo-diff {
+  display: flex;
+  gap: 8px;
+  height: 500px;
+  min-height: 300px;
+}
+
+.argo-diff-list {
+  width: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.argo-diff-item {
+  background: transparent;
+  border: none;
+  padding: 4px 6px;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 11px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.argo-diff-item:hover {
+  background: var(--hover-bg, var(--bg-secondary));
+}
+
+.argo-diff-item.active {
+  background: var(--bg-secondary);
+  border-left: 2px solid var(--accent, var(--text-primary));
+}
+
+.argo-diff-item-kind {
+  text-transform: uppercase;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.argo-diff-item-name {
+  font-family: var(--font-monospace, monospace);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.argo-diff-item-ns {
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+
+.argo-diff-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.argo-diff-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.argo-diff-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+.argo-diff-empty {
+  padding: 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.argo-diff-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: center;
+}
+
+.argo-diff-retry {
+  padding: 4px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 12px;
+}

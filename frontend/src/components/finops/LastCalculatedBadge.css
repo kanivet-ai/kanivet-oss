@@ -1,0 +1,52 @@
+.last-calculated-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  cursor: help;
+  transition: all 0.15s ease;
+}
+
+.last-calculated-badge:hover {
+  background: var(--bg-hover);
+  border-color: var(--accent);
+}
+
+.last-calculated-badge svg {
+  width: 13px;
+  height: 13px;
+  flex-shrink: 0;
+}
+
+.last-calculated-badge.fresh {
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
+  color: var(--success);
+}
+
+.last-calculated-badge.aging {
+  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
+  color: var(--warning);
+}
+
+.last-calculated-badge.stale {
+  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
+  color: var(--danger);
+}
+
+.calc-time {
+  font-weight: 500;
+  font-family: var(--font-mono);
+}
+
+.calc-cache {
+  color: var(--text-muted);
+  font-size: 10px;
+  padding-left: 6px;
+  border-left: 1px solid var(--border);
+}
+

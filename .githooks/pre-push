@@ -1,0 +1,16 @@
+#!/bin/bash
+# Block direct pushes to main/master - use PRs instead
+
+protected_branches=("main" "master")
+
+while read local_ref local_sha remote_ref remote_sha; do
+    for branch in "${protected_branches[@]}"; do
+        if [[ "$remote_ref" == "refs/heads/$branch" ]]; then
+            echo "🚫 Direct push to '$branch' blocked!"
+            echo "   Please create a PR instead."
+            exit 1
+        fi
+    done
+done
+
+exit 0

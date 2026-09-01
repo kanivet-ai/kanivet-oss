@@ -1,0 +1,53 @@
+.connection-status-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.connection-status-indicator.disconnected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  animation: pulse-error 2s ease-in-out infinite;
+}
+
+.connection-status-indicator.reconnecting {
+  background: rgba(234, 179, 8, 0.15);
+  color: #eab308;
+}
+
+.connection-status-indicator.connecting {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.connection-status-icon {
+  font-size: 10px;
+}
+
+.connection-status-indicator.reconnecting .connection-status-icon {
+  animation: spin 1s linear infinite;
+}
+
+.connection-status-indicator.connecting .connection-status-icon {
+  animation: pulse-icon 1s ease-in-out infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse-icon {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes pulse-error {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}

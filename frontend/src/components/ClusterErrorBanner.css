@@ -1,0 +1,164 @@
+.cluster-error-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.cluster-error-pane-card {
+  width: 100%;
+  max-width: 640px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--error-border, rgba(239, 68, 68, 0.4));
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  animation: clusterErrorFadeIn 0.2s ease-out;
+}
+
+@keyframes clusterErrorFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.cluster-error-pane-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.cluster-error-pane-icon {
+  color: var(--error, #ef4444);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.cluster-error-pane-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.cluster-error-pane-title {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.cluster-error-pane-cluster {
+  font-size: var(--font-xs);
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.cluster-error-pane-message {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  line-height: var(--line-height-base);
+}
+
+.cluster-error-pane-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cluster-error-pane-section-label {
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+
+.cluster-error-pane-command {
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+  user-select: all;
+  cursor: text;
+  word-break: break-all;
+}
+
+.cluster-error-pane-details {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+  user-select: text;
+}
+
+.cluster-error-pane-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.cluster-error-pane-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  border: none;
+  outline: none;
+  line-height: 1;
+}
+
+.cluster-error-pane-btn-primary {
+  background: var(--accent);
+  color: white;
+  box-shadow: var(--shadow-sm);
+}
+
+.cluster-error-pane-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}
+
+.cluster-error-pane-btn:disabled {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.cluster-error-spinning {
+  animation: clusterErrorSpin 1s linear infinite;
+}
+
+@keyframes clusterErrorSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}

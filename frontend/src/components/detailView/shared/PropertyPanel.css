@@ -1,0 +1,18 @@
+.property-panel {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.property-panel-viewport {
+  height: 100%;
+  width: 100%;
+}
+
+.property-panel-content {
+  padding: 8px 0;
+}
+
+.property-panel-scrollbar {
+  display: none !important;
+}

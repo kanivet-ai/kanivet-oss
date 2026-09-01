@@ -1,0 +1,36 @@
+.tab-context-menu {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+  min-width: 200px;
+  font-size: 12px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background-color 0.1s;
+  color: var(--text-primary);
+}
+
+.context-menu-item:hover {
+  background-color: var(--bg-hover);
+}
+
+.context-menu-shortcut {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-left: 16px;
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 0;
+}

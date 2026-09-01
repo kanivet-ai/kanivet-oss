@@ -1,0 +1,599 @@
+.argo-apps-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--bg-primary);
+}
+
+/* Pivots */
+.argo-apps-pivots {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 16px;
+  background: var(--bg-primary);
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.argo-apps-pivot {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 6px 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  min-width: 72px;
+  text-align: left;
+  transition: border-color 0.12s, background 0.12s;
+}
+
+.argo-apps-pivot:hover:not(:disabled) {
+  border-color: var(--text-secondary);
+}
+
+.argo-apps-pivot.static {
+  cursor: default;
+}
+
+.argo-apps-pivot.active {
+  border-color: var(--accent, var(--text-primary));
+  background: color-mix(in srgb, var(--accent, var(--text-primary)) 12%, var(--bg-secondary));
+}
+
+.argo-apps-pivot-value {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--text-primary);
+}
+
+.argo-apps-pivot.pivot-good .argo-apps-pivot-value { color: var(--status-running, #2ea043); }
+.argo-apps-pivot.pivot-warn .argo-apps-pivot-value { color: var(--status-pending, #d29922); }
+.argo-apps-pivot.pivot-bad .argo-apps-pivot-value { color: var(--status-failed, #d73a49); }
+
+.argo-apps-pivot-label {
+  margin-top: 2px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.argo-apps-pivot-sep {
+  width: 1px;
+  height: 28px;
+  background: var(--border);
+  margin: 0 6px;
+}
+
+/* Toolbar */
+.argo-apps-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.argo-apps-search {
+  flex: 1;
+  min-width: 220px;
+  padding: 6px 10px;
+  font-size: 13px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+}
+
+.argo-apps-search:focus {
+  outline: none;
+  border-color: var(--accent, var(--text-primary));
+}
+
+.argo-apps-chip-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.argo-apps-chip-label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-right: 2px;
+}
+
+.argo-apps-chip {
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 12px;
+  cursor: pointer;
+  color: var(--text-secondary);
+}
+
+.argo-apps-chip:hover { color: var(--text-primary); }
+.argo-apps-chip.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-color: var(--accent, var(--text-primary));
+}
+
+.argo-apps-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.argo-apps-control label {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.argo-apps-control select {
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.argo-apps-density {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.argo-apps-density button {
+  padding: 4px 10px;
+  font-size: 11px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.argo-apps-density button.active {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+}
+
+.argo-apps-bulk {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent, var(--text-primary));
+  border-radius: 6px;
+  margin-left: auto;
+}
+
+.argo-apps-bulk-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, var(--text-primary));
+}
+
+.argo-apps-bulk button {
+  padding: 3px 8px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+}
+
+.argo-apps-bulk button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.argo-apps-bulk-clear { color: var(--text-secondary) !important; }
+
+.argo-apps-stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 16px 0;
+  padding: 6px 10px;
+  background: color-mix(in srgb, var(--status-pending, #d29922) 8%, transparent);
+  border: 1px solid var(--status-pending, #d29922);
+  color: var(--text-primary);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.argo-apps-stale-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--status-pending, #d29922);
+  animation: argo-apps-pulse 1.4s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+@keyframes argo-apps-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+.argo-apps-stale-banner button {
+  margin-left: auto;
+  padding: 3px 10px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.argo-apps-stale-banner button:hover {
+  background: var(--bg-secondary);
+}
+
+.argo-apps-error {
+  margin: 10px 16px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--status-failed, #d73a49) 8%, transparent);
+  border: 1px solid var(--status-failed, #d73a49);
+  color: var(--status-failed, #d73a49);
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+/* Table */
+.argo-apps-table-wrap {
+  flex: 1;
+  overflow: auto;
+  background: var(--bg-primary);
+}
+
+.argo-apps-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  table-layout: auto;
+}
+
+.argo-apps-table tbody td:last-child,
+.argo-apps-table thead th:last-child {
+  width: 60px;
+  white-space: nowrap;
+}
+
+.argo-apps-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  font-weight: 600;
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.argo-apps-table thead th .sort-arrow {
+  display: inline-block;
+  min-width: 10px;
+  font-size: 8px;
+  color: var(--accent, var(--text-primary));
+}
+
+/* Density */
+.density-compact .argo-apps-table tbody td { padding: 4px 12px; }
+.density-cozy .argo-apps-table tbody td { padding: 8px 12px; }
+
+.argo-apps-table tbody td {
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.argo-apps-table tbody tr:hover {
+  background: var(--hover-bg, var(--bg-tertiary, var(--bg-primary)));
+}
+
+.argo-apps-table tbody tr.selected {
+  background: color-mix(in srgb, var(--accent, var(--text-primary)) 8%, transparent);
+}
+
+.argo-apps-table tbody tr.focused {
+  outline: 1px solid var(--accent, var(--text-primary));
+  outline-offset: -1px;
+}
+
+/* Group rows */
+.argo-apps-group-row td {
+  background: var(--bg-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 12px !important;
+}
+
+.argo-apps-group-chevron {
+  display: inline-block;
+  width: 14px;
+  color: var(--text-secondary);
+  font-size: 10px;
+}
+
+.argo-apps-group-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 3px;
+  margin-right: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  border: 1px solid;
+}
+
+.argo-apps-group-pill.health-healthy { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
+.argo-apps-group-pill.health-degraded { color: var(--status-failed, #d73a49); border-color: var(--status-failed, #d73a49); background: color-mix(in srgb, var(--status-failed, #d73a49) 10%, transparent); }
+.argo-apps-group-pill.health-progressing { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
+.argo-apps-group-pill.health-unknown { color: var(--text-secondary); border-color: var(--border); }
+.argo-apps-group-pill.sync-synced { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
+.argo-apps-group-pill.sync-outofsync { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
+.argo-apps-group-pill.sync-unknown { color: var(--text-secondary); border-color: var(--border); }
+
+.argo-apps-group-count {
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Cells */
+.argo-apps-checkbox-col {
+  width: 32px;
+  text-align: center;
+}
+
+.argo-apps-name-cell {
+  position: relative;
+  white-space: nowrap;
+  min-width: 240px;
+}
+
+.argo-apps-name-link {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--accent, var(--text-primary));
+  cursor: pointer;
+  font-family: var(--font-monospace, monospace);
+  font-size: 12px;
+}
+
+.argo-apps-name-link:hover { text-decoration: underline; }
+
+.argo-apps-row-actions {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: none;
+  gap: 4px;
+  background: linear-gradient(
+    to right,
+    transparent 0,
+    var(--hover-bg, var(--bg-tertiary, var(--bg-primary))) 14px,
+    var(--hover-bg, var(--bg-tertiary, var(--bg-primary))) 100%
+  );
+  padding-left: 16px;
+}
+
+.argo-apps-table tbody tr:hover .argo-apps-row-actions,
+.argo-apps-table tbody tr.focused .argo-apps-row-actions {
+  display: inline-flex;
+}
+
+.argo-apps-row-actions button {
+  font-size: 10px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.argo-apps-row-actions button:hover {
+  border-color: var(--accent, var(--text-primary));
+}
+
+.argo-apps-row-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.argo-apps-row-spinner-wrap {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--status-pending, #d29922) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--status-pending, #d29922) 35%, transparent);
+}
+
+.argo-apps-row-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid var(--status-pending, #d29922);
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: argo-apps-spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+.argo-apps-row-spinner-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--status-pending, #d29922);
+}
+
+@keyframes argo-apps-spin {
+  to { transform: rotate(360deg); }
+}
+
+.argo-apps-table tbody tr.row-busy {
+  background: color-mix(in srgb, var(--status-pending, #d29922) 4%, transparent);
+}
+
+@keyframes argo-apps-flash-good {
+  0%   { background: color-mix(in srgb, var(--status-running, #2ea043) 35%, transparent); }
+  100% { background: transparent; }
+}
+
+@keyframes argo-apps-flash-warn {
+  0%   { background: color-mix(in srgb, var(--status-pending, #d29922) 35%, transparent); }
+  100% { background: transparent; }
+}
+
+.argo-apps-table tbody tr.row-flash {
+  animation-duration: 1.6s;
+  animation-timing-function: ease-out;
+  animation-fill-mode: forwards;
+}
+
+.argo-apps-table tbody tr.row-flash-sync {
+  animation-name: argo-apps-flash-good;
+}
+
+.argo-apps-table tbody tr.row-flash-refresh {
+  animation-name: argo-apps-flash-warn;
+}
+
+.argo-apps-mono { font-family: var(--font-monospace, monospace); }
+
+.argo-apps-dest {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.argo-apps-ns {
+  color: var(--text-secondary);
+}
+
+.argo-apps-arrow {
+  color: var(--text-secondary);
+  font-size: 9px;
+}
+
+.argo-apps-dest-ns {
+  color: var(--text-primary);
+}
+
+.argo-apps-rev {
+  color: var(--text-secondary);
+}
+
+.argo-apps-time {
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+
+.argo-apps-pill {
+  display: inline-block;
+  font-size: 10px;
+  text-transform: uppercase;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid;
+}
+
+.argo-apps-pill.sync-synced { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
+.argo-apps-pill.sync-outofsync { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
+.argo-apps-pill.sync-unknown { color: var(--text-secondary); border-color: var(--border); }
+
+.argo-apps-pill.health-healthy { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
+.argo-apps-pill.health-degraded, .argo-apps-pill.health-missing { color: var(--status-failed, #d73a49); border-color: var(--status-failed, #d73a49); background: color-mix(in srgb, var(--status-failed, #d73a49) 10%, transparent); }
+.argo-apps-pill.health-progressing { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
+.argo-apps-pill.health-suspended, .argo-apps-pill.health-unknown { color: var(--text-secondary); border-color: var(--border); }
+
+.argo-apps-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  padding: 24px;
+}
+
+/* Skeleton */
+.argo-apps-skeleton-row td {
+  padding: 8px 12px;
+}
+
+.argo-apps-skeleton {
+  display: block;
+  height: 14px;
+  background: var(--bg-secondary);
+  border-radius: 3px;
+  animation: argo-skel 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes argo-skel {
+  from { opacity: 0.45; }
+  to { opacity: 0.85; }
+}
+
+/* Context menu */
+.argo-apps-ctx-menu {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+.argo-apps-ctx-menu button {
+  background: transparent;
+  border: none;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 12px;
+  cursor: pointer;
+  color: var(--text-primary);
+  border-radius: 3px;
+}
+
+.argo-apps-ctx-menu button:hover {
+  background: var(--hover-bg, var(--bg-tertiary, var(--bg-primary)));
+}

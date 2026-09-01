@@ -1,0 +1,76 @@
+.terminal-container-wrapper {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #1e1e1e;
+}
+
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.connection-status {
+  font-size: var(--font-sm);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.connection-status.connected {
+  color: var(--success);
+}
+
+.connection-status.disconnected {
+  color: var(--text-secondary);
+}
+
+.terminal-header-info {
+  font-size: var(--font-sm);
+  color: var(--text-secondary);
+}
+
+.terminal-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.reconnect-btn {
+  padding: 4px 12px;
+  font-size: var(--font-sm);
+  background: var(--primary);
+  color: white;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.reconnect-btn:hover {
+  opacity: 0.8;
+}
+
+.terminal-error {
+  padding: 8px 12px;
+  background: rgba(205, 49, 49, 0.1);
+  color: var(--danger);
+  font-size: var(--font-sm);
+  border-bottom: 1px solid rgba(205, 49, 49, 0.2);
+}
+
+.terminal-container {
+  flex: 1;
+  padding: 8px;
+  overflow: hidden;
+}

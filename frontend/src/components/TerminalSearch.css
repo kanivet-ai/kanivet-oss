@@ -1,0 +1,119 @@
+.terminal-search-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.terminal-search-input {
+  flex: 1;
+  padding: 6px 12px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  outline: none;
+  min-width: 200px;
+}
+
+.terminal-search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+.terminal-search-input::placeholder {
+  color: var(--text-secondary);
+}
+
+.terminal-search-info {
+  display: flex;
+  align-items: center;
+  min-width: 60px;
+  font-size: 12px;
+}
+
+.terminal-search-count {
+  color: var(--text-secondary);
+}
+
+.terminal-search-no-results {
+  color: var(--text-disabled);
+}
+
+.terminal-search-options {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 8px;
+  padding: 0 8px;
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.terminal-search-option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  opacity: 0.6;
+}
+
+.terminal-search-option:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.terminal-search-option.active {
+  background: var(--bg-selected);
+  color: var(--accent);
+  border-color: var(--accent);
+  opacity: 1;
+}
+
+.terminal-search-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-search-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.terminal-search-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.terminal-search-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.terminal-search-button:active:not(:disabled) {
+  background: var(--bg-active);
+}

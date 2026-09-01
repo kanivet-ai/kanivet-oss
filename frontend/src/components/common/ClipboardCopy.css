@@ -1,0 +1,53 @@
+.clipboard-copy,
+.clipboard-copy-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 1px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition:
+    opacity 0.1s,
+    color 0.08s;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+}
+
+/* Show copy button on parent hover */
+*:hover > .clipboard-copy,
+*:hover > .clipboard-copy-btn,
+.clipboard-copy:focus,
+.clipboard-copy-btn:focus {
+  opacity: 0.6;
+}
+
+.clipboard-copy-btn.always-visible {
+  opacity: 1;
+  color: var(--accent);
+}
+
+.clipboard-copy-btn.always-visible:hover {
+  opacity: 1;
+  color: var(--accent-hover);
+}
+
+.clipboard-copy:hover,
+.clipboard-copy-btn:hover {
+  color: var(--text-primary);
+  opacity: 1;
+}
+
+.clipboard-copy svg,
+.clipboard-copy-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+.clipboard-copy .check-icon,
+.clipboard-copy-btn .check-icon {
+  color: var(--success);
+}

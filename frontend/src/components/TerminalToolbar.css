@@ -1,0 +1,170 @@
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.terminal-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.terminal-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-selector {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.terminal-selector:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.terminal-selector-title {
+  font-weight: 500;
+}
+
+.terminal-count {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.terminal-action-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.terminal-action-button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.terminal-action-button.active {
+  background: var(--bg-selected);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+}
+
+.terminal-dropdown-content {
+  min-width: 200px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow:
+    0 10px 38px -10px rgba(0, 0, 0, 0.35),
+    0 10px 20px -15px rgba(0, 0, 0, 0.2);
+  animation: slideDownAndFade 0.2s ease;
+}
+
+.terminal-dropdown-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 4px;
+  cursor: pointer;
+  outline: none;
+  user-select: none;
+}
+
+.terminal-dropdown-item:hover:not(.disabled) {
+  background: var(--bg-hover);
+}
+
+.terminal-dropdown-item.active {
+  background: var(--bg-selected);
+  color: var(--text-primary);
+}
+
+.terminal-dropdown-item.disabled {
+  color: var(--text-disabled);
+  cursor: default;
+}
+
+.terminal-dropdown-item-title {
+  flex: 1;
+}
+
+.terminal-dropdown-item-indicator {
+  color: var(--accent);
+  font-size: 12px;
+}
+
+.terminal-name-input {
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  outline: none;
+  min-width: 150px;
+  max-width: 300px;
+}
+
+.terminal-name-input:focus {
+  border-color: var(--accent-bright);
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+.terminal-rename-button {
+  margin-left: 4px;
+}
+
+.terminal-toolbar-hint {
+  font-size: 11px;
+  color: var(--text-disabled);
+  margin-right: 12px;
+  opacity: 0.7;
+}
+
+.terminal-toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+  margin: 0 8px;
+}
+
+@keyframes slideDownAndFade {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

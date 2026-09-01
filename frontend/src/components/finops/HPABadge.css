@@ -1,0 +1,163 @@
+.hpa-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  color: var(--accent);
+  cursor: help;
+  transition: all 0.15s ease;
+}
+
+.hpa-badge:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: var(--accent);
+}
+
+.hpa-badge.at-max {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--danger) 25%, transparent);
+  color: var(--danger);
+}
+
+.hpa-badge.at-max:hover {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  border-color: var(--danger);
+}
+
+.hpa-badge.at-min {
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--success) 25%, transparent);
+  color: var(--success);
+}
+
+.hpa-badge.at-min:hover {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  border-color: var(--success);
+}
+
+.hpa-tooltip {
+  min-width: 220px;
+}
+
+.hpa-tooltip-title {
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  font-size: var(--font-sm);
+}
+
+.hpa-range-visual {
+  margin-bottom: 12px;
+}
+
+.range-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.range-marker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.range-marker.min {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  color: var(--success);
+}
+
+.range-marker.max {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+
+.range-marker svg {
+  width: 12px;
+  height: 12px;
+}
+
+.range-track {
+  flex: 1;
+  height: 8px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  position: relative;
+  border: 1px solid var(--border);
+}
+
+.range-current {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 12px;
+  height: 12px;
+  background: var(--accent);
+  border: 2px solid var(--bg-secondary);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-xs);
+}
+
+.range-label {
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.hpa-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.hpa-stat-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-xs);
+}
+
+.hpa-stat-row span:first-child {
+  color: var(--text-muted);
+}
+
+.hpa-stat-row span:last-child {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.hpa-insight {
+  margin-top: 10px;
+  font-size: var(--font-xs);
+  color: var(--accent);
+  font-weight: 500;
+  text-align: center;
+}
+
+.hpa-badge.at-max + .hpa-tooltip .hpa-insight {
+  color: var(--danger);
+}
+
+.hpa-badge.at-min + .hpa-tooltip .hpa-insight {
+  color: var(--success);
+}
+

@@ -1,0 +1,17 @@
+.resource-link {
+  cursor: pointer;
+  color: var(--text-primary) !important;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--text-muted);
+  transition:
+    color 0.2s,
+    text-decoration-color 0.2s;
+}
+
+.resource-link:hover {
+  color: var(--accent) !important;
+  text-decoration-style: solid;
+  text-decoration-color: var(--accent);
+}

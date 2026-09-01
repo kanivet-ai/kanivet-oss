@@ -1,0 +1,19 @@
+.timestamp-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: help;
+}
+
+.timestamp-icon {
+  width: 10px;
+  height: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.timestamp-text {
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  color: var(--text-primary);
+}

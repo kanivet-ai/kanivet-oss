@@ -1,0 +1,108 @@
+# Dependencies
+node_modules/
+vendor/
+
+# Build outputs
+dist/
+build/
+out/
+*.exe
+*.dll
+*.so
+*.dylib
+kanivet
+kanivet-backend
+
+# Logs
+*.log
+logs/
+frontend/logs/
+backend/logs/
+!frontend/src/components/logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+.env.*.local
+.wrangler/
+
+# Electron
+electron-builder.yml
+dist_electron/
+
+# React
+.cache/
+.parcel-cache/
+
+# Go
+*.test
+*.prof
+*.pprof
+coverage.txt
+coverage.html
+coverage.out
+*.cover
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Temporary files
+*.tmp
+.temp/
+tmp/
+
+# OS files
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Package files
+*.tar.gz
+*.zip
+*.7z
+*.rar
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+.kube/
+
+# Cache
+.cache/
+*.cache
+
+# App signing keys
+kanivet-app.key
+certificate.p12
+*.p12
+
+# Compiled binaries
+backend/main
+backend/main.exe
+*.exe
+*.dll
+*.so
+*.dylib
+.specstory/
+
+# Git worktrees
+.worktrees/
+
+# Sidecar build artifacts
+sidecar/build/
+sidecar/dist/
+sidecar/.venv/
+sidecar/*.egg-info/
+sidecar/.pytest_cache/
+__pycache__/

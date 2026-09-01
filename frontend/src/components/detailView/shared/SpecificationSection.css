@@ -1,0 +1,6 @@
+.spec-content {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--property-padding-x);
+}

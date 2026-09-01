@@ -1,0 +1,6 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+  <!-- Full square background - let macOS apply its own icon mask -->
+  <rect width="1024" height="1024" fill="#0d1117"/>
+  <!-- K letterform - centered and sized for the icon mask safe area -->
+  <path d="M336 192 L336 832 L464 832 L464 560 L680 832 L840 832 L580 512 L820 192 L660 192 L464 464 L464 192 Z" fill="#58a6ff"/>
+</svg>

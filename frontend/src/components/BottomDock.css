@@ -1,0 +1,311 @@
+.bottom-dock {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+  border-top: 1px solid var(--border);
+  position: relative;
+  flex-shrink: 0;
+  z-index: 5;
+  box-shadow: 0 -2px 8px var(--shadow-md, rgba(0, 0, 0, 0.2));
+  min-height: 200px;
+}
+
+.bottom-dock-header {
+  display: flex;
+  align-items: center;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border);
+  padding-right: 8px;
+  flex-shrink: 0;
+  height: 38px;
+  min-height: 38px;
+  box-sizing: border-box;
+}
+
+.bottom-dock-tabs {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  padding: 0;
+}
+
+.bottom-dock-tab-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid var(--border);
+  cursor: grab;
+}
+
+.bottom-dock-tab-wrapper:active {
+  cursor: grabbing;
+}
+
+.bottom-dock-tab-wrapper.dragging {
+  opacity: 0.5;
+}
+
+.bottom-dock-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 32px 8px 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 120px;
+  white-space: nowrap;
+}
+
+.bottom-dock-tab:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.bottom-dock-tab[data-state='active'] {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+.bottom-dock-tab-wrapper:has(.bottom-dock-tab[data-state='active']) {
+  border-bottom: 2px solid var(--accent);
+}
+
+.tab-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+
+.tab-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.tab-title {
+  font-size: var(--font-base);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tab-close {
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: all 0.2s;
+  z-index: 1;
+  border-radius: 3px;
+}
+
+.tab-close:hover {
+  opacity: 1;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.tab-close svg {
+  width: 12px;
+  height: 12px;
+}
+
+.dock-close-all {
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: all 0.2s;
+  border-radius: 4px;
+}
+
+.dock-close-all:hover {
+  opacity: 1;
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.dock-close-all svg {
+  width: 14px;
+  height: 14px;
+}
+
+.bottom-dock-contents {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+  position: relative;
+}
+
+.bottom-dock-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.bottom-dock-content[data-state='active'] {
+  display: flex;
+}
+
+.bottom-dock-content[data-state='inactive'] {
+  display: none;
+}
+
+.bottom-dock-scroll {
+  height: 100%;
+  overflow: hidden;
+}
+
+.bottom-dock-viewport {
+  width: 100%;
+  height: 100%;
+  padding: 12px;
+  box-sizing: border-box;
+}
+
+/* Fix Monaco editor scrolling in bottom dock */
+.bottom-dock-content-edit {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Resize handle for the bottom dock */
+.bottom-dock-resize-handle {
+  position: absolute;
+  top: -4px;
+  left: 0;
+  right: 0;
+  height: 8px;
+  cursor: row-resize;
+  background: transparent;
+  z-index: 1000;
+  transition: background 0.2s;
+  user-select: none;
+}
+
+.bottom-dock-resize-handle:hover {
+  background: rgba(var(--accent-rgb), 0.1);
+}
+
+.bottom-dock-resize-handle:active {
+  background: rgba(var(--accent-rgb), 0.2);
+}
+
+.bottom-dock-resize-handle:focus {
+  /* Focus handled by global styles */
+}
+
+.bottom-dock-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 30px;
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  transition: all 0.2s;
+}
+
+.bottom-dock-resize-handle:hover::before {
+  background: var(--accent);
+  width: 50px;
+}
+
+/* Visual feedback during resize */
+body.resizing-height .bottom-dock {
+  opacity: 0.95;
+}
+
+body.resizing-height .bottom-dock-resize-handle {
+  background: rgba(var(--accent-rgb), 0.2);
+}
+
+body.resizing-height .bottom-dock-resize-handle::before {
+  opacity: 1;
+  background: var(--accent);
+}
+
+/* Drop zone for returning tabs to bottom */
+.bottom-dock-drop-zone {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 80px;
+  background: var(--warning-bg, rgba(245, 158, 11, 0.05));
+  border-top: 2px dashed var(--warning-border, rgba(245, 158, 11, 0.3));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  transition: all 0.2s;
+}
+
+.bottom-dock-drop-zone.drag-over {
+  background: var(--warning-bg-hover, rgba(245, 158, 11, 0.15));
+  border-top-color: var(--warning-border-hover, rgba(245, 158, 11, 0.8));
+}
+
+.drop-zone-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.drop-zone-text {
+  font-size: var(--font-base);
+  color: var(--warning-fg, rgba(245, 158, 11, 0.8));
+  font-weight: 500;
+}
+
+/* Visual feedback when dragging over bottom dock */
+.bottom-dock.drag-over {
+  position: relative;
+}
+
+.bottom-dock.drag-over::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--warning-bg, rgba(245, 158, 11, 0.05));
+  pointer-events: none;
+}
+
+.bottom-dock.drag-over::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--warning-border-medium, rgba(245, 158, 11, 0.5));
+  pointer-events: none;
+}

@@ -1,0 +1,118 @@
+.argo-sync-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 480px;
+  max-width: 640px;
+}
+
+.argo-sync-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.argo-sync-group-title {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.argo-sync-radio-row {
+  display: flex;
+  gap: 16px;
+}
+
+.argo-sync-radio-row label,
+.argo-sync-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.argo-sync-check {
+  padding: 2px 0;
+}
+
+.argo-sync-input {
+  padding: 5px 8px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-monospace, monospace);
+}
+
+.argo-sync-input:focus {
+  outline: none;
+  border-color: var(--accent, var(--text-primary));
+}
+
+.argo-sync-resource-list {
+  max-height: 240px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.argo-sync-resource-row {
+  display: grid;
+  grid-template-columns: auto 90px 1fr auto;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 4px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.argo-sync-resource-row:hover {
+  background: var(--hover-bg, var(--bg-secondary));
+}
+
+.argo-sync-resource-kind {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.argo-sync-resource-name {
+  font-family: var(--font-monospace, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.argo-sync-resource-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid;
+}
+
+.argo-sync-resource-status.synced {
+  color: var(--status-running, #2ea043);
+  border-color: var(--status-running, #2ea043);
+}
+
+.argo-sync-resource-status.outofsync {
+  color: var(--status-pending, #d29922);
+  border-color: var(--status-pending, #d29922);
+}
+
+.argo-sync-info {
+  font-size: 12px;
+  color: var(--text-secondary);
+}

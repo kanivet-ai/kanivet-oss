@@ -1,0 +1,404 @@
+.container-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px var(--property-padding-x);
+}
+
+.container-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+}
+
+.port-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+  font-family: var(--font-sans);
+  font-size: var(--font-xxs);
+}
+
+.port-label {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-weight: var(--font-weight-medium);
+  min-width: 50px;
+}
+
+.port-value {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.port-btn {
+  margin-left: auto;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 3px;
+  background: var(--accent);
+  color: white;
+  font-family: var(--font-sans);
+  font-size: var(--font-xxxs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.1s;
+}
+
+.port-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.port-btn.active {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.port-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.container-collapsible {
+  border-bottom: 1px solid var(--border);
+}
+
+.container-collapsible:last-child {
+  border-bottom: none;
+}
+
+.container-collapsible-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 18px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-xxs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: var(--letter-spacing-wider);
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.1s ease;
+}
+
+.container-collapsible-trigger:hover {
+  color: var(--text-secondary);
+}
+
+.collapsible-chevron {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.15s;
+}
+
+.collapsible-chevron.open {
+  transform: rotate(90deg);
+}
+
+.container-collapsible-content {
+  overflow: hidden;
+}
+
+.container-collapsible-content[data-state='open'] {
+  animation: slideDown 0.15s ease-out;
+}
+
+.container-collapsible-content[data-state='closed'] {
+  animation: slideUp 0.15s ease-out;
+}
+
+@keyframes slideDown {
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-collapsible-content-height); opacity: 1; }
+}
+
+@keyframes slideUp {
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
+}
+
+.resource-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 0;
+}
+
+.resource-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-xxs);
+}
+
+.resource-key {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-xxs);
+  font-weight: var(--font-weight-medium);
+}
+
+.resource-value {
+  font-family: var(--font-sans);
+  color: var(--text-primary);
+}
+
+.env-list,
+.mounts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.env-item {
+  display: grid;
+  grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-xxs);
+}
+
+.env-item:hover {
+  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+}
+
+.env-key {
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-normal);
+  font-size: var(--font-xxs);
+  letter-spacing: 0;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: left;
+  cursor: default;
+}
+
+.env-filter {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  margin-bottom: 4px;
+  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
+  backdrop-filter: blur(6px);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  z-index: 1;
+}
+
+.env-filter-icon {
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.env-filter-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-family: var(--default-font-family, var(--font-sans));
+  font-size: var(--font-xxs);
+  color: var(--text-primary);
+  min-width: 0;
+}
+
+.env-filter-input::placeholder {
+  color: var(--text-muted);
+}
+
+.env-filter-clear {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  border-radius: var(--radius-xs);
+}
+
+.env-filter-clear:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.env-show-more {
+  align-self: flex-start;
+  background: transparent;
+  border: 1px dashed color-mix(in srgb, var(--text-muted) 40%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--default-font-family, var(--font-sans));
+  font-size: var(--font-xxs);
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  margin: 4px 6px 2px;
+  transition: border-color var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.env-show-more:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.env-empty {
+  font-family: var(--default-font-family, var(--font-sans));
+  font-size: var(--font-xxs);
+  color: var(--text-muted);
+  padding: 8px 6px;
+  font-style: italic;
+}
+
+.env-value {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-size: var(--font-xxs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.mount-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: var(--radius-xs);
+  font-family: var(--font-sans);
+  font-size: var(--font-xxs);
+}
+
+.mount-name {
+  color: var(--text-muted);
+  font-weight: var(--font-weight-medium);
+  min-width: 60px;
+}
+
+.mount-path {
+  flex: 1;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mount-ro {
+  padding: 1px 3px;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  border-radius: 2px;
+  font-family: var(--font-sans);
+  font-size: var(--font-xxxs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mount-type {
+  color: var(--text-muted);
+  font-family: var(--font-sans);
+  font-size: var(--font-xxxs);
+}
+
+.command-block {
+  margin: 0;
+  padding: 6px 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  color: var(--text-secondary);
+  border-radius: var(--radius-xs);
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 100px;
+  overflow-y: auto;
+}
+
+/* Termination Status Styles */
+.termination-alert {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--font-xxs);
+  font-weight: var(--font-weight-medium);
+}
+
+.termination-alert svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.termination-alert.oom-killed {
+  background: var(--error-bg);
+  color: var(--error-fg);
+  border: 1px solid var(--error-border);
+}
+
+.termination-alert.error {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  border: 1px solid var(--warning-border);
+}
+
+.termination-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.termination-info-inline {
+  padding: 2px 0;
+}
+
+.current-termination-details {
+  padding: 4px 0;
+  margin-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.last-termination-details {
+  padding: 4px 0;
+}
+
+/* Collapsible variants */
+.container-collapsible.collapsible-warning .container-collapsible-trigger {
+  color: var(--warning-fg);
+}
+
+.container-collapsible.collapsible-error .container-collapsible-trigger {
+  color: var(--error-fg);
+}
+
+.container-collapsible.collapsible-warning .container-collapsible-trigger:hover,
+.container-collapsible.collapsible-error .container-collapsible-trigger:hover {
+  opacity: 0.8;
+}

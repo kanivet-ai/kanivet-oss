@@ -1,0 +1,379 @@
+@import url('https://rsms.me/inter/inter.css');
+@import url('https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.18);
+  --shadow-md:
+    0 8px 24px -8px rgba(0, 0, 0, 0.4),
+    0 2px 6px -2px rgba(0, 0, 0, 0.3),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  --shadow-lg:
+    0 24px 60px -12px rgba(0, 0, 0, 0.55),
+    0 8px 20px -8px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+
+  --ease-quiet: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-snap: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-fast: 120ms;
+  --duration-base: 200ms;
+  --duration-slow: 360ms;
+
+  --font-mono:
+    'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco',
+    'Menlo', monospace;
+  --font-sans:
+    'Inter var', 'Inter', -apple-system, BlinkMacSystemFont, 'SF Pro Text',
+    system-ui, sans-serif;
+  --font-display:
+    'Instrument Serif', 'Iowan Old Style', 'Apple Garamond', 'Baskerville',
+    'Times New Roman', serif;
+
+  /* Radix Themes overrides — display font on headings, Inter on body */
+  --default-font-family: 'Inter var', 'Inter', -apple-system,
+    BlinkMacSystemFont, 'SF Pro Text', system-ui, sans-serif;
+  --heading-font-family: var(--font-display);
+  --heading-font-size-adjust: 1;
+  --code-font-family: var(--font-mono);
+  --strong-font-weight: 600;
+  --heading-font-weight: 500;
+  --heading-leading-trim-start: 0.42em;
+  --heading-leading-trim-end: 0.36em;
+
+  /* Font sizes - optimized for readability */
+  --font-xxxs: 9px;
+  --font-xxs: 10px;
+  --font-xs: 11px;
+  --font-sm: 12px;
+  --font-base: 13px;
+  --font-md: 14px;
+  --font-lg: 15px;
+  --font-xl: 17px;
+
+  /* Line heights */
+  --line-height-compact: 1.25;
+  --line-height-tight: 1.3;
+  --line-height-normal: 1.4;
+  --line-height-base: 1.55;
+  --line-height-relaxed: 1.65;
+
+  /* Font weights */
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* Letter spacing */
+  --letter-spacing-tight: -0.02em;
+  --letter-spacing-normal: 0;
+  --letter-spacing-wide: 0.03em;
+  --letter-spacing-wider: 0.06em;
+
+  /* Property Panel - Figma-like compact layout */
+  --property-row-height: 20px;
+  --property-group-header-height: 22px;
+  --property-label-width: 88px;
+  --property-padding-x: 8px;
+  --property-padding-y: 1px;
+  --property-gap: 0px;
+}
+
+/* Dark theme — quiet luxury: slate base, iris accent. */
+:root,
+[data-theme='dark'] {
+  --bg-primary: #0a0b0f;
+  --bg-secondary: #101218;
+  --bg-tertiary: #161922;
+  --bg-hover: #1a1d27;
+  --bg-active: #232636;
+  --icon-muted: #7d8597;
+  --icon-mid: #a5a9c0;
+  --icon-top: #8b8fff;
+  --icon-low: #c8b6ff;
+  --surface-elev: #0d0f15;
+  --text-primary: #ecedf0;
+  --text-secondary: #a8aab8;
+  --text-muted: #767889;
+  --border: #1f2230;
+  --accent: #8a8cff;
+  --accent-hover: #a5a7ff;
+  --accent-rgb: 138, 140, 255;
+  --accent-vcluster: #c4a5ff;
+  --success: #4fdc8a;
+  --warning: #e0b341;
+  --danger: #f25b6e;
+
+  --success-fg: var(--success);
+  --success-bg: color-mix(in srgb, var(--success) 24%, transparent);
+  --warning-fg: var(--warning);
+  --warning-bg: color-mix(in srgb, var(--warning) 15%, transparent);
+  --danger-fg: var(--danger);
+  --danger-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+  --info-fg: var(--accent);
+  --info-bg: color-mix(in srgb, var(--accent) 15%, transparent);
+
+  /* Theme-aware UI elements */
+  --button-foreground: var(--text-primary);
+  --overlay-bg: rgba(0, 0, 0, 0.4);
+  --border-subtle: rgba(255, 255, 255, 0.02);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-md: 0 6px 12px rgba(0, 0, 0, 0.18);
+  --bg-subtle: rgba(255, 255, 255, 0.03);
+  --bg-subtle-2: rgba(255, 255, 255, 0.05);
+  --warning-border: color-mix(in srgb, var(--warning) 30%, transparent);
+  --warning-bg-hover: color-mix(in srgb, var(--warning) 25%, transparent);
+  --warning-border-hover: color-mix(in srgb, var(--warning) 80%, transparent);
+  --warning-border-medium: color-mix(in srgb, var(--warning) 50%, transparent);
+  --error-fg: var(--danger);
+  --error-bg: color-mix(in srgb, var(--danger) 15%, transparent);
+  --error-border: color-mix(in srgb, var(--danger) 30%, transparent);
+
+  /* Command Palette variables */
+  --color-background: var(--bg-primary);
+  --color-background-secondary: var(--bg-secondary);
+  --color-background-hover: var(--bg-hover);
+  --color-accent-background: rgba(var(--accent-rgb), 0.12);
+  --color-text: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+
+  /* FinOps Cost colors - dark mode */
+  --cost-high: #ef5350;
+  --cost-medium: #ff9800;
+  --cost-low: #66bb6a;
+  --cost-neutral: var(--text-secondary);
+
+  --efficiency-excellent: #66bb6a;
+  --efficiency-good: #9ccc65;
+  --efficiency-fair: #ffca28;
+  --efficiency-poor: #ffa726;
+  --efficiency-critical: #ef5350;
+  --efficiency-risk: #ab47bc;
+
+  --cost-bg-positive: rgba(102, 187, 106, 0.15);
+  --cost-bg-negative: rgba(239, 83, 80, 0.15);
+  --cost-bg-neutral: rgba(255, 255, 255, 0.05);
+  --cost-bg-warning: rgba(255, 202, 40, 0.15);
+
+  --sparkline-up: #ef5350;
+  --sparkline-down: #66bb6a;
+  --sparkline-neutral: var(--accent);
+
+  --chart-cpu: #64b5f6;
+  --chart-memory: #ba68c8;
+  --chart-storage: #ffb74d;
+  --chart-network: #4db6ac;
+  --chart-idle: #78909c;
+}
+
+/* Light theme — quiet luxury: warm paper, indigo accent. */
+[data-theme='light'] {
+  --bg-primary: #fbfaf7;
+  --bg-secondary: #f5f3ee;
+  --bg-tertiary: #ede9e1;
+  --bg-hover: #e6e1d6;
+  --bg-active: #ddd7c8;
+
+  --icon-muted: #8a8478;
+  --icon-mid: #5b54c4;
+  --icon-top: #4039a8;
+  --icon-low: #8a85e0;
+
+  --surface-elev: #fdfcf9;
+
+  --text-primary: #14131a;
+  --text-secondary: #524d5c;
+  --text-muted: #7a7589;
+
+  --border: #d9d3c4;
+
+  --accent: #4039a8;
+  --accent-hover: #322c8c;
+  --accent-rgb: 64, 57, 168;
+  --accent-vcluster: #6b3fc8;
+
+  /* Semantic colors - adjusted for light bg */
+  --success: #168f4f;
+  --warning: #c77d1a;
+  --danger: #d03e3e;
+
+  --success-fg: var(--success);
+  --success-bg: color-mix(in srgb, var(--success) 13%, transparent);
+  --warning-fg: var(--warning);
+  --warning-bg: color-mix(in srgb, var(--warning) 12%, transparent);
+  --danger-fg: var(--danger);
+  --danger-bg: color-mix(in srgb, var(--danger) 12%, transparent);
+  --info-fg: var(--accent);
+  --info-bg: color-mix(in srgb, var(--accent) 12%, transparent);
+
+  /* Theme-aware UI elements */
+  --button-foreground: var(--text-primary);
+  --overlay-bg: rgba(26, 25, 24, 0.25);
+  --border-subtle: rgba(0, 0, 0, 0.05);
+  --bg-subtle: rgba(0, 0, 0, 0.025);
+  --bg-subtle-2: rgba(0, 0, 0, 0.04);
+  --warning-border: color-mix(in srgb, var(--warning) 35%, transparent);
+  --warning-bg-hover: color-mix(in srgb, var(--warning) 20%, transparent);
+  --warning-border-hover: color-mix(in srgb, var(--warning) 70%, transparent);
+  --warning-border-medium: color-mix(in srgb, var(--warning) 45%, transparent);
+  --error-fg: var(--danger);
+  --error-bg: color-mix(in srgb, var(--danger) 12%, transparent);
+  --error-border: color-mix(in srgb, var(--danger) 35%, transparent);
+
+  /* Shadows for light theme - softer */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.08);
+
+  --color-background: var(--bg-secondary);
+  --color-background-secondary: var(--bg-tertiary);
+  --color-background-hover: var(--bg-hover);
+  --color-accent-background: rgba(var(--accent-rgb), 0.1);
+  --color-text: var(--text-primary);
+  --color-text-secondary: var(--text-secondary);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+
+  /* FinOps Cost colors - light mode */
+  --cost-high: #d32f2f;
+  --cost-medium: #f57c00;
+  --cost-low: #388e3c;
+  --cost-neutral: var(--text-secondary);
+
+  --efficiency-excellent: #2e7d32;
+  --efficiency-good: #558b2f;
+  --efficiency-fair: #f9a825;
+  --efficiency-poor: #e65100;
+  --efficiency-critical: #c62828;
+  --efficiency-risk: #8e24aa;
+
+  --cost-bg-positive: rgba(56, 142, 60, 0.12);
+  --cost-bg-negative: rgba(211, 47, 47, 0.12);
+  --cost-bg-neutral: rgba(0, 0, 0, 0.04);
+  --cost-bg-warning: rgba(249, 168, 37, 0.12);
+
+  --sparkline-up: #d32f2f;
+  --sparkline-down: #388e3c;
+  --sparkline-neutral: var(--accent);
+
+  --chart-cpu: #1976d2;
+  --chart-memory: #7b1fa2;
+  --chart-storage: #f57c00;
+  --chart-network: #00897b;
+  --chart-idle: #90a4ae;
+}
+
+html {
+  background: #0a0b0f;
+}
+
+html[data-theme='light'] {
+  background: #fbfaf7;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+/* Global focus — soft accent ring */
+*:focus {
+  outline: none;
+}
+
+*:focus-visible {
+  outline: none;
+  position: relative;
+}
+
+*:focus-visible::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.5);
+  z-index: 10;
+  pointer-events: none;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+input:focus-visible::before,
+textarea:focus-visible::before,
+select:focus-visible::before,
+.no-focus-border:focus-visible::before {
+  display: none;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--font-base);
+  line-height: var(--line-height-base);
+  background: #0a0b0f;
+  color: #ecedf0;
+  overflow: hidden;
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+[data-theme='light'] body {
+  background: #fbfaf7;
+  color: #14131a;
+}
+
+@supports (font-variation-settings: normal) {
+  body {
+    font-family: 'Inter var', var(--font-sans);
+  }
+}
+
+/* Force form elements to inherit font - browsers default these to Arial */
+button,
+input,
+select,
+textarea,
+optgroup {
+  font-family: inherit;
+}
+
+body.resizing {
+  user-select: none;
+  cursor: col-resize;
+}
+
+body.resizing-height {
+  user-select: none;
+  cursor: row-resize;
+}
+
+#root {
+  height: 100vh;
+}
+
+/* Prevent ResizeObserver loop errors by ensuring stable layouts */
+.xterm,
+.xterm-viewport,
+.xterm-screen {
+  contain: strict;
+}
+
+/* Ensure smooth resize behavior */
+.terminal-container {
+  contain: layout style;
+  will-change: transform;
+}

@@ -1,0 +1,208 @@
+.role-type-badge {
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--info-bg);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.role-controls {
+  display: flex;
+  gap: 2px;
+}
+
+.role-view-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.08s;
+}
+
+.role-view-toggle:hover,
+.role-view-toggle.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.role-view-toggle svg {
+  width: 10px;
+  height: 10px;
+}
+
+.role-search {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px var(--property-padding-x);
+  margin-bottom: 2px;
+}
+
+.role-search svg {
+  width: 10px;
+  height: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.role-search input {
+  flex: 1;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-size: var(--font-xxs);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.1s;
+  height: 22px;
+}
+
+.role-search input:focus {
+  border-color: var(--accent);
+}
+
+.role-search input::placeholder {
+  color: var(--text-muted);
+}
+
+.permissions-list,
+.rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--property-padding-x);
+}
+
+.permission-item,
+.rule-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 6px;
+  min-height: 22px;
+  background: var(--bg-subtle);
+  border-radius: 2px;
+  transition: background 0.08s;
+}
+
+.permission-item:hover,
+.rule-item:hover {
+  background: var(--bg-hover);
+}
+
+.permission-resource {
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  font-weight: 500;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.permission-verbs,
+.rule-verbs {
+  display: flex;
+  gap: 2px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.rule-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+}
+
+.rule-number {
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  color: var(--text-muted);
+  min-width: 14px;
+}
+
+.rule-resources {
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  color: var(--text-primary);
+  flex: 1;
+}
+
+.rule-api-group {
+  font-size: var(--font-xxxs);
+  color: var(--text-muted);
+  padding: 1px 6px 2px 24px;
+}
+
+.verb-badge {
+  padding: 0 3px;
+  border-radius: 2px;
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.verb-read {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.verb-write {
+  background: var(--info-bg);
+  color: var(--info-fg);
+}
+
+.verb-delete {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.verb-all {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.verb-other {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.aggregation-selectors {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 var(--property-padding-x);
+}
+
+.aggregation-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+}
+
+.selector-label {
+  font-size: var(--font-xxxs);
+  font-family: var(--font-mono);
+  padding: 1px 4px;
+  background: var(--bg-subtle);
+  border-radius: 2px;
+  color: var(--text-secondary);
+}
+
+.no-results {
+  padding: 8px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-xxs);
+}

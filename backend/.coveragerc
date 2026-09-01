@@ -1,0 +1,35 @@
+# Coverage configuration for Go projects
+# This file documents coverage settings and exclusion patterns
+
+# Default coverage threshold (can be overridden with COVERAGE_THRESHOLD env var)
+# Industry standard: 70-80% for most projects, 80%+ for critical systems
+COVERAGE_THRESHOLD=75
+
+# Files and patterns to exclude from coverage calculation
+# Add patterns here for files that should not count towards coverage:
+# - Generated files
+# - Test utilities
+# - Mock files
+# - Vendor code
+
+# Example exclusion patterns (uncomment as needed):
+# **/mocks/**
+# **/*_mock.go
+# **/testdata/**
+# **/vendor/**
+# **/*.pb.go
+# **/generated/**
+
+# Coverage modes:
+# - set: did each statement run?
+# - count: how many times did each statement run?
+# - atomic: like count, but counts precisely in parallel programs
+
+# We use atomic mode for accurate parallel test coverage
+COVERAGE_MODE=atomic
+
+# Notes:
+# - Coverage reports are generated in backend/coverage.html
+# - Raw coverage data is in backend/coverage.out
+# - Use COVERAGE_THRESHOLD env var to adjust threshold per environment
+# - Pre-commit hooks will fail if coverage drops below threshold

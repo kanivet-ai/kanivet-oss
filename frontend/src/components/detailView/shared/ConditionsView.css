@@ -1,0 +1,99 @@
+.conditions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 var(--property-padding-x);
+}
+
+.condition-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 6px;
+  border-radius: 2px;
+  border-left: 2px solid var(--border);
+  background: var(--bg-subtle);
+  transition: background 0.08s;
+}
+
+.condition-item:hover {
+  background: var(--bg-hover);
+}
+
+.condition-item.status-true {
+  border-left-color: var(--success);
+}
+
+.condition-item.status-false {
+  border-left-color: var(--danger);
+}
+
+.condition-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  min-height: 18px;
+}
+
+.condition-header-left {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.condition-header-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.condition-type {
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.condition-type-muted {
+  font-size: var(--font-xxs);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.condition-reason {
+  font-size: var(--font-xxxs);
+  color: var(--text-muted);
+}
+
+.condition-age {
+  font-size: var(--font-xxxs);
+  color: var(--text-muted);
+}
+
+.condition-status {
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 0 3px;
+  border-radius: 2px;
+}
+
+.condition-status.true {
+  color: var(--success-fg);
+  background: var(--success-bg);
+}
+
+.condition-status.false {
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+}
+
+.condition-message {
+  font-size: var(--font-xxxs);
+  color: var(--text-secondary);
+  line-height: 1.3;
+  padding-left: 1px;
+}

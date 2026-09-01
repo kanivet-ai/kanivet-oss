@@ -1,0 +1,85 @@
+.rollout-badge {
+  display: inline-flex;
+  flex-direction: column;
+  margin-left: 8px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 3px;
+}
+
+.rollout-badge.complete {
+  background: rgba(0, 255, 0, 0.1);
+  border-color: rgba(0, 255, 0, 0.3);
+  color: #4ade80;
+}
+
+.rollout-badge.progressing {
+  background: rgba(0, 123, 255, 0.1);
+  border-color: rgba(0, 123, 255, 0.3);
+  color: #60a5fa;
+}
+
+.rollout-badge.unknown {
+  background: rgba(255, 193, 7, 0.1);
+  border-color: rgba(255, 193, 7, 0.3);
+  color: #fbbf24;
+}
+
+.rollout-badge-content {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rollout-badge-icon {
+  display: inline-block;
+  animation: rotate 1s linear infinite;
+}
+
+.rollout-badge.complete .rollout-badge-icon {
+  animation: none;
+}
+
+.rollout-badge-text {
+  white-space: nowrap;
+}
+
+.rollout-badge-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rollout-badge-bar {
+  flex: 1;
+  height: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 2px;
+  overflow: hidden;
+  min-width: 40px;
+}
+
+.rollout-badge-fill {
+  height: 100%;
+  background: currentColor;
+  transition: width 0.3s ease;
+}
+
+.rollout-badge-percent {
+  font-size: 10px;
+  opacity: 0.8;
+  min-width: 25px;
+  text-align: right;
+}
+
+@keyframes rotate {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}

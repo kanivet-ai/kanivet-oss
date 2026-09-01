@@ -1,0 +1,182 @@
+.finops-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 0;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.skeleton-filters {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.skeleton-search {
+  flex: 1;
+  height: 40px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 1000px 100%;
+  border-radius: var(--radius-sm);
+  animation: shimmer 2s infinite linear;
+  max-width: 500px;
+}
+
+.skeleton-filter-btn {
+  width: 90px;
+  height: 34px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 1000px 100%;
+  border-radius: var(--radius-sm);
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: stretch;
+}
+
+.skeleton-cards {
+  display: flex;
+  gap: 12px;
+  flex: 0 0 auto;
+}
+
+.skeleton-card {
+  width: 150px;
+  height: 80px;
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
+  background-size: 1000px 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-card.primary {
+  background: linear-gradient(90deg, 
+    color-mix(in srgb, var(--accent) 10%, var(--bg-secondary)) 25%, 
+    color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary)) 50%, 
+    color-mix(in srgb, var(--accent) 10%, var(--bg-secondary)) 75%
+  );
+  background-size: 1000px 100%;
+  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+}
+
+.skeleton-idle-card {
+  flex: 1 1 320px;
+  min-width: 320px;
+  height: 120px;
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
+  background-size: 1000px 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-efficiency-meter {
+  flex: 1 1 380px;
+  min-width: 380px;
+  height: 180px;
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
+  background-size: 1000px 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.skeleton-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 0 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.skeleton-title {
+  width: 180px;
+  height: 20px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 1000px 100%;
+  border-radius: var(--radius-sm);
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-count {
+  width: 100px;
+  height: 16px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 1000px 100%;
+  border-radius: var(--radius-sm);
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-table {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-top: 12px;
+  padding: 12px 16px;
+}
+
+.skeleton-table-header {
+  height: 36px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 1000px 100%;
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+  animation: shimmer 2s infinite linear;
+  opacity: 0.6;
+}
+
+.skeleton-table-row {
+  display: grid;
+  grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
+  gap: 16px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.skeleton-table-row:last-child {
+  border-bottom: none;
+}
+
+.skeleton-cell {
+  height: 16px;
+  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
+  background-size: 1000px 100%;
+  border-radius: 4px;
+  animation: shimmer 2s infinite linear;
+}
+
+.skeleton-cell.wide {
+  height: 18px;
+}
+
+.skeleton-cell:nth-child(2n) {
+  animation-delay: 0.1s;
+}
+
+.skeleton-cell:nth-child(3n) {
+  animation-delay: 0.2s;
+}
+

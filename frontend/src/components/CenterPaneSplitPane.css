@@ -1,0 +1,102 @@
+.center-pane-split-container {
+  display: flex;
+  height: 100%;
+  width: 100%;
+  position: relative;
+}
+
+.center-pane-split-container.horizontal {
+  flex-direction: column;
+}
+
+.center-pane-split-container.vertical {
+  flex-direction: row;
+}
+
+.center-pane-split-leaf {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.center-pane-split-divider {
+  position: absolute;
+  background: var(--border);
+  transition: background-color 0.2s;
+}
+
+.center-pane-split-divider:hover {
+  background: color-mix(in srgb, var(--accent) 30%, var(--border));
+}
+
+.center-pane-split-divider.horizontal {
+  left: 0;
+  right: 0;
+  height: 2px;
+  bottom: 0;
+  cursor: row-resize;
+}
+
+.center-pane-split-divider.vertical {
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  right: 0;
+  cursor: col-resize;
+}
+
+.pane-drop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 100;
+}
+
+.pane-drop-zone {
+  position: absolute;
+  pointer-events: none;
+  opacity: 1;
+  transition: all 0.15s ease;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bg-tertiary) 40%, transparent);
+}
+
+.pane-drop-zone.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.pane-drop-zone.top {
+  top: 4px;
+  left: 4px;
+  right: 4px;
+  height: calc(25% - 6px);
+}
+
+.pane-drop-zone.bottom {
+  bottom: 4px;
+  left: 4px;
+  right: 4px;
+  height: calc(25% - 6px);
+}
+
+.pane-drop-zone.left {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(25% - 6px);
+}
+
+.pane-drop-zone.right {
+  top: 4px;
+  bottom: 4px;
+  right: 4px;
+  width: calc(25% - 6px);
+}
+
+.pane-drop-zone.center {
+  inset: 4px;
+}

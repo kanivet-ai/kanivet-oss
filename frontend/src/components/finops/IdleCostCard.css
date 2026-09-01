@@ -1,0 +1,119 @@
+.idle-cost-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid;
+  border-radius: var(--radius-md);
+  position: relative;
+  overflow: hidden;
+  flex: 1 1 320px;
+  min-width: 320px;
+}
+
+.idle-cost-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+}
+
+.idle-cost-card.severity-critical {
+  border-color: var(--efficiency-critical);
+  color: var(--efficiency-critical);
+}
+
+.idle-cost-card.severity-critical::before {
+  background: var(--efficiency-critical);
+}
+
+.idle-cost-card.severity-high {
+  border-color: var(--efficiency-poor);
+  color: var(--efficiency-poor);
+}
+
+.idle-cost-card.severity-high::before {
+  background: var(--efficiency-poor);
+}
+
+.idle-cost-card.severity-medium {
+  border-color: var(--efficiency-fair);
+  color: var(--efficiency-fair);
+}
+
+.idle-cost-card.severity-medium::before {
+  background: var(--efficiency-fair);
+}
+
+.idle-cost-card.severity-low {
+  border-color: var(--efficiency-good);
+  color: var(--efficiency-good);
+}
+
+.idle-cost-card.severity-low::before {
+  background: var(--efficiency-good);
+}
+
+.idle-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  flex-shrink: 0;
+}
+
+.idle-icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+.idle-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.idle-label {
+  font-size: var(--font-xxs);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.8;
+  margin-bottom: 4px;
+}
+
+.idle-value {
+  font-size: var(--font-xl);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  margin-bottom: 2px;
+}
+
+.idle-percentage {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  opacity: 0.9;
+  margin-bottom: 6px;
+}
+
+.idle-description {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.idle-visual {
+  width: 90px;
+  height: 90px;
+  flex-shrink: 0;
+}
+
+.idle-chart {
+  width: 100%;
+  height: 100%;
+}
+

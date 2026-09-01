@@ -1,0 +1,16 @@
+export { default as ResourceDetailView } from './ResourceDetailView';
+export { default as HelmReleaseDetailView } from './resourceTypes/HelmReleaseDetailView';
+export { default as ConfigMapDetailView } from './resourceTypes/ConfigMapDetailView';
+export { default as SecretDetailView } from './resourceTypes/SecretDetailView';
+export { default as ServiceDetailView } from './resourceTypes/ServiceDetailView';
+export { default as NodeDetailView } from './resourceTypes/NodeDetailView';
+export { default as CustomResourceDetailView } from './resourceTypes/CustomResourceDetailView';
+export { default as RoleDetailView } from './resourceTypes/RoleDetailView';
+export { default as RoleBindingDetailView } from './resourceTypes/RoleBindingDetailView';
+export { default as ServiceAccountDetailView } from './resourceTypes/ServiceAccountDetailView';
+export { default as EndpointsDetailView } from './resourceTypes/EndpointsDetailView';
+export { default as EventDetailView } from './resourceTypes/EventDetailView';
+export { default as MetadataSection } from './shared/MetadataSection';
+export { default as EventsSection } from './shared/EventsSection';
+export { default as ConditionsView } from './shared/ConditionsView';
+export { default as CollapsibleSection } from './shared/CollapsibleSection';

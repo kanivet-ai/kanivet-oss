@@ -1,0 +1,277 @@
+.kse-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+.kse-modal {
+  width: 700px;
+  max-width: 90vw;
+  max-height: 85vh;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.kse-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.kse-title {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+}
+.kse-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.kse-reset-all {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.kse-reset-all:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.kse-close {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: all 0.15s;
+}
+.kse-close:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.kse-search-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  flex-shrink: 0;
+}
+.kse-search-icon {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.kse-search-input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 12px;
+  outline: none;
+  transition: all 0.15s;
+}
+.kse-search-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.6;
+}
+.kse-search-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+}
+.kse-search-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+.kse-search-clear:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.kse-body {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.kse-section {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 12px;
+  background: var(--bg-secondary);
+}
+.kse-section-title {
+  font-weight: 600;
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  opacity: 0.9;
+}
+.kse-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 0;
+  gap: 16px;
+  font-size: 12px;
+}
+.kse-row:not(:last-child) {
+  border-bottom: 1px solid rgba(128, 128, 128, 0.1);
+}
+.kse-description {
+  color: var(--text-primary);
+  flex: 1;
+  min-width: 0;
+}
+.kse-binding {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.kse-keys {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.kse-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  padding: 2px 5px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+}
+.kse-actions {
+  display: flex;
+  gap: 4px;
+}
+.kse-edit-btn,
+.kse-reset-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.kse-edit-btn:hover,
+.kse-reset-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.kse-edit-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+.kse-edit-input {
+  flex: 1;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: 11px;
+  font-family: var(--font-mono, monospace);
+  outline: none;
+  min-width: 120px;
+}
+.kse-edit-input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+.kse-edit-input.kse-conflict {
+  border-color: var(--danger);
+}
+.kse-conflict-hint {
+  font-size: 10px;
+  color: var(--danger);
+  white-space: nowrap;
+}
+.kse-edit-actions {
+  display: flex;
+  gap: 4px;
+}
+.kse-save-btn,
+.kse-cancel-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.kse-save-btn {
+  background: var(--primary);
+  color: white;
+}
+.kse-save-btn:hover {
+  opacity: 0.85;
+}
+.kse-cancel-btn {
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+}
+.kse-cancel-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.kse-no-results {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}

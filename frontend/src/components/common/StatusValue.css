@@ -1,0 +1,42 @@
+.status-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 5px;
+  border-radius: 2px;
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  height: 16px;
+}
+
+.status-value-icon {
+  width: 10px;
+  height: 10px;
+  flex-shrink: 0;
+}
+
+.status-value-text {
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.status-value-success {
+  background: var(--success-bg);
+  color: var(--success);
+}
+
+.status-value-warning {
+  background: var(--warning-bg);
+  color: var(--warning);
+}
+
+.status-value-danger {
+  background: var(--danger-bg);
+  color: var(--danger);
+}
+
+.status-value-neutral {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}

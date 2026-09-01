@@ -1,0 +1,109 @@
+.endpoint-count {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.endpoint-count.ready {
+  color: var(--success-fg);
+  background: var(--success-bg);
+}
+
+.endpoint-count.not-ready {
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+}
+
+.endpoints-ports {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px var(--property-padding-x);
+  margin-bottom: 4px;
+}
+
+.port-badge {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-xxs);
+}
+
+.port-name {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.port-number {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.port-protocol {
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-size: var(--font-xxxs);
+}
+
+.endpoints-addresses {
+  padding: 0 var(--property-padding-x);
+  margin-bottom: 8px;
+}
+
+.endpoints-addresses.not-ready .address-ip {
+  color: var(--text-muted);
+}
+
+.addresses-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-xxs);
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.addresses-header .ready-icon {
+  color: var(--success);
+  width: 12px;
+  height: 12px;
+}
+
+.addresses-header .not-ready-icon {
+  color: var(--danger);
+  width: 12px;
+  height: 12px;
+}
+
+.addresses-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.address-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-xs);
+}
+
+.address-ip {
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  color: var(--text-primary);
+}
+
+.address-target {
+  font-size: var(--font-xxs);
+  color: var(--text-muted);
+}

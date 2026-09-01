@@ -1,0 +1,43 @@
+/* Node Link Styles */
+
+.node-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  transition: color 0.2s;
+}
+
+.node-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.node-link:active {
+  color: var(--accent);
+}
+
+/* Focus state for accessibility */
+.node-link:focus {
+  /* Focus handled by global styles */
+}
+
+/* Disable selection to avoid accidental text selection */
+.node-link {
+  user-select: none;
+}
+
+/* Theme-specific adjustments */
+[data-theme='light'] .node-link {
+  color: var(--accent);
+}
+
+[data-theme='light'] .node-link:hover {
+  color: var(--accent-hover);
+}

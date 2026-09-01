@@ -1,0 +1,220 @@
+.efficiency-meter-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  flex: 1 1 380px;
+  min-width: 380px;
+}
+
+.meter-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.meter-label {
+  font-size: var(--font-xxs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-button {
+  background: transparent;
+  border: none;
+  padding: 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  transition: color 0.15s ease;
+}
+
+.info-button:hover {
+  color: var(--accent);
+}
+
+.info-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.efficiency-badge {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: var(--font-xs);
+  font-weight: 600;
+}
+
+.efficiency-badge svg {
+  width: 14px;
+  height: 14px;
+}
+
+.efficiency-badge.efficiency-excellent {
+  background: var(--cost-bg-positive);
+  color: var(--efficiency-excellent);
+}
+
+.efficiency-badge.efficiency-good {
+  background: color-mix(in srgb, var(--efficiency-good) 15%, transparent);
+  color: var(--efficiency-good);
+}
+
+.efficiency-badge.efficiency-fair {
+  background: var(--cost-bg-warning);
+  color: var(--efficiency-fair);
+}
+
+.efficiency-badge.efficiency-critical {
+  background: var(--cost-bg-negative);
+  color: var(--efficiency-critical);
+}
+
+.efficiency-badge.efficiency-risk {
+  background: color-mix(in srgb, var(--efficiency-risk) 15%, transparent);
+  color: var(--efficiency-risk);
+}
+
+.meter-visual {
+  position: relative;
+  height: 60px;
+}
+
+.meter-track {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.meter-zones {
+  display: flex;
+  height: 32px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+.zone {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.zone-label {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  opacity: 0.8;
+}
+
+.zone-critical {
+  background: color-mix(in srgb, var(--efficiency-critical) 20%, var(--bg-tertiary));
+  color: var(--efficiency-critical);
+}
+
+.zone-fair {
+  background: color-mix(in srgb, var(--efficiency-fair) 20%, var(--bg-tertiary));
+  color: var(--efficiency-fair);
+}
+
+.zone-good {
+  background: color-mix(in srgb, var(--efficiency-good) 20%, var(--bg-tertiary));
+  color: var(--efficiency-good);
+}
+
+.zone-excellent {
+  background: color-mix(in srgb, var(--efficiency-excellent) 25%, var(--bg-tertiary));
+  color: var(--efficiency-excellent);
+}
+
+.zone-risk {
+  background: color-mix(in srgb, var(--efficiency-risk) 20%, var(--bg-tertiary));
+  color: var(--efficiency-risk);
+}
+
+.zone-risk .zone-label {
+  font-size: 8px;
+}
+
+.meter-indicator {
+  position: absolute;
+  top: -4px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  z-index: 2;
+}
+
+.indicator-line {
+  width: 2px;
+  height: 32px;
+  border-left: 2px solid;
+  border-radius: 1px;
+}
+
+.indicator-value {
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: var(--font-sm);
+  font-weight: 700;
+  color: white;
+  font-family: var(--font-mono);
+  box-shadow: var(--shadow-md);
+  white-space: nowrap;
+}
+
+.efficiency-breakdown {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+
+.breakdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.breakdown-label {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.breakdown-value {
+  font-size: var(--font-md);
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+
+.breakdown-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border);
+}
+
+.meter-hint {
+  text-align: center;
+  font-size: var(--font-xs);
+  font-weight: 500;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+

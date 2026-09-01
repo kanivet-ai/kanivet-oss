@@ -1,0 +1,224 @@
+.cost-analysis-tab {
+  padding: 16px;
+  overflow: auto;
+  height: 100%;
+}
+
+.cost-analysis-tab.cost-loading,
+.cost-analysis-tab.cost-error,
+.cost-analysis-tab.cost-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 200px;
+  color: var(--text-muted);
+}
+
+.cost-analysis-tab.cost-error svg,
+.cost-analysis-tab.cost-empty svg {
+  width: 32px;
+  height: 32px;
+  opacity: 0.5;
+}
+
+.cost-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.cost-header h3 {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.refresh-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.refresh-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.cost-summary-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.cost-card {
+  padding: 14px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.cost-card.primary {
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.cost-card-label {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.cost-card-value {
+  font-size: var(--font-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.cost-card-value.instance-type {
+  font-size: var(--font-sm);
+}
+
+.cost-card-sub {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+.spot-indicator {
+  color: var(--cost-low);
+  font-weight: 500;
+}
+
+.cost-details {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.cost-details h4 {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.details-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.detail-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.detail-row:last-child {
+  border-bottom: none;
+}
+
+.detail-label {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+}
+
+.detail-value {
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+}
+
+.detail-value.mono {
+  font-family: var(--font-mono);
+}
+
+.cost-breakdown-section {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.cost-breakdown-section h4 {
+  font-size: var(--font-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px 0;
+}
+
+.breakdown-visual {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.breakdown-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.breakdown-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+}
+
+.breakdown-label .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.breakdown-label .dot.cpu {
+  background: var(--chart-cpu);
+}
+
+.breakdown-label .dot.memory {
+  background: var(--chart-memory);
+}
+
+.breakdown-label .dot.storage {
+  background: var(--chart-storage);
+}
+
+.breakdown-value {
+  font-size: var(--font-xs);
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

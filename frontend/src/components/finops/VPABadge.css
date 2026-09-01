@@ -1,0 +1,82 @@
+.vpa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  background: color-mix(in srgb, var(--efficiency-excellent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--efficiency-excellent) 30%, transparent);
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  color: var(--efficiency-excellent);
+  cursor: help;
+  transition: all 0.15s ease;
+}
+
+.vpa-badge:hover {
+  background: color-mix(in srgb, var(--efficiency-excellent) 18%, transparent);
+  border-color: var(--efficiency-excellent);
+}
+
+.vpa-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+.vpa-tooltip {
+  min-width: 200px;
+}
+
+.vpa-tooltip-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  font-size: var(--font-sm);
+}
+
+.vpa-tooltip-title svg {
+  width: 14px;
+  height: 14px;
+  color: var(--efficiency-excellent);
+}
+
+.vpa-insight {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+}
+
+.vpa-savings {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.savings-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: var(--font-xs);
+}
+
+.savings-row span:first-child {
+  color: var(--text-muted);
+}
+
+.savings-value {
+  font-family: var(--font-mono);
+  color: var(--efficiency-excellent);
+  font-weight: 600;
+}
+
+.savings-percent {
+  font-family: var(--font-mono);
+  color: var(--efficiency-excellent);
+  font-weight: 600;
+}
+

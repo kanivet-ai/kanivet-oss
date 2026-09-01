@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>kanivet - Kubernetes Navigator</title>
+  <!-- Preload Inter font to prevent FOUT (Flash of Unstyled Text) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" as="style" />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
+  <script>
+    (function() {
+      try {
+        var cached = localStorage.getItem('kanivet-theme-cache');
+        var mode = cached || 'dark';
+        if (mode === 'auto') {
+          mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        if (mode === 'custom') mode = 'dark';
+        document.documentElement.setAttribute('data-theme', mode);
+        document.documentElement.style.colorScheme = mode;
+        document.documentElement.style.backgroundColor = mode === 'dark' ? '#0d1117' : '#f8f8f7';
+        window.__KANIVET_THEME__ = mode;
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'dark');
+        document.documentElement.style.backgroundColor = '#0d1117';
+        window.__KANIVET_THEME__ = 'dark';
+      }
+    })();
+    window.addEventListener('error', function(e) {
+      if (e.message && e.message.includes('ResizeObserver loop completed with undelivered notifications')) {
+        e.stopPropagation();
+        e.preventDefault();
+        return false;
+      }
+    }, true);
+  </script>
+  <style>
+    #native-splash{position:fixed;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;z-index:999999;transition:opacity .3s ease}
+    #native-splash.dark{background:#0d1117}
+    #native-splash.light{background:#f8f8f7}
+    #native-splash .content{display:flex;flex-direction:column;align-items:center;gap:24px;animation:fadeIn .5s ease-out}
+    #native-splash .k{font-size:72px;font-weight:800;color:#58a6ff;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:-0.04em;line-height:1;text-shadow:0 4px 24px rgba(88,166,255,0.3);animation:float 3s ease-in-out infinite}
+    #native-splash .title{font-size:42px;font-weight:700;margin:0;letter-spacing:-0.02em;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    #native-splash.dark .title{color:#f0f6fc}
+    #native-splash.light .title{color:#1f2328}
+    #native-splash .loader{width:200px;height:3px;border-radius:2px;overflow:hidden}
+    #native-splash.dark .loader{background:#21262d}
+    #native-splash.light .loader{background:#d1d5db}
+    #native-splash .bar{width:40%;height:100%;background:linear-gradient(90deg,#58a6ff,#3fb950);border-radius:2px;animation:loading 1.2s ease-in-out infinite}
+    #native-splash .msg{font-size:14px;margin:0;min-height:20px;animation:pulse 2.5s ease-in-out infinite;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
+    #native-splash.dark .msg{color:#9ca3af}
+    #native-splash.light .msg{color:#6b7280}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    @keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
+    @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
+    #native-splash.hiding{opacity:0;pointer-events:none}
+  </style>
+</head>
+<body style="margin:0;background:inherit">
+  <div id="native-splash" class="dark">
+    <div class="content">
+      <span class="k">K</span>
+      <h1 class="title">Kanivet</h1>
+      <div class="loader"><div class="bar"></div></div>
+      <p class="msg">Kubernefying the system...</p>
+    </div>
+  </div>
+  <script>
+    (function(){
+      var msgs=['Kubernefying the system...','Wrangling pods into formation...','Spinning up the control plane...','Consulting the etcd oracle...','Teaching containers to behave...','Negotiating with the scheduler...','Summoning the cluster spirits...','Deploying good vibes...','Convincing nodes to cooperate...','Orchestrating magnificence...','Asking kubectl nicely...','Herding microservices...','Reconciling the universe...','Waiting for pods to pod...','Patching things together...','Rolling out the red carpet...','Scaling hopes and dreams...','Checking if it works on my cluster...','Draining bad vibes from nodes...','Applying YAML with confidence...'];
+      var splash=document.getElementById('native-splash');
+      var msgEl=splash.querySelector('.msg');
+      var theme=window.__KANIVET_THEME__||'dark';
+      splash.className=theme;
+      var idx=Math.floor(Math.random()*msgs.length);
+      msgEl.textContent=msgs[idx];
+      setInterval(function(){
+        var next=Math.floor(Math.random()*msgs.length);
+        while(next===idx&&msgs.length>1)next=Math.floor(Math.random()*msgs.length);
+        idx=next;
+        msgEl.textContent=msgs[idx];
+      },2500);
+    })();
+  </script>
+  <noscript>You need to enable JavaScript to run this app.</noscript>
+  <div id="root"></div>
+  <script type="module" src="/src/index.tsx"></script>
+</body>
+</html>

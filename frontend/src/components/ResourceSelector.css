@@ -1,0 +1,220 @@
+.resource-selector {
+  position: relative;
+  width: 100%;
+}
+
+/* When in toolbar, make it more compact */
+.toolbar-resource-selector .resource-selector {
+  margin-bottom: 0;
+}
+
+.resource-selector-trigger {
+  width: 100%;
+  height: 28px;
+  padding: 0 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  transition: all 0.2s;
+}
+
+/* Adjust for toolbar context */
+.toolbar-resource-selector .resource-selector-trigger {
+  background: var(--bg-primary);
+}
+
+.resource-selector-trigger:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-focus);
+}
+
+.resource-selector-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.trigger-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+}
+
+.selected-kind {
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.selected-api {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Compact version for toolbar */
+.toolbar-resource-selector .selected-api {
+  display: none;
+}
+
+.fetching-text {
+  color: var(--text-secondary);
+  font-style: italic;
+}
+
+.chevron {
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.chevron.open {
+  transform: rotate(180deg);
+}
+
+.resource-selector-dropdown {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  width: 320px;
+  max-width: calc(100vw - 32px);
+  max-height: 320px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: var(--dropdown-shadow, 0 2px 8px rgba(0, 0, 0, 0.12));
+  z-index: 1000;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.dropdown-search {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-secondary);
+}
+
+.search-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  height: 20px;
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.dropdown-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px;
+}
+
+
+.resource-item {
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-sm);
+  text-align: left;
+  border-radius: 3px;
+  transition: background 0.15s;
+  overflow: hidden;
+}
+
+.resource-item:hover {
+  background: var(--bg-hover);
+}
+
+.resource-kind {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  flex-shrink: 0;
+}
+
+.resource-api {
+  font-size: var(--font-xs);
+  color: var(--text-secondary);
+  margin-left: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.no-results {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: var(--font-sm);
+}
+
+.resource-selector.loading,
+.resource-selector.error {
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: var(--font-sm);
+}
+
+.resource-selector.loading {
+  color: var(--text-secondary);
+}
+
+.resource-selector.error {
+  color: var(--danger);
+}
+
+/* Scrollbar styling */
+.dropdown-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dropdown-list::-webkit-scrollbar-track {
+  background: var(--bg-secondary);
+}
+
+.dropdown-list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar-thumb);
+  border-radius: 3px;
+}
+
+.dropdown-list::-webkit-scrollbar-thumb:hover {
+  background: var(--scrollbar-thumb-hover);
+}

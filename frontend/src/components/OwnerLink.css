@@ -1,0 +1,52 @@
+/* Owner Link Styles */
+
+.owner-link {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  font-weight: 500;
+  text-decoration: none;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+  transition: color 0.2s;
+}
+
+.owner-link:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+.owner-link:active {
+  color: var(--accent);
+}
+
+.owner-text {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+/* Focus state for accessibility */
+.owner-link:focus {
+  /* Focus handled by global styles */
+}
+
+/* Disable selection to avoid accidental text selection */
+.owner-link {
+  user-select: none;
+}
+
+/* Theme-specific adjustments */
+[data-theme='light'] .owner-link {
+  color: var(--accent);
+}
+
+[data-theme='light'] .owner-link:hover {
+  color: var(--accent-hover);
+}
+
+[data-theme='light'] .owner-text {
+  color: var(--text-secondary);
+}

@@ -1,0 +1,83 @@
+.service-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.service-port-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px;
+  background: var(--bg-subtle);
+  border-radius: 2px;
+  font-size: 10px;
+  min-height: 20px;
+}
+
+.service-port-row:hover {
+  background: var(--bg-hover);
+}
+
+.port-name {
+  color: var(--text-muted);
+  font-weight: 500;
+  min-width: 50px;
+}
+
+.port-spec {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  font-size: 10px;
+}
+
+.port-number {
+  font-weight: 600;
+}
+
+.port-target {
+  color: var(--text-muted);
+}
+
+.port-node {
+  color: var(--accent);
+}
+
+.port-proto {
+  color: var(--text-muted);
+  font-size: 8px;
+  margin-left: 2px;
+}
+
+.port-fwd-btn {
+  margin-left: auto;
+  padding: 0 4px;
+  border: none;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.08s;
+  height: 16px;
+}
+
+.port-fwd-btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: white;
+}
+
+.port-fwd-btn.active {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.port-fwd-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

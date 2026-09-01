@@ -1,0 +1,403 @@
+/* Shared Detail View Styles - Consolidated from resource-specific CSS */
+
+/* Link Button - Clickable resource references */
+.link-button {
+  background: none;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: inherit;
+  font-family: inherit;
+  padding: 0;
+  text-decoration: none;
+  transition: color 0.1s;
+}
+
+.link-button:hover {
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+/* Metrics/Chart Wrapper */
+.pod-metrics-wrapper,
+.node-metrics-wrapper {
+  padding: 0 var(--property-padding-x);
+}
+
+/* Section Header with Controls */
+.info-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.section-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Search Input */
+.search-input {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  width: 200px;
+  height: 20px;
+  transition: all 0.2s;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+.search-input::placeholder {
+  color: var(--text-secondary);
+  opacity: 0.7;
+}
+
+/* Control Buttons */
+.control-button {
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  height: 20px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+}
+
+.control-button:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-hover);
+}
+
+.control-button.active {
+  background: var(--accent);
+  color: var(--bg-primary);
+  border-color: var(--accent);
+}
+
+.control-button.active:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+/* Expand Button */
+.expand-button {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: var(--font-xxs);
+  padding: 0;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  border-radius: 3px;
+}
+
+.expand-button:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+/* Format Badges */
+.format-badge {
+  font-size: var(--font-xxxs);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.format-badge.format-json {
+  background: rgba(46, 160, 67, 0.15);
+  color: #2ea043;
+}
+
+.format-badge.format-yaml {
+  background: rgba(84, 174, 255, 0.15);
+  color: #54aeff;
+}
+
+.format-badge.format-xml {
+  background: rgba(245, 135, 31, 0.15);
+  color: #f5871f;
+}
+
+.format-badge.format-properties {
+  background: rgba(140, 90, 255, 0.15);
+  color: #8c5aff;
+}
+
+.format-badge.format-binary {
+  background: rgba(255, 90, 90, 0.15);
+  color: #ff5a5a;
+}
+
+.format-badge.format-certificate {
+  background: rgba(46, 160, 67, 0.15);
+  color: #2ea043;
+}
+
+/* No Results Message */
+.no-results {
+  text-align: center;
+  color: var(--text-tertiary);
+  padding: 24px;
+  font-size: var(--font-base);
+}
+
+/* Collapsible Section Styles */
+.collapsible-section {
+  margin-bottom: 0;
+  border-left: 3px solid transparent;
+  padding-left: 10px;
+  transition: border-color 0.2s ease;
+}
+
+.collapsible-section[data-state="open"] {
+  border-left-color: var(--accent);
+}
+
+.collapsible-trigger {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-size: var(--font-xs);
+  font-weight: var(--font-weight-extrabold);
+  color: var(--text-primary);
+  text-transform: uppercase;
+  letter-spacing: var(--letter-spacing-wider);
+  margin: 8px 0 10px -10px;
+  padding: 10px 8px 10px 10px;
+  background: linear-gradient(90deg, color-mix(in srgb, var(--bg-tertiary) 50%, transparent) 0%, transparent 100%);
+  border: none;
+  border-radius: 4px 0 0 4px;
+  height: 20px;
+  cursor: pointer;
+  opacity: 0.9;
+  width: calc(100% + 10px);
+  text-align: left;
+  transition: background 0.15s ease;
+}
+
+.collapsible-trigger:hover {
+  opacity: 1;
+  background: linear-gradient(90deg, var(--bg-tertiary) 0%, transparent 100%);
+}
+
+.collapsible-trigger .expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  transition: transform 0.2s ease;
+}
+
+.collapsible-trigger[data-state="open"] .expand-icon {
+  transform: rotate(90deg);
+}
+
+.collapsible-trigger .section-count {
+  margin-left: 8px;
+  font-size: var(--font-xxs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--bg-primary);
+  background: var(--accent);
+  padding: 2px 7px;
+  border-radius: 10px;
+}
+
+.collapsible-content {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease-out;
+}
+
+.collapsible-content[data-state="open"] {
+  grid-template-rows: 1fr;
+}
+
+.collapsible-content > .info-section-content {
+  overflow: hidden;
+}
+
+/* Data List - Reusable card-based data display */
+.data-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.data-item {
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.data-item:hover {
+  border-color: var(--border-hover);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.data-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  min-height: 40px;
+}
+
+.data-key-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.data-key {
+  font-family: var(--font-mono);
+  font-size: var(--font-base);
+  font-weight: var(--font-weight-semibold);
+  color: var(--text-primary);
+  word-break: break-all;
+  line-height: var(--line-height-tight);
+}
+
+.data-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.data-size {
+  font-size: var(--font-xxs);
+  color: var(--text-tertiary);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+}
+
+.data-lines {
+  font-size: var(--font-xxs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+
+.data-value {
+  padding: 12px 14px;
+  font-size: var(--font-sm);
+  line-height: var(--line-height-relaxed);
+  max-height: 200px;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out;
+  position: relative;
+}
+
+.data-item:hover .data-value {
+  background: var(--bg-hover);
+}
+
+.data-value.expanded {
+  max-height: none;
+  overflow: auto;
+  max-height: 600px;
+}
+
+.data-value.truncated::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: linear-gradient(transparent, var(--bg-secondary));
+  pointer-events: none;
+}
+
+.data-value.clickable {
+  cursor: pointer;
+}
+
+.data-value pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: var(--line-height-relaxed);
+  user-select: text;
+  cursor: text;
+}
+
+.data-value pre.language-json,
+.data-value pre.language-yaml,
+.data-value pre.language-xml {
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+}
+
+.data-header .clipboard-copy-btn {
+  opacity: 1 !important;
+  transition: opacity 0.2s;
+}
+
+.binary-indicator {
+  font-size: var(--font-xxs);
+  font-weight: var(--font-weight-semibold);
+  padding: 2px 6px;
+  background: rgba(46, 160, 67, 0.15);
+  color: #2ea043;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.section-divider {
+  height: 1px;
+  background: color-mix(in srgb, var(--border) 50%, transparent);
+  margin: 4px 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .info-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .section-controls {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .search-input {
+    width: 100%;
+  }
+}

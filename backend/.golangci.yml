@@ -1,0 +1,29 @@
+version: "2"
+
+linters:
+  enable:
+    - govet
+    - ineffassign
+    - staticcheck
+    - misspell
+    - unconvert
+    - errcheck
+    - unused
+
+linters-settings:
+  govet:
+    enable-all: true
+  errcheck:
+    check-type-assertions: true
+
+issues:
+  exclude-use-default: false
+  max-issues-per-linter: 50
+  max-same-issues: 3
+  exclude-dirs:
+    - vendor
+    - third_party
+  exclude-rules:
+    - path: "_test\\.go"
+      linters:
+        - errcheck

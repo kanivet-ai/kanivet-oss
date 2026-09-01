@@ -1,0 +1,948 @@
+.cluster-selector {
+  height: 100%;
+  background: var(--bg-primary);
+}
+
+.cluster-selector-body {
+  height: 100%;
+  display: flex;
+  gap: 20px;
+}
+
+.cluster-selector.main-view {
+  height: 100%;
+}
+
+.cluster-selector.main-view .cluster-selector-body {
+  padding: 0;
+}
+
+/* ========================
+   Left Panel - Cluster Groups
+   ======================== */
+.assigned-clusters-section {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.assigned-clusters-section .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 12px 0;
+  margin-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.assigned-clusters-section .section-header h3 {
+  display: flex;
+  align-items: center;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.add-group-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-muted);
+}
+
+.add-group-btn:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.add-group-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ========================
+   Right Panel - Available Clusters
+   ======================== */
+.unassigned-clusters-section {
+  width: 420px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.unassigned-clusters-section .section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  margin: 0;
+}
+
+.unassigned-clusters-section .section-header h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.refresh-clusters-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-muted);
+}
+
+.refresh-clusters-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+}
+
+.refresh-clusters-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.refresh-clusters-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.refresh-clusters-btn.refreshing svg {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.refresh-clusters-btn.error {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.refresh-error {
+  font-size: 11px;
+  color: var(--danger);
+  margin-left: 6px;
+  animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.unassigned-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  background: var(--accent);
+  color: white;
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+.unassigned-clusters-section.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.unassigned-clusters-section .cluster-search-input {
+  width: calc(100% - 24px);
+  margin: 12px 12px 0 12px;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.unassigned-clusters-section .cluster-search-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.unassigned-clusters-section .cluster-search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.unassigned-clusters-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 8px 8px 8px;
+}
+
+.no-unassigned {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-sm);
+}
+
+/* ========================
+   Groups List
+   ======================== */
+.groups-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: 4px;
+}
+
+.new-group-form {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  margin-bottom: 12px;
+  animation: formSlideIn 0.2s ease-out;
+}
+
+@keyframes formSlideIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.new-group-form input {
+  width: 100%;
+  padding: 8px 12px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-sm);
+  margin-bottom: 10px;
+  box-sizing: border-box;
+}
+
+.new-group-form input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.save-btn,
+.cancel-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  font-size: var(--font-xs);
+  font-weight: 500;
+}
+
+.save-btn {
+  background: color-mix(in srgb, var(--success) 15%, transparent);
+  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  color: var(--success);
+}
+
+.save-btn:hover {
+  background: var(--success);
+  border-color: var(--success);
+  color: white;
+}
+
+.cancel-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.cancel-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.save-btn svg,
+.cancel-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ========================
+   Cluster Group
+   ======================== */
+.cluster-group {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+  overflow: hidden;
+  transition: all 0.15s ease;
+}
+
+.cluster-group:hover {
+  border-color: color-mix(in srgb, var(--border) 150%, transparent);
+}
+
+.cluster-group.drag-over {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.group-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s ease;
+  gap: 6px;
+}
+
+.group-header:hover {
+  background: var(--bg-hover);
+}
+
+.group-order-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: 4px;
+}
+
+.order-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  color: var(--text-muted);
+}
+
+.order-btn:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent);
+}
+
+.order-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.order-btn svg {
+  width: 10px;
+  height: 10px;
+}
+
+.expand-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  margin-right: 2px;
+}
+
+.expand-icon svg {
+  width: 12px;
+  height: 12px;
+  transition: transform 0.2s ease;
+  color: var(--text-muted);
+}
+
+.expand-icon svg.expanded {
+  transform: rotate(90deg);
+}
+
+.group-icon {
+  display: flex;
+  align-items: center;
+  margin-right: 8px;
+  color: var(--accent);
+}
+
+.group-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.group-name {
+  flex: 1;
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: 500;
+}
+
+.group-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+  font-size: var(--font-xxs);
+  font-weight: 600;
+  border-radius: 10px;
+  margin-left: auto;
+}
+
+.group-name-input {
+  flex: 1;
+  padding: 4px 8px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-sm);
+  font-weight: 500;
+  outline: none;
+  max-width: 200px;
+}
+
+.group-edit-btn,
+.group-delete-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  opacity: 0;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+.group-header:hover .group-edit-btn,
+.group-header:hover .group-delete-btn {
+  opacity: 1;
+}
+
+.group-edit-btn:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.group-delete-btn:hover {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+
+.group-edit-btn svg,
+.group-delete-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.group-clusters {
+  padding: 6px;
+  background: color-mix(in srgb, var(--bg-primary) 50%, transparent);
+}
+
+.empty-group {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  margin: 4px;
+}
+
+/* ========================
+   Cluster Item
+   ======================== */
+.cluster-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  position: relative;
+  cursor: pointer;
+  border: 1px solid transparent;
+  border-left: 2px solid transparent;
+  margin-bottom: 2px;
+}
+
+.cluster-item:last-child {
+  margin-bottom: 0;
+}
+
+.cluster-item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+
+.cluster-drag-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 100%;
+  color: var(--text-muted);
+  opacity: 0;
+  cursor: grab;
+  flex-shrink: 0;
+  margin-left: 4px;
+  transition: opacity 0.15s ease;
+}
+
+.cluster-item:hover .cluster-drag-handle {
+  opacity: 0.6;
+}
+
+.cluster-drag-handle:hover {
+  opacity: 1 !important;
+  color: var(--text-secondary);
+}
+
+.cluster-drag-handle:active {
+  cursor: grabbing;
+}
+
+.cluster-drag-handle svg {
+  width: 12px;
+  height: 12px;
+}
+
+.cluster-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+}
+
+.cluster-item.active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: transparent;
+  border-left: 2px solid var(--accent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.cluster-item.active:hover {
+  border-color: transparent;
+  border-left: 2px solid var(--accent);
+}
+
+.cluster-item.active .cluster-opened-indicator,
+.cluster-item.opened .cluster-opened-indicator {
+  display: none;
+}
+
+.cluster-item.opened {
+  border-left: 2px solid var(--accent);
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.cluster-item.opened:hover {
+  border-left: 2px solid var(--accent);
+}
+
+.cluster-item.not-ready {
+  opacity: 0.7;
+}
+
+.cluster-content {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  padding: 10px 12px;
+  min-width: 0;
+}
+
+.cluster-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  gap: 3px;
+}
+
+.cluster-name-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.cluster-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-xs);
+}
+
+.cluster-provider {
+  font-size: var(--font-xxs);
+  font-weight: 400;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.cluster-provider.gcp,
+.cluster-provider.azure {
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.cluster-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.cluster-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.cluster-icon.aws {
+  color: var(--warning);
+}
+
+.cluster-item:hover .cluster-icon {
+  color: var(--accent);
+}
+
+.cluster-item:hover .cluster-icon.aws {
+  color: #ff9900;
+}
+
+.cluster-item:hover .cluster-icon.azure {
+  color: #0078d4;
+}
+
+.cluster-icon.aws {
+  color: #ff9900;
+}
+
+/* GCP icon uses multi-color SVG fills, no color override needed */
+
+.cluster-icon.azure {
+  color: #0078d4;
+}
+
+.cluster-name {
+  color: var(--text-primary);
+  font-size: var(--font-sm);
+  font-weight: 400;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
+}
+
+.cluster-region {
+  color: var(--text-muted);
+  font-size: var(--font-xs);
+  padding: 1px 5px;
+  background: var(--bg-tertiary);
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+}
+
+.cluster-kubeconfig {
+  color: var(--text-muted);
+  font-size: var(--font-xxs);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.cluster-item.active .cluster-name {
+  font-weight: 500;
+}
+
+.cluster-status-container {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding-right: 2px;
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.cluster-opened-indicator {
+  font-size: var(--font-xxs);
+  color: var(--accent);
+}
+
+.cluster-latency {
+  font-size: var(--font-xs);
+  color: var(--text-muted);
+  min-width: 42px;
+  text-align: right;
+}
+
+.cluster-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cluster-status.online {
+  background: var(--success);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--success) 60%, transparent);
+}
+
+.cluster-status.offline {
+  background: var(--danger);
+  box-shadow: 0 0 4px color-mix(in srgb, var(--danger) 40%, transparent);
+}
+
+.cluster-status.loading {
+  background: var(--text-muted);
+  animation: statusPulse 1s infinite;
+}
+
+.cluster-status.unknown {
+  background: var(--text-muted);
+}
+
+/* Cluster alias editing */
+.cluster-name-input {
+  flex: 1;
+  min-width: 0;
+  padding: 2px 6px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xs);
+  font-size: var(--font-sm);
+  font-weight: 400;
+  outline: none;
+  max-width: 200px;
+}
+
+.cluster-name-input:focus {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.cluster-name.has-alias {
+  font-style: italic;
+}
+
+.cluster-edit-btn,
+.cluster-reset-btn {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+  flex-shrink: 0;
+  margin-left: 2px;
+  transition: opacity 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.cluster-item:hover .cluster-edit-btn,
+.cluster-item:hover .cluster-reset-btn {
+  opacity: 1;
+}
+
+.cluster-edit-btn:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}
+
+.cluster-reset-btn:hover {
+  background: color-mix(in srgb, var(--warning, #f59e0b) 15%, transparent);
+  color: var(--warning, #f59e0b);
+}
+
+.cluster-edit-btn svg,
+.cluster-reset-btn svg {
+  width: 11px;
+  height: 11px;
+}
+
+.remove-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  margin-right: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-radius: var(--radius-xs);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-btn:hover {
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+  color: var(--danger);
+}
+
+.remove-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* ========================
+   Animations
+   ======================== */
+@keyframes statusPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* ========================
+   Scrollbar Styles
+   ======================== */
+.groups-list::-webkit-scrollbar,
+.unassigned-clusters-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.groups-list::-webkit-scrollbar-track,
+.unassigned-clusters-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.groups-list::-webkit-scrollbar-thumb,
+.unassigned-clusters-list::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+  border-radius: 3px;
+}
+
+.groups-list::-webkit-scrollbar-thumb:hover,
+.unassigned-clusters-list::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in srgb, var(--text-muted) 35%, transparent);
+}
+
+/* ========================
+   Cluster Name Tooltip
+   ======================== */
+.cluster-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.cluster-tooltip-name {
+  color: var(--text-primary);
+  font-weight: 500;
+  word-break: break-all;
+}
+
+.cluster-tooltip-alias {
+  color: var(--text-muted);
+  font-size: 10px;
+}
+
+/* ========================
+   Responsive
+   ======================== */
+@media (max-width: 900px) {
+  .cluster-selector {
+    height: auto;
+    min-height: 100%;
+  }
+
+  .cluster-selector-body {
+    flex-direction: column;
+    height: auto;
+    min-height: 100%;
+  }
+
+  .assigned-clusters-section {
+    width: 100%;
+    flex: none;
+    height: auto;
+    max-height: 50vh;
+  }
+
+  .assigned-clusters-section .groups-list {
+    max-height: 40vh;
+  }
+
+  .unassigned-clusters-section {
+    width: 100%;
+    flex: none;
+    height: auto;
+    min-height: 250px;
+    max-height: 50vh;
+  }
+}

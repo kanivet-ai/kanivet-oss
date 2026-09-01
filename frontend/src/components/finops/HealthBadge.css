@@ -1,0 +1,76 @@
+.health-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.health-badge-sm {
+  font-size: var(--font-xxs);
+  padding: 3px 7px;
+}
+
+.health-badge-sm .health-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.health-badge-md {
+  font-size: var(--font-xs);
+}
+
+.health-badge-md .health-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.health-badge-lg {
+  font-size: var(--font-sm);
+  padding: 6px 10px;
+}
+
+.health-badge-lg .health-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.health-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.health-badge.efficiency-excellent {
+  background: var(--cost-bg-positive);
+  color: var(--efficiency-excellent);
+}
+
+.health-badge.efficiency-good {
+  background: color-mix(in srgb, var(--efficiency-good) 15%, transparent);
+  color: var(--efficiency-good);
+}
+
+.health-badge.efficiency-fair {
+  background: var(--cost-bg-warning);
+  color: var(--efficiency-fair);
+}
+
+.health-badge.efficiency-critical {
+  background: var(--cost-bg-negative);
+  color: var(--efficiency-critical);
+}
+
+.health-badge.efficiency-risk {
+  background: color-mix(in srgb, var(--efficiency-risk) 15%, transparent);
+  color: var(--efficiency-risk);
+}
+
+.health-badge.efficiency-none {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px dashed var(--border);
+}
+

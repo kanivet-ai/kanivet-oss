@@ -1,0 +1,41 @@
+.event-type-badge {
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+
+.event-type-badge.event-type-warning {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.event-type-badge.event-type-normal {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.event-message-box {
+  margin: 0 var(--property-padding-x);
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  position: relative;
+}
+
+.event-message-box pre {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  color: var(--text-primary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.event-message-box .clipboard-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}

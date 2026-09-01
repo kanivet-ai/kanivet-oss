@@ -1,0 +1,106 @@
+.terminal-split-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  position: relative;
+}
+
+.terminal-split-container.horizontal {
+  flex-direction: column;
+}
+
+.terminal-split-container.vertical {
+  flex-direction: row;
+}
+
+.terminal-split-leaf {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  border: 2px solid transparent;
+  transition: border-color 0.2s;
+}
+
+.terminal-split-leaf.focused {
+  border-color: var(--accent);
+}
+
+.terminal-split-actions {
+  position: absolute;
+  top: 38px;
+  right: 8px;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 10;
+}
+
+.terminal-split-leaf:hover .terminal-split-actions {
+  opacity: 1;
+}
+
+.terminal-split-action {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 16px;
+}
+
+.terminal-split-action:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--accent);
+}
+
+.terminal-split-action.close {
+  font-size: 18px;
+}
+
+.terminal-split-action.close:hover {
+  background: rgba(255, 0, 0, 0.1);
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+}
+
+.terminal-split-divider {
+  position: absolute;
+  background: var(--border);
+  z-index: 5;
+  transition: background 0.2s;
+}
+
+.terminal-split-divider.horizontal {
+  left: 0;
+  bottom: -2px;
+  width: 100%;
+  height: 4px;
+  cursor: row-resize;
+}
+
+.terminal-split-divider.vertical {
+  top: 0;
+  right: -2px;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+}
+
+.terminal-split-divider:hover {
+  background: var(--accent);
+}
+
+.terminal-split-divider:active {
+  background: var(--accent-bright);
+}

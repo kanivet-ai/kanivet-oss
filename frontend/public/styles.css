@@ -1,0 +1,164 @@
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-hover: #2a2d2e;
+  --bg-active: #094771;
+  --text-primary: #cccccc;
+  --text-secondary: #969696;
+  --border: #3c3c3c;
+  --accent: #007acc;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+.header {
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  height: 40px;
+}
+
+.tabs {
+  display: flex;
+  height: 100%;
+  align-items: end;
+}
+
+.tab {
+  padding: 8px 16px;
+  cursor: pointer;
+  border-right: 1px solid var(--border);
+  background: var(--bg-primary);
+  transition: background 0.2s;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+}
+
+.tab.active {
+  background: var(--bg-secondary);
+  border-bottom: 2px solid var(--accent);
+}
+
+.main-content {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 300px;
+  background: var(--bg-secondary);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.search-box {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-box input {
+  width: 100%;
+  padding: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.search-box input:focus {
+  border-color: var(--accent);
+}
+
+.tree-view {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.tree-node {
+  user-select: none;
+  cursor: pointer;
+  padding: 4px 8px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tree-node:hover {
+  background: var(--bg-hover);
+}
+
+.tree-node.selected {
+  background: var(--bg-active);
+}
+
+.tree-node.match {
+  background: #4a3c28;
+}
+
+.tree-children {
+  padding-left: 16px;
+}
+
+.content-area {
+  flex: 1;
+  display: flex;
+  background: var(--bg-primary);
+}
+
+.list-view {
+  width: 400px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+.list-item {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.list-item:hover {
+  background: var(--bg-hover);
+}
+
+.list-item.selected {
+  background: var(--bg-active);
+}
+
+.detail-view {
+  flex: 1;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.detail-view pre {
+  background: var(--bg-secondary);
+  padding: 12px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.hidden {
+  display: none;
+}

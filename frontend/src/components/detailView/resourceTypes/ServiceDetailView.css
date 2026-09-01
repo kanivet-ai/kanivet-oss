@@ -1,0 +1,41 @@
+.service-type-badge {
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--info-bg);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
+.service-ports-wrapper {
+  padding: 0 var(--property-padding-x);
+}
+
+.service-selector {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 2px var(--property-padding-x);
+  align-items: center;
+}
+
+.selector-tag {
+  display: flex;
+  align-items: center;
+  background: var(--bg-subtle);
+  border-radius: 2px;
+  font-size: var(--font-xxxs);
+  font-family: var(--font-mono);
+  overflow: hidden;
+}
+
+.selector-key {
+  padding: 1px 3px;
+  color: var(--text-muted);
+  background: var(--bg-tertiary);
+}
+
+.selector-value {
+  padding: 1px 4px;
+  color: var(--text-primary);
+}

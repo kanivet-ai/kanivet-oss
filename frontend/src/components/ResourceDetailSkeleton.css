@@ -1,0 +1,116 @@
+.resource-detail-skeleton {
+  opacity: 1;
+}
+
+.skeleton-line {
+  height: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--bg-tertiary) 0%,
+    var(--bg-hover) 50%,
+    var(--bg-tertiary) 100%
+  );
+  background-size: 200% 100%;
+  animation: skeleton-pulse 1.5s ease-in-out infinite;
+  border-radius: 2px;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.skeleton-line-sm {
+  height: 10px;
+}
+
+.skeleton-line-lg {
+  height: 14px;
+}
+
+@keyframes skeleton-pulse {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.resource-detail-skeleton .resource-detail-content {
+  padding: 0;
+}
+
+.resource-detail-skeleton .skeleton-section {
+  margin-bottom: 1px;
+}
+
+.resource-detail-skeleton .skeleton-section-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: var(--property-group-header-height);
+  padding: 0 var(--property-padding-x);
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.resource-detail-skeleton .skeleton-section-header svg {
+  width: 10px;
+  height: 10px;
+  color: var(--text-muted);
+}
+
+.resource-detail-skeleton .skeleton-section-content {
+  padding: 2px 0 4px 0;
+}
+
+.resource-detail-skeleton .skeleton-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: var(--property-padding-y) var(--property-padding-x);
+  min-height: var(--property-row-height);
+  border-radius: 2px;
+}
+
+.resource-detail-skeleton .skeleton-row:hover {
+  background: var(--bg-subtle);
+}
+
+.resource-detail-skeleton .skeleton-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: var(--property-label-width);
+  max-width: var(--property-label-width);
+}
+
+.resource-detail-skeleton .skeleton-label svg {
+  width: 10px;
+  height: 10px;
+  opacity: 0.7;
+}
+
+.resource-detail-skeleton .skeleton-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.resource-detail-skeleton .skeleton-value .skeleton-line {
+  height: 10px;
+}
+
+.resource-detail-skeleton h2 .skeleton-line {
+  height: 14px;
+  margin: 1px 0;
+}
