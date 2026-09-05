@@ -198,7 +198,7 @@ func TestReconcileTypeRemovesStaleAcrossKindForms(t *testing.T) {
 
 	// Live set from the cluster: only alive-1 remains.
 	live := map[string]struct{}{"ns/alive-1": {}}
-	removed := idx.ReconcileType("c", "", "v1", live)
+	removed := idx.ReconcileType("c", "", "v1", "pods", live)
 	if len(removed) != 2 {
 		t.Fatalf("expected 2 stale removed, got %d", len(removed))
 	}
@@ -215,12 +215,16 @@ func TestReconcileTypeScopedToResourceType(t *testing.T) {
 	if err := idx.Index(testResource("c", "apps", "v1", "Deployment", "ns", "d1")); err != nil {
 		t.Fatal(err)
 	}
-	// Reconcile pods with an empty live set — must NOT touch the deployment.
-	removed := idx.ReconcileType("c", "", "v1", map[string]struct{}{})
+	if err := idx.Index(testResource("c", "", "v1", "Service", "ns", "s1")); err != nil {
+		t.Fatal(err)
+	}
+	// Reconcile pods with an empty live set — must NOT touch the deployment or
+	// the service that shares core/v1 with pods.
+	removed := idx.ReconcileType("c", "", "v1", "pods", map[string]struct{}{})
 	if len(removed) != 1 {
 		t.Fatalf("expected 1 pod removed, got %d", len(removed))
 	}
-	if idx.DocumentCount() != 1 {
-		t.Fatalf("deployment must survive, got %d docs", idx.DocumentCount())
+	if idx.DocumentCount() != 2 {
+		t.Fatalf("deployment and service must survive, got %d docs", idx.DocumentCount())
 	}
 }

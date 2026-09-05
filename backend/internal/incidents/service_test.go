@@ -27,9 +27,9 @@ func TestService_GetTimeline_FromDB(t *testing.T) {
 	d := newTestDB(t)
 	now := time.Date(2026, 4, 16, 12, 0, 0, 0, time.UTC)
 	events := []db.K8sEvent{
-		mkEvent(0, "Pod", "default", "web-0", "BackOff", "Warning", "back-off", 3, now),
-		mkEvent(0, "Pod", "default", "web-0", "BackOff", "Warning", "back-off", 2, now.Add(time.Minute)),
-		mkEvent(0, "Pod", "default", "web-1", "Pulled", "Normal", "pulled", 1, now),
+		mkEvent(1, "Pod", "default", "web-0", "BackOff", "Warning", "back-off", 3, now),
+		mkEvent(2, "Pod", "default", "web-0", "BackOff", "Warning", "back-off", 2, now.Add(time.Minute)),
+		mkEvent(3, "Pod", "default", "web-1", "Pulled", "Normal", "pulled", 1, now),
 	}
 	for i := range events {
 		events[i].ID = 0

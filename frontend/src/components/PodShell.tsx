@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import Shell from './common/Shell';
 import ContainerSelector from './ContainerSelector';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './PodShell.css';
 
 interface Container {
@@ -43,7 +44,7 @@ const PodShell: React.FC<PodShellProps> = ({
   tabId,
   initialContainer,
 }) => {
-  const { updateBottomTabContainer } = useStore();
+  const { updateBottomTabContainer } = useStore(useShallow((s) => ({ updateBottomTabContainer: s.updateBottomTabContainer })));
   const [selectedContainer, setSelectedContainer] = useState<
     string | undefined
   >(initialContainer);

@@ -20,6 +20,7 @@ import ResourceListDialogs from './ResourceListDialogs';
 import { BottomTabContent, DetailTabContent } from './ResourceListTabContent';
 import DisconnectedOverlay from './DisconnectedOverlay';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
 import { useTabManagement } from '../hooks/useTabManagement';
 import { useResourceListState } from '../hooks/useResourceListState';
@@ -64,8 +65,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     pinDetailTab,
     toasts,
     removeToast,
-    activeTabs,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ selectItem: s.selectItem, loadDetails: s.loadDetails, openDetailTab: s.openDetailTab, currentTab: s.currentTab, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, reloadListItems: s.reloadListItems, getCurrentTabState: s.getCurrentTabState, updateCurrentTabState: s.updateCurrentTabState, updateResourceListTab: s.updateResourceListTab, startRealtime: s.startRealtime, getDefaultColumns: s.getDefaultColumns, closeResourceListTab: s.closeResourceListTab, reorderResourceListTabs: s.reorderResourceListTabs, moveDetailTab: s.moveDetailTab, closeDetailTab: s.closeDetailTab, setActiveDetailTab: s.setActiveDetailTab, setActiveResourceListTab: s.setActiveResourceListTab, bottomTabs: s.bottomTabs, closeBottomTab: s.closeBottomTab, moveBottomTab: s.moveBottomTab, setActiveBottomTab: s.setActiveBottomTab, pinResourceListTab: s.pinResourceListTab, pinDetailTab: s.pinDetailTab, toasts: s.toasts, removeToast: s.removeToast })));
 
   const state = useResourceListState({ paneId });
   const {
@@ -637,18 +637,9 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     );
   };
 
-  const openClusterDashboards = useMemo(() => {
-    const clusters = new Set<string>();
-    activeTabs.forEach(tab => {
-      const resourceListTabs = tab.state?.resourceListTabs || [];
-      resourceListTabs.forEach((rlt: any) => {
-        if (rlt.resource?.kind === 'ClusterDashboard') {
-          clusters.add(tab.id);
-        }
-      });
-    });
-    return Array.from(clusters);
-  }, [activeTabs]);
+  const openClusterDashboards = useStore(useShallow((s) =>
+    s.activeTabs.filter((tab) => (tab.state?.resourceListTabs || []).some((rlt: any) => rlt.resource?.kind === 'ClusterDashboard')).map((tab) => tab.id)
+  ));
 
   const isDashboardActiveTab = activeTab?.resource?.kind === 'ClusterDashboard';
 

@@ -1,6 +1,7 @@
 import React from 'react';
 import NavigationLink from './common/NavigationLink';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './NodeLink.css';
 
 interface NodeLinkProps {
@@ -8,7 +9,7 @@ interface NodeLinkProps {
 }
 
 const NodeLink: React.FC<NodeLinkProps> = ({ nodeName }) => {
-  const { currentTab } = useStore();
+  const { currentTab } = useStore(useShallow((s) => ({ currentTab: s.currentTab })));
 
   if (!nodeName || nodeName === '-') {
     return <span>-</span>;

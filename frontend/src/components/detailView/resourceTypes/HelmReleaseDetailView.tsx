@@ -16,6 +16,7 @@ import MetadataSection from '../shared/MetadataSection';
 import Dialog from '../../common/Dialog';
 import ExpandIcon from '../../icons/ExpandIcon';
 import { useStore } from '../../../store';
+import { useShallow } from 'zustand/react/shallow';
 import '../../DetailView.css';
 import '../shared/DetailViewShared.css';
 import './HelmReleaseDetailView.css';
@@ -188,7 +189,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
   const [showUninstallConfirm, setShowUninstallConfirm] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const { navigateToLink } = useResourceNavigation(cluster);
-  const { openBottomTab } = useStore();
+  const { openBottomTab } = useStore(useShallow((s) => ({ openBottomTab: s.openBottomTab })));
   const [clickTimer, setClickTimer] = useState<NodeJS.Timeout | null>(null);
 
   const releaseKey = `${cluster}-${release.namespace}-${release.name}`;

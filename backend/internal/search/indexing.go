@@ -225,20 +225,20 @@ func (s *Service) loadPersistedIndexAsync() {
 		}
 		close(doneChan)
 	}()
-	offset := 0
-	for offset < int(totalCount) {
+	var lastID uint
+	for batches := 1; ; batches++ {
 		var resources []db.SearchableResource
-		if err := s.db.Offset(offset).Limit(dbBatchSize).Find(&resources).Error; err != nil {
-			log.Printf("[SEARCH] Failed to load batch at offset %d: %v", offset, err)
+		if err := s.db.Where("id > ?", lastID).Order("id ASC").Limit(dbBatchSize).Find(&resources).Error; err != nil {
+			log.Printf("[SEARCH] Failed to load batch after id %d: %v", lastID, err)
 			break
 		}
 		if len(resources) == 0 {
 			break
 		}
+		lastID = resources[len(resources)-1].ID
 		workChan <- workItem{resources: resources}
-		offset += dbBatchSize
 		runtime.Gosched()
-		if offset%(dbBatchSize*5) == 0 {
+		if batches%5 == 0 {
 			time.Sleep(50 * time.Millisecond)
 		}
 	}
@@ -321,7 +321,7 @@ func (s *Service) performSmartIndexing(cluster string) {
 		s.indexedResources[cluster] = make(map[string]time.Time)
 	}
 	s.indexingMu.Unlock()
-	resources, err := s.k8sClient.ListAPIResources(cluster)
+	resources, err := s.apiResources(cluster)
 	if err != nil {
 		log.Printf("Failed to list API resources for cluster %s: %v", cluster, err)
 		s.updateIndexingStatus(cluster, nil, err)
@@ -341,6 +341,11 @@ func (s *Service) performSmartIndexing(cluster string) {
 			continue
 		}
 		if r.Kind == "Event" || r.Name == "events" {
+			continue
+		}
+		// A live watch already streams this type into the index; re-listing it
+		// would only repeat work the watcher has done.
+		if s.isWatched != nil && s.isWatched(cluster, r.Group, r.Version, r.Name) {
 			continue
 		}
 		resourceInfo := res{group: r.Group, version: r.Version, resource: r.Name, kind: r.Kind}
@@ -420,21 +425,8 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 	resourceName := s.k8sClient.GetResourceName(cluster, group, version, kind)
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourceName}
 	resource := metadataClient.Resource(gvr)
-	s.indexingMu.Lock()
 	resourceKey := fmt.Sprintf("%s/%s/%s", group, version, kind)
-	storedVersion := s.resourceVersions[cluster][resourceKey]
-	s.indexingMu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	listOpts := metav1.ListOptions{Limit: 1, ResourceVersion: "0"}
-	checkList, err := resource.List(ctx, listOpts)
-	cancel()
-	if err != nil {
-		return fmt.Errorf("failed to check %s/%s/%s: %w", group, version, kind, err)
-	}
-	newVersion := checkList.GetResourceVersion()
-	if storedVersion != "" && storedVersion == newVersion {
-		return nil
-	}
+	var newVersion string
 	apiVersion := version
 	if group != "" {
 		apiVersion = group + "/" + version
@@ -459,6 +451,9 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 		cancel()
 		if err != nil {
 			return fmt.Errorf("failed to list %s/%s/%s: %w", group, version, kind, err)
+		}
+		if newVersion == "" {
+			newVersion = list.GetResourceVersion()
 		}
 		for i := range list.Items {
 			item := &list.Items[i]
@@ -528,7 +523,7 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 		}
 		liveKeys[key] = struct{}{}
 	}
-	if removed := s.index.ReconcileType(cluster, group, version, liveKeys); len(removed) > 0 {
+	if removed := s.index.ReconcileType(cluster, group, version, kind, liveKeys); len(removed) > 0 {
 		log.Printf("[SEARCH] Reconcile removed %d stale %s/%s/%s entries in cluster %s", len(removed), group, version, kind, cluster)
 		s.eventHandler.forgetFingerprints(removed)
 		if s.db != nil {
@@ -552,17 +547,23 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 	return nil
 }
 
-func (s *Service) indexResourceKinds(cluster string) error {
-	log.Printf("[SEARCH] Indexing resource kinds for cluster: %s", cluster)
-	cacheKey := s.cache.BuildKey("api-resources", cluster)
-	cached, err := s.cache.GetOrSet(cacheKey, 5*time.Minute, func() (interface{}, error) {
+func (s *Service) apiResources(cluster string) ([]metav1.APIResource, error) {
+	cached, err := s.cache.GetOrSet(s.cache.BuildKey("api-resources", cluster), 5*time.Minute, func() (interface{}, error) {
 		return s.k8sClient.ListAPIResources(cluster)
 	})
 	if err != nil {
+		return nil, err
+	}
+	return cached.([]metav1.APIResource), nil
+}
+
+func (s *Service) indexResourceKinds(cluster string) error {
+	log.Printf("[SEARCH] Indexing resource kinds for cluster: %s", cluster)
+	resources, err := s.apiResources(cluster)
+	if err != nil {
 		return fmt.Errorf("failed to list API resources: %w", err)
 	}
-	resources := cached.([]metav1.APIResource)
-	indexedKinds := 0
+	kindDefs := make([]storage.SearchableResource, 0, len(resources))
 	for _, resource := range resources {
 		if strings.Contains(resource.Name, "/") || !hasVerb(resource.Verbs, "list") {
 			continue
@@ -595,8 +596,13 @@ func (s *Service) indexResourceKinds(cluster string) error {
 		if category := getCategoryForKind(strings.ToLower(resource.Kind)); category != "Other" {
 			kindDef.Category = category
 		}
+		kindDefs = append(kindDefs, kindDef)
+	}
+	changed := s.eventHandler.filterChanged(kindDefs)
+	indexedKinds := 0
+	for _, kindDef := range changed {
 		if err := s.index.Index(kindDef); err != nil {
-			log.Printf("[SEARCH] Failed to index kind %s: %v", resource.Kind, err)
+			log.Printf("[SEARCH] Failed to index kind %s: %v", kindDef.Name, err)
 		} else {
 			indexedKinds++
 		}
@@ -604,8 +610,10 @@ func (s *Service) indexResourceKinds(cluster string) error {
 			s.eventHandler.persistResource(kindDef)
 		}
 	}
-	log.Printf("[SEARCH] Indexed %d resource kinds for cluster %s", indexedKinds, cluster)
-	s.invalidateSearchCacheForCluster(cluster)
+	log.Printf("[SEARCH] Indexed %d/%d resource kinds for cluster %s", indexedKinds, len(kindDefs), cluster)
+	if len(changed) > 0 {
+		s.invalidateSearchCacheForCluster(cluster)
+	}
 	return nil
 }
 

@@ -280,8 +280,46 @@ type IndexData struct {
 	kindDocs    map[string]map[uint32]struct{}
 	nameTerms   map[string]struct{}
 	kindTerms   map[string]struct{}
+	typeDocs    map[typeKey]map[uint32]struct{}
+	kindPlural  map[uint32]string
 	accessTimes map[uint32]int64
 	accessGen   int64
+}
+
+// typeKey identifies one resource type; kind is plural-normalized so watch-path
+// docs ("Pod") and re-index docs ("pods") land in the same bucket.
+type typeKey struct {
+	cluster, group, version uint32
+	kind                    string
+}
+
+func (d *IndexData) typeKeyFor(c CompactResource) typeKey {
+	plural, ok := d.kindPlural[c.Kind]
+	if !ok {
+		plural = utils.PluralizeKind(d.pools.Kinds.Get(c.Kind))
+		d.kindPlural[c.Kind] = plural
+	}
+	return typeKey{c.Cluster, c.Group, c.Version, plural}
+}
+
+func (d *IndexData) addTypeDoc(c CompactResource) {
+	k := d.typeKeyFor(c)
+	m := d.typeDocs[k]
+	if m == nil {
+		m = make(map[uint32]struct{}, 16)
+		d.typeDocs[k] = m
+	}
+	m[c.ID] = struct{}{}
+}
+
+func (d *IndexData) removeTypeDoc(c CompactResource) {
+	k := d.typeKeyFor(c)
+	if m := d.typeDocs[k]; m != nil {
+		delete(m, c.ID)
+		if len(m) == 0 {
+			delete(d.typeDocs, k)
+		}
+	}
 }
 
 func newIndexData() *IndexData {
@@ -304,6 +342,8 @@ func newIndexDataWithCapacity(cap int) *IndexData {
 		kindDocs:    make(map[string]map[uint32]struct{}, 500),
 		nameTerms:   make(map[string]struct{}, cap),
 		kindTerms:   make(map[string]struct{}, 500),
+		typeDocs:    make(map[typeKey]map[uint32]struct{}, 256),
+		kindPlural:  make(map[uint32]string, 500),
 		accessTimes: make(map[uint32]int64, cap),
 		accessGen:   0,
 	}
@@ -383,6 +423,7 @@ func (idx *MemoryIndex) Index(resource SearchableResource) error {
 	}
 
 	d.compactDocs[docID] = compact
+	d.addTypeDoc(compact)
 	d.clusterDocs[compact.Cluster]++
 	termIndices := make([]uint32, 0, len(tokens))
 	for token, boost := range tokens {
@@ -436,6 +477,7 @@ func (idx *MemoryIndex) removeDocLocked(d *IndexData, id uint32) bool {
 	if d.clusterDocs[compact.Cluster] <= 0 {
 		delete(d.clusterDocs, compact.Cluster)
 	}
+	d.removeTypeDoc(compact)
 	delete(d.compactDocs, id)
 	delete(d.accessTimes, id)
 	idx.removedSinceRebuild++
@@ -504,19 +546,21 @@ func (idx *MemoryIndex) RemoveByCoordinates(cluster, namespace, name string) int
 // entries regardless of whether they were indexed with the singular Kind or the
 // plural resource name. KindDefinition documents are never touched. Returns the
 // string IDs of the removed documents.
-func (idx *MemoryIndex) ReconcileType(cluster, group, version string, liveKeys map[string]struct{}) []string {
+func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}) []string {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	d := idx.getData()
 
+	c, okC := d.pools.Clusters.Lookup(cluster)
+	g, okG := d.pools.Groups.Lookup(group)
+	v, okV := d.pools.Versions.Lookup(version)
+	if !okC || !okG || !okV {
+		return nil
+	}
 	var victims []uint32
-	for id, compact := range d.compactDocs {
-		if d.pools.Kinds.Get(compact.Kind) == "KindDefinition" {
-			continue
-		}
-		if d.pools.Clusters.Get(compact.Cluster) != cluster ||
-			d.pools.Groups.Get(compact.Group) != group ||
-			d.pools.Versions.Get(compact.Version) != version {
+	for id := range d.typeDocs[typeKey{c, g, v, utils.PluralizeKind(kind)}] {
+		compact, ok := d.compactDocs[id]
+		if !ok {
 			continue
 		}
 		ns := d.pools.Namespaces.Get(compact.Namespace)
@@ -1110,6 +1154,7 @@ func (idx *MemoryIndex) BatchIndexPrepared(prepared []PreparedResource) {
 			}
 		}
 		d.compactDocs[docID] = compact
+		d.addTypeDoc(compact)
 		d.clusterDocs[compact.Cluster]++
 		termIndices := make([]uint32, 0, len(p.Tokens))
 		for token, boost := range p.Tokens {
@@ -1158,6 +1203,7 @@ func BatchIndexToData(d *IndexData, prepared []PreparedResource) {
 			}
 		}
 		d.compactDocs[docID] = compact
+		d.addTypeDoc(compact)
 		d.clusterDocs[compact.Cluster]++
 		termIndices := make([]uint32, 0, len(p.Tokens))
 		for token, boost := range p.Tokens {
@@ -1186,6 +1232,7 @@ func BatchIndexToDataFast(d *IndexData, prepared []PreparedResource) {
 			}
 		}
 		d.compactDocs[docID] = compact
+		d.addTypeDoc(compact)
 		d.clusterDocs[compact.Cluster]++
 		termIndices := make([]uint32, 0, len(p.Tokens))
 		for token, boost := range p.Tokens {

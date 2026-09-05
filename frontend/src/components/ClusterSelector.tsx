@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import api, { ClusterGroup, ClusterInfo } from '../services/api';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { ClusterItem } from './ClusterItem';
 import { GroupForm } from './GroupForm';
 import { ClusterGroup as ClusterGroupComponent } from './ClusterGroup';
@@ -22,7 +23,8 @@ export const ClusterSelector: React.FC<ClusterSelectorProps> = ({
   activeCluster,
   isMainView = false,
 }) => {
-  const { clusterStatuses, activeTabs, setClusterAlias, deleteClusterAlias } = useStore();
+  const { clusterStatuses, setClusterAlias, deleteClusterAlias } = useStore(useShallow((s) => ({ clusterStatuses: s.clusterStatuses, setClusterAlias: s.setClusterAlias, deleteClusterAlias: s.deleteClusterAlias })));
+  const openTabIds = useStore(useShallow((s) => s.activeTabs.map((t) => t.id)));
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [clusterKubeconfigs, setClusterKubeconfigs] = useState<Record<string, string>>({});
   const [groups, setGroups] = useState<ClusterGroup[]>([]);
@@ -331,8 +333,8 @@ export const ClusterSelector: React.FC<ClusterSelectorProps> = ({
       return clusterMatch || aliasMatch;
     })
     .sort((a, b) => {
-      const aOpened = activeTabs.some(tab => tab.id === a);
-      const bOpened = activeTabs.some(tab => tab.id === b);
+      const aOpened = openTabIds.includes(a);
+      const bOpened = openTabIds.includes(b);
       if (aOpened && !bOpened) return -1;
       if (!aOpened && bOpened) return 1;
       const aName = aliases[a] || a;
@@ -358,7 +360,7 @@ export const ClusterSelector: React.FC<ClusterSelectorProps> = ({
   );
 
   const renderClusterItem = (cluster: string, showRemoveBtn = false) => {
-    const isOpened = activeTabs.some(tab => tab.id === cluster);
+    const isOpened = openTabIds.includes(cluster);
     const isCheckingStatus = isLoadingClusters && !clusterStatuses[cluster];
     return (
       <ClusterItem
@@ -439,8 +441,8 @@ export const ClusterSelector: React.FC<ClusterSelectorProps> = ({
                 ) : (
                   [...(clustersByGroup[group.name] || [])]
                     .sort((a, b) => {
-                      const aOpened = activeTabs.some(tab => tab.id === a);
-                      const bOpened = activeTabs.some(tab => tab.id === b);
+                      const aOpened = openTabIds.includes(a);
+                      const bOpened = openTabIds.includes(b);
                       if (aOpened && !bOpened) return -1;
                       if (!aOpened && bOpened) return 1;
                       return 0;

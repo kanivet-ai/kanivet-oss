@@ -6,8 +6,14 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 
 import TabContent from './common/TabContent';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+import { currentRealtimeTopic } from '../store/realtimeSlice';
 import useKeyboard from '../hooks/useKeyboard';
 import useResizable from '../hooks/useResizable';
+import { useVisibleInterval } from '../hooks/useVisibleInterval';
+
+const EMPTY_DETAIL_TABS: any[] = [];
+const DETAIL_STALE_MS = 30000;
 import api from '../services/api';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { workloadControllerKinds } from '../utils/resourceActions';
@@ -22,7 +28,6 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     setFocusArea,
     toggleDetailsPanel,
     setDetailsPanelCollapsed,
-    getCurrentTabState,
     currentTab,
     updateDetailData,
     closeDetailTab,
@@ -31,15 +36,15 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     moveDetailTab,
     pinDetailTab,
     openDetailTab,
-  } = useStore();
-  const tabState = getCurrentTabState();
-  const detailTabs = tabState?.detailTabs || [];
-  const activeDetailTab = tabState?.activeDetailTab;
+  } = useStore(useShallow((s) => ({ setFocusArea: s.setFocusArea, toggleDetailsPanel: s.toggleDetailsPanel, setDetailsPanelCollapsed: s.setDetailsPanelCollapsed, currentTab: s.currentTab, updateDetailData: s.updateDetailData, closeDetailTab: s.closeDetailTab, setActiveDetailTab: s.setActiveDetailTab, reorderDetailTabs: s.reorderDetailTabs, moveDetailTab: s.moveDetailTab, pinDetailTab: s.pinDetailTab, openDetailTab: s.openDetailTab })));
+  const { detailTabs, activeDetailTab, focusArea, isDetailsPanelCollapsed } = useStore(useShallow((s) => {
+    const t = s.getCurrentTabState();
+    return { detailTabs: t?.detailTabs || EMPTY_DETAIL_TABS, activeDetailTab: t?.activeDetailTab, focusArea: t?.focusArea || 'tree', isDetailsPanelCollapsed: t?.isDetailsPanelCollapsed || false };
+  }));
   const activeTab = detailTabs.find((tab) => tab.id === activeDetailTab);
-  const focusArea = tabState?.focusArea || 'tree';
-  const isDetailsPanelCollapsed = tabState?.isDetailsPanelCollapsed || false;
   const activeCluster = currentTab || '';
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastRefreshRef = useRef(0);
+  const detailDirtyRef = useRef(true);
   const [viewportWidth, setViewportWidth] = useState<number>(
     typeof window !== 'undefined' ? window.innerWidth : 1280,
   );
@@ -121,10 +126,10 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     if (wasAboveThreshold && isNowBelowThreshold && !isDetailsPanelCollapsed) {
       const hasEverOpened =
         (window as any).__kanivetDetailEverOpened === true ||
-        (tabState?.detailTabs?.length || 0) > 0;
+        detailTabs.length > 0;
       if (hasEverOpened) setDetailsPanelCollapsed(true);
     }
-  }, [viewportWidth, isDetailsPanelCollapsed, setDetailsPanelCollapsed, tabState?.detailTabs?.length]);
+  }, [viewportWidth, isDetailsPanelCollapsed, setDetailsPanelCollapsed, detailTabs.length]);
 
   // Show drop zone when dragging a detail tab from center
   useEffect(() => {
@@ -209,31 +214,34 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     : '';
 
   useEffect(() => {
-    if (refreshIntervalRef.current) {
-      clearInterval(refreshIntervalRef.current);
-      refreshIntervalRef.current = null;
-    }
+    detailDirtyRef.current = true;
+    lastRefreshRef.current = 0;
+  }, [refreshKey]);
+
+  useEffect(() => {
+    const onChanged = (e: Event) => {
+      const d = (e as CustomEvent<{ name: string; namespace: string }>).detail;
+      if (d && d.name === itemName && (d.namespace || '') === itemNamespace) detailDirtyRef.current = true;
+    };
+    window.addEventListener('kanivet:detail-item-changed', onChanged);
+    return () => window.removeEventListener('kanivet:detail-item-changed', onChanged);
+  }, [itemName, itemNamespace]);
+
+  // While the live watch covers this item, refetch only when it reports a
+  // change (with a staleness safety net); otherwise fall back to polling.
+  const refreshDetails = useCallback(() => {
     if (!refreshKey) return;
     const [cluster, group, version, kind, ns, name] = refreshKey.split('|');
+    const live = currentRealtimeTopic() === `items:${cluster}:${group}:${version}:${resource?.name || ''}:`;
+    if (live && !detailDirtyRef.current && Date.now() - lastRefreshRef.current < DETAIL_STALE_MS) return;
+    detailDirtyRef.current = false;
+    lastRefreshRef.current = Date.now();
+    api.getResourceDetails(cluster, group, version, kind, ns, name)
+      .then(updateDetailData)
+      .catch((error) => console.error('Failed to refresh details:', error));
+  }, [refreshKey, resource?.name, updateDetailData]);
 
-    const refreshDetails = async () => {
-      try {
-        const details = await api.getResourceDetails(cluster, group, version, kind, ns, name);
-        updateDetailData(details);
-      } catch (error) {
-        console.error('Failed to refresh details:', error);
-      }
-    };
-
-    refreshIntervalRef.current = setInterval(refreshDetails, 5000);
-
-    return () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-        refreshIntervalRef.current = null;
-      }
-    };
-  }, [refreshKey, updateDetailData]);
+  useVisibleInterval(refreshDetails, 5000, { enabled: !!refreshKey });
 
   // Only show tabs that are in the detail location
   const visibleDetailTabs = detailTabs.filter(

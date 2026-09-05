@@ -14,6 +14,7 @@ import { WorkloadMetrics } from '../WorkloadMetrics';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
+import { useShallow } from 'zustand/react/shallow';
 import CRDDefinitionView from '../CRDDefinitionView';
 import APIResourceDefinitionView from '../APIResourceDefinitionView';
 import CustomResourceDetailView from './resourceTypes/CustomResourceDetailView';
@@ -130,7 +131,7 @@ const QuickActions: React.FC<{ resource: any; cluster: string; hideDelete?: bool
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [showTriggerDialog, setShowTriggerDialog] = useState(false);
-  const { loadDetails } = useStore();
+  const { loadDetails } = useStore(useShallow((s) => ({ loadDetails: s.loadDetails })));
 
   const kind = resource.kind || '';
   const metadata = resource.metadata || {};

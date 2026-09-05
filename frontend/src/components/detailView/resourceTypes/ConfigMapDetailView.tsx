@@ -9,6 +9,7 @@ import ClipboardCopy from '../../common/ClipboardCopy';
 import { formatBytes } from '../../../utils/detailViewFormatters';
 import { installKanivetMonacoTheme, KANIVET_MONACO_THEME } from '../../../utils/monacoTheme';
 import { useStore } from '../../../store';
+import { useShallow } from 'zustand/react/shallow';
 import { DetailViewPropsWithCluster } from '../../../types/detailView';
 import './ConfigMapDetailView.css';
 
@@ -38,7 +39,7 @@ const detectLanguage = (key: string, value: string): string => {
 
 const ConfigMapDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, cluster, handleResourceClick }) => {
   const { metadata = {}, data = {}, binaryData = {} } = resource;
-  const { openBottomTab } = useStore();
+  const { openBottomTab } = useStore(useShallow((s) => ({ openBottomTab: s.openBottomTab })));
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
 

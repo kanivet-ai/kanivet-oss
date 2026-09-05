@@ -2,13 +2,14 @@ import { useCallback } from 'react';
 import { HelmRelease } from '../types/helm';
 import HelmReleaseList from './HelmReleaseList';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 
 interface HelmPageProps {
   cluster: string;
 }
 
 const HelmPage = ({ cluster }: HelmPageProps) => {
-  const { openDetailTab } = useStore();
+  const { openDetailTab } = useStore(useShallow((s) => ({ openDetailTab: s.openDetailTab })));
 
   const handleSelectRelease = useCallback((release: HelmRelease) => {
     const helmItem = {

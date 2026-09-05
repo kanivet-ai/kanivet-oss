@@ -14,13 +14,23 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes"
 )
+
+const clusterInfoTTL = 10 * time.Minute
 
 type DashboardHandler struct {
 	k8sClient k8s.Interface
 	hub       *core.Hub
 	mu        sync.RWMutex
 	watchers  map[string]*dashboardWatcher
+	infoMu    sync.Mutex
+	info      map[string]clusterInfoEntry
+}
+
+type clusterInfoEntry struct {
+	version, platform, provider, arch string
+	at                                time.Time
 }
 
 type dashboardWatcher struct {
@@ -121,6 +131,7 @@ func NewDashboardHandler(k8sClient k8s.Interface, hub *core.Hub) *DashboardHandl
 		k8sClient: k8sClient,
 		hub:       hub,
 		watchers:  make(map[string]*dashboardWatcher),
+		info:      make(map[string]clusterInfoEntry),
 	}
 }
 
@@ -299,11 +310,22 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
+	// Counts for lists already in hand come for free; only the rest are queried.
+	counted := map[string]bool{}
+	if podErr == nil {
+		metrics.ResourceCounts[":pods"] = len(pods.Items)
+		counted["pods"] = true
+	}
+	if nodeErr == nil {
+		metrics.ResourceCounts[":nodes"] = len(nodes.Items)
+		counted["nodes"] = true
+	}
+
 	wg.Add(7)
 
 	go func() {
 		defer wg.Done()
-		if err := h.fetchResourceCounts(ctx, cluster, metrics, &mu); err != nil {
+		if err := h.fetchResourceCounts(ctx, cluster, metrics, &mu, counted); err != nil {
 			log.Printf("[Dashboard] Failed to fetch resource counts: %v", err)
 		}
 	}()
@@ -362,21 +384,17 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 
 	wg.Wait()
 
-	clusterStatus, err := h.k8sClient.GetClusterStatus(cluster)
-	if err == nil && clusterStatus != nil {
+	if info, ok := h.clusterInfo(ctx, cluster, clientset, nodes); ok {
 		mu.Lock()
 		nodeCount := 0
 		if metrics.NodeStatus != nil {
 			nodeCount = metrics.NodeStatus.Ready + metrics.NodeStatus.NotReady
 		}
-
-		provider, arch := h.detectProviderAndArch(ctx, cluster)
-
 		metrics.ClusterInfo = ClusterInfo{
-			Version:      clusterStatus.Version,
-			Platform:     clusterStatus.Platform,
-			Provider:     provider,
-			Architecture: arch,
+			Version:      info.version,
+			Platform:     info.platform,
+			Provider:     info.provider,
+			Architecture: info.arch,
 			NodeCount:    nodeCount,
 		}
 		mu.Unlock()
@@ -385,7 +403,33 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 	return metrics, nil
 }
 
-func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex) error {
+// clusterInfo returns version/platform/provider/arch, refreshed at most every
+// clusterInfoTTL: the previous path re-ran the full cluster status probe
+// (listing every node and namespace) plus a node list on every 30s tick.
+func (h *DashboardHandler) clusterInfo(ctx context.Context, cluster string, clientset kubernetes.Interface, nodes *v1.NodeList) (clusterInfoEntry, bool) {
+	h.infoMu.Lock()
+	e, ok := h.info[cluster]
+	h.infoMu.Unlock()
+	if ok && time.Since(e.at) < clusterInfoTTL {
+		return e, true
+	}
+	v, err := clientset.Discovery().ServerVersion()
+	if err != nil {
+		return e, ok
+	}
+	e = clusterInfoEntry{version: v.Major + "." + v.Minor, platform: v.Platform, at: time.Now()}
+	if nodes != nil && len(nodes.Items) > 0 {
+		e.provider, e.arch = providerAndArchFromNode(&nodes.Items[0])
+	} else {
+		e.provider, e.arch = h.detectProviderAndArch(ctx, cluster)
+	}
+	h.infoMu.Lock()
+	h.info[cluster] = e
+	h.infoMu.Unlock()
+	return e, true
+}
+
+func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex, counted map[string]bool) error {
 	resourceTypes := []struct {
 		name  string
 		group string
@@ -405,6 +449,9 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 	sem := make(chan struct{}, 5)
 
 	for _, rt := range resourceTypes {
+		if counted[rt.name] {
+			continue
+		}
 		countWg.Add(1)
 		sem <- struct{}{}
 
@@ -825,8 +872,10 @@ func (h *DashboardHandler) detectProviderAndArch(ctx context.Context, cluster st
 	if err != nil || len(nodes.Items) == 0 {
 		return "Unknown", "Unknown"
 	}
+	return providerAndArchFromNode(&nodes.Items[0])
+}
 
-	node := nodes.Items[0]
+func providerAndArchFromNode(node *v1.Node) (string, string) {
 	labels := node.Labels
 
 	provider := "Unknown"

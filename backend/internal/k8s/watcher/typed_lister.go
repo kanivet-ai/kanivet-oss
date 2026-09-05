@@ -11,6 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/kanivet/backend/internal/k8s/watcher/listadapters"
 )
 
 type resourceLister interface {
@@ -65,6 +67,9 @@ func (t *typedLister) List(ctx context.Context, opts metav1.ListOptions) (*unstr
 	if err != nil {
 		return nil, err
 	}
+	if ul, ok := listadapters.TypedList(obj, t.gvr); ok {
+		return ul, nil
+	}
 	return typedListToUnstructured(obj)
 }
 
@@ -111,7 +116,7 @@ func (a *typedWatchAdapter) run() {
 				continue
 			}
 			if ev.Type != watch.Error && ev.Type != watch.Bookmark {
-				if _, already := ev.Object.(*unstructured.Unstructured); !already {
+				if _, already := ev.Object.(*unstructured.Unstructured); !already && !listadapters.HasTypedAdapter(ev.Object) {
 					if m, err := runtime.DefaultUnstructuredConverter.ToUnstructured(ev.Object); err == nil {
 						ev.Object = &unstructured.Unstructured{Object: m}
 					}
@@ -452,13 +457,13 @@ var nativeKinds = map[string]map[string]bool{
 		"serviceaccounts": true, "persistentvolumeclaims": true, "endpoints": true,
 		"nodes": true, "namespaces": true, "persistentvolumes": true, "replicationcontrollers": true,
 	},
-	"apps":                     {"deployments": true, "statefulsets": true, "daemonsets": true, "replicasets": true},
-	"batch":                    {"jobs": true, "cronjobs": true},
-	"networking.k8s.io":        {"ingresses": true, "networkpolicies": true, "ingressclasses": true},
+	"apps":                      {"deployments": true, "statefulsets": true, "daemonsets": true, "replicasets": true},
+	"batch":                     {"jobs": true, "cronjobs": true},
+	"networking.k8s.io":         {"ingresses": true, "networkpolicies": true, "ingressclasses": true},
 	"rbac.authorization.k8s.io": {"roles": true, "rolebindings": true, "clusterroles": true, "clusterrolebindings": true},
-	"storage.k8s.io":           {"storageclasses": true, "csidrivers": true, "csinodes": true},
-	"policy":                   {"poddisruptionbudgets": true},
-	"autoscaling":              {"horizontalpodautoscalers": true},
+	"storage.k8s.io":            {"storageclasses": true, "csidrivers": true, "csinodes": true},
+	"policy":                    {"poddisruptionbudgets": true},
+	"autoscaling":               {"horizontalpodautoscalers": true},
 }
 
 func isNativeKind(gvr schema.GroupVersionResource) bool {

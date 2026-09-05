@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
 import api from '../../../services/api';
 import { useStore } from '../../../store';
+import { useShallow } from 'zustand/react/shallow';
 import useResourceNavigation from '../../../hooks/useResourceNavigation';
 import { useVisibleInterval } from '../../../hooks/useVisibleInterval';
 import { ArgoDestinationMap } from '../../../services/api/resources';
@@ -90,7 +91,7 @@ const ApplicationTopology = ({ cluster, namespace, name, destinations }: Props) 
   const [navigatingTo, setNavigatingTo] = useState<string | null>(null);
   const [syncingNode, setSyncingNode] = useState<string | null>(null);
   const [menuOpen, setMenuOpen] = useState<string | null>(null);
-  const { openTab } = useStore();
+  const { openTab } = useStore(useShallow((s) => ({ openTab: s.openTab })));
   const { navigateToResource } = useResourceNavigation(cluster);
 
   useEffect(() => {

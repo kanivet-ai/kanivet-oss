@@ -86,10 +86,7 @@ func (h *MetricsStreamHandler) startStream(ctx context.Context, conn *core.Conne
 	// Stop any existing stream for this connection/topic
 	_ = h.stopStream(streamKey)
 
-	streamingRate := req.StreamingRate
-	if streamingRate <= 0 {
-		streamingRate = 2 // Reduce default from 5 seconds to 2 seconds
-	}
+	interval := metrics.StreamInterval(req.TimeRange, req.StreamingRate)
 
 	// Create a cancellable context for this stream
 	streamCtx, cancel := context.WithCancel(ctx)
@@ -97,13 +94,13 @@ func (h *MetricsStreamHandler) startStream(ctx context.Context, conn *core.Conne
 
 	// Check if this is a workload batch query (has PodNames)
 	if len(req.PodNames) > 0 {
-		go h.streamWorkloadMetrics(streamCtx, conn, req, topic, time.Duration(streamingRate)*time.Second)
+		go h.streamWorkloadMetrics(streamCtx, conn, req, topic, interval)
 	} else {
 		// Start the streaming goroutine for single pod/node
-		go h.streamMetrics(streamCtx, conn, req, topic, time.Duration(streamingRate)*time.Second)
+		go h.streamMetrics(streamCtx, conn, req, topic, interval)
 	}
 
-	log.Printf("[MetricsStream] Started streaming for %s at %ds intervals", streamKey, streamingRate)
+	log.Printf("[MetricsStream] Started streaming for %s at %s intervals", streamKey, interval)
 	return nil
 }
 
