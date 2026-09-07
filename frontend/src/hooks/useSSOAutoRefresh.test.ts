@@ -6,13 +6,18 @@ const state = vi.hoisted(() => ({
   startLogin: vi.fn(),
 }));
 
-vi.mock('react', () => ({
-  useEffect: (effect: () => void | (() => void)) => {
-    const cleanup = effect();
-    if (cleanup) state.cleanups.push(cleanup);
-  },
-  useRef: <T>(current: T) => ({ current }),
-}));
+vi.mock('react', () => {
+  const react = {
+    useEffect: (effect: () => void | (() => void)) => {
+      const cleanup = effect();
+      if (cleanup) state.cleanups.push(cleanup);
+    },
+    useRef: <T>(current: T) => ({ current }),
+  };
+  return { ...react, default: react };
+});
+
+vi.mock('zustand/react/shallow', () => ({ useShallow: (selector: any) => selector }));
 
 vi.mock('../store', () => ({
   useStore: () => ({

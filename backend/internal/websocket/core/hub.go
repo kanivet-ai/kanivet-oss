@@ -6,6 +6,7 @@ import (
 	"log"
 	"runtime/debug"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bytedance/sonic"
@@ -49,6 +50,7 @@ type Hub struct {
 	cancel           context.CancelFunc
 	wg               sync.WaitGroup
 	heartbeatStarted sync.Once
+	chain            atomic.Pointer[MessageHandlerFunc]
 }
 
 func NewHub(config *HubConfig, router Router, subManager SubscriptionManager) *Hub {
@@ -86,6 +88,7 @@ func NewHub(config *HubConfig, router Router, subManager SubscriptionManager) *H
 func (h *Hub) AddMiddleware(m Middleware) {
 	h.regMu.Lock()
 	h.middleware = append(h.middleware, m)
+	h.chain.Store(nil)
 	h.regMu.Unlock()
 }
 
@@ -229,13 +232,21 @@ func (h *Hub) handleConnection(conn *Connection) {
 }
 
 func (h *Hub) buildHandlerChain() MessageHandlerFunc {
+	if c := h.chain.Load(); c != nil {
+		return *c
+	}
 	handler := MessageHandlerFunc(h.router.Route)
 	h.regMu.RLock()
-	defer h.regMu.RUnlock()
 	for i := len(h.middleware) - 1; i >= 0; i-- {
 		handler = h.middleware[i].Wrap(handler)
 	}
+	h.regMu.RUnlock()
+	h.chain.Store(&handler)
 	return handler
+}
+
+func (h *Hub) HasSubscribers(topic string) bool {
+	return h.subManager.HasSubscribers(topic)
 }
 
 func (h *Hub) Broadcast(topic string, msg Message) error {

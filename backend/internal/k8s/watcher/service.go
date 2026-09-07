@@ -365,6 +365,12 @@ func (s *Service) StartWatch(cluster, group, version, kind, namespace, sortBy, s
 	return err
 }
 
+// IsWatching reports whether a live (or grace-pending) cluster-wide watch exists
+// for the resource, meaning its events already keep downstream consumers fresh.
+func (s *Service) IsWatching(cluster, group, version, resource string) bool {
+	return s.manager.HasWatch(topics.BuildItemsTopic(cluster, group, version, resource, ""))
+}
+
 func (s *Service) StopWatch(cluster, group, version, kind, namespace string) {
 	topic := topics.BuildItemsTopic(cluster, group, version, kind, namespace)
 	s.manager.StopWatch(topic)
@@ -948,16 +954,28 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 			}
 			return "", err
 		}
+		// Items already sent in the full first page are skipped in the RV=0
+		// sweep unless their resourceVersion moved in between.
+		sentRV := make(map[string]string)
 		if firstList != nil && len(firstList.Items) > 0 {
+			pre := listadapters.IsPresimplified(firstList)
 			pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
-			for i := range firstList.Items {
-				pageItems = append(pageItems, simplifyUnstructuredMinimal(&firstList.Items[i], gvr))
-			}
-			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, true, epoch)
 			fullPageItems := make([]map[string]interface{}, 0, len(firstList.Items))
 			for i := range firstList.Items {
-				fullPageItems = append(fullPageItems, listadapters.Simplify(&firstList.Items[i], gvr))
+				var full, minimal map[string]interface{}
+				if pre {
+					full = firstList.Items[i].Object
+					minimal = listadapters.MinimalProjection(full)
+				} else {
+					full = listadapters.Simplify(&firstList.Items[i], gvr)
+					minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
+				}
+				pageItems = append(pageItems, minimal)
+				fullPageItems = append(fullPageItems, full)
+				rv, _ := full["resourceVersion"].(string)
+				sentRV[itemKeyOf(full)] = rv
 			}
+			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, true, epoch)
 			s.broadcastPage(topic, fullPageItems, currentItems, sortBy, sortOrder, false, epoch)
 		}
 
@@ -973,11 +991,19 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 			return "", fmt.Errorf("list for %s returned no result", topic)
 		}
 		listResourceVersion = res.list.GetResourceVersion()
+		pre := listadapters.IsPresimplified(res.list)
 		for start := 0; start < len(res.list.Items); start += pageSize {
 			end := min(start+pageSize, len(res.list.Items))
 			pageItems := make([]map[string]interface{}, 0, end-start)
 			for i := start; i < end; i++ {
-				pageItems = append(pageItems, listadapters.Simplify(&res.list.Items[i], gvr))
+				item := res.list.Items[i].Object
+				if !pre {
+					item = listadapters.Simplify(&res.list.Items[i], gvr)
+				}
+				if rv, seen := sentRV[itemKeyOf(item)]; seen && rv == item["resourceVersion"] {
+					continue
+				}
+				pageItems = append(pageItems, item)
 			}
 			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch)
 		}
@@ -989,12 +1015,7 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 
 	cachedItems := s.cache.GetAll(topic)
 	for _, cached := range cachedItems {
-		name, _ := cached["name"].(string)
-		ns, _ := cached["namespace"].(string)
-		key := ns + "/" + name
-		if ns == "" {
-			key = name
-		}
+		key := itemKeyOf(cached)
 		if !currentItems[key] {
 			s.cache.Delete(topic, cached)
 			msg := &ResourceEventMessage{
@@ -1028,13 +1049,7 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 	}
 	sortCachedItems(items, sortBy, sortOrder)
 	for _, item := range items {
-		name, _ := item["name"].(string)
-		ns, _ := item["namespace"].(string)
-		key := ns + "/" + name
-		if ns == "" {
-			key = name
-		}
-		currentItems[key] = true
+		currentItems[itemKeyOf(item)] = true
 		s.cache.Set(topic, item)
 	}
 	msg := &BulkListMessage{
@@ -1052,6 +1067,11 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 }
 
 func (s *Service) handleResourceEventSimple(event watch.Event, gvr schema.GroupVersionResource, topic string) {
+	action := strings.ToLower(string(event.Type))
+	if item, ok := listadapters.SimplifyTyped(event.Object, gvr); ok {
+		s.emitResourceEvent(topic, gvr, action, item, true)
+		return
+	}
 	u, ok := event.Object.(*unstructured.Unstructured)
 	if !ok || u == nil {
 		m, mok := event.Object.(metav1.Object)
@@ -1072,34 +1092,13 @@ func (s *Service) handleResourceEventSimple(event watch.Event, gvr schema.GroupV
 		if dt := m.GetDeletionTimestamp(); dt != nil && !dt.IsZero() {
 			item["deletionTimestamp"] = dt.Format(time.RFC3339)
 		}
-
-		action := strings.ToLower(string(event.Type))
-		switch action {
-		case "added", "modified":
-			s.cache.Set(topic, item)
-		case "deleted":
-			s.cache.Delete(topic, item)
-		}
-
-		msg := &ResourceEventMessage{
-			BaseMessage: core.BaseMessage{MessageType: "event", Timestamp: time.Now()},
-			Channel:     "items",
-			Topic:       topic,
-			Action:      action,
-			Item:        item,
-		}
-		if err := s.hub.Broadcast(topic, msg); err != nil {
-			log.Printf("Failed to broadcast %s event for topic %s: %v", action, topic, err)
-		}
-		if action == "added" || action == "deleted" {
-			s.publishCountUpdate(topic, gvr)
-		}
+		s.emitResourceEvent(topic, gvr, action, item, false)
 		return
 	}
+	s.emitResourceEvent(topic, gvr, action, listadapters.Simplify(u, gvr), true)
+}
 
-	item := listadapters.Simplify(u, gvr)
-	action := strings.ToLower(string(event.Type))
-
+func (s *Service) emitResourceEvent(topic string, gvr schema.GroupVersionResource, action string, item map[string]interface{}, invalidate bool) {
 	switch action {
 	case "added", "modified":
 		s.cache.Set(topic, item)
@@ -1107,7 +1106,7 @@ func (s *Service) handleResourceEventSimple(event watch.Event, gvr schema.GroupV
 		s.cache.Delete(topic, item)
 	}
 
-	if s.invalidationBus != nil {
+	if invalidate && s.invalidationBus != nil {
 		cluster, _, _, _, _, ok := topics.ParseItemsTopic(topic)
 		if ok {
 			namespace, _ := item["namespace"].(string)
@@ -1240,9 +1239,12 @@ func (c *ResourceCache) Topics() []string {
 }
 
 func (c *ResourceCache) getItemKey(item map[string]interface{}) string {
+	return itemKeyOf(item)
+}
+
+func itemKeyOf(item map[string]interface{}) string {
 	name, _ := item["name"].(string)
-	namespace, _ := item["namespace"].(string)
-	if namespace != "" {
+	if namespace, _ := item["namespace"].(string); namespace != "" {
 		return namespace + "/" + name
 	}
 	return name

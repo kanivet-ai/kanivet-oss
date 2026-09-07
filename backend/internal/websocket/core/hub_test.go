@@ -102,6 +102,10 @@ func (sm *mockSubscriptionManager) GetSubscribers(topic string) []*Connection {
 	return subscribers
 }
 
+func (sm *mockSubscriptionManager) HasSubscribers(topic string) bool {
+	return len(sm.GetSubscribers(topic)) > 0
+}
+
 func (sm *mockSubscriptionManager) GetTopics(conn *Connection) []string {
 	var topics []string
 	connSuffix := ":" + string(conn.ID())

@@ -1,5 +1,6 @@
 import { useCallback } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 
 export interface NavigationTarget {
   resource: {
@@ -25,7 +26,7 @@ export const useNavigationLink = (target: NavigationTarget) => {
     selectItem,
     loadDetails,
     updateCurrentTabState,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, selectNode: s.selectNode, loadListItems: s.loadListItems, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, loadTreeData: s.loadTreeData, selectItem: s.selectItem, loadDetails: s.loadDetails, updateCurrentTabState: s.updateCurrentTabState })));
 
   return useCallback(
     async (e: React.MouseEvent) => {

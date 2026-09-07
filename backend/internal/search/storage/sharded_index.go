@@ -157,8 +157,8 @@ func (s *ShardedIndex) RemoveByCoordinates(cluster, namespace, name string) int 
 
 // ReconcileType removes stale documents of a resource type on the cluster's
 // shard whose namespace/name is absent from liveKeys. Returns the removed IDs.
-func (s *ShardedIndex) ReconcileType(cluster, group, version string, liveKeys map[string]struct{}) []string {
-	return s.shardForCluster(cluster).ReconcileType(cluster, group, version, liveKeys)
+func (s *ShardedIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}) []string {
+	return s.shardForCluster(cluster).ReconcileType(cluster, group, version, kind, liveKeys)
 }
 
 // DocumentCount sums document counts across all shards.

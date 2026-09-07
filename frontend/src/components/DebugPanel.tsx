@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import './DebugPanel.css';
 
+const isDev = process.env.NODE_ENV !== 'production' || (window as any).electron?.isDev;
+
 interface PerformanceStats {
   renderTime: number;
   nodeCount: number;
@@ -113,6 +115,7 @@ const DebugPanel = ({
   });
 
   useEffect(() => {
+    if (!isDev) return;
     const renderEndTime = performance.now();
     const renderTime = renderEndTime - renderStartTime.current;
 
@@ -133,6 +136,7 @@ const DebugPanel = ({
   }, [treeData]);
 
   useEffect(() => {
+    if (!isDev) return;
     const updateNetworkStats = () => {
       const apiPerformance = (window as any).__apiPerformance || [];
       const avgResponseTime =
@@ -159,6 +163,7 @@ const DebugPanel = ({
   }, []);
 
   useEffect(() => {
+    if (!isDev) return;
     const updateRealtimeStats = () => {
       const wsCount = (window as any).__activeWebSockets || 0;
 
@@ -195,9 +200,6 @@ const DebugPanel = ({
     const interval = setInterval(updateRealtimeStats, 1000);
     return () => clearInterval(interval);
   }, []);
-
-  const isDev =
-    process.env.NODE_ENV !== 'production' || (window as any).electron?.isDev;
 
   if (!isDev) return null;
 

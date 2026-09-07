@@ -7,6 +7,7 @@ import ContainerSelector from '../ContainerSelector';
 import CrossplaneIcon from '../icons/CrossplaneIcon';
 import { Tooltip } from './Tooltip';
 import { useStore } from '../../store';
+import { useShallow } from 'zustand/react/shallow';
 import api from '../../services/api';
 import { workloadControllerKinds } from '../../utils/resourceActions';
 import './TabContent.css';
@@ -19,7 +20,7 @@ interface TabContentProps {
 }
 
 const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentProps) => {
-  const { openBottomTab } = useStore();
+  const { openBottomTab } = useStore(useShallow((s) => ({ openBottomTab: s.openBottomTab })));
   const [showContainerSelector, setShowContainerSelector] = useState(false);
   const [isCrossplaneResource, setIsCrossplaneResource] = useState(false);
   const shellButtonRef = useRef<HTMLButtonElement>(null);

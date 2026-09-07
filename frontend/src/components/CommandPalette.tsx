@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './CommandPalette.css';
 import api from '../services/api';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import type { SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
@@ -57,7 +58,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     selectNode,
     setFocusArea,
     recordNavigation,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, loadListItems: s.loadListItems, selectNode: s.selectNode, setFocusArea: s.setFocusArea, recordNavigation: s.recordNavigation })));
 
   // Focus input when opened
   useEffect(() => {

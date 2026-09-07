@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useStore, MonitoringSettings } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import type { MimirServiceInfo } from '../services/api/metrics';
 import './MonitoringSettingsModal.css';
@@ -19,7 +20,7 @@ interface MonitoringSettingsModalProps {
 }
 
 const MonitoringSettingsModal = ({ onClose, cluster }: MonitoringSettingsModalProps) => {
-  const { monitoringSettings, setMonitoringSettings, currentTab } = useStore();
+  const { monitoringSettings, setMonitoringSettings, currentTab } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettings, setMonitoringSettings: s.setMonitoringSettings, currentTab: s.currentTab })));
   const [settings, setSettings] = useState<MonitoringSettings>({ ...monitoringSettings });
   const [detectedProviders, setDetectedProviders] = useState<Record<string, ProviderInfo>>({});
   const [loading, setLoading] = useState(true);

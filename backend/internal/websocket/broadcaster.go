@@ -27,6 +27,9 @@ func NewWatcherBroadcaster(hub *core.Hub) *WatcherBroadcaster {
 }
 
 func (wb *WatcherBroadcaster) Broadcast(topic string, message watcher.Message) error {
+	if !wb.hub.HasSubscribers(topic) {
+		return nil
+	}
 	coreMsg := &WatcherMessage{
 		BaseMessage: core.BaseMessage{MessageType: "event"},
 		msgData:     message.GetData(),
@@ -49,6 +52,9 @@ func messageType(msgData map[string]interface{}) core.MessageType {
 }
 
 func (wb *WatcherBroadcaster) BroadcastDirect(topic string, message watcher.Message) error {
+	if !wb.hub.HasSubscribers(topic) {
+		return nil
+	}
 	msgData := message.GetData()
 	coreMsg := &WatcherMessage{
 		BaseMessage: core.BaseMessage{MessageType: messageType(msgData)},

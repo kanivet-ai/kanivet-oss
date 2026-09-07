@@ -3,6 +3,7 @@ import { flushSync } from 'react-dom';
 import CenterPaneSplitPane, { SplitNode } from './CenterPaneSplitPane';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './CenterPaneSplitContainer.css';
 
 const countLeafNodes = (node: SplitNode): number => {
@@ -30,7 +31,7 @@ const getInitialLayout = (tabId: string): { rootNode: SplitNode; focusedNodeId: 
 };
 
 const CenterPaneSplitContainer = ({ tabId }: CenterPaneSplitContainerProps) => {
-  const { updateCurrentTabState } = useStore();
+  const { updateCurrentTabState } = useStore(useShallow((s) => ({ updateCurrentTabState: s.updateCurrentTabState })));
   const initialState = useRef(getInitialLayout(tabId));
   const [rootNode, setRootNode] = useState<SplitNode>(initialState.current.rootNode);
   const [focusedNodeId, setFocusedNodeId] = useState<string>(initialState.current.focusedNodeId);

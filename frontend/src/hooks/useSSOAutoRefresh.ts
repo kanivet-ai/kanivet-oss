@@ -1,11 +1,12 @@
 import { useEffect, useRef } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 
 const SSO_CHECK_INTERVAL = 60 * 1000;
 const REFRESH_THRESHOLD = 5 * 60 * 1000;
 
 export function useSSOAutoRefresh() {
-  const { ssoSessions, loadSsoSessions, refreshSsoSession, ssoSessionsLoaded } = useStore();
+  const { ssoSessions, loadSsoSessions, refreshSsoSession, ssoSessionsLoaded } = useStore(useShallow((s) => ({ ssoSessions: s.ssoSessions, loadSsoSessions: s.loadSsoSessions, refreshSsoSession: s.refreshSsoSession, ssoSessionsLoaded: s.ssoSessionsLoaded })));
   const refreshingRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {

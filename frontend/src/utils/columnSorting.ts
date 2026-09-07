@@ -58,26 +58,17 @@ export const sortItems = <T>(
 ): T[] => {
   if (!sortBy) return items;
 
-  const sorted = [...items].sort((a, b) => {
-    const aValue = getSortValue(a, sortBy);
-    const bValue = getSortValue(b, sortBy);
-
-    if (typeof aValue === 'string' && typeof bValue === 'string') {
-      const comparison = aValue
-        .toLowerCase()
-        .localeCompare(bValue.toLowerCase());
-      return sortOrder === 'asc' ? comparison : -comparison;
-    } else if (typeof aValue === 'number' && typeof bValue === 'number') {
-      return sortOrder === 'asc' ? aValue - bValue : bValue - aValue;
-    } else {
-      const aStr = String(aValue);
-      const bStr = String(bValue);
-      const comparison = aStr.localeCompare(bStr);
-      return sortOrder === 'asc' ? comparison : -comparison;
-    }
+  const dir = sortOrder === 'asc' ? 1 : -1;
+  const keyed = items.map((item) => {
+    const v = getSortValue(item, sortBy);
+    return { item, v, s: typeof v === 'string' ? v.toLowerCase() : null };
   });
-
-  return sorted;
+  keyed.sort((a, b) => {
+    if (a.s !== null && b.s !== null) return dir * a.s.localeCompare(b.s);
+    if (typeof a.v === 'number' && typeof b.v === 'number') return dir * (a.v - b.v);
+    return dir * String(a.v).localeCompare(String(b.v));
+  });
+  return keyed.map((k) => k.item);
 };
 
 export const getSortIndicator = (

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ExclamationTriangleIcon, ReloadIcon } from '@radix-ui/react-icons';
 import { useStore, ClusterError } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './ClusterErrorBanner.css';
 
 const getErrorTitle = (errorCode: string) => {
@@ -47,7 +48,7 @@ const getRefreshCommand = (errorCode: string, cluster: string) => {
 };
 
 const ClusterErrorBanner = () => {
-  const { currentTab, clusterErrors, clearClusterError } = useStore();
+  const { currentTab, clusterErrors, clearClusterError } = useStore(useShallow((s) => ({ currentTab: s.currentTab, clusterErrors: s.clusterErrors, clearClusterError: s.clearClusterError })));
   const [isRetrying, setIsRetrying] = useState(false);
   const retryStartRef = useRef<number>(0);
 
