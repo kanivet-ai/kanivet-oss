@@ -20,6 +20,7 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import { Line } from 'react-chartjs-2';
 import api from '../services/api';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import MonitoringSettingsModal from './MonitoringSettingsModal';
 import './PodMetrics.css';
 
@@ -211,7 +212,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
   resourceLimits,
   resourceRequests,
 }) => {
-  const { monitoringSettings } = useStore();
+  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettings })));
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('cpu');
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('15m');
   const [metricsData, setMetricsData] = useState<{

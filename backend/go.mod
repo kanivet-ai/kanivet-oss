@@ -24,7 +24,6 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
-	github.com/patrickmn/go-cache v2.1.0+incompatible
 	golang.org/x/time v0.12.0
 	google.golang.org/api v0.239.0
 	gopkg.in/ini.v1 v1.67.0

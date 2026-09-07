@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import api from '../services/api';
 import ResourceLink from './ResourceLink';
+import { useVisibleInterval } from '../hooks/useVisibleInterval';
 import './CrossplaneTrace.css';
 
 interface TraceNode {
@@ -37,7 +38,6 @@ const CrossplaneTrace = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedNodes, setExpandedNodes] = useState<Set<string>>(new Set());
-  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const loadTrace = useCallback(async () => {
     setLoading(true);
@@ -88,27 +88,9 @@ const CrossplaneTrace = ({
 
   useEffect(() => {
     loadTrace();
+  }, [loadTrace]);
 
-    // Set up auto-refresh every 10 seconds
-    refreshIntervalRef.current = setInterval(() => {
-      loadTraceSilently();
-    }, 10000);
-
-    return () => {
-      if (refreshIntervalRef.current) {
-        clearInterval(refreshIntervalRef.current);
-      }
-    };
-  }, [
-    cluster,
-    group,
-    version,
-    kind,
-    namespace,
-    name,
-    loadTrace,
-    loadTraceSilently,
-  ]);
+  useVisibleInterval(loadTraceSilently, 10000);
 
   const getNodeId = (node: TraceNode): string => {
     return `${node.apiVersion}-${node.kind}-${node.namespace || 'cluster'}-${

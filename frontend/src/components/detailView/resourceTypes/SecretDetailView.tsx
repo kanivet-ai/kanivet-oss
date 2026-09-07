@@ -9,6 +9,7 @@ import EventsSection from '../shared/EventsSection';
 import { formatBytes, decodeSecret } from '../../../utils/detailViewFormatters';
 import { installKanivetMonacoTheme, KANIVET_MONACO_THEME } from '../../../utils/monacoTheme';
 import { useStore } from '../../../store';
+import { useShallow } from 'zustand/react/shallow';
 import { DetailViewPropsWithCluster } from '../../../types/detailView';
 import './SecretDetailView.css';
 
@@ -48,7 +49,7 @@ const detectLanguage = (key: string, value: string): string => {
 
 const SecretDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, cluster, handleResourceClick }) => {
   const { metadata = {}, data = {}, type = 'Opaque' } = resource;
-  const { openBottomTab } = useStore();
+  const { openBottomTab } = useStore(useShallow((s) => ({ openBottomTab: s.openBottomTab })));
   const [searchTerm, setSearchTerm] = useState('');
   const [revealedKeys, setRevealedKeys] = useState<Record<string, boolean>>({});
   const [expandedKeys, setExpandedKeys] = useState<Record<string, boolean>>({});

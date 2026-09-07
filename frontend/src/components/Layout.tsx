@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { notifyWelcome } from '../services/islandNotifications';
 import TreeSidebar from './TreeSidebar';
 import CenterPaneSplitContainer from './CenterPaneSplitContainer';
@@ -12,6 +12,7 @@ import ToastContainer from './ToastContainer';
 import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
 import { getCachedBatchClusterStatus } from '../services/api/clusters';
@@ -31,8 +32,6 @@ const Layout = () => {
     navigateBack,
     navigateForward,
     setFocusArea,
-    getCurrentTabState,
-    activeTabs,
     setCurrentTab,
     openTab,
     closeTab,
@@ -40,7 +39,7 @@ const Layout = () => {
     openBottomTab,
     ssoSessions,
     refreshSsoSession,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ loadClusters: s.loadClusters, loadClusterAliases: s.loadClusterAliases, currentTab: s.currentTab, navigateBack: s.navigateBack, navigateForward: s.navigateForward, setFocusArea: s.setFocusArea, setCurrentTab: s.setCurrentTab, openTab: s.openTab, closeTab: s.closeTab, hydrateFromStorage: s.hydrateFromStorage, openBottomTab: s.openBottomTab, ssoSessions: s.ssoSessions, refreshSsoSession: s.refreshSsoSession })));
   const hasClusterError = useStore((s) => Boolean(currentTab && s.clusterErrors[currentTab]));
   const setClusterError = useStore((s) => s.setClusterError);
 
@@ -94,15 +93,15 @@ const Layout = () => {
   const [showThemeSettings, setShowThemeSettings] = useState(false);
   const [showComponentLibrary, setShowComponentLibrary] = useState(false);
   const [showSSOManager, setShowSSOManager] = useState(false);
-  const tabState = getCurrentTabState();
-  const focusArea = tabState?.focusArea || 'tree';
+  const { focusArea, hasListItems, hasDetailData, hasDetailTabs, isDetailsPanelCollapsed } = useStore(useShallow((s) => {
+    const t = s.getCurrentTabState();
+    return { focusArea: t?.focusArea || 'tree', hasListItems: (t?.listItems?.length || 0) > 0, hasDetailData: !!t?.detailData, hasDetailTabs: (t?.detailTabs?.length || 0) > 0, isDetailsPanelCollapsed: t?.isDetailsPanelCollapsed || false };
+  }));
+  const tabIds = useStore(useShallow((s) => s.activeTabs.map((t) => t.id)));
+  const tabNames = useStore(useShallow((s) => s.activeTabs.map((t) => t.name)));
+  const activeTabs = useMemo(() => tabIds.map((id, i) => ({ id, name: tabNames[i] })), [tabIds, tabNames]);
 
   useSSOAutoRefresh();
-  const listItems = tabState?.listItems || [];
-  const detailData = tabState?.detailData || null;
-  const detailTabs = tabState?.detailTabs || [];
-  const hasDetailTabs = detailTabs.length > 0;
-  const isDetailsPanelCollapsed = tabState?.isDetailsPanelCollapsed || false;
 
   useEffect(() => {
     loadClusters().then(() => notifyWelcome(useStore.getState().clusters.length)).catch(() => {});
@@ -349,8 +348,8 @@ const Layout = () => {
         createFocusNavigationHandlers(
           focusArea,
           setFocusArea,
-          listItems,
-          detailData,
+          hasListItems,
+          hasDetailData,
           isDetailsPanelCollapsed,
           hasDetailTabs,
         )
@@ -567,7 +566,7 @@ const Layout = () => {
                   <CenterPaneSplitContainer tabId={currentTab} />
                   <BottomDock />
                 </div>
-                {(detailData || hasDetailTabs) && <DetailView />}
+                {(hasDetailData || hasDetailTabs) && <DetailView />}
               </div>
             )}
             {hasClusterError && currentTab && <ClusterErrorBanner />}

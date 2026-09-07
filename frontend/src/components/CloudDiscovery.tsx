@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import cloudService from '../services/cloudService';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { SSOSession } from '../store/types';
 import {
   CloudProvider,
@@ -52,7 +53,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
     removeSsoSession: removeStoreSsoSession,
     updateSsoSessionLabel,
     refreshSsoSession,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ ssoSessions: s.ssoSessions, loadSsoSessions: s.loadSsoSessions, addSsoSession: s.addSsoSession, removeSsoSession: s.removeSsoSession, updateSsoSessionLabel: s.updateSsoSessionLabel, refreshSsoSession: s.refreshSsoSession })));
 
   const [activeTab, setActiveTab] = useState<TabId>('aws');
   const [authStatus, setAuthStatus] = useState<CloudAuthStatus>({ aws: false, gcp: false, azure: false });

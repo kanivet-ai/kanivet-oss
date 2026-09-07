@@ -15,6 +15,7 @@ import YamlEditor from './YamlEditor';
 import CrossplaneTrace from './CrossplaneTrace';
 import TerminalContainer from './TerminalContainer';
 import { useStore, type BottomTab } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import useResizableHeight from '../hooks/useResizableHeight';
 import './BottomDock.css';
 
@@ -25,7 +26,7 @@ const BottomDock = () => {
     closeBottomTab,
     setActiveBottomTab,
     moveBottomTab,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ bottomTabs: s.bottomTabs, activeBottomTab: s.activeBottomTab, closeBottomTab: s.closeBottomTab, setActiveBottomTab: s.setActiveBottomTab, moveBottomTab: s.moveBottomTab })));
   const [maxHeight, setMaxHeight] = useState(window.innerHeight * 0.8);
   const [showDropZone, setShowDropZone] = useState(false);
   const [isDraggingBottomTab, setIsDraggingBottomTab] = useState(false);

@@ -1,6 +1,7 @@
 package db
 
 import (
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -75,43 +76,99 @@ func (db *DB) GetEventListener(cluster string) (*EventListener, error) {
 	return &listener, err
 }
 
+var (
+	trimMu   sync.Mutex
+	lastTrim = map[string]time.Time{}
+)
+
+func trimDue(cluster string) bool {
+	trimMu.Lock()
+	defer trimMu.Unlock()
+	if time.Since(lastTrim[cluster]) < time.Minute {
+		return false
+	}
+	lastTrim[cluster] = time.Now()
+	return true
+}
+
+// StoreEvents upserts by event UID so re-delivered events update their row
+// instead of duplicating it, and trims the per-cluster window at most once a
+// minute rather than counting the table on every batch.
 func (db *DB) StoreEvents(cluster string, events []K8sEvent) error {
 	if len(events) == 0 {
 		return nil
 	}
+	now := time.Now()
+	byUID := make(map[string]*K8sEvent, len(events))
+	var fresh []K8sEvent
+	for i := range events {
+		e := &events[i]
+		e.Cluster, e.CreatedAt = cluster, now
+		if e.UID == "" {
+			fresh = append(fresh, *e)
+			continue
+		}
+		if prev, dup := byUID[e.UID]; dup {
+			*prev = *e
+			continue
+		}
+		byUID[e.UID] = e
+	}
+	uids := make([]string, 0, len(byUID))
+	for uid := range byUID {
+		uids = append(uids, uid)
+	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
-		for i := range events {
-			events[i].Cluster = cluster
-			events[i].CreatedAt = time.Now()
-		}
-
-		if err := tx.Create(&events).Error; err != nil {
-			return err
-		}
-
-		var eventCount int64
-		if err := tx.Model(&K8sEvent{}).Where("cluster = ?", cluster).Count(&eventCount).Error; err != nil {
-			return err
-		}
-
-		const maxEvents = 10000
-		if eventCount > maxEvents {
-			deleteCount := eventCount - maxEvents
-			if err := tx.Where("cluster = ?", cluster).
-				Order("event_time ASC, created_at ASC").
-				Limit(int(deleteCount)).
-				Delete(&K8sEvent{}).Error; err != nil {
+		existing := make(map[string]uint, len(uids))
+		for start := 0; start < len(uids); start += 500 {
+			var rows []K8sEvent
+			if err := tx.Select("id", "uid").Where("cluster = ? AND uid IN ?", cluster, uids[start:min(start+500, len(uids))]).Find(&rows).Error; err != nil {
 				return err
+			}
+			for _, r := range rows {
+				existing[r.UID] = r.ID
+			}
+		}
+		for uid, e := range byUID {
+			id, ok := existing[uid]
+			if !ok {
+				fresh = append(fresh, *e)
+				continue
+			}
+			err := tx.Model(&K8sEvent{}).Where("id = ?", id).Updates(map[string]interface{}{
+				"type": e.Type, "reason": e.Reason, "message": e.Message, "count": e.Count,
+				"first_timestamp": e.FirstTimestamp, "last_timestamp": e.LastTimestamp, "event_time": e.EventTime,
+				"source_component": e.SourceComponent, "source_host": e.SourceHost,
+			}).Error
+			if err != nil {
+				return err
+			}
+		}
+		if len(fresh) > 0 {
+			if err := tx.Create(&fresh).Error; err != nil {
+				return err
+			}
+			if trimDue(cluster) {
+				var eventCount int64
+				if err := tx.Model(&K8sEvent{}).Where("cluster = ?", cluster).Count(&eventCount).Error; err != nil {
+					return err
+				}
+				const maxEvents = 10000
+				if eventCount > maxEvents {
+					if err := tx.Exec(`DELETE FROM k8s_events WHERE id IN (SELECT id FROM k8s_events WHERE cluster = ? ORDER BY event_time ASC, created_at ASC LIMIT ?)`, cluster, eventCount-maxEvents).Error; err != nil {
+						return err
+					}
+				}
 			}
 		}
 
 		return tx.Model(&EventListener{}).
 			Where("cluster = ?", cluster).
 			Updates(map[string]interface{}{
-				"event_count":     gorm.Expr("event_count + ?", len(events)),
-				"last_event_time": time.Now(),
-				"updated_at":      time.Now(),
+				"event_count":     gorm.Expr("event_count + ?", len(fresh)),
+				"last_event_time": now,
+				"updated_at":      now,
 			}).Error
 	})
 }

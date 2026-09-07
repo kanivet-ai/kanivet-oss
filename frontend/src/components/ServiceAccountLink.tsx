@@ -1,6 +1,7 @@
 import React from 'react';
 import NavigationLink from './common/NavigationLink';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './ServiceAccountLink.css';
 
 interface ServiceAccountLinkProps {
@@ -12,7 +13,7 @@ const ServiceAccountLink: React.FC<ServiceAccountLinkProps> = ({
   serviceAccountName,
   namespace,
 }) => {
-  const { currentTab } = useStore();
+  const { currentTab } = useStore(useShallow((s) => ({ currentTab: s.currentTab })));
 
   if (
     !serviceAccountName ||

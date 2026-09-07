@@ -1,4 +1,5 @@
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import {
   kindToResource,
   kindToResourceDef,
@@ -27,7 +28,7 @@ const useResourceNavigation = (cluster: string) => {
     loadTreeData,
     expandNode,
     getCurrentTabState,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ selectNode: s.selectNode, loadListItems: s.loadListItems, loadDetails: s.loadDetails, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, openDetailTab: s.openDetailTab, openResourceListTab: s.openResourceListTab, updateCurrentTabState: s.updateCurrentTabState, loadTreeData: s.loadTreeData, expandNode: s.expandNode, getCurrentTabState: s.getCurrentTabState })));
 
   const navigateToResource = async (resourceInfo: ResourceInfo) => {
     const {

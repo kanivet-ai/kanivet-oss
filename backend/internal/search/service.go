@@ -73,7 +73,11 @@ type Service struct {
 	db                   *db.DB
 	index                *storage.ShardedIndex
 	eventHandler         *ResourceEventHandler
-	eventChan            chan ResourceEvent
+	pendingMu            sync.Mutex
+	pending              map[string]ResourceEvent
+	pendingSeq           uint64
+	wake                 chan struct{}
+	isWatched            func(cluster, group, version, resource string) bool
 	stopChan             chan struct{}
 	wg                   sync.WaitGroup
 	mu                   sync.RWMutex
@@ -141,7 +145,8 @@ func NewService(k8sClient *k8s.Client, cache *cache.Cache, database *db.DB, inva
 		index:                index,
 		recentSearches:       make([]RecentResource, 0, 20),
 		eventHandler:         &ResourceEventHandler{index: index, db: database, batchWriter: batchWriter},
-		eventChan:            make(chan ResourceEvent, 1000),
+		pending:              make(map[string]ResourceEvent, 64),
+		wake:                 make(chan struct{}, 1),
 		stopChan:             make(chan struct{}),
 		watchedTopics:        make(map[string]bool),
 		activeClusters:       make(map[string]time.Time),
@@ -182,20 +187,59 @@ func (s *Service) runCompactionLoop() {
 	}
 }
 
+// SetWatchedChecker lets the periodic re-indexer skip resource types that a
+// live watch already keeps fresh.
+func (s *Service) SetWatchedChecker(fn func(cluster, group, version, resource string) bool) {
+	s.isWatched = fn
+}
+
+// OnResourceEvent coalesces events per resource identity instead of queueing
+// them: a burst of MODIFIED events for one pod costs a single index pass, and
+// nothing is dropped under load.
 func (s *Service) OnResourceEvent(cluster, group, version, kind, namespace, action string, resource map[string]interface{}) {
-	event := ResourceEvent{
-		Cluster:   cluster,
-		Group:     group,
-		Version:   version,
-		Kind:      kind,
-		Namespace: namespace,
-		Action:    action,
-		Resource:  resource,
+	name, _ := resource["name"].(string)
+	ns, _ := resource["namespace"].(string)
+	if ns == "" {
+		ns = namespace
 	}
+	key := cluster + "|" + group + "|" + version + "|" + kind + "|" + ns + "|" + name
+	s.pendingMu.Lock()
+	if name == "" {
+		s.pendingSeq++
+		key = fmt.Sprintf("%s|#%d", key, s.pendingSeq)
+	}
+	s.pending[key] = ResourceEvent{Cluster: cluster, Group: group, Version: version, Kind: kind, Namespace: namespace, Action: action, Resource: resource}
+	s.pendingMu.Unlock()
 	select {
-	case s.eventChan <- event:
+	case s.wake <- struct{}{}:
 	default:
 	}
+}
+
+func (s *Service) drainEvents() []ResourceEvent {
+	s.pendingMu.Lock()
+	pending := s.pending
+	s.pending = make(map[string]ResourceEvent, 64)
+	s.pendingMu.Unlock()
+	events := make([]ResourceEvent, 0, len(pending))
+	for _, e := range pending {
+		events = append(events, e)
+	}
+	return events
+}
+
+func (s *Service) handleEventSafe(evt ResourceEvent) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[PANIC] handleEvent for %s/%s: %v", evt.Kind, evt.Namespace, r)
+			faults.CaptureExceptionWithContext(
+				fmt.Errorf("panic in handleEvent: %v", r),
+				map[string]any{"kind": evt.Kind, "namespace": evt.Namespace, "panic": r, "stack": string(debug.Stack())},
+			)
+			panic(r) // Re-panic to crash
+		}
+	}()
+	s.handleEvent(evt)
 }
 
 func (s *Service) processEvents() {
@@ -210,54 +254,46 @@ func (s *Service) processEvents() {
 			panic(r) // Re-panic to crash
 		}
 	}()
-	batchSize := 100
+	const workers = 2
 	batchTimeout := 100 * time.Millisecond
-	eventBatch := make([]ResourceEvent, 0, batchSize)
 	timer := time.NewTimer(batchTimeout)
-	defer timer.Stop()
-	processBatch := func() {
-		if len(eventBatch) == 0 {
+	timer.Stop()
+	armed := false
+	process := func() {
+		events := s.drainEvents()
+		if len(events) == 0 {
 			return
 		}
-		workers := 2
-		events := eventBatch
-		eventBatch = make([]ResourceEvent, 0, batchSize)
-		sem := make(chan struct{}, workers)
-		for _, event := range events {
-			sem <- struct{}{}
-			go func(evt ResourceEvent) {
-				defer func() { <-sem }()
-				defer func() {
-					if r := recover(); r != nil {
-						log.Printf("[PANIC] handleEvent for %s/%s: %v", evt.Kind, evt.Namespace, r)
-						faults.CaptureExceptionWithContext(
-							fmt.Errorf("panic in handleEvent: %v", r),
-							map[string]any{"kind": evt.Kind, "namespace": evt.Namespace, "panic": r, "stack": string(debug.Stack())},
-						)
-						panic(r) // Re-panic to crash
-					}
-				}()
-				s.handleEvent(evt)
-			}(event)
+		ch := make(chan ResourceEvent)
+		var wg sync.WaitGroup
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for evt := range ch {
+					s.handleEventSafe(evt)
+				}
+			}()
 		}
-		for range workers {
-			sem <- struct{}{}
+		for _, evt := range events {
+			ch <- evt
 		}
+		close(ch)
+		wg.Wait()
 	}
 	for {
 		select {
 		case <-s.stopChan:
-			processBatch()
+			process()
 			return
-		case event := <-s.eventChan:
-			eventBatch = append(eventBatch, event)
-			if len(eventBatch) >= batchSize {
-				processBatch()
+		case <-s.wake:
+			if !armed {
 				timer.Reset(batchTimeout)
+				armed = true
 			}
 		case <-timer.C:
-			processBatch()
-			timer.Reset(batchTimeout)
+			armed = false
+			process()
 		}
 	}
 }

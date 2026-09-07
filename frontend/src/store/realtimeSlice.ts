@@ -18,6 +18,8 @@ interface RealtimeRuntime {
 
 const runtime = () => (window as any).__kanivetRealtime as RealtimeRuntime | undefined;
 
+export const currentRealtimeTopic = () => runtime()?.topic;
+
 export const createRealtimeSlice: StateCreator<StoreState, [], [], RealtimeSlice> = (set, get) => ({
   startRealtime: (forceRefresh?: boolean) => {
     if ((window as any).__kanivetStartRealtimeTimer) clearTimeout((window as any).__kanivetStartRealtimeTimer);
@@ -151,15 +153,20 @@ export const createRealtimeSlice: StateCreator<StoreState, [], [], RealtimeSlice
           patch.hasReceivedInitialListData = true;
           patch.loadError = undefined;
         }
-        get().updateCurrentTabState(patch);
-        if (tab) {
-          const matchingTabs = tab.state.resourceListTabs.filter((r2) =>
+        set((st) => {
+          const idx = st.tabIndexMap.get(ct || '') ?? -1;
+          if (idx === -1) return {};
+          const t = st.activeTabs[idx];
+          const activeId = t.state.activeResourceListTab;
+          const resourceListTabs = t.state.resourceListTabs.map((r2) =>
             r2.resource.kind === resNow.kind && r2.resource.group === resNow.group && r2.resource.version === resNow.version
+              ? { ...r2, items: result.items, selectedItem: r2.id === activeId ? selectedItem : r2.selectedItem }
+              : r2,
           );
-          for (const listTab of matchingTabs) {
-            get().updateResourceListTab(listTab.id, { items: result.items, selectedItem: listTab.id === tab.state.activeResourceListTab ? selectedItem : listTab.selectedItem });
-          }
-        }
+          const tabs = [...st.activeTabs];
+          tabs[idx] = { ...t, state: { ...t.state, ...patch, resourceListTabs } };
+          return { activeTabs: tabs };
+        });
       }
 
       if (tab) {
@@ -193,6 +200,7 @@ export const createRealtimeSlice: StateCreator<StoreState, [], [], RealtimeSlice
               needsUpdate = true;
             }
           }
+          window.dispatchEvent(new CustomEvent('kanivet:detail-item-changed', { detail: { name: itemName, namespace: itemNs } }));
 
           newDetailTabs = newDetailTabs.map((dt) => {
             const tabName = dt.item?.metadata?.name || dt.item?.name;

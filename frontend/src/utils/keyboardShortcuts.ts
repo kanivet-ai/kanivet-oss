@@ -136,7 +136,7 @@ export const createTreeNavigationHandlers = (
 export const createFocusNavigationHandlers = (
   focusArea: FocusArea,
   setFocusArea: (area: FocusArea) => void,
-  listItems: any[],
+  hasListItems: boolean,
   detailData: any,
   isDetailsPanelCollapsed: boolean,
   hasDetailTabs: boolean = false,
@@ -145,7 +145,7 @@ export const createFocusNavigationHandlers = (
 
   const getNextArea = (): FocusArea => {
     if (focusArea === 'tree')
-      return listItems.length > 0 ? 'list' : hasDetail ? 'detail' : 'tree';
+      return hasListItems ? 'list' : hasDetail ? 'detail' : 'tree';
     if (focusArea === 'list') return hasDetail ? 'detail' : 'tree';
     if (focusArea === 'detail')
       return !isDetailsPanelCollapsed ? 'tree' : 'detail';
@@ -156,11 +156,11 @@ export const createFocusNavigationHandlers = (
     if (focusArea === 'tree')
       return hasDetail && !isDetailsPanelCollapsed
         ? 'detail'
-        : listItems.length > 0
+        : hasListItems
           ? 'list'
           : 'tree';
     if (focusArea === 'list') return 'tree';
-    if (focusArea === 'detail') return listItems.length > 0 ? 'list' : 'tree';
+    if (focusArea === 'detail') return hasListItems ? 'list' : 'tree';
     return 'tree';
   };
 

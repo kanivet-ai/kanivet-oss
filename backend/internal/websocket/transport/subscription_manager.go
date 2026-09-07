@@ -224,6 +224,12 @@ func (sm *DefaultSubscriptionManager) GetSubscribers(topic string) []*core.Conne
 	return result
 }
 
+func (sm *DefaultSubscriptionManager) HasSubscribers(topic string) bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return len(sm.topicToConns[topic]) > 0
+}
+
 func (sm *DefaultSubscriptionManager) GetTopics(conn *core.Connection) []string {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()

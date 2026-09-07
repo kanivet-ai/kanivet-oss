@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useStore } from '../../store';
+import { useShallow } from 'zustand/react/shallow';
 import api from '../../services/api';
 import { PricingSourceBadge } from './CostBadge';
 import { LastCalculatedBadge } from './LastCalculatedBadge';
@@ -47,7 +48,7 @@ interface NodeGroup {
 }
 
 const FinOpsDashboard: React.FC = () => {
-  const { currentTab } = useStore();
+  const { currentTab } = useStore(useShallow((s) => ({ currentTab: s.currentTab })));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dashboard, setDashboard] = useState<Dashboard | null>(null);

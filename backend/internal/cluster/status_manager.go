@@ -11,6 +11,7 @@ import (
 const (
 	statusRefreshPeriod       = 30 * time.Second
 	statusRefreshMinSpacing   = 2 * time.Second
+	statusMaxBackoff          = 5 * time.Minute
 	statusFullRefreshParallel = 2
 )
 
@@ -18,6 +19,8 @@ type StatusManager struct {
 	k8s           k8s.Interface
 	statuses      map[string]*k8s.ClusterStatus
 	lastRefresh   map[string]time.Time
+	backoff       map[string]time.Duration
+	active        func() bool
 	mu            sync.RWMutex
 	refreshTicker *time.Ticker
 	stopCh        chan struct{}
@@ -30,8 +33,17 @@ func NewStatusManager(k8sClient k8s.Interface) *StatusManager {
 		k8s:         k8sClient,
 		statuses:    make(map[string]*k8s.ClusterStatus),
 		lastRefresh: make(map[string]time.Time),
+		backoff:     make(map[string]time.Duration),
 		stopCh:      make(chan struct{}),
 	}
+}
+
+// SetActiveCheck installs a predicate consulted before each background probe;
+// when it returns false (no UI connected) probing is paused entirely.
+func (m *StatusManager) SetActiveCheck(fn func() bool) {
+	m.mu.Lock()
+	m.active = fn
+	m.mu.Unlock()
 }
 
 func (m *StatusManager) Start(ctx context.Context) {
@@ -68,7 +80,24 @@ func (m *StatusManager) Stop() {
 	m.wg.Wait()
 }
 
+func (m *StatusManager) store(cluster string, status *k8s.ClusterStatus) {
+	m.mu.Lock()
+	m.statuses[cluster] = status
+	if status.Healthy {
+		delete(m.backoff, cluster)
+	} else {
+		m.backoff[cluster] = min(max(2*m.backoff[cluster], statusRefreshPeriod), statusMaxBackoff)
+	}
+	m.mu.Unlock()
+}
+
 func (m *StatusManager) refreshNextCluster() {
+	m.mu.RLock()
+	active := m.active
+	m.mu.RUnlock()
+	if active != nil && !active() {
+		return
+	}
 	clusters, err := m.k8s.ListClusters()
 	if err != nil || len(clusters) == 0 {
 		return
@@ -76,44 +105,35 @@ func (m *StatusManager) refreshNextCluster() {
 
 	currentClusters := make(map[string]bool, len(clusters))
 	var target string
-	var oldest time.Time
+	var earliest time.Time
 	now := time.Now()
 
 	m.mu.Lock()
 	for _, cluster := range clusters {
 		name := cluster.Name
 		currentClusters[name] = true
-		last := m.lastRefresh[name]
-		if last.IsZero() && target == "" {
-			target = name
-			continue
-		}
-		if target == "" || last.Before(oldest) {
-			target = name
-			oldest = last
+		due := m.lastRefresh[name].Add(statusRefreshPeriod + m.backoff[name])
+		if target == "" || due.Before(earliest) {
+			target, earliest = name, due
 		}
 	}
 	for name := range m.statuses {
 		if !currentClusters[name] {
 			delete(m.statuses, name)
 			delete(m.lastRefresh, name)
+			delete(m.backoff, name)
 		}
 	}
-	if target == "" || now.Sub(m.lastRefresh[target]) < statusRefreshPeriod {
+	if target == "" || earliest.After(now) {
 		m.mu.Unlock()
 		return
 	}
 	m.lastRefresh[target] = now
 	m.mu.Unlock()
 
-	status, err := m.k8s.GetClusterStatus(target)
-	if err != nil {
-		return
+	if status, err := m.k8s.GetClusterStatus(target); err == nil {
+		m.store(target, status)
 	}
-
-	m.mu.Lock()
-	m.statuses[target] = status
-	m.mu.Unlock()
 }
 
 func (m *StatusManager) fetchAllStatuses() {
@@ -134,13 +154,9 @@ func (m *StatusManager) fetchAllStatuses() {
 			m.mu.Lock()
 			m.lastRefresh[clusterName] = time.Now()
 			m.mu.Unlock()
-			status, err := m.k8s.GetClusterStatus(clusterName)
-			if err != nil {
-				return
+			if status, err := m.k8s.GetClusterStatus(clusterName); err == nil {
+				m.store(clusterName, status)
 			}
-			m.mu.Lock()
-			m.statuses[clusterName] = status
-			m.mu.Unlock()
 		}(cluster.Name)
 	}
 	wg.Wait()
@@ -149,6 +165,7 @@ func (m *StatusManager) fetchAllStatuses() {
 		if !currentClusters[name] {
 			delete(m.statuses, name)
 			delete(m.lastRefresh, name)
+			delete(m.backoff, name)
 		}
 	}
 	m.mu.Unlock()
@@ -174,14 +191,13 @@ func (m *StatusManager) GetAllStatuses() map[string]*k8s.ClusterStatus {
 func (m *StatusManager) RefreshCluster(cluster string) *k8s.ClusterStatus {
 	m.mu.Lock()
 	m.lastRefresh[cluster] = time.Now()
+	delete(m.backoff, cluster)
 	m.mu.Unlock()
 	status, err := m.k8s.GetClusterStatus(cluster)
 	if err != nil {
 		return nil
 	}
-	m.mu.Lock()
-	m.statuses[cluster] = status
-	m.mu.Unlock()
+	m.store(cluster, status)
 	return status
 }
 

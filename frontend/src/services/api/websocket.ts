@@ -79,6 +79,13 @@ export class WebSocketManager {
     if (this.backendHealthInterval) clearInterval(this.backendHealthInterval);
     this.backendHealthInterval = setInterval(async () => {
       if (!this.backendReady) return;
+      if (this.ws?.readyState === WebSocket.OPEN) {
+        if (this.lastBackendState !== 'connected') {
+          this.lastBackendState = 'connected';
+          this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
+        }
+        return;
+      }
       try {
         const response = await fetch(`${getApiBase()}/health`, { method: 'GET', signal: AbortSignal.timeout(5000) });
         if (response.ok) {

@@ -128,7 +128,7 @@ const ResourceTable = memo(
       for (const newItem of listItems) {
         const key = getResourceKey(newItem);
         const existing = oldMap.get(key);
-        if (existing && shallowEqual(existing, newItem)) {
+        if (existing && (existing === newItem || shallowEqual(existing, newItem))) {
           result.push(existing);
         } else {
           result.push(newItem);

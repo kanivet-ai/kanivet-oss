@@ -13,7 +13,7 @@ import { DetailViewPropsWithCluster } from '../../../types/detailView';
 import './CustomResourceDetailView.css';
 
 const CustomResourceDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, cluster, handleResourceClick }) => {
-  const { loadDetails, activeTabs } = useStore();
+  const loadDetails = useStore((s) => s.loadDetails);
   const setState = useStore.setState;
 
   const { metadata = {}, spec = {}, status = {} } = resource;
@@ -25,7 +25,7 @@ const CustomResourceDetailView: React.FC<DetailViewPropsWithCluster> = ({ resour
     const resourceName = kindToResource(ref.kind);
     const resourceDef = { name: resourceName, group: apiGroup, version, kind: ref.kind, namespaced: !!ref.namespace || !!metadata.namespace };
     const item = { name: ref.name, namespace: ref.namespace || metadata.namespace, uid: `${ref.namespace || metadata.namespace || 'cluster'}-${ref.name}`, kind: ref.kind, apiVersion: ref.apiVersion };
-    const tab = activeTabs.find((t) => t.id === cluster);
+    const tab = useStore.getState().activeTabs.find((t) => t.id === cluster);
     if (!tab) return;
     const title = item.namespace ? `${item.name} (${item.namespace})` : item.name;
     const existing = tab.state.detailTabs.find((dt: any) => (dt.item.metadata?.name || dt.item.name) === item.name && (dt.item.metadata?.namespace || dt.item.namespace) === item.namespace && dt.cluster === cluster && !dt.isPinned);

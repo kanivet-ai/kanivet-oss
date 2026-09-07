@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import {
   handleActionSelect as handleResourceActionSelect,
   ActionHandlerParams,
@@ -67,7 +68,7 @@ export function useResourceListActions({
     openBottomTab,
     getCurrentTabState,
     addToast,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, deleteResources: s.deleteResources, removeFinalizers: s.removeFinalizers, forceRefreshResources: s.forceRefreshResources, restartResource: s.restartResource, triggerCronJob: s.triggerCronJob, bulkRestartResources: s.bulkRestartResources, scaleResource: s.scaleResource, taintNode: s.taintNode, drainNode: s.drainNode, cordonNode: s.cordonNode, reloadListItems: s.reloadListItems, loadDetails: s.loadDetails, openBottomTab: s.openBottomTab, getCurrentTabState: s.getCurrentTabState, addToast: s.addToast })));
 
   const pendingOperationRef = useRef<'delete' | 'removeFinalizers' | null>(null);
 

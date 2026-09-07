@@ -238,11 +238,13 @@ func main() {
 	statusManager := cluster.NewStatusManager(k8sClient)
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
-	statusManager.Start(appCtx)
 	apiHandler.SetStatusManager(statusManager)
 
 	// WebSocket infrastructure
 	wsServer := kanivetws.NewServer()
+	// Background status probes only run while a UI is connected.
+	statusManager.SetActiveCheck(func() bool { return wsServer.Hub().CountConnections() > 0 })
+	statusManager.Start(appCtx)
 	// Attach hub to API handler for broadcasting features like counts
 	apiHandler.AttachHub(wsServer.Hub())
 
@@ -365,6 +367,7 @@ func main() {
 	if searchService != nil {
 		bridge := search.NewWatcherBridge(searchService, watcherService)
 		searchBroadcaster.SetBridge(bridge)
+		searchService.SetWatchedChecker(watcherService.IsWatching)
 
 		// Update API handler with the bridge for managing watches
 		apiHandler.SetWatcherBridge(bridge)

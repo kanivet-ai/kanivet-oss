@@ -1,34 +1,81 @@
 package cache
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"time"
-
-	gocache "github.com/patrickmn/go-cache"
 )
 
+type entry struct {
+	value interface{}
+	exp   int64
+}
+
+type inflight struct {
+	done chan struct{}
+	val  interface{}
+	err  error
+}
+
 type Cache struct {
-	store *gocache.Cache
+	mu       sync.RWMutex
+	items    map[string]entry
+	fetching map[string]*inflight
+	def      time.Duration
 }
 
 func New(defaultExpiration, cleanupInterval time.Duration) *Cache {
-	return &Cache{
-		store: gocache.New(defaultExpiration, cleanupInterval),
+	c := &Cache{items: make(map[string]entry), fetching: make(map[string]*inflight), def: defaultExpiration}
+	if cleanupInterval > 0 {
+		go c.janitor(cleanupInterval)
+	}
+	return c
+}
+
+func (c *Cache) janitor(interval time.Duration) {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for range t.C {
+		now := time.Now().UnixNano()
+		c.mu.Lock()
+		for k, e := range c.items {
+			if e.exp > 0 && now > e.exp {
+				delete(c.items, k)
+			}
+		}
+		c.mu.Unlock()
 	}
 }
 
 func (c *Cache) GetOrSet(key string, ttl time.Duration, fetcher func() (interface{}, error)) (interface{}, error) {
-	if cached, found := c.store.Get(key); found {
-		return cached, nil
+	if v, ok := c.Get(key); ok {
+		return v, nil
 	}
-
-	data, err := fetcher()
-	if err != nil {
-		return nil, err
+	c.mu.Lock()
+	if f, ok := c.fetching[key]; ok {
+		c.mu.Unlock()
+		<-f.done
+		return f.val, f.err
 	}
-
-	c.store.Set(key, data, ttl)
-	return data, nil
+	f := &inflight{done: make(chan struct{})}
+	c.fetching[key] = f
+	c.mu.Unlock()
+	defer func() {
+		if r := recover(); r != nil {
+			f.err = fmt.Errorf("cache fetcher panic: %v", r)
+			defer panic(r)
+		}
+		c.mu.Lock()
+		delete(c.fetching, key)
+		c.mu.Unlock()
+		close(f.done)
+	}()
+	f.val, f.err = fetcher()
+	if f.err == nil {
+		c.Set(key, f.val, ttl)
+	}
+	return f.val, f.err
 }
 
 func (c *Cache) BuildKey(parts ...string) string {
@@ -36,45 +83,54 @@ func (c *Cache) BuildKey(parts ...string) string {
 }
 
 func (c *Cache) Invalidate(pattern string) {
-	// Support both exact keys and prefix patterns
 	if strings.HasSuffix(pattern, "*") {
-		// Prefix matching for patterns like "pod-status:cluster:*"
-		prefix := strings.TrimSuffix(pattern, "*")
-		for key := range c.store.Items() {
-			if strings.HasPrefix(key, prefix) {
-				c.store.Delete(key)
-			}
-		}
-	} else {
-		// Exact key matching
-		c.store.Delete(pattern)
+		c.DeleteByPrefix(strings.TrimSuffix(pattern, "*"))
+		return
 	}
+	c.Delete(pattern)
 }
 
 func (c *Cache) Clear() {
-	c.store.Flush()
+	c.mu.Lock()
+	c.items = make(map[string]entry)
+	c.mu.Unlock()
 }
 
-// Delete removes a specific cache entry
 func (c *Cache) Delete(key string) {
-	c.store.Delete(key)
+	c.mu.Lock()
+	delete(c.items, key)
+	c.mu.Unlock()
 }
 
-// Set stores a value in the cache with the specified TTL
 func (c *Cache) Set(key string, value interface{}, ttl time.Duration) {
-	c.store.Set(key, value, ttl)
+	if ttl == 0 {
+		ttl = c.def
+	}
+	var exp int64
+	if ttl > 0 {
+		exp = time.Now().Add(ttl).UnixNano()
+	}
+	c.mu.Lock()
+	c.items[key] = entry{value, exp}
+	c.mu.Unlock()
 }
 
-// Get returns a value if present and not expired.
 func (c *Cache) Get(key string) (interface{}, bool) {
-	return c.store.Get(key)
+	c.mu.RLock()
+	e, ok := c.items[key]
+	c.mu.RUnlock()
+	if !ok || (e.exp > 0 && time.Now().UnixNano() > e.exp) {
+		return nil, false
+	}
+	return e.value, true
 }
 
-// DeleteByPrefix removes all cache entries with keys starting with the given prefix
 func (c *Cache) DeleteByPrefix(prefix string) {
-	for key := range c.store.Items() {
-		if strings.HasPrefix(key, prefix) {
-			c.store.Delete(key)
+	c.mu.Lock()
+	for k := range c.items {
+		if strings.HasPrefix(k, prefix) {
+			delete(c.items, k)
 		}
 	}
+	c.mu.Unlock()
 }

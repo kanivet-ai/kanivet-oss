@@ -29,5 +29,6 @@ type SubscriptionManager interface {
 	UnsubscribeAll(conn *Connection) error
 	Broadcast(topic string, msg Message) error
 	GetSubscribers(topic string) []*Connection
+	HasSubscribers(topic string) bool
 	GetTopics(conn *Connection) []string
 }

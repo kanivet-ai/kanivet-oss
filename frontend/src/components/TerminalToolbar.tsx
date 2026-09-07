@@ -10,6 +10,7 @@ import {
 } from '@radix-ui/react-icons';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useStore, BottomTab } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './TerminalToolbar.css';
 
 interface TerminalToolbarProps {
@@ -33,7 +34,7 @@ const TerminalToolbar = ({
     closeBottomTab,
     setActiveBottomTab,
     renameBottomTab,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ bottomTabs: s.bottomTabs, openBottomTab: s.openBottomTab, closeBottomTab: s.closeBottomTab, setActiveBottomTab: s.setActiveBottomTab, renameBottomTab: s.renameBottomTab })));
   const [isEditing, setIsEditing] = useState(false);
   const [editValue, setEditValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);

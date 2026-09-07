@@ -1,5 +1,6 @@
 import { useStore } from '../store';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { parseClusterName } from '../utils/clusterUtils';
 import AWSIcon from './AWSIcon';
 import AzureIcon from './AzureIcon';
@@ -29,7 +30,6 @@ interface TabBarProps {
 
 const TabBar = ({ onOpenSettings }: TabBarProps) => {
   const {
-    activeTabs,
     currentTab,
     setCurrentTab,
     closeTab,
@@ -37,7 +37,10 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
     clusterAliases,
     reorderTabs,
     clusterErrors,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, setCurrentTab: s.setCurrentTab, closeTab: s.closeTab, openBottomTab: s.openBottomTab, clusterAliases: s.clusterAliases, reorderTabs: s.reorderTabs, clusterErrors: s.clusterErrors })));
+  const tabIds = useStore(useShallow((s) => s.activeTabs.map((t) => t.id)));
+  const tabNames = useStore(useShallow((s) => s.activeTabs.map((t) => t.name)));
+  const activeTabs = useMemo(() => tabIds.map((id, i) => ({ id, name: tabNames[i] })), [tabIds, tabNames]);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [contextMenu, setContextMenu] = useState<{
     x: number;

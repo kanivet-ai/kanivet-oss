@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import api, { ClusterInfo, ClusterGroup } from '../services/api';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { parseClusterName } from '../utils/clusterUtils';
 import { getClusterStatusPresentation } from '../utils/clusterStatusPresentation';
 import { getCachedBatchClusterStatus } from '../services/api/clusters';
@@ -21,7 +22,8 @@ export const QuickClusterSearch: React.FC<QuickClusterSearchProps> = ({
   onSelectCluster,
   onClose,
 }) => {
-  const { activeTabs, clusterStatuses } = useStore();
+  const clusterStatuses = useStore((s) => s.clusterStatuses);
+  const tabIds = useStore(useShallow((s) => s.activeTabs.map((t) => t.id)));
   const [query, setQuery] = useState('');
   const [clusters, setClusters] = useState<ClusterInfo[]>([]);
   const [aliases, setAliases] = useState<Record<string, string>>({});
@@ -135,7 +137,7 @@ export const QuickClusterSearch: React.FC<QuickClusterSearchProps> = ({
     return () => document.removeEventListener('keydown', handleGlobalKeyDown, true);
   }, [onClose]);
 
-  const openedTabIds = useMemo(() => new Set(activeTabs.map(t => t.id)), [activeTabs]);
+  const openedTabIds = useMemo(() => new Set(tabIds), [tabIds]);
   const filteredClusters = useMemo(() => {
     const q = query.toLowerCase();
     return clusters

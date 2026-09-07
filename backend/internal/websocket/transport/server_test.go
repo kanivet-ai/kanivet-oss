@@ -294,6 +294,10 @@ func (sm *mockSubscriptionManager) GetSubscribers(topic string) []*core.Connecti
 	return nil
 }
 
+func (sm *mockSubscriptionManager) HasSubscribers(topic string) bool {
+	return false
+}
+
 func (sm *mockSubscriptionManager) GetTopics(conn *core.Connection) []string {
 	return nil
 }

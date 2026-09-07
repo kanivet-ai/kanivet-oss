@@ -11,6 +11,7 @@ import Dialog from '../../common/Dialog';
 import LiveAge from '../../common/LiveAge';
 import api from '../../../services/api';
 import { useStore } from '../../../store';
+import { useShallow } from 'zustand/react/shallow';
 import useResourceNavigation from '../../../hooks/useResourceNavigation';
 import { useVisibleInterval } from '../../../hooks/useVisibleInterval';
 import { ArgoDestination, ArgoDestinationMap } from '../../../services/api/resources';
@@ -198,7 +199,7 @@ const ApplicationDetailView = ({ cluster, resource, handleResourceClick }: Props
   const [rollbackPrune, setRollbackPrune] = useState(false);
   const [rollingBack, setRollingBack] = useState(false);
   const [pendingOp, setPendingOp] = useState<null | { kind: 'sync' | 'rollback' | 'refresh'; startedAt: number; label: string }>(null);
-  const { openTab } = useStore();
+  const { openTab } = useStore(useShallow((s) => ({ openTab: s.openTab })));
   const { navigateToResource } = useResourceNavigation(cluster);
 
   const activeKeyRef = useRef('');

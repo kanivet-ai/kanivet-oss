@@ -10,6 +10,7 @@ import * as yaml from 'js-yaml';
 import { Cross2Icon, ExclamationTriangleIcon, CheckCircledIcon, UpdateIcon, CheckIcon, PlayIcon, CrossCircledIcon } from '@radix-ui/react-icons';
 import api from '../services/api';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { installKanivetMonacoTheme, KANIVET_MONACO_THEME } from '../utils/monacoTheme';
 import ResourceSelector from './ResourceSelector';
 import './YamlEditor.css';
@@ -25,7 +26,7 @@ interface YamlEditorProps {
 }
 
 const YamlEditor = ({ resource, cluster, mode = 'edit', onSave }: YamlEditorProps) => {
-  const { updateDetailData } = useStore();
+  const { updateDetailData } = useStore(useShallow((s) => ({ updateDetailData: s.updateDetailData })));
   const [yamlContent, setYamlContent] = useState('');
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [yamlError, setYamlError] = useState<{ message: string; line?: number } | null>(null);

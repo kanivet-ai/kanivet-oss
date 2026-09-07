@@ -10,8 +10,8 @@ import (
 	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/k8s"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 )
@@ -86,112 +86,129 @@ func (el *EventListener) IsListening(cluster string) bool {
 	return exists && listener.isActive
 }
 
+// watchEvents lists once, then watches from the list's resourceVersion and keeps
+// following the latest seen version across reconnects. Watching without a
+// version made the apiserver replay every existing event on each reconnect.
 func (el *EventListener) watchEvents(ctx context.Context, listener *clusterListener) {
 	log.Printf("Starting event watcher for cluster %s", listener.cluster)
-
-	didInitialSync := false
+	rv := ""
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("Event watcher context cancelled for cluster %s", listener.cluster)
 			return
 		default:
-			if !didInitialSync {
-				if err := el.syncExistingEvents(listener); err != nil {
-					log.Printf("Failed to sync existing events for cluster %s: %v", listener.cluster, err)
-				}
-				didInitialSync = true
+		}
+		if rv == "" {
+			listRV, err := el.syncExistingEvents(ctx, listener)
+			if err != nil {
+				log.Printf("Failed to sync existing events for cluster %s: %v", listener.cluster, err)
 			}
-
-			if err := el.streamEvents(ctx, listener); err != nil {
-				log.Printf("Event streaming error for cluster %s: %v, retrying in 10s", listener.cluster, err)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(10 * time.Second):
-					continue
-				}
+			rv = listRV
+		}
+		expired, err := el.streamEvents(ctx, listener, &rv)
+		if expired {
+			rv = ""
+			continue
+		}
+		if err != nil {
+			log.Printf("Event streaming error for cluster %s: %v, retrying in 10s", listener.cluster, err)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Second):
 			}
 		}
 	}
 }
 
-func (el *EventListener) syncExistingEvents(listener *clusterListener) error {
-	eventList, err := listener.client.CoreV1().Events("").List(context.Background(), metav1.ListOptions{
-		Limit: 1000,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to list existing events: %v", err)
-	}
-
-	if len(eventList.Items) == 0 {
-		return nil
-	}
-
-	events := make([]db.K8sEvent, 0, len(eventList.Items))
-	for _, event := range eventList.Items {
-		events = append(events, el.convertToDBEvent(&event))
-	}
-
-	if el.db != nil {
-		if err := el.db.StoreEvents(listener.cluster, events); err != nil {
-			return fmt.Errorf("failed to store events: %v", err)
+func (el *EventListener) syncExistingEvents(ctx context.Context, listener *clusterListener) (string, error) {
+	var rv string
+	total := 0
+	opts := metav1.ListOptions{Limit: 1000}
+	for {
+		eventList, err := listener.client.CoreV1().Events("").List(ctx, opts)
+		if err != nil {
+			return rv, fmt.Errorf("failed to list existing events: %v", err)
+		}
+		if rv == "" {
+			rv = eventList.ResourceVersion
+		}
+		if len(eventList.Items) > 0 {
+			events := make([]db.K8sEvent, 0, len(eventList.Items))
+			for i := range eventList.Items {
+				events = append(events, el.convertToDBEvent(&eventList.Items[i]))
+			}
+			if el.db != nil {
+				if err := el.db.StoreEvents(listener.cluster, events); err != nil {
+					return rv, fmt.Errorf("failed to store events: %v", err)
+				}
+			}
+			total += len(events)
+		}
+		opts.Continue = eventList.Continue
+		if opts.Continue == "" || total >= el.windowSize {
+			break
 		}
 	}
-
-	log.Printf("Synced %d existing events for cluster %s", len(events), listener.cluster)
-	return nil
+	log.Printf("Synced %d existing events for cluster %s (rv=%s)", total, listener.cluster, rv)
+	return rv, nil
 }
 
-func (el *EventListener) streamEvents(ctx context.Context, listener *clusterListener) error {
-	fieldSelector := fields.Everything()
-	listOptions := metav1.ListOptions{
-		FieldSelector: fieldSelector.String(),
-		Watch:         true,
-	}
-
-	watcher, err := listener.client.CoreV1().Events("").Watch(ctx, listOptions)
+func (el *EventListener) streamEvents(ctx context.Context, listener *clusterListener, rv *string) (expired bool, err error) {
+	watcher, err := listener.client.CoreV1().Events("").Watch(ctx, metav1.ListOptions{ResourceVersion: *rv, AllowWatchBookmarks: true})
 	if err != nil {
-		return fmt.Errorf("failed to create event watcher: %v", err)
+		if apierrors.IsResourceExpired(err) || apierrors.IsGone(err) {
+			return true, nil
+		}
+		return false, fmt.Errorf("failed to create event watcher: %v", err)
 	}
 	defer watcher.Stop()
 
-	log.Printf("Started streaming events for cluster %s", listener.cluster)
+	log.Printf("Started streaming events for cluster %s from rv=%s", listener.cluster, *rv)
 
 	batchEvents := make([]db.K8sEvent, 0, 100)
 	batchTicker := time.NewTicker(1 * time.Second)
 	defer batchTicker.Stop()
+	flush := func() {
+		if len(batchEvents) > 0 {
+			el.storeBatch(listener.cluster, batchEvents)
+			batchEvents = batchEvents[:0]
+		}
+	}
 
 	for {
 		select {
 		case <-ctx.Done():
-			if len(batchEvents) > 0 {
-				el.storeBatch(listener.cluster, batchEvents)
-			}
-			return nil
+			flush()
+			return false, nil
 
 		case <-batchTicker.C:
-			if len(batchEvents) > 0 {
-				el.storeBatch(listener.cluster, batchEvents)
-				batchEvents = batchEvents[:0]
-			}
+			flush()
 
 		case event, ok := <-watcher.ResultChan():
 			if !ok {
-				if len(batchEvents) > 0 {
-					el.storeBatch(listener.cluster, batchEvents)
-				}
-				return fmt.Errorf("watch channel closed")
+				flush()
+				return false, fmt.Errorf("watch channel closed")
 			}
 
 			switch event.Type {
+			case watch.Error:
+				flush()
+				if status, ok := event.Object.(*metav1.Status); ok && (status.Code == 410 || status.Reason == metav1.StatusReasonExpired || status.Reason == metav1.StatusReasonGone) {
+					return true, nil
+				}
+				return false, fmt.Errorf("watch error for cluster %s", listener.cluster)
+			case watch.Bookmark:
+				if m, ok := event.Object.(metav1.Object); ok {
+					*rv = m.GetResourceVersion()
+				}
 			case watch.Added, watch.Modified:
 				if k8sEvent, ok := event.Object.(*corev1.Event); ok {
+					*rv = k8sEvent.ResourceVersion
 					batchEvents = append(batchEvents, el.convertToDBEvent(k8sEvent))
-
 					if len(batchEvents) >= 100 {
-						el.storeBatch(listener.cluster, batchEvents)
-						batchEvents = batchEvents[:0]
+						flush()
 					}
 				}
 			}

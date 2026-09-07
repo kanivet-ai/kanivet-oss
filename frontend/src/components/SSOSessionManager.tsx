@@ -12,6 +12,7 @@ import {
   CheckCircledIcon,
 } from '@radix-ui/react-icons';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import cloudService from '../services/cloudService';
 import { SSOAccount } from '../types/cloud';
 import AWSIcon from './AWSIcon';
@@ -35,7 +36,7 @@ const SSOSessionManager = () => {
     removeSsoSession,
     refreshSsoSession,
     refreshAllClusterStatuses,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ ssoSessions: s.ssoSessions, ssoSessionsLoading: s.ssoSessionsLoading, loadSsoSessions: s.loadSsoSessions, addSsoSession: s.addSsoSession, removeSsoSession: s.removeSsoSession, refreshSsoSession: s.refreshSsoSession, refreshAllClusterStatuses: s.refreshAllClusterStatuses })));
 
   const [isOpen, setIsOpen] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);

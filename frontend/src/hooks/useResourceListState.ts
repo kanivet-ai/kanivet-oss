@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import { sortItems } from '../utils/columnSorting';
 import { formatStatus } from '../utils/formatters';
 
@@ -12,16 +13,15 @@ const EMPTY_ROLLOUT_STATUSES = new Map<string, any>();
 export function useResourceListState({ paneId }: UseResourceListStateProps) {
   const {
     currentTab,
-    getCurrentTabState,
     bottomTabs,
     updateCurrentTabState,
     updateResourceListTab,
     setActiveDetailTab,
     setActiveBottomTab,
     setActiveResourceListTab,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, bottomTabs: s.bottomTabs, updateCurrentTabState: s.updateCurrentTabState, updateResourceListTab: s.updateResourceListTab, setActiveDetailTab: s.setActiveDetailTab, setActiveBottomTab: s.setActiveBottomTab, setActiveResourceListTab: s.setActiveResourceListTab })));
 
-  const tabState = getCurrentTabState();
+  const tabState = useStore((s) => s.getCurrentTabState());
 
   const resourceListTabs = useMemo(() => {
     const tabs = tabState?.resourceListTabs || [];

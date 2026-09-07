@@ -1,4 +1,5 @@
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './DisconnectedOverlay.css';
 
 interface DisconnectedOverlayProps {
@@ -7,7 +8,7 @@ interface DisconnectedOverlayProps {
 }
 
 const DisconnectedOverlay = ({ cluster }: DisconnectedOverlayProps) => {
-  const { backendState, websocketState, getOverallState, clusterErrors } = useStore();
+  const { backendState, websocketState, getOverallState, clusterErrors } = useStore(useShallow((s) => ({ backendState: s.backendState, websocketState: s.websocketState, getOverallState: s.getOverallState, clusterErrors: s.clusterErrors })));
   const overallState = getOverallState();
   const clusterError = cluster ? clusterErrors[cluster] : undefined;
 

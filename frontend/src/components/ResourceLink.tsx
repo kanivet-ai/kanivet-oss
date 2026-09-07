@@ -1,5 +1,6 @@
 import React from 'react';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import {
   kindToResource,
   getResourceCategory,
@@ -36,7 +37,7 @@ const ResourceLink: React.FC<ResourceLinkProps> = ({
     recordNavigation,
     setFocusArea,
     openDetailTab,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ selectNode: s.selectNode, loadListItems: s.loadListItems, selectItem: s.selectItem, loadDetails: s.loadDetails, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, openDetailTab: s.openDetailTab })));
   const [clickTimer, setClickTimer] = React.useState<NodeJS.Timeout | null>(
     null,
   );

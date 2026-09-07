@@ -1,8 +1,9 @@
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
 import './ConnectionStatusIndicator.css';
 
 const ConnectionStatusIndicator = () => {
-  const { backendState, websocketState, getOverallState, reconnectCountdown } = useStore();
+  const { backendState, websocketState, getOverallState, reconnectCountdown } = useStore(useShallow((s) => ({ backendState: s.backendState, websocketState: s.websocketState, getOverallState: s.getOverallState, reconnectCountdown: s.reconnectCountdown })));
   const overallState = getOverallState();
 
   if (overallState === 'connected') return null;

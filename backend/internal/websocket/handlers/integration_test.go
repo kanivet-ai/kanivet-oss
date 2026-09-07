@@ -9,20 +9,22 @@ import (
 
 	"github.com/gorilla/websocket"
 	"github.com/kanivet/backend/internal/k8s"
-	"github.com/kanivet/backend/internal/websocket/handlers"
 	ws "github.com/kanivet/backend/internal/websocket"
+	"github.com/kanivet/backend/internal/websocket/handlers"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/version"
+	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
 )
 
 func int32Ptr(i int32) *int32 { return &i }
 
 func seedFakeClientset() *fake.Clientset {
-	return fake.NewSimpleClientset(
+	cs := fake.NewSimpleClientset(
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "default"}},
 		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "kube-system"}},
 
@@ -133,7 +135,7 @@ func seedFakeClientset() *fake.Clientset {
 			Type:           "Normal",
 			Reason:         "Scheduled",
 			Message:        "Successfully assigned pod-1",
-			LastTimestamp:   metav1.NewTime(time.Now().Add(-1 * time.Minute)),
+			LastTimestamp:  metav1.NewTime(time.Now().Add(-1 * time.Minute)),
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod-1", Namespace: "default"},
 		},
 		&corev1.Event{
@@ -141,7 +143,7 @@ func seedFakeClientset() *fake.Clientset {
 			Type:           "Warning",
 			Reason:         "BackOff",
 			Message:        "Back-off restarting failed container",
-			LastTimestamp:   metav1.NewTime(time.Now().Add(-30 * time.Second)),
+			LastTimestamp:  metav1.NewTime(time.Now().Add(-30 * time.Second)),
 			InvolvedObject: corev1.ObjectReference{Kind: "Pod", Name: "pod-pending", Namespace: "default"},
 		},
 
@@ -150,6 +152,8 @@ func seedFakeClientset() *fake.Clientset {
 			Status:     batchv1.JobStatus{Succeeded: 1},
 		},
 	)
+	cs.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &version.Info{Major: "1", Minor: "30"}
+	return cs
 }
 
 func dialWS(t *testing.T, serverURL string) *websocket.Conn {

@@ -5,6 +5,9 @@ import DebugPanel from './DebugPanel';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
 import useDebounce from '../hooks/useDebounce';
 import { useStore } from '../store';
+import { useShallow } from 'zustand/react/shallow';
+
+const EMPTY_TREE: any[] = [];
 import { createTreeNavigationHandlers } from '../utils/keyboardShortcuts';
 import api from '../services/api';
 import './TreeSidebar.css';
@@ -24,16 +27,15 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     loadDetails,
     recordNavigation,
     setFocusArea,
-    getCurrentTabState,
     toggleNodeExpansion,
     openResourceListTab,
     openDetailTab,
-  } = useStore();
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, loadTreeData: s.loadTreeData, setSearchQuery: s.setSearchQuery, expandNode: s.expandNode, selectNode: s.selectNode, loadListItems: s.loadListItems, loadDetails: s.loadDetails, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, toggleNodeExpansion: s.toggleNodeExpansion, openResourceListTab: s.openResourceListTab, openDetailTab: s.openDetailTab })));
 
-  const tabState = getCurrentTabState();
-  const treeData = tabState?.treeData || [];
-  const searchQuery = tabState?.searchQuery || '';
-  const focusArea = tabState?.focusArea || 'tree';
+  const { treeData, searchQuery, focusArea } = useStore(useShallow((s) => {
+    const t = s.getCurrentTabState();
+    return { treeData: t?.treeData || EMPTY_TREE, searchQuery: t?.searchQuery || '', focusArea: t?.focusArea || 'tree' };
+  }));
 
   const [localSearch, setLocalSearch] = useState('');
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);

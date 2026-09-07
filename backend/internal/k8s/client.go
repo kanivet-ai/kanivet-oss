@@ -873,7 +873,7 @@ func (c *Client) GetClusterStatus(cluster string) (*ClusterStatus, error) {
 		status.Region = region
 	}
 
-	client, config, err := c.GetClientAndConfig(cluster)
+	_, config, err := c.GetClientAndConfig(cluster)
 	if err != nil {
 		status.Error = fmt.Sprintf("Failed to create client: %v", err)
 		status.ResponseTimeMs = time.Since(startTime).Milliseconds()
@@ -913,21 +913,15 @@ func (c *Client) GetClusterStatus(cluster string) (*ClusterStatus, error) {
 		v, e := discoveryClient.ServerVersion()
 		versionCh <- versionResult{v, e}
 	}()
+	// Metadata-only counts: full Node objects run to ~100KB each and were being
+	// downloaded on every probe just to be counted.
 	go func() {
-		nodes, e := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-		if e != nil {
-			nodesCh <- listResult{0, e}
-			return
-		}
-		nodesCh <- listResult{len(nodes.Items), nil}
+		n, e := c.GetResourceCount(ctx, cluster, schema.GroupVersionResource{Version: "v1", Resource: "nodes"})
+		nodesCh <- listResult{n, e}
 	}()
 	go func() {
-		nss, e := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
-		if e != nil {
-			nsCh <- listResult{0, e}
-			return
-		}
-		nsCh <- listResult{len(nss.Items), nil}
+		n, e := c.GetResourceCount(ctx, cluster, schema.GroupVersionResource{Version: "v1", Resource: "namespaces"})
+		nsCh <- listResult{n, e}
 	}()
 
 	vr := <-versionCh
