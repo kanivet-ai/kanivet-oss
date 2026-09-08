@@ -1,0 +1,210 @@
+name: Build and publish
+
+on:
+  workflow_call:
+    inputs:
+      channel:
+        required: true
+        type: string
+      version:
+        required: true
+        type: string
+      sha:
+        required: true
+        type: string
+      pr:
+        default: ''
+        type: string
+      publish:
+        default: true
+        type: boolean
+    secrets:
+      MACOS_CERTIFICATE:
+        required: true
+      MACOS_CERTIFICATE_PASSWORD:
+        required: true
+      APPLE_ID:
+        required: true
+      APPLE_APP_SPECIFIC_PASSWORD:
+        required: true
+      APPLE_TEAM_ID:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: macos-15-intel, platform: mac, arch: x64, goarch: amd64 }
+          - { runner: macos-15, platform: mac, arch: arm64, goarch: arm64 }
+          - { runner: windows-2022, platform: win, arch: x64, goarch: amd64 }
+          - { runner: ubuntu-24.04, platform: linux, arch: x64, goarch: amd64 }
+          - { runner: ubuntu-24.04-arm, platform: linux, arch: arm64, goarch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install dependencies
+        working-directory: frontend
+        env:
+          HUSKY: '0'
+        run: npm ci
+      - name: Test release tooling and application
+        run: |
+          node --test scripts/*.test.cjs
+          cd backend
+          go test ./...
+          cd ../frontend
+          npm test
+      - name: Set build version and update channel
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+        run: node scripts/configure-release.cjs
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+      - name: Build production backend
+        working-directory: backend
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          PLATFORM: ${{ matrix.platform }}
+        run: |
+          output=../frontend/resources/kanivet-backend
+          if [[ "$PLATFORM" == win ]]; then
+            for arch in amd64 arm64; do
+              GOARCH="$arch" go build -tags production -ldflags="-s -w" -trimpath -o "../frontend/resources/kanivet-backend-windows-$arch.exe" ./cmd/main.go
+            done
+          else
+            go build -tags production -ldflags="-s -w" -trimpath -o "$output" ./cmd/main.go
+          fi
+      - name: Package signed and notarized macOS app
+        if: matrix.platform == 'mac'
+        working-directory: frontend
+        env:
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          for key in CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID; do
+            if [[ -z "${!key}" ]]; then echo "Missing required secret: $key" >&2; exit 1; fi
+          done
+          npx --no-install electron-builder --config release-builder.json --mac --"$BUILD_ARCH" --publish never -c.forceCodeSigning=true
+      - name: Package Windows or Linux app
+        if: matrix.platform != 'mac'
+        working-directory: frontend
+        env:
+          BUILD_PLATFORM: ${{ matrix.platform }}
+          BUILD_ARCH: ${{ matrix.arch }}
+        run: |
+          if [[ "$BUILD_PLATFORM" == win ]]; then
+            # A single NSIS installer selects x64 or ARM64 on the user's machine.
+            npx --no-install electron-builder --config release-builder.json --win --x64 --arm64 --publish never
+          else
+            npx --no-install electron-builder --config release-builder.json --linux --"$BUILD_ARCH" --publish never
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.platform }}-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 7
+          path: |
+            frontend/dist/*.dmg
+            frontend/dist/*.zip
+            frontend/dist/*.exe
+            frontend/dist/*.AppImage
+            frontend/dist/*.blockmap
+            frontend/dist/latest*.yml
+            frontend/dist/rc*.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: artifacts
+      - name: Install metadata parser
+        run: python3 -m pip install PyYAML==6.0.2
+      - name: Collect assets and combine architecture update metadata
+        run: |
+          python3 scripts/collect-release.test.py
+          python3 scripts/collect-release.py artifacts release-assets
+      - name: Publish GitHub release
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_CHANNEL: ${{ inputs.channel }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          tag="v$RELEASE_VERSION"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            if [[ "$RELEASE_CHANNEL" != rc ]]; then
+              echo "Expected a stable draft created by release-please" >&2
+              exit 1
+            fi
+            gh release create "$tag" --target "$RELEASE_SHA" --title "Kanivet $tag" --draft --prerelease --notes "Release candidate built from $RELEASE_SHA."
+          fi
+          if [[ "$(gh release view "$tag" --json isDraft --jq .isDraft)" == false ]]; then
+            echo "Release already published; preserving existing assets."
+            exit 0
+          fi
+          gh release upload "$tag" release-assets/* --clobber
+          if [[ "$RELEASE_CHANNEL" == rc ]]; then
+            gh release edit "$tag" --draft=false --prerelease --latest=false
+          else
+            gh release edit "$tag" --draft=false --prerelease=false --latest
+          fi
+      - name: Link release candidate in release-please PR
+        if: inputs.publish && inputs.channel == 'rc'
+        uses: actions/github-script@v7
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_SHA: ${{ inputs.sha }}
+          RELEASE_PR: ${{ inputs.pr }}
+        with:
+          script: |
+            const { RELEASE_VERSION: version, RELEASE_SHA: sha, RELEASE_PR: pr } = process.env;
+            const { data: release } = await github.rest.repos.getReleaseByTag({ ...context.repo, tag: `v${version}` });
+            const assets = release.assets.filter(a => /\.(dmg|zip|exe|AppImage)$/.test(a.name));
+            const marker = `<!-- kanivet-rc:${version} -->`;
+            const body = `${marker}\n### Release candidate: ${version}\n\nBuilt from ${sha}.\n\n[GitHub release](${release.html_url})\n\n` +
+              assets.map(a => `- [${a.name}](${a.browser_download_url})`).join('\n');
+            const comments = await github.paginate(github.rest.issues.listComments, { ...context.repo, issue_number: Number(pr), per_page: 100 });
+            const existing = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            } else {
+              await github.rest.issues.createComment({ ...context.repo, issue_number: Number(pr), body });
+            }
