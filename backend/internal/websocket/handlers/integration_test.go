@@ -300,9 +300,10 @@ func TestDashboardHandlerMultipleSubscribers(t *testing.T) {
 		},
 	}
 	conn1.WriteJSON(startMsg)
-	conn2.WriteJSON(startMsg)
 
 	resp1 := readJSON(t, conn1, 5*time.Second)
+	// Subscribe after the initial broadcast to exercise joining an existing stream.
+	conn2.WriteJSON(startMsg)
 	resp2 := readJSON(t, conn2, 5*time.Second)
 
 	if resp1["type"] != "dashboard" {

@@ -158,7 +158,10 @@ func listenOnConfiguredAddr() (net.Listener, error) {
 	if err == nil {
 		return listener, nil
 	}
-	if defaultPort && errors.Is(err, syscall.EADDRINUSE) {
+	// Winsock reports WSAEADDRINUSE (10048), not the POSIX EADDRINUSE value.
+	addressInUse := errors.Is(err, syscall.EADDRINUSE) ||
+		(runtime.GOOS == "windows" && errors.Is(err, syscall.Errno(10048)))
+	if defaultPort && addressInUse {
 		log.Printf("Default backend port %s is already in use; falling back to an ephemeral port", addr)
 		return net.Listen("tcp", "127.0.0.1:0")
 	}
