@@ -1,0 +1,22 @@
+name: Test release builds
+
+on:
+  push:
+    branches: [ci/release-validation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    uses: ./.github/workflows/publish.yml
+    permissions:
+      contents: write
+      pull-requests: write
+    with:
+      channel: rc
+      version: 0.1.1-rc.${{ github.run_number }}.${{ github.run_attempt }}
+      sha: ${{ github.sha }}
+      publish: false
+    secrets: inherit
