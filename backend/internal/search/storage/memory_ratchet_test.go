@@ -256,6 +256,7 @@ func TestCompactNowResetsWarmTier(t *testing.T) {
 		t.Fatal(err)
 	}
 	idx.SetWarmTier(wt)
+	t.Cleanup(func() { _ = wt.Close() })
 	if err := idx.Index(testResource("c", "", "v1", "Pod", "ns", "p1")); err != nil {
 		t.Fatal(err)
 	}
@@ -281,6 +282,7 @@ func TestSetupWarmTiersGivesEachShardItsOwn(t *testing.T) {
 		if wt == nil {
 			t.Fatalf("shard %d has no warm tier", i)
 		}
+		t.Cleanup(func() { _ = wt.Close() })
 		if seen[wt] {
 			t.Fatalf("shard %d shares a warm tier", i)
 		}
@@ -294,10 +296,12 @@ func TestWarmTiersDoNotCollideOnDocID(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = wt0.Close() })
 	wt1, err := NewWarmTier(filepath.Join(dir, "s1"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = wt1.Close() })
 	if err := wt0.Store(CompactResource{ID: 5, Name: 100}); err != nil {
 		t.Fatal(err)
 	}
