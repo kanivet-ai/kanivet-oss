@@ -4,7 +4,7 @@ Kanivet is a standalone Electron application for navigating, troubleshooting, an
 
 ## Download
 
-- Latest build: [GitHub Releases](https://github.com/kanivet-ai/kanivet/releases/latest)
+- Latest build: [GitHub Releases](https://github.com/kanivet-ai/kanivet-oss/releases/latest)
 
 ## Anonymous usage heartbeat
 
@@ -51,4 +51,45 @@ npm run dev
 
 ## Release notes
 
-Desktop auto-updates continue to use `electron-updater` and `https://releases.kanivet.io`.
+Kanivet follows Semantic Versioning (`MAJOR.MINOR.PATCH`):
+
+- **MAJOR** for breaking changes.
+- **MINOR** for backward-compatible new features.
+- **PATCH** for backward-compatible bug fixes.
+
+Merges to `main` build GitHub release candidates linked from the pending release-please PR. Merging that PR publishes the stable release after all builds succeed. Both channels cover macOS, Windows, and Linux on x64 and ARM64.
+
+CI builds use `electron-updater` with GitHub Releases.
+
+## Contributing
+
+Contributions are welcome, including bug reports, feature ideas, documentation improvements, and code changes.
+
+- Search [existing issues](https://github.com/kanivet-ai/kanivet-oss/issues) before opening a new one. For bugs, include steps to reproduce, expected and actual behavior, and your operating system and Kanivet version.
+- For substantial changes, open an issue first to discuss the approach.
+- Fork the repository, create a branch for your change, and follow the [build from source](#build-from-source) instructions to run the app locally.
+- Keep changes focused, follow the existing code style, and add or update tests when changing behavior. Run `make test` and `make build` before submitting code changes.
+- Open a pull request describing the problem, your solution, and how you tested it. Link any related issues and include screenshots for UI changes.
+
+### Pull request conventions
+
+Use a Conventional Commits-style PR title: `type(scope): short description`. The scope is optional; use it to identify the affected area, such as `frontend` or `backend`.
+
+- `feat`: a new feature, corresponding to a MINOR release.
+- `fix`: a bug fix, corresponding to a PATCH release.
+- `perf`: a performance improvement.
+- `docs`, `refactor`, `test`, `build`, `ci`, or `chore`: documentation, code restructuring, tests, build changes, CI changes, or maintenance.
+- Add `!` before the colon for breaking changes, such as `feat(backend)!: change connection configuration`. Explain the breaking change and migration steps in the PR description; breaking changes correspond to a MAJOR release.
+
+Examples: `feat(frontend): add namespace filtering`, `fix(backend): handle expired credentials`, and `docs: clarify local setup`.
+
+Keep each PR focused on one change. Include a summary, related issues, validation results, and screenshots when relevant. Submit changes through a PR rather than pushing directly to `main` or `master`.
+
+## Authors
+
+- [Fábio Araújo (@fabioaraujopt)](https://github.com/fabioaraujopt)
+- [João Soares (@jasoares)](https://github.com/jasoares)
+- [João Pereira (@joaoafonsopereira)](https://github.com/joaoafonsopereira)
+- [Jorge Soares (@jorgensoares)](https://github.com/jorgensoares)
+- [Miguel de Oliveira Guerreiro (@mdguerreiro)](https://github.com/mdguerreiro)
+- [Nuno Morais (@nm-morais)](https://github.com/nm-morais)
