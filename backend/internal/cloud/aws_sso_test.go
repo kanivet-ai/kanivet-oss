@@ -3,6 +3,7 @@ package cloud
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -49,6 +50,7 @@ func TestBuildSSOTokenCacheUsesTokenExpiryAndAllowsMissingRefreshToken(t *testin
 func TestEnsureSSOProfileCreatesRefreshableSessionProfile(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	p := NewAWSProvider()
 	startURL := "https://example.awsapps.com/start/"
@@ -82,7 +84,7 @@ func TestEnsureSSOProfileCreatesRefreshableSessionProfile(t *testing.T) {
 
 	if info, err := os.Stat(configPath); err != nil {
 		t.Fatalf("stat config: %v", err)
-	} else if perms := info.Mode().Perm(); perms != 0o600 {
+	} else if perms := info.Mode().Perm(); runtime.GOOS != "windows" && perms != 0o600 {
 		t.Fatalf("config perms=%#o, want 0600", perms)
 	}
 }
@@ -90,6 +92,7 @@ func TestEnsureSSOProfileCreatesRefreshableSessionProfile(t *testing.T) {
 func TestEnsureSSOProfileMigratesLegacyProfileAndPreservesUnrelatedSections(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	configPath := filepath.Join(home, ".aws", "config")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
@@ -174,6 +177,7 @@ cli_legacy_plugin_path = /tmp/aws-cli
 func TestNewAWSProviderMigratesExistingImportedClusterProfileAndCache(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	configPath := filepath.Join(home, ".aws", "config")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
@@ -229,6 +233,7 @@ region = us-east-1
 func TestEnsureSSOProfilePreservesAWSConfigSymlink(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	awsDir := filepath.Join(home, ".aws")
 	if err := os.MkdirAll(awsDir, 0o700); err != nil {
@@ -270,6 +275,7 @@ func TestEnsureSSOProfilePreservesAWSConfigSymlink(t *testing.T) {
 func TestNewAWSProviderMigratesImportedEKSExecAuthToNeverInteractive(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	kubeconfigPath := KanivetKubeconfigPath()
 	if err := os.MkdirAll(filepath.Dir(kubeconfigPath), 0o700); err != nil {
@@ -318,6 +324,7 @@ func TestNewAWSProviderMigratesImportedEKSExecAuthToNeverInteractive(t *testing.
 func TestCacheSSOTokenWritesDeterministicSessionAndLegacyKanivetCompatibilityOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
 
 	configPath := filepath.Join(home, ".aws", "config")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
@@ -420,7 +427,7 @@ func assertCachedSSOTokenMode(t *testing.T, key string) {
 	if err != nil {
 		t.Fatalf("stat cache for %q: %v", key, err)
 	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
 		t.Fatalf("cache mode for %q=%#o, want 0600", key, mode)
 	}
 }

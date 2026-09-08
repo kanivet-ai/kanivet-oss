@@ -34,9 +34,10 @@ type clusterInfoEntry struct {
 }
 
 type dashboardWatcher struct {
-	cluster    string
-	cancelFunc context.CancelFunc
-	stopChan   chan struct{}
+	refreshChan chan struct{}
+	cluster     string
+	cancelFunc  context.CancelFunc
+	stopChan    chan struct{}
 }
 
 type DashboardMetrics struct {
@@ -211,21 +212,26 @@ func (h *DashboardHandler) OnConnectionClose(conn *core.Connection) {
 
 func (h *DashboardHandler) startDashboardStream(cluster, topic string) {
 	h.mu.Lock()
-	if _, exists := h.watchers[cluster]; exists {
+	if watcher, exists := h.watchers[cluster]; exists {
+		select {
+		case watcher.refreshChan <- struct{}{}:
+		default:
+		}
 		h.mu.Unlock()
 		return
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	watcher := &dashboardWatcher{
-		cluster:    cluster,
-		cancelFunc: cancel,
-		stopChan:   make(chan struct{}),
+		cluster:     cluster,
+		cancelFunc:  cancel,
+		stopChan:    make(chan struct{}),
+		refreshChan: make(chan struct{}, 1),
 	}
 	h.watchers[cluster] = watcher
 	h.mu.Unlock()
 
-	go h.streamDashboard(ctx, cluster, topic, watcher.stopChan)
+	go h.streamDashboard(ctx, cluster, topic, watcher.stopChan, watcher.refreshChan)
 }
 
 func (h *DashboardHandler) stopDashboardStream(cluster string) {
@@ -240,7 +246,7 @@ func (h *DashboardHandler) stopDashboardStream(cluster string) {
 	}
 }
 
-func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic string, stopChan chan struct{}) {
+func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic string, stopChan, refreshChan chan struct{}) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
@@ -274,6 +280,8 @@ func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic s
 		case <-stopChan:
 			return
 		case <-ticker.C:
+			sendUpdate()
+		case <-refreshChan:
 			sendUpdate()
 		}
 	}
