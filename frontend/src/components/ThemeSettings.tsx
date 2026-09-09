@@ -12,10 +12,6 @@ import {
   TrashIcon,
 } from '@radix-ui/react-icons';
 import './ThemeSettings.css';
-import {
-  loadTelemetryEnabled,
-  persistTelemetryEnabled,
-} from '../utils/telemetrySettings';
 
 interface ThemeSettingsProps {
   onOpenComponentLibrary?: () => void;
@@ -47,7 +43,6 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
   const [deleteConfirmTheme, setDeleteConfirmTheme] = useState<string | null>(
     null,
   );
-  const [telemetryEnabled, setTelemetryEnabled] = useState(loadTelemetryEnabled);
   const itemsPerPage = 8;
   const isDev =
     process.env.NODE_ENV !== 'production' || (window as any).electron?.isDev;
@@ -104,16 +99,6 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
     }
   }, [searchTerm]);
 
-  useEffect(() => {
-    (window as any).electronAPI?.telemetry
-      ?.getEnabled?.()
-      .then((enabled: boolean) => {
-        setTelemetryEnabled(enabled);
-        persistTelemetryEnabled(enabled);
-      })
-      .catch(() => {});
-  }, []);
-
   const fetchThemes = async () => {
     setLoadingThemes(true);
     try {
@@ -153,14 +138,6 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
 
   const cancelDeleteTheme = () => {
     setDeleteConfirmTheme(null);
-  };
-
-  const handleTelemetryChange = async (enabled: boolean) => {
-    setTelemetryEnabled(enabled);
-    persistTelemetryEnabled(enabled);
-    try {
-      await (window as any).electronAPI?.telemetry?.setEnabled?.(enabled);
-    } catch {}
   };
 
   const allThemes = [
@@ -294,30 +271,6 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
             </div>
           );
         })}
-      </div>
-
-      <div className="settings-divider" />
-      <div className="theme-settings-section">
-        <div className="theme-settings-section-header">
-          <h3>Privacy</h3>
-          <p>Choose whether Kanivet sends its anonymous installation heartbeat.</p>
-        </div>
-        <label className="theme-settings-toggle">
-          <div>
-            <span className="theme-settings-toggle-label">
-              Anonymous usage heartbeat
-            </span>
-            <span className="theme-settings-toggle-hint">
-              Default on. Sends a UUID that is randomly generated on first run and is only used
-              to estimate active installations. Turning this off stops future heartbeats.
-            </span>
-          </div>
-          <input
-            type="checkbox"
-            checked={telemetryEnabled}
-            onChange={(e) => handleTelemetryChange(e.target.checked)}
-          />
-        </label>
       </div>
 
       {isDev && onOpenComponentLibrary && (

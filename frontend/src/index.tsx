@@ -6,10 +6,6 @@ import './index.css';
 import App from './App';
 import { setBackendPort } from './services/api/types';
 import { setupResizeObserverErrorHandler } from './utils/resizeObserverPolyfill';
-import {
-  loadTelemetryEnabled,
-  persistTelemetryEnabled,
-} from './utils/telemetrySettings';
 import { runLegacyChatSessionMigration } from './utils/legacyChatSessionMigration.mjs';
 
 // Setup ResizeObserver error handler before anything else
@@ -26,10 +22,6 @@ if (typeof window !== 'undefined' && !(window as any).electronAPI) {
     onClearCache: () => () => {},
     island: {
       notify: async () => undefined,
-    },
-    telemetry: {
-      getEnabled: async () => loadTelemetryEnabled(),
-      setEnabled: async (enabled: boolean) => persistTelemetryEnabled(enabled),
     },
     backend: {
       onPortChanged: () => () => {},
