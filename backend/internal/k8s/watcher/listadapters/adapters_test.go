@@ -153,7 +153,7 @@ func TestSimplifyDeploymentWithoutRevisionStripsAnnotations(t *testing.T) {
 func TestSimplifyDaemonSet(t *testing.T) {
 	gvr := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "daemonsets"}
 	in := u(map[string]interface{}{
-		"kind": "DaemonSet",
+		"kind":     "DaemonSet",
 		"metadata": map[string]interface{}{"name": "ds", "namespace": "kube-system"},
 		"status": map[string]interface{}{
 			"desiredNumberScheduled": int64(5),
@@ -219,9 +219,9 @@ func TestSimplifyEvent(t *testing.T) {
 func TestSimplifyConfigMap(t *testing.T) {
 	gvr := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "configmaps"}
 	in := u(map[string]interface{}{
-		"kind":     "ConfigMap",
-		"metadata": map[string]interface{}{"name": "cm", "namespace": "ns"},
-		"data":     map[string]interface{}{"a": "1", "b": "2"},
+		"kind":       "ConfigMap",
+		"metadata":   map[string]interface{}{"name": "cm", "namespace": "ns"},
+		"data":       map[string]interface{}{"a": "1", "b": "2"},
 		"binaryData": map[string]interface{}{"bin": "xxx"},
 	})
 	got := Simplify(in, gvr)

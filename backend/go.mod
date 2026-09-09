@@ -1,8 +1,6 @@
 module github.com/kanivet/backend
 
-go 1.24.4
-
-toolchain go1.24.11
+go 1.27.1
 
 require (
 	cloud.google.com/go/container v1.43.0
@@ -17,7 +15,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sso v1.24.14
 	github.com/aws/aws-sdk-go-v2/service/ssooidc v1.28.13
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.12
-	github.com/bytedance/sonic v1.14.2
 	github.com/creack/pty v1.1.21
 	github.com/gin-contrib/cors v1.5.0
 	github.com/gin-gonic/gin v1.9.1
@@ -61,10 +58,10 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/internal/presigned-url v1.12.15 // indirect
 	github.com/aws/smithy-go v1.22.2 // indirect
 	github.com/blang/semver/v4 v4.0.0 // indirect
-	github.com/bytedance/gopkg v0.1.3 // indirect
+	github.com/bytedance/sonic v1.10.1 // indirect
 	github.com/bytedance/sonic/loader v0.4.0 // indirect
 	github.com/chai2010/gettext-go v1.0.2 // indirect
-	github.com/cloudwego/base64x v0.1.6 // indirect
+	github.com/chenzhuoyu/base64x v0.0.0-20230717121745-296ad89f973d // indirect
 	github.com/containerd/containerd v1.7.29 // indirect
 	github.com/containerd/errdefs v1.0.0 // indirect
 	github.com/containerd/log v0.1.0 // indirect

@@ -3,13 +3,12 @@ package themes
 import (
 	"archive/zip"
 	"bytes"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
 	"path"
 	"regexp"
 	"strings"
-
-	"github.com/bytedance/sonic"
 )
 
 type PackageJSON struct {
@@ -70,7 +69,7 @@ func ExtractThemesFromVSIX(vsixData []byte) ([]*VSCodeTheme, error) {
 	}
 
 	var packageJSON PackageJSON
-	if err := sonic.Unmarshal(packageJSONContent, &packageJSON); err != nil {
+	if err := jsonv2.Unmarshal(packageJSONContent, &packageJSON); err != nil {
 		return nil, fmt.Errorf("failed to parse package.json: %w", err)
 	}
 
@@ -112,7 +111,7 @@ func ExtractThemesFromVSIX(vsixData []byte) ([]*VSCodeTheme, error) {
 
 		cleanContent := cleanJSONContent(string(themeContent))
 		var theme VSCodeTheme
-		if err := sonic.Unmarshal([]byte(cleanContent), &theme); err != nil {
+		if err := jsonv2.Unmarshal([]byte(cleanContent), &theme); err != nil {
 			continue
 		}
 

@@ -209,4 +209,3 @@ func (h *Handler) UpgradeReleaseValues(c *gin.Context) {
 		"dryRun":   req.DryRun,
 	})
 }
-
