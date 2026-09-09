@@ -53,6 +53,22 @@
       {
         "from": "resources",
         "to": "resources"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "licenses/LICENSE"
+      },
+      {
+        "from": "../NOTICE",
+        "to": "licenses/NOTICE"
+      },
+      {
+        "from": "../LICENSING.md",
+        "to": "licenses/LICENSING.md"
+      },
+      {
+        "from": "../LICENSES",
+        "to": "licenses/LICENSES"
       }
     ],
     "mac": {
@@ -163,5 +179,6 @@
     "development": [
       "last 1 chrome version"
     ]
-  }
+  },
+  "license": "Apache-2.0"
 }

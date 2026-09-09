@@ -2,9 +2,22 @@
 
 Kanivet is a standalone Electron application for navigating, troubleshooting, and operating Kubernetes clusters from your local environment.
 
+Browse resources and live updates, inspect logs and incident timelines, search across cluster data, and work with terminals, Helm releases, and Argo applications using your existing Kubernetes credentials. Available workflows depend on your permissions and cluster components.
+
 ## Download
 
 - Latest build: [GitHub Releases](https://github.com/kanivet-ai/kanivet-oss/releases/latest)
+- [Get started with Kanivet](docs/QUICKSTART.md)
+
+## Documentation and community
+
+- [Development setup](SETUP.md) and [architecture](ARCHITECTURE.md)
+- [Contributing](CONTRIBUTING.md), [maintainers](MAINTAINERS.md), and [governance](GOVERNANCE.md)
+- [Adopters](ADOPTERS.md) and [ecosystem fit](docs/PROJECT.md)
+- [Security reporting](SECURITY.md), [security model](docs/SECURITY_MODEL.md), and [privacy](docs/PRIVACY.md)
+- [Release process](docs/RELEASING.md) and [licensing](LICENSING.md)
+
+Kanivet adopts the [CNCF Community Code of Conduct](https://github.com/cncf/foundation/blob/main/code-of-conduct.md) with the project reporting process in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Public questions and proposals belong in [GitHub issues](https://github.com/kanivet-ai/kanivet-oss/issues).
 
 ## Anonymous usage heartbeat
 
@@ -25,27 +38,30 @@ The request body does not include app version, platform, architecture, IP addres
 
 Traffic to `heartbeat.kanivet.io` is delivered through Cloudflare, which transiently processes source IP addresses at the network edge to serve the request. The heartbeat payload itself contains only the installation UUID above, and Kanivet does not intentionally store IP addresses, user agents, or additional operational data as part of the heartbeat record.
 
+The project owners operate the heartbeat service and retain installation UUIDs indefinitely unless deletion is requested. To request manual deletion, disable the heartbeat and email your installation UUID to [nuno.mcvmorais@gmail.com](mailto:nuno.mcvmorais@gmail.com). See [Privacy and data handling](docs/PRIVACY.md#request-deletion) for instructions, local storage, and other external connections.
+
 ## Build from source
 
-See `SETUP.md` for local setup and packaging details.
+See [SETUP.md](SETUP.md) for prerequisites, dependency installation, and packaging details.
 
 Common commands:
 
-- `make dev` runs Electron with frontend and backend hot reload
+- `make dev` runs Electron and the frontend development server; start the backend separately
+- `make dev-backend` runs backend hot reload when Air is installed
 - `make build` builds frontend and backend
 - `make test` runs the project test suite
-- `make logs` tails frontend and backend logs
 
-Manual development:
+After installing dependencies, start the backend in one terminal:
 
 ```bash
 cd backend
-air
+go run ./cmd/main.go
 ```
+
+Start Electron and the frontend in another terminal:
 
 ```bash
 cd frontend
-npm install --ignore-scripts
 npm run dev
 ```
 
@@ -64,6 +80,8 @@ CI builds use `electron-updater` with GitHub Releases.
 ## Contributing
 
 Contributions are welcome, including bug reports, feature ideas, documentation improvements, and code changes.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), including the required [DCO sign-off](CONTRIBUTING.md#commit-sign-off-and-licensing), before submitting changes.
 
 - Search [existing issues](https://github.com/kanivet-ai/kanivet-oss/issues) before opening a new one. For bugs, include steps to reproduce, expected and actual behavior, and your operating system and Kanivet version.
 - For substantial changes, open an issue first to discuss the approach.
@@ -84,6 +102,10 @@ Use a Conventional Commits-style PR title: `type(scope): short description`. The
 Examples: `feat(frontend): add namespace filtering`, `fix(backend): handle expired credentials`, and `docs: clarify local setup`.
 
 Keep each PR focused on one change. Include a summary, related issues, validation results, and screenshots when relevant. Submit changes through a PR rather than pushing directly to `main` or `master`.
+
+## License
+
+Original project code is licensed under [Apache-2.0](LICENSE) and documentation prose under [CC-BY-4.0](LICENSES/CC-BY-4.0.txt). Third-party material retains its own licenses and notices as described in [LICENSING.md](LICENSING.md).
 
 ## Contributors
 
