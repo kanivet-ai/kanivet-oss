@@ -85,11 +85,10 @@ Examples: `feat(frontend): add namespace filtering`, `fix(backend): handle expir
 
 Keep each PR focused on one change. Include a summary, related issues, validation results, and screenshots when relevant. Submit changes through a PR rather than pushing directly to `main` or `master`.
 
-## Authors
+## Contributors
 
 - [Fábio Araújo (@fabioaraujopt)](https://github.com/fabioaraujopt)
 - [João Soares (@jasoares)](https://github.com/jasoares)
-- [João Pereira (@joaoafonsopereira)](https://github.com/joaoafonsopereira)
 - [Jorge Soares (@jorgensoares)](https://github.com/jorgensoares)
 - [Miguel de Oliveira Guerreiro (@mdguerreiro)](https://github.com/mdguerreiro)
 - [Nuno Morais (@nm-morais)](https://github.com/nm-morais)
