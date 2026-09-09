@@ -129,21 +129,6 @@ function loadElectronMain() {
     },
     'electron-store': FakeStore,
     'electron-updater': { autoUpdater },
-    './telemetry': {
-      InstallationTelemetry: class {
-        async initialize() {
-          return true;
-        }
-
-        isEnabled() {
-          return true;
-        }
-
-        async setEnabled() {
-          return true;
-        }
-      },
-    },
     './legacyHostedIdentityMigration': {
       runLegacyHostedIdentityCleanup: () => ({ errorCount: 0 }),
     },
@@ -174,7 +159,6 @@ test('startup activate race does not create a duplicate frontend window', async 
 
   const appReady = electronMain.handleAppReady({
     runLegacyHostedIdentityCleanupImpl: () => ({ errorCount: 0 }),
-    installationTelemetryImpl: { initialize: async () => true },
     startBackendImpl: () => backendStartup.promise,
     createTrayImpl: () => {},
     initDynamicIslandImpl: () => {},

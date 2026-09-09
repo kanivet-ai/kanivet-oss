@@ -24,6 +24,6 @@ These descriptions summarize the linked project sites as of 9 September 2026. Co
 
 ## Contribution scope and service separation
 
-[kanivet-ai/kanivet-oss](https://github.com/kanivet-ai/kanivet-oss) contains the standalone application. The project owners maintain the heartbeat service outside this repository. The client also references release infrastructure and third-party services; see [privacy and data handling](PRIVACY.md) for their role.
+[kanivet-ai/kanivet-oss](https://github.com/kanivet-ai/kanivet-oss) contains the standalone application. The client references release infrastructure and third-party services; see [privacy and data handling](PRIVACY.md) for their role.
 
 The founders decide any contribution of project assets under [governance](../GOVERNANCE.md). An open-source code license does not itself transfer domains, service accounts, or trademarks.

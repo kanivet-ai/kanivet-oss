@@ -19,27 +19,6 @@ Browse resources and live updates, inspect logs and incident timelines, search a
 
 Kanivet adopts the [CNCF Community Code of Conduct](https://github.com/cncf/foundation/blob/main/code-of-conduct.md) with the project reporting process in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Public questions and proposals belong in [GitHub issues](https://github.com/kanivet-ai/kanivet-oss/issues).
 
-## Anonymous usage heartbeat
-
-Kanivet sends an anonymous installation heartbeat from the Electron main process by default.
-
-- Endpoint: `https://heartbeat.kanivet.io/v1/heartbeat`
-- Payload: exactly `{"installation_id":"<uuid-v4>"}`
-- Identifier: a persistent `crypto.randomUUID()` generated on first run
-- Cadence: at most once per UTC calendar day
-- Timing: sent after a short random startup delay, with a short timeout, without blocking startup, and without aggressive retries
-- Disable: Settings > Theme > `Anonymous usage heartbeat`
-- Opt-out behavior: turning it off stops future heartbeats and preserves the local UUID and existing cadence state
-- Upgrade behavior: an explicit opt-out from the previous diagnostics setting is honored and migrated to disabled
-- While disabled: no heartbeat is sent and no deletion request is made
-- Fork override: set `KANIVET_HEARTBEAT_URL` to another compatible endpoint, or set it to an empty value to disable sending in a forked build
-
-The request body does not include app version, platform, architecture, IP address, user agent, account identity, cluster names, or operational telemetry.
-
-Traffic to `heartbeat.kanivet.io` is delivered through Cloudflare, which transiently processes source IP addresses at the network edge to serve the request. The heartbeat payload itself contains only the installation UUID above, and Kanivet does not intentionally store IP addresses, user agents, or additional operational data as part of the heartbeat record.
-
-The project owners operate the heartbeat service and retain installation UUIDs indefinitely unless deletion is requested. To request manual deletion, disable the heartbeat and email your installation UUID to [nuno.mcvmorais@gmail.com](mailto:nuno.mcvmorais@gmail.com). See [Privacy and data handling](docs/PRIVACY.md#request-deletion) for instructions, local storage, and other external connections.
-
 ## Build from source
 
 See [SETUP.md](SETUP.md) for prerequisites, dependency installation, and packaging details.
