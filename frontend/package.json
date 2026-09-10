@@ -1,6 +1,6 @@
 {
   "name": "kanivet-frontend",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Kubernetes cluster navigation and troubleshooting application",
   "main": "public/electron.js",
   "homepage": "./",
