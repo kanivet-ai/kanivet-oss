@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/kanivet-ai/kanivet-oss/compare/v0.1.1...v0.1.2) (2026-09-10)
+
+
+### Documentation
+
+* add project governance and adopt Apache-2.0 ([#4](https://github.com/kanivet-ai/kanivet-oss/issues/4)) ([2ec6cb8](https://github.com/kanivet-ai/kanivet-oss/commit/2ec6cb8c7e4476667e58814de3a9fb24a9b6270f))
+
 ## [0.1.1](https://github.com/kanivet-ai/kanivet-oss/compare/v0.1.0...v0.1.1) (2026-09-08)
 
 
