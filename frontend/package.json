@@ -10,7 +10,7 @@
     "build:standalone": "vite build",
     "preview": "vite preview",
     "test": "npm run test:node && npm run test:unit",
-    "test:node": "node --test public/telemetry.test.js public/legacyHostedIdentityMigration.test.js public/electron.test.js src/utils/legacyChatSessionMigration.test.js",
+    "test:node": "node --test public/legacyHostedIdentityMigration.test.js public/electron.test.js src/utils/legacyChatSessionMigration.test.js",
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
     "electron": "electron .",
@@ -43,7 +43,6 @@
       "public/electron.js",
       "public/legacyHostedIdentityMigration.js",
       "public/preload.js",
-      "public/telemetry.js",
       "resources/**/*"
     ],
     "asarUnpack": [
@@ -53,6 +52,22 @@
       {
         "from": "resources",
         "to": "resources"
+      },
+      {
+        "from": "../LICENSE",
+        "to": "licenses/LICENSE"
+      },
+      {
+        "from": "../NOTICE",
+        "to": "licenses/NOTICE"
+      },
+      {
+        "from": "../LICENSING.md",
+        "to": "licenses/LICENSING.md"
+      },
+      {
+        "from": "../LICENSES",
+        "to": "licenses/LICENSES"
       }
     ],
     "mac": {
@@ -163,5 +178,6 @@
     "development": [
       "last 1 chrome version"
     ]
-  }
+  },
+  "license": "Apache-2.0"
 }

@@ -5,7 +5,6 @@ const crypto = require('crypto');
 const { spawn, execSync } = require('child_process');
 const Store = require('electron-store');
 const { autoUpdater } = require('electron-updater');
-const { InstallationTelemetry } = require('./telemetry');
 const {
   runLegacyHostedIdentityCleanup,
 } = require('./legacyHostedIdentityMigration');
@@ -18,10 +17,6 @@ if (!app.requestSingleInstanceLock()) {
 
 const SESSION_SECRET = crypto.randomBytes(32).toString('hex');
 const settingsStore = new Store({ name: 'kanivet-settings' });
-const installationTelemetry = new InstallationTelemetry({
-  store: settingsStore,
-  log: isDev ? writeLog : () => {},
-});
 
 // Detect if app is running from macOS App Translocation (read-only sandbox)
 function isAppTranslocated() {
@@ -225,13 +220,6 @@ ipcMain.handle('island:notify', (event, opts) => showIsland(opts));
 
 ipcMain.handle('write-log', (event, message) => {
   writeLog(message);
-});
-
-ipcMain.handle('telemetry:getEnabled', () => installationTelemetry.isEnabled());
-
-ipcMain.handle('telemetry:setEnabled', async (event, enabled) => {
-  await installationTelemetry.setEnabled(enabled !== false);
-  return installationTelemetry.isEnabled();
 });
 
 ipcMain.handle('security:getSessionSecret', () => {
@@ -1160,7 +1148,6 @@ app.on('second-instance', () => {
 async function handleAppReady({
   runLegacyHostedIdentityCleanupImpl = runLegacyHostedIdentityCleanup,
   settingsStoreImpl = settingsStore,
-  installationTelemetryImpl = installationTelemetry,
   startBackendImpl = startBackend,
   createWindowImpl = createWindow,
   createTrayImpl = createTray,
@@ -1184,7 +1171,6 @@ async function handleAppReady({
     );
   }
 
-  void installationTelemetryImpl.initialize();
   await startBackendImpl();
   createWindowImpl();
   createTrayImpl();
