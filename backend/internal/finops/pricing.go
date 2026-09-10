@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/csv"
+	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -15,8 +16,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
 )
 
 type PricingSource string
@@ -71,18 +70,18 @@ func NewAWSPricingProvider() *AWSPricingProvider {
 		// EC2 on-demand pricing changes on the order of quarters; anything
 		// under a day of staleness is irrelevant for cost dashboards. The
 		// disk cache itself expires after 7 days.
-		refreshPeriod:   24 * time.Hour,
-		pendingRegions:  make(map[string]chan struct{}),
-		cacheDir:        cacheDir,
+		refreshPeriod:  24 * time.Hour,
+		pendingRegions: make(map[string]chan struct{}),
+		cacheDir:       cacheDir,
 	}
 	p.loadAllCachedRegions()
 	return p
 }
 
 type diskPricingCache struct {
-	Region      string                       `json:"region"`
-	SavedAt     time.Time                    `json:"savedAt"`
-	Pricing     map[string]*InstancePricing  `json:"pricing"`
+	Region  string                      `json:"region"`
+	SavedAt time.Time                   `json:"savedAt"`
+	Pricing map[string]*InstancePricing `json:"pricing"`
 }
 
 func (p *AWSPricingProvider) loadAllCachedRegions() {
@@ -116,7 +115,7 @@ func (p *AWSPricingProvider) loadCacheFromDisk(filePath string) {
 	if err != nil {
 		return
 	}
-	if err := sonic.Unmarshal(cacheData, &cache); err != nil {
+	if err := jsonv2.Unmarshal(cacheData, &cache); err != nil {
 		return
 	}
 
@@ -168,7 +167,7 @@ func (p *AWSPricingProvider) saveCacheToDisk(region string) {
 	gz := gzip.NewWriter(file)
 	defer gz.Close()
 
-	data, err := sonic.Marshal(cache)
+	data, err := jsonv2.Marshal(cache)
 	if err != nil {
 		log.Printf("[AWS Pricing] Failed to marshal cache: %v", err)
 		return
@@ -328,7 +327,7 @@ func (p *AWSPricingProvider) loadRegionPricing(region string) error {
 	log.Printf("Downloaded %d MB of pricing data for %s", len(body)/(1024*1024), region)
 
 	var data map[string]interface{}
-	if err := sonic.Unmarshal(body, &data); err != nil {
+	if err := jsonv2.Unmarshal(body, &data); err != nil {
 		p.mu.Lock()
 		p.lastError = fmt.Sprintf("JSON parse error (got %d bytes): %v", len(body), err)
 		p.mu.Unlock()
@@ -746,21 +745,21 @@ type AzurePricingProvider struct {
 }
 
 type azureRetailPrice struct {
-	ArmRegionName string  `json:"armRegionName"`
-	ArmSkuName    string  `json:"armSkuName"`
-	ServiceName   string  `json:"serviceName"`
-	ProductName   string  `json:"productName"`
-	MeterName     string  `json:"meterName"`
-	RetailPrice   float64 `json:"retailPrice"`
-	UnitPrice     float64 `json:"unitPrice"`
-	UnitOfMeasure string  `json:"unitOfMeasure"`
-	Type          string  `json:"type"`
-	IsPrimaryMeterRegion bool `json:"isPrimaryMeterRegion"`
+	ArmRegionName        string  `json:"armRegionName"`
+	ArmSkuName           string  `json:"armSkuName"`
+	ServiceName          string  `json:"serviceName"`
+	ProductName          string  `json:"productName"`
+	MeterName            string  `json:"meterName"`
+	RetailPrice          float64 `json:"retailPrice"`
+	UnitPrice            float64 `json:"unitPrice"`
+	UnitOfMeasure        string  `json:"unitOfMeasure"`
+	Type                 string  `json:"type"`
+	IsPrimaryMeterRegion bool    `json:"isPrimaryMeterRegion"`
 }
 
 type azurePriceResponse struct {
-	Items      []azureRetailPrice `json:"Items"`
-	NextPageLink string           `json:"NextPageLink"`
+	Items        []azureRetailPrice `json:"Items"`
+	NextPageLink string             `json:"NextPageLink"`
 }
 
 func NewAzurePricingProvider() *AzurePricingProvider {
@@ -794,7 +793,7 @@ func (p *AzurePricingProvider) loadCacheFromDisk() {
 	if err != nil {
 		return
 	}
-	if err := sonic.Unmarshal(cacheData, &cache); err != nil {
+	if err := jsonv2.Unmarshal(cacheData, &cache); err != nil {
 		return
 	}
 
@@ -842,7 +841,7 @@ func (p *AzurePricingProvider) saveCacheToDisk() {
 	gz := gzip.NewWriter(file)
 	defer gz.Close()
 
-	data, _ := sonic.Marshal(cache)
+	data, _ := jsonv2.Marshal(cache)
 	gz.Write(data)
 }
 
@@ -913,7 +912,7 @@ func (p *AzurePricingProvider) loadInstancePricing(instanceType, region string) 
 		p.mu.Unlock()
 		return fmt.Errorf("failed to read Azure pricing response: %w", err)
 	}
-	if err := sonic.Unmarshal(body, &priceResp); err != nil {
+	if err := jsonv2.Unmarshal(body, &priceResp); err != nil {
 		p.mu.Lock()
 		p.lastError = err.Error()
 		p.mu.Unlock()
@@ -981,10 +980,10 @@ func (p *AzurePricingProvider) loadInstancePricing(instanceType, region string) 
 
 func (p *AzurePricingProvider) extractSpecsFromProductName(productName string) (int, float64) {
 	productLower := strings.ToLower(productName)
-	
+
 	var vcpu int
 	var memGB float64
-	
+
 	if strings.Contains(productLower, " vcpu") {
 		parts := strings.Fields(productName)
 		for i, part := range parts {
@@ -996,7 +995,7 @@ func (p *AzurePricingProvider) extractSpecsFromProductName(productName string) (
 			}
 		}
 	}
-	
+
 	if strings.Contains(productLower, " gb") || strings.Contains(productLower, "gb ram") {
 		parts := strings.Fields(productName)
 		for i, part := range parts {
@@ -1008,7 +1007,7 @@ func (p *AzurePricingProvider) extractSpecsFromProductName(productName string) (
 			}
 		}
 	}
-	
+
 	return vcpu, memGB
 }
 
@@ -1017,7 +1016,7 @@ func (p *AzurePricingProvider) fallbackSpecs(instanceType string) (int, float64)
 	if len(parts) < 2 {
 		return 2, 8.0
 	}
-	
+
 	size := parts[1]
 	numStr := ""
 	for _, c := range size {
@@ -1025,12 +1024,12 @@ func (p *AzurePricingProvider) fallbackSpecs(instanceType string) (int, float64)
 			numStr += string(c)
 		}
 	}
-	
+
 	num := 2
 	if n, err := strconv.Atoi(numStr); err == nil && n > 0 {
 		num = n
 	}
-	
+
 	series := strings.ToUpper(string(size[0]))
 	switch series {
 	case "B":

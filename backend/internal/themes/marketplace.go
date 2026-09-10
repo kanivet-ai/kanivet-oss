@@ -1,6 +1,7 @@
 package themes
 
 import (
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
 	"net/http"
@@ -8,8 +9,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/bytedance/sonic"
 )
 
 type MarketplaceClient struct {
@@ -74,7 +73,7 @@ func (mc *MarketplaceClient) SearchThemes(query string, size int, sortBy string)
 	}
 
 	var result OpenVSXResponse
-	if err := sonic.Unmarshal(body, &result); err != nil {
+	if err := jsonv2.Unmarshal(body, &result); err != nil {
 		return nil, fmt.Errorf("failed to parse search response: %w", err)
 	}
 

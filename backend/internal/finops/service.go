@@ -207,7 +207,7 @@ func (s *Service) calculateDashboard(ctx context.Context, cluster string, send f
 		TotalCPU: totalCPU, TotalMemory: totalMemory, RequestedCPU: requestedCPU, RequestedMemory: requestedMemory,
 		HourlyCost: totalHourlyCost, DailyCost: totalHourlyCost * 24, MonthlyCost: totalHourlyCost * 24 * 30,
 		ProjectedMonthlyCost: totalHourlyCost * 24 * 30,
-		CPUEfficiency: cpuEfficiency, MemoryEfficiency: memoryEfficiency, OverallEfficiency: overallEfficiency,
+		CPUEfficiency:        cpuEfficiency, MemoryEfficiency: memoryEfficiency, OverallEfficiency: overallEfficiency,
 		IdleCost: idleCost * 24 * 30, IdlePercentage: idlePercentage, SpotSavings: spotSavings * 24 * 30,
 		Breakdown: CostBreakdown{
 			ComputeCost: totalHourlyCost * 24 * 30, CPUCost: totalHourlyCost * 0.7 * 24 * 30,
@@ -325,7 +325,7 @@ func (s *Service) calculateClusterCostSummary(ctx context.Context, cluster strin
 	}
 
 	provider, region := s.detectProviderAndRegion(nodes.Items)
-	
+
 	if strings.Contains(provider, "GCP") || strings.Contains(provider, "GKE") {
 		return nil, fmt.Errorf("GCP pricing not yet supported. AWS and Azure clusters are fully supported")
 	}
@@ -408,26 +408,26 @@ func (s *Service) calculateClusterCostSummary(ctx context.Context, cluster strin
 	nodesMissingPrice := len(nodes.Items) - nodesWithPricing
 
 	summary := &ClusterCostSummary{
-		Cluster:         cluster,
-		Provider:        provider,
-		Region:          region,
-		NodeCount:       len(nodes.Items),
-		PodCount:        len(pods.Items),
-		NamespaceCount:  len(namespaces.Items),
-		TotalCPU:        totalCPU,
-		TotalMemory:     totalMemory,
-		RequestedCPU:    requestedCPU,
-		RequestedMemory: requestedMemory,
-		HourlyCost:      totalHourlyCost,
-		DailyCost:       totalHourlyCost * 24,
-		MonthlyCost:     totalHourlyCost * 24 * 30,
+		Cluster:              cluster,
+		Provider:             provider,
+		Region:               region,
+		NodeCount:            len(nodes.Items),
+		PodCount:             len(pods.Items),
+		NamespaceCount:       len(namespaces.Items),
+		TotalCPU:             totalCPU,
+		TotalMemory:          totalMemory,
+		RequestedCPU:         requestedCPU,
+		RequestedMemory:      requestedMemory,
+		HourlyCost:           totalHourlyCost,
+		DailyCost:            totalHourlyCost * 24,
+		MonthlyCost:          totalHourlyCost * 24 * 30,
 		ProjectedMonthlyCost: totalHourlyCost * 24 * 30,
-		CPUEfficiency:   cpuEfficiency,
-		MemoryEfficiency: memoryEfficiency,
-		OverallEfficiency: overallEfficiency,
-		IdleCost:        idleCost * 24 * 30,
-		IdlePercentage:  idlePercentage,
-		SpotSavings:     spotSavings * 24 * 30,
+		CPUEfficiency:        cpuEfficiency,
+		MemoryEfficiency:     memoryEfficiency,
+		OverallEfficiency:    overallEfficiency,
+		IdleCost:             idleCost * 24 * 30,
+		IdlePercentage:       idlePercentage,
+		SpotSavings:          spotSavings * 24 * 30,
 		Breakdown: CostBreakdown{
 			ComputeCost:      totalHourlyCost * 24 * 30,
 			CPUCost:          cpuCost * 24 * 30,
@@ -790,7 +790,7 @@ func (s *Service) fetchWorkloadCosts(ctx context.Context, cluster, namespace str
 
 func (s *Service) fetchHPAs(ctx context.Context, cluster, namespace string) map[string]*autoscalingv2.HorizontalPodAutoscaler {
 	hpaMap := make(map[string]*autoscalingv2.HorizontalPodAutoscaler)
-	
+
 	clientIface, err := s.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return hpaMap
@@ -800,14 +800,14 @@ func (s *Service) fetchHPAs(ctx context.Context, cluster, namespace string) map[
 	if err != nil {
 		return hpaMap
 	}
-	
+
 	for i := range hpas.Items {
 		hpa := &hpas.Items[i]
 		targetName := hpa.Spec.ScaleTargetRef.Name
 		key := fmt.Sprintf("%s/%s", hpa.Namespace, targetName)
 		hpaMap[key] = hpa
 	}
-	
+
 	if len(hpaMap) > 0 {
 		log.Printf("[FinOps] Found %d HPAs in namespace %s", len(hpaMap), namespace)
 	}
@@ -823,13 +823,13 @@ func (s *Service) calculateHPACosts(hpa *autoscalingv2.HorizontalPodAutoscaler, 
 	if wc.Replicas == 0 {
 		return nil
 	}
-	
+
 	perReplicaCost := wc.MonthlyCost / float64(wc.Replicas)
 	minReplicas := int32(1)
 	if hpa.Spec.MinReplicas != nil {
 		minReplicas = *hpa.Spec.MinReplicas
 	}
-	
+
 	return &HPAInfo{
 		MinReplicas:     int(minReplicas),
 		MaxReplicas:     int(hpa.Spec.MaxReplicas),
@@ -1062,10 +1062,10 @@ func (s *Service) collectUniqueRegions(nodes []v1.Node, defaultRegion string) []
 }
 
 type PricingDebugInfo struct {
-	Provider      string            `json:"provider"`
-	Region        string            `json:"region"`
-	Nodes         []NodeDebugInfo   `json:"nodes"`
-	PricingStatus PricingStatus     `json:"pricingStatus"`
+	Provider      string          `json:"provider"`
+	Region        string          `json:"region"`
+	Nodes         []NodeDebugInfo `json:"nodes"`
+	PricingStatus PricingStatus   `json:"pricingStatus"`
 }
 
 type NodeDebugInfo struct {

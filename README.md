@@ -23,6 +23,8 @@ Kanivet adopts the [CNCF Community Code of Conduct](https://github.com/cncf/foun
 
 See [SETUP.md](SETUP.md) for prerequisites, dependency installation, and packaging details.
 
+Fastest path: run `devbox shell` to get pinned Go, Node.js, golangci-lint, and gh versions (see [devbox.json](devbox.json)), then use the commands below.
+
 Common commands:
 
 - `make dev` runs Electron and the frontend development server; start the backend separately

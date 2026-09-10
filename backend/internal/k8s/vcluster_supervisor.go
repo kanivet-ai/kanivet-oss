@@ -387,4 +387,3 @@ func (s *VClusterSupervisor) invalidateClientCaches() {
 	}
 	s.owner.resourceNameMu.Unlock()
 }
-

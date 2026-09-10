@@ -1,13 +1,12 @@
 package websocket
 
 import (
+	jsonv2 "encoding/json/v2"
+	"github.com/kanivet/backend/internal/k8s/watcher"
+	"github.com/kanivet/backend/internal/websocket/core"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/bytedance/sonic"
-	"github.com/kanivet/backend/internal/k8s/watcher"
-	"github.com/kanivet/backend/internal/websocket/core"
 )
 
 type WatcherBroadcaster struct {
@@ -118,7 +117,7 @@ type WatcherMessage struct {
 
 func (wm *WatcherMessage) Marshal() ([]byte, error) {
 	wm.cacheOnce.Do(func() {
-		wm.cachedData, wm.cachedErr = sonic.Marshal(wm.msgData)
+		wm.cachedData, wm.cachedErr = jsonv2.Marshal(wm.msgData)
 	})
 	return wm.cachedData, wm.cachedErr
 }

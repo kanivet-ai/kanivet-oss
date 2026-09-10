@@ -2,17 +2,16 @@ package core
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	"github.com/kanivet/backend/internal/faults"
 	"log"
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/bytedance/sonic"
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
-	"github.com/kanivet/backend/internal/faults"
 )
 
 type HubConfig struct {
@@ -212,7 +211,7 @@ func (h *Hub) handleConnection(conn *Connection) {
 			}
 
 			var msg IncomingMessage
-			if err := sonic.Unmarshal(data, &msg); err != nil {
+			if err := jsonv2.Unmarshal(data, &msg); err != nil {
 				if errData := mustSafe(NewErrorMessage(ErrInvalidMessage, "INVALID_FORMAT").Marshal()); errData != nil {
 					_ = conn.Send(errData)
 				}
