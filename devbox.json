@@ -1,0 +1,46 @@
+{
+  "$schema": "https://raw.githubusercontent.com/jetify-com/devbox/0.18.0/.schema/devbox.schema.json",
+  "packages": [
+    "go@1.27.0",
+    "nodejs@22.23.2",
+    "gh@2.98.0",
+    "golangci-lint@2.13.1"
+  ],
+  "shell": {
+    "init_hook": [
+      "unset GOROOT",
+      "export PATH=\"$PWD/.devbox/nix/profile/default/bin:$PATH\""
+    ],
+    "scripts": {
+      "install":          ["make install"],
+      "install:backend":  ["make install-backend"],
+      "install:frontend":  ["make install-frontend"],
+
+      "run:backend":      ["cd backend && go run ./cmd/main.go"],
+
+      "dev":              ["make dev"],
+      "dev:backend":      ["make dev-backend"],
+      "dev:frontend":     ["make dev-frontend"],
+
+      "build":            ["make build"],
+      "build:backend":    ["make build-backend"],
+      "build:frontend":   ["make build-frontend"],
+
+      "test":             ["make test"],
+      "test:backend":     ["make test-backend"],
+      "test:frontend":    ["make test-frontend"],
+
+      "lint":             ["make lint"],
+      "lint:backend":     ["make lint-backend"],
+      "lint:frontend":    ["make lint-frontend"],
+      "lint:fix":         ["make lint-fix"],
+
+      "dist":             ["make dist"],
+      "dist:mac":         ["make dist-mac"],
+      "dist:win":         ["make dist-win"],
+      "dist:linux":       ["make dist-linux"],
+
+      "clean":            ["make clean"]
+    }
+  }
+}
