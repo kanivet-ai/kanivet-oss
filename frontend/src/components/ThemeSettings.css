@@ -596,67 +596,6 @@
   margin-top: 16px;
 }
 
-.theme-settings-section {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.theme-settings-section-header {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.theme-settings-section-header h3 {
-  margin: 0;
-  color: var(--text-primary);
-  font-size: var(--font-md);
-  font-weight: 600;
-}
-
-.theme-settings-section-header p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-}
-
-.theme-settings-toggle {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-}
-
-.theme-settings-toggle input {
-  margin: 2px 0 0;
-}
-
-.theme-settings-toggle-label {
-  display: block;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.theme-settings-toggle-hint {
-  display: block;
-  margin-top: 4px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.settings-divider {
-  height: 1px;
-  background: var(--border);
-  margin: 16px 0;
-}
-
 .component-library-btn {
   display: flex;
   align-items: center;

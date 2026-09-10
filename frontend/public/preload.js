@@ -5,10 +5,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   island: {
     notify: (opts) => ipcRenderer.invoke('island:notify', opts),
   },
-  telemetry: {
-    getEnabled: () => ipcRenderer.invoke('telemetry:getEnabled'),
-    setEnabled: (enabled) => ipcRenderer.invoke('telemetry:setEnabled', enabled),
-  },
   backend: {
     onPortChanged: (callback) => {
       const listener = (_, port) => callback(port);

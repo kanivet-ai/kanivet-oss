@@ -2,50 +2,45 @@
 
 Kanivet is a standalone Electron application for navigating, troubleshooting, and operating Kubernetes clusters from your local environment.
 
+Browse resources and live updates, inspect logs and incident timelines, search across cluster data, and work with terminals, Helm releases, and Argo applications using your existing Kubernetes credentials. Available workflows depend on your permissions and cluster components.
+
 ## Download
 
 - Latest build: [GitHub Releases](https://github.com/kanivet-ai/kanivet-oss/releases/latest)
+- [Get started with Kanivet](docs/QUICKSTART.md)
 
-## Anonymous usage heartbeat
+## Documentation and community
 
-Kanivet sends an anonymous installation heartbeat from the Electron main process by default.
+- [Development setup](SETUP.md) and [architecture](ARCHITECTURE.md)
+- [Contributing](CONTRIBUTING.md), [maintainers](MAINTAINERS.md), and [governance](GOVERNANCE.md)
+- [Adopters](ADOPTERS.md) and [ecosystem fit](docs/PROJECT.md)
+- [Security reporting](SECURITY.md), [security model](docs/SECURITY_MODEL.md), and [privacy](docs/PRIVACY.md)
+- [Release process](docs/RELEASING.md) and [licensing](LICENSING.md)
 
-- Endpoint: `https://heartbeat.kanivet.io/v1/heartbeat`
-- Payload: exactly `{"installation_id":"<uuid-v4>"}`
-- Identifier: a persistent `crypto.randomUUID()` generated on first run
-- Cadence: at most once per UTC calendar day
-- Timing: sent after a short random startup delay, with a short timeout, without blocking startup, and without aggressive retries
-- Disable: Settings > Theme > `Anonymous usage heartbeat`
-- Opt-out behavior: turning it off stops future heartbeats and preserves the local UUID and existing cadence state
-- Upgrade behavior: an explicit opt-out from the previous diagnostics setting is honored and migrated to disabled
-- While disabled: no heartbeat is sent and no deletion request is made
-- Fork override: set `KANIVET_HEARTBEAT_URL` to another compatible endpoint, or set it to an empty value to disable sending in a forked build
-
-The request body does not include app version, platform, architecture, IP address, user agent, account identity, cluster names, or operational telemetry.
-
-Traffic to `heartbeat.kanivet.io` is delivered through Cloudflare, which transiently processes source IP addresses at the network edge to serve the request. The heartbeat payload itself contains only the installation UUID above, and Kanivet does not intentionally store IP addresses, user agents, or additional operational data as part of the heartbeat record.
+Kanivet adopts the [CNCF Community Code of Conduct](https://github.com/cncf/foundation/blob/main/code-of-conduct.md) with the project reporting process in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Public questions and proposals belong in [GitHub issues](https://github.com/kanivet-ai/kanivet-oss/issues).
 
 ## Build from source
 
-See `SETUP.md` for local setup and packaging details.
+See [SETUP.md](SETUP.md) for prerequisites, dependency installation, and packaging details.
 
 Common commands:
 
-- `make dev` runs Electron with frontend and backend hot reload
+- `make dev` runs Electron and the frontend development server; start the backend separately
+- `make dev-backend` runs backend hot reload when Air is installed
 - `make build` builds frontend and backend
 - `make test` runs the project test suite
-- `make logs` tails frontend and backend logs
 
-Manual development:
+After installing dependencies, start the backend in one terminal:
 
 ```bash
 cd backend
-air
+go run ./cmd/main.go
 ```
+
+Start Electron and the frontend in another terminal:
 
 ```bash
 cd frontend
-npm install --ignore-scripts
 npm run dev
 ```
 
@@ -64,6 +59,8 @@ CI builds use `electron-updater` with GitHub Releases.
 ## Contributing
 
 Contributions are welcome, including bug reports, feature ideas, documentation improvements, and code changes.
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md), including the required [DCO sign-off](CONTRIBUTING.md#commit-sign-off-and-licensing), before submitting changes.
 
 - Search [existing issues](https://github.com/kanivet-ai/kanivet-oss/issues) before opening a new one. For bugs, include steps to reproduce, expected and actual behavior, and your operating system and Kanivet version.
 - For substantial changes, open an issue first to discuss the approach.
@@ -84,6 +81,10 @@ Use a Conventional Commits-style PR title: `type(scope): short description`. The
 Examples: `feat(frontend): add namespace filtering`, `fix(backend): handle expired credentials`, and `docs: clarify local setup`.
 
 Keep each PR focused on one change. Include a summary, related issues, validation results, and screenshots when relevant. Submit changes through a PR rather than pushing directly to `main` or `master`.
+
+## License
+
+Original project code is licensed under [Apache-2.0](LICENSE) and documentation prose under [CC-BY-4.0](LICENSES/CC-BY-4.0.txt). Third-party material retains its own licenses and notices as described in [LICENSING.md](LICENSING.md).
 
 ## Contributors
 
