@@ -17,6 +17,11 @@ func key(gvr schema.GroupVersionResource) string {
 	return gvr.Group + "/" + gvr.Resource
 }
 
+func HasAdapter(gvr schema.GroupVersionResource) bool {
+	_, ok := registry[key(gvr)]
+	return ok
+}
+
 func Simplify(u *unstructured.Unstructured, gvr schema.GroupVersionResource) map[string]interface{} {
 	if a, ok := registry[key(gvr)]; ok {
 		return a(u, gvr)

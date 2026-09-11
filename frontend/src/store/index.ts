@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { StoreState, BottomTab, MonitoringSettings, ClusterError, ConnectionState, ClusterConnectionState } from './types';
-import { loadMonitoringSettings, rebuildTabIndex, createInitialTabState, kindSpecificColumns } from './utils';
+import { loadMonitoringSettings, rebuildTabIndex, createInitialTabState } from './utils';
+import { resolveListColumns, PrinterColumnCell } from '../utils/resourceListColumns';
 import { createClusterSlice } from './clusterSlice';
 import { createTabSlice } from './tabSlice';
 import { createResourceSlice } from './resourceSlice';
@@ -41,17 +42,8 @@ const useStore = create<StoreState>()((...a) => ({
     try { localStorage.setItem('kanivet.monitoringSettings', JSON.stringify(updated)); } catch {}
   },
 
-  getDefaultColumns: (resourceKind: string, isNamespaced: boolean = true) => {
-    if (!resourceKind) return ['NAME', 'STATUS', 'AGE'];
-    const hasNamespace = isNamespaced;
-    const baseColumns = ['NAME'];
-    if (hasNamespace) baseColumns.push('NAMESPACE');
-    const normalizedKind = resourceKind.toLowerCase();
-    if (normalizedKind === 'event' || normalizedKind === 'events') {
-      return ['TYPE', 'MESSAGE', 'NAMESPACE', 'INVOLVED OBJECT', 'SOURCE', 'COUNT', 'AGE', 'LAST SEEN'];
-    }
-    const specific = kindSpecificColumns[normalizedKind] || ['STATUS', 'AGE'];
-    return [...baseColumns, ...specific];
+  getDefaultColumns: (resourceKind: string, isNamespaced: boolean = true, printerColumns?: PrinterColumnCell[] | null) => {
+    return resolveListColumns({ kind: resourceKind, namespaced: isNamespaced, printerColumns });
   },
 
   hydrateFromStorage: () => {

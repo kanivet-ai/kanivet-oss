@@ -1,4 +1,5 @@
 import { formatStatus } from './formatters';
+import { printerCellValue } from './resourceListColumns';
 
 type SortOrder = 'asc' | 'desc';
 
@@ -47,8 +48,11 @@ const getSortValue = (item: any, column: string): any => {
       return item.capacity
         ? parseInt(item.capacity.replace(/\D/g, '') || '0')
         : 0;
-    default:
+    default: {
+      const fromPrinter = printerCellValue(item, column);
+      if (fromPrinter !== undefined && fromPrinter !== '') return fromPrinter;
       return item[column] || '';
+    }
   }
 };
 
