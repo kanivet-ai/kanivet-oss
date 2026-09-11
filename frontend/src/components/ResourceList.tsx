@@ -26,6 +26,7 @@ import { useTabManagement } from '../hooks/useTabManagement';
 import { useResourceListState } from '../hooks/useResourceListState';
 import { useResourceListActions } from '../hooks/useResourceListActions';
 import { getColumnValue } from '../utils/resourceColumnValues';
+import { printerColumnsFromItems } from '../utils/resourceListColumns';
 import { createNavigationHandlers } from '../utils/keyboardShortcuts';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
@@ -513,8 +514,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   const getColumnsForResourceKind = useCallback((kind: string): string[] => {
     if (!kind) return ['NAME', 'STATUS', 'AGE'];
     const isNamespaced = !!selectedNode?.data?.namespaced;
-    return getDefaultColumns(kind, isNamespaced);
-  }, [getDefaultColumns, selectedNode?.data?.namespaced]);
+    return getDefaultColumns(kind, isNamespaced, printerColumnsFromItems(listItems));
+  }, [getDefaultColumns, selectedNode?.data?.namespaced, listItems]);
 
   const resourceKindForColumns = activeTab?.resource?.kind || selectedNode?.data?.kind || listItems[0]?.kind || 'pods';
   const displayColumns = useMemo(() => getColumnsForResourceKind(resourceKindForColumns), [resourceKindForColumns, getColumnsForResourceKind]);

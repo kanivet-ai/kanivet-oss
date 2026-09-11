@@ -16,6 +16,7 @@ import (
 	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/faults"
 	"github.com/kanivet/backend/internal/k8s"
+	"github.com/kanivet/backend/internal/k8s/printercolumns"
 	"github.com/kanivet/backend/internal/k8s/watcher/listadapters"
 	"github.com/kanivet/backend/internal/topics"
 	"github.com/kanivet/backend/internal/websocket/core"
@@ -57,6 +58,7 @@ type syncStatus struct {
 
 type Service struct {
 	client            *k8s.Client
+	printerCols       *printercolumns.Resolver
 	hub               Broadcaster
 	manager           *WatchManager
 	cache             *ResourceCache
@@ -232,6 +234,9 @@ func NewService(client *k8s.Client, hub Broadcaster) *Service {
 		syncState:       make(map[string]*syncStatus),
 		clusterErr:      make(map[string]*clusterErrState),
 		epochs:          make(map[string]uint64),
+	}
+	if client != nil {
+		svc.printerCols = printercolumns.NewResolver(printercolumns.FetchFromDynamic(client))
 	}
 	manager.SetOnCleanup(func(key string) {
 		cleaned := manager.CleanupIfNotWatching(key, func() {
@@ -770,7 +775,7 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 		log.Printf("k8s watcher: started for %s from RV=%s", topic, latestRV)
 		s.markClusterHealthy(cluster)
 
-		expired, watchErr := s.processWatchEvents(ctx, w, gvr, topic, &latestRV)
+		expired, watchErr := s.processWatchEvents(ctx, w, cluster, gvr, topic, &latestRV)
 		w.Stop()
 
 		if watchErr != nil {
@@ -814,7 +819,7 @@ func isExpiredErr(err error) bool {
 	return strings.Contains(s, "too old") || strings.Contains(s, "Gone") || strings.Contains(s, "expired")
 }
 
-func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, gvr schema.GroupVersionResource, topic string, latestRV *string) (expired bool, err error) {
+func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, cluster string, gvr schema.GroupVersionResource, topic string, latestRV *string) (expired bool, err error) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -841,7 +846,7 @@ func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, gvr
 				if rv := extractRV(event.Object); rv != "" {
 					*latestRV = rv
 				}
-				s.handleResourceEventSimple(event, gvr, topic)
+				s.handleResourceEventSimple(ctx, event, cluster, gvr, topic)
 			}
 		}
 	}
@@ -945,6 +950,10 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 			list, err := scoped.List(ctx, metav1.ListOptions{ResourceVersion: "0"})
 			fullCh <- fullListResult{list, err}
 		}()
+		colsCh := make(chan []printercolumns.Column, 1)
+		go func() {
+			colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
+		}()
 
 		firstList, err := scoped.List(ctx, metav1.ListOptions{Limit: firstPageSize})
 		if err != nil {
@@ -957,6 +966,7 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 		// Items already sent in the full first page are skipped in the RV=0
 		// sweep unless their resourceVersion moved in between.
 		sentRV := make(map[string]string)
+		cols := <-colsCh
 		if firstList != nil && len(firstList.Items) > 0 {
 			pre := listadapters.IsPresimplified(firstList)
 			pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
@@ -967,8 +977,9 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 					full = firstList.Items[i].Object
 					minimal = listadapters.MinimalProjection(full)
 				} else {
-					full = listadapters.Simplify(&firstList.Items[i], gvr)
+					full = s.simplifyListed(&firstList.Items[i], gvr, cols)
 					minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
+					copyPrinterColumns(minimal, full)
 				}
 				pageItems = append(pageItems, minimal)
 				fullPageItems = append(fullPageItems, full)
@@ -998,7 +1009,7 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 			for i := start; i < end; i++ {
 				item := res.list.Items[i].Object
 				if !pre {
-					item = listadapters.Simplify(&res.list.Items[i], gvr)
+					item = s.simplifyListed(&res.list.Items[i], gvr, cols)
 				}
 				if rv, seen := sentRV[itemKeyOf(item)]; seen && rv == item["resourceVersion"] {
 					continue
@@ -1066,7 +1077,7 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 	return len(items)
 }
 
-func (s *Service) handleResourceEventSimple(event watch.Event, gvr schema.GroupVersionResource, topic string) {
+func (s *Service) handleResourceEventSimple(ctx context.Context, event watch.Event, cluster string, gvr schema.GroupVersionResource, topic string) {
 	action := strings.ToLower(string(event.Type))
 	if item, ok := listadapters.SimplifyTyped(event.Object, gvr); ok {
 		s.emitResourceEvent(topic, gvr, action, item, true)
@@ -1095,7 +1106,32 @@ func (s *Service) handleResourceEventSimple(event watch.Event, gvr schema.GroupV
 		s.emitResourceEvent(topic, gvr, action, item, false)
 		return
 	}
-	s.emitResourceEvent(topic, gvr, action, listadapters.Simplify(u, gvr), true)
+	cols := s.printerColumnsFor(ctx, cluster, gvr)
+	s.emitResourceEvent(topic, gvr, action, s.simplifyListed(u, gvr, cols), true)
+}
+
+func (s *Service) printerColumnsFor(ctx context.Context, cluster string, gvr schema.GroupVersionResource) []printercolumns.Column {
+	if s == nil || s.printerCols == nil || listadapters.HasAdapter(gvr) {
+		return nil
+	}
+	return s.printerCols.Columns(ctx, cluster, gvr)
+}
+
+func (s *Service) simplifyListed(u *unstructured.Unstructured, gvr schema.GroupVersionResource, cols []printercolumns.Column) map[string]interface{} {
+	item := listadapters.Simplify(u, gvr)
+	if u != nil {
+		printercolumns.Attach(item, printercolumns.Evaluate(u.Object, cols))
+	}
+	return item
+}
+
+func copyPrinterColumns(dst, src map[string]interface{}) {
+	if dst == nil || src == nil {
+		return
+	}
+	if v, ok := src["printerColumns"]; ok {
+		dst["printerColumns"] = v
+	}
 }
 
 func (s *Service) emitResourceEvent(topic string, gvr schema.GroupVersionResource, action string, item map[string]interface{}, invalidate bool) {
