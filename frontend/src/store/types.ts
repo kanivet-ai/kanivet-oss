@@ -205,7 +205,7 @@ export interface StoreState extends
   ConnectionSlice {
   monitoringSettings: MonitoringSettings;
   setMonitoringSettings: (settings: Partial<MonitoringSettings>) => void;
-  getDefaultColumns: (resourceKind: string, isNamespaced?: boolean) => string[];
+  getDefaultColumns: (resourceKind: string, isNamespaced?: boolean, printerColumns?: import('../utils/resourceListColumns').PrinterColumnCell[] | null) => string[];
   hydrateFromStorage: () => void;
 }
 

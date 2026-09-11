@@ -1,7 +1,8 @@
 import React from 'react';
 import * as formatColumnValue from './columnFormatters';
 import StatusIndicator from '../components/common/StatusIndicator';
-import { StatusBadge, RestartBadge, ReadyBadge } from './badgeRenderers';
+import { StatusBadge, RestartBadge, ReadyBadge, PrinterValueBadge } from './badgeRenderers';
+import { printerCellFor } from './resourceListColumns';
 import ResourceLink from '../components/ResourceLink';
 import LiveAge from '../components/common/LiveAge';
 import { isRolloutComplete } from '../store/utils';
@@ -467,6 +468,15 @@ export const getColumnValue = (
   handleNamespaceChange?: (namespace: string) => void,
   cluster?: string,
 ): string | React.ReactElement => {
+  const printerCell = printerCellFor(item, column);
+  const usePrinterValue =
+    printerCell && column !== 'NAME' && column !== 'NAMESPACE' && column !== 'AGE';
+  if (usePrinterValue) {
+    return React.createElement(PrinterValueBadge, {
+      value: printerCell.value,
+      type: printerCell.type,
+    });
+  }
   const formatter = columnFormatters[column];
   if (formatter) {
     return formatter(
