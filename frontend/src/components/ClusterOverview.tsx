@@ -1,15 +1,16 @@
 import React, { useEffect, useRef, type ReactNode } from 'react';
-import { DesktopIcon, CubeIcon, Link2Icon, FileIcon, ArrowTopRightIcon, ArrowBottomRightIcon, ExclamationTriangleIcon } from '@radix-ui/react-icons';
+import { ArrowTopRightIcon, ArrowBottomRightIcon, ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useStore } from '../store';
 import api from '../services/api';
 import { DashboardOverviewMetric } from '../store/types';
+import { NodeIcon, PodIcon, ServiceIcon, NamespaceIcon } from './icons/kube';
 import './ClusterOverview.css';
 
 const ICONS: Record<DashboardOverviewMetric['iconKey'], ReactNode> = {
-  nodes: <DesktopIcon />,
-  pods: <CubeIcon />,
-  services: <Link2Icon />,
-  namespaces: <FileIcon />,
+  nodes: <NodeIcon />,
+  pods: <PodIcon />,
+  services: <ServiceIcon />,
+  namespaces: <NamespaceIcon />,
 };
 
 const buildMetrics = (counts: Record<string, number>): DashboardOverviewMetric[] => ([
