@@ -1,0 +1,221 @@
+.awsid-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.awsid-checks-count {
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.awsid-checks-table-wrap {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-secondary);
+}
+
+.awsid-checks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-xs);
+  table-layout: fixed;
+}
+
+.awsid-checks-table th {
+  text-align: left;
+  padding: 5px 8px;
+  font-size: var(--font-xxxs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+.awsid-checks-table th:nth-child(1) {
+  width: 22px;
+}
+
+.awsid-checks-table th:nth-child(2) {
+  width: 22%;
+}
+
+.awsid-checks-table th:nth-child(3) {
+  width: 22%;
+}
+
+.awsid-checks-table th:nth-child(5) {
+  width: 170px;
+}
+
+.awsid-checks-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.awsid-check-row.expandable {
+  cursor: pointer;
+}
+
+.awsid-check-row.expandable:hover td {
+  background: var(--bg-hover);
+}
+
+.awsid-check-row.pending td {
+  color: var(--text-secondary);
+}
+
+.awsid-check-toggle {
+  color: var(--text-muted);
+  padding-right: 0 !important;
+}
+
+.awsid-check-toggle svg {
+  transition: transform 0.12s ease;
+  vertical-align: middle;
+}
+
+.awsid-check-row.expanded .awsid-check-toggle svg {
+  transform: rotate(90deg);
+}
+
+.awsid-check-source {
+  color: var(--text-secondary);
+}
+
+.awsid-check-resource {
+  display: table-cell;
+}
+
+.awsid-check-resource .awsid-truncate {
+  display: block;
+}
+
+.awsid-check-details-row td {
+  padding: 8px 10px 10px 30px;
+  background: var(--bg-primary);
+  white-space: normal;
+}
+
+.awsid-check-details {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.awsid-check-statements {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.awsid-check-statement-policy {
+  font-weight: 600;
+}
+
+.awsid-check-note {
+  font-size: var(--font-xxs);
+}
+
+.awsid-check-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(220px, 2fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.awsid-check-form input,
+.awsid-combobox input {
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  font-family: inherit;
+  box-sizing: border-box;
+}
+
+.awsid-check-form input:focus,
+.awsid-combobox input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.awsid-check-form input:disabled,
+.awsid-combobox input:disabled {
+  opacity: 0.5;
+}
+
+.awsid-check-resource-input {
+  font-family: var(--font-mono) !important;
+}
+
+.awsid-check-form-error {
+  color: #f44336;
+  font-size: var(--font-xxs);
+}
+
+.awsid-combobox {
+  position: relative;
+}
+
+.awsid-combobox input {
+  font-family: var(--font-mono);
+}
+
+.awsid-combobox-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 260px;
+  overflow-y: auto;
+  background: var(--surface-elev, var(--bg-secondary));
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 3px;
+}
+
+.awsid-combobox-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.awsid-combobox-item.active {
+  background: var(--bg-hover);
+}
+
+@media (max-width: 640px) {
+  .awsid-check-form {
+    grid-template-columns: 1fr;
+  }
+}

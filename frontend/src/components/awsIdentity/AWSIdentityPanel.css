@@ -1,0 +1,77 @@
+.awsid-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  /* Radix ScrollArea wraps content in display:table; width:0 + min-width:100%
+     keeps long mono lines from widening the panel past the viewport. */
+  width: 0;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px 16px;
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  transition: opacity 0.15s ease;
+}
+
+.awsid-panel.refreshing {
+  opacity: 0.7;
+}
+
+.awsid-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  min-height: 26px;
+}
+
+.awsid-panel-subject {
+  font-weight: 600;
+  max-width: 260px;
+}
+
+.awsid-panel-role {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 320px;
+  color: var(--text-primary);
+}
+
+.awsid-panel-role .awsid-truncate {
+  display: inline-block;
+  max-width: 240px;
+}
+
+.awsid-panel-spacer {
+  flex: 1;
+  min-width: 8px;
+}
+
+.awsid-panel-error {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.awsid-panel-skeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.awsid-panel-skeleton .awsid-skeleton {
+  display: inline-block;
+}
+
+.awsid-panel-skeleton-rail {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 18px;
+}
+
+.awsid-spin {
+  animation: awsid-spin 0.8s linear infinite;
+}

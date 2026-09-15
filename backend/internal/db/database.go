@@ -71,6 +71,12 @@ type SSOActiveAccount struct {
 	ExpiresAt   int64  `json:"expiresAt"`
 }
 
+type AWSIdentityCredentials struct {
+	Cluster string `gorm:"primaryKey" json:"cluster"`
+	Profile string `gorm:"not null" json:"profile"`
+	Region  string `json:"region"`
+}
+
 func New() (*DB, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -109,7 +115,7 @@ func New() (*DB, error) {
 	db.Exec("PRAGMA locking_mode = NORMAL")      // Allow concurrent access
 	db.Exec("PRAGMA read_uncommitted = true")    // Allow dirty reads for better concurrency
 
-	if err := db.AutoMigrate(&ClusterGroup{}, &ClusterAssignment{}, &ClusterAlias{}, &SSOSession{}, &SSOActiveAccount{}, &ClusterMetricsSettings{}); err != nil {
+	if err := db.AutoMigrate(&ClusterGroup{}, &ClusterAssignment{}, &ClusterAlias{}, &SSOSession{}, &SSOActiveAccount{}, &ClusterMetricsSettings{}, &AWSIdentityCredentials{}); err != nil {
 		return nil, err
 	}
 
@@ -504,4 +510,20 @@ func (db *DB) SetSSOActiveAccount(account *SSOActiveAccount) error {
 
 func (db *DB) ClearSSOActiveAccount() error {
 	return db.DB.Where("1 = 1").Delete(&SSOActiveAccount{}).Error
+}
+
+func (db *DB) GetAWSIdentityCredentials(cluster string) (*AWSIdentityCredentials, error) {
+	var creds AWSIdentityCredentials
+	if err := db.DB.Where("cluster = ?", cluster).First(&creds).Error; err != nil {
+		return nil, err
+	}
+	return &creds, nil
+}
+
+func (db *DB) SetAWSIdentityCredentials(creds *AWSIdentityCredentials) error {
+	return db.DB.Save(creds).Error
+}
+
+func (db *DB) ClearAWSIdentityCredentials(cluster string) error {
+	return db.DB.Where("cluster = ?", cluster).Delete(&AWSIdentityCredentials{}).Error
 }

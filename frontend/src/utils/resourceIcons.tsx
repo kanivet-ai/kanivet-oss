@@ -22,6 +22,7 @@ import {
 import HelmIcon from '../components/icons/HelmIcon';
 import CrossplaneIcon from '../components/icons/CrossplaneIcon';
 import ArgoIcon from '../components/icons/ArgoIcon';
+import AWSIcon from '../components/AWSIcon';
 
 type IconRenderer = ReactNode;
 
@@ -33,6 +34,7 @@ export const getResourceIcon = (kind: string): IconRenderer => {
     overview: <DashboardIcon />,
     finopsdashboard: <ActivityLogIcon />,
     finops: <ActivityLogIcon />,
+    awsidentities: <AWSIcon />,
     event: <BellIcon />,
     events: <BellIcon />,
     pod: <CubeIcon />,

@@ -21,6 +21,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/api"
+	"github.com/kanivet/backend/internal/awsidentity"
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/cloud"
 	"github.com/kanivet/backend/internal/cluster"
@@ -620,6 +621,9 @@ func main() {
 		cloudHandler := cloud.NewHandler(cloudService)
 		cloudHandler.SetOnClusterImported(invalidateClusterCache)
 		cloudHandler.RegisterRoutes(v1)
+
+		awsIdentityHandler := awsidentity.NewHandler(k8sClient, cloudService, cacheInstance.Cache, apiHandler.GetDB())
+		awsIdentityHandler.RegisterRoutes(v1)
 
 		configWatcher := cloud.NewConfigWatcher(cloud.DefaultConfigWatchPaths(), func(reason string) {
 			refreshClustersAndBroadcast("external_config_change:" + reason)

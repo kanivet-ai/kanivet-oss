@@ -1,0 +1,184 @@
+.awsid-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.awsid-page-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.awsid-page-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  font-size: var(--font-xs);
+  color: var(--text-primary);
+}
+
+.awsid-page-title svg {
+  color: var(--accent);
+}
+
+.awsid-page-search {
+  flex: 1 1 220px;
+  max-width: 360px;
+  min-width: 160px;
+}
+
+.awsid-page-select {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-size: var(--font-xs);
+  font-family: inherit;
+}
+
+.awsid-page-toggle.active {
+  background: color-mix(in srgb, #f44336 15%, transparent);
+  border-color: #f44336;
+  color: #f44336;
+}
+
+.awsid-page-spacer {
+  flex: 1;
+}
+
+.awsid-page-summary {
+  display: flex;
+  gap: 20px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.awsid-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 72px;
+}
+
+.awsid-stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.awsid-stat-label {
+  font-size: var(--font-xxxs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+}
+
+.awsid-stat.stat-broken .awsid-stat-value {
+  color: #f44336;
+}
+
+.awsid-stat.stat-unused .awsid-stat-value {
+  color: #ff9800;
+}
+
+.awsid-page-banner {
+  padding: 8px 12px 0;
+}
+
+.awsid-page-viewport {
+  flex: 1;
+  min-height: 0;
+}
+
+.awsid-page-table td,
+.awsid-page-table th {
+  padding-left: 8px;
+  padding-right: 8px;
+}
+
+.awsid-page-table .th-content {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.awsid-sort-indicator {
+  color: var(--accent);
+}
+
+.awsid-row td {
+  color: var(--text-primary);
+}
+
+.awsid-row.trust-error td.column-serviceAccount .cell-content {
+  color: #f44336;
+}
+
+.awsid-row-sa {
+  font-weight: 500;
+}
+
+.awsid-row-role {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.awsid-row-role .awsid-truncate {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.awsid-row-cross {
+  font-size: var(--font-xxxs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ff9800;
+  border: 1px dashed rgba(255, 152, 0, 0.5);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.awsid-page-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 32px;
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.awsid-page-empty-icon {
+  color: var(--text-muted);
+  opacity: 0.5;
+}
+
+.awsid-page-empty-title {
+  font-size: var(--font-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.awsid-page-empty-text {
+  max-width: 460px;
+  font-size: var(--font-xs);
+  line-height: var(--line-height-normal);
+}

@@ -28,6 +28,7 @@ import ServiceAccountDetailView from './resourceTypes/ServiceAccountDetailView';
 import NodeDetailView from './resourceTypes/NodeDetailView';
 import EventDetailView from './resourceTypes/EventDetailView';
 import ApplicationDetailView from './resourceTypes/ApplicationDetailView';
+import AWSIdentitySection from '../awsIdentity/AWSIdentitySection';
 import MetadataSection from './shared/MetadataSection';
 import ScaleDialog from '../dialogs/ScaleDialog';
 import Dialog from '../common/Dialog';
@@ -432,6 +433,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                   <>
                     <ContainersSection resource={resource} cluster={cluster} onVolumeClick={handleResourceClick} />
                     <div className="section-divider" />
+                    <AWSIdentitySection resource={resource} cluster={cluster} />
                   </>
                 )}
 

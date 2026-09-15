@@ -15,6 +15,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     const title = resourceKind === 'ClusterDashboard' ? 'Overview'
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
+      : resourceKind === 'AWSIdentities' ? 'AWS Identities'
       : resourceKind;
 
     let targetPaneId = paneId || tab.state.focusedCenterPaneId || undefined;

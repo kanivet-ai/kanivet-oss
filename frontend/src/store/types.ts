@@ -57,9 +57,11 @@ export interface ResourceListTab {
   paneId?: string;
 }
 
+export type BottomTabType = 'logs' | 'shell' | 'edit' | 'trace' | 'deployment-logs' | 'create' | 'aws-identity';
+
 export interface BottomTab {
   id: string;
-  type: 'logs' | 'shell' | 'edit' | 'trace' | 'deployment-logs' | 'create';
+  type: BottomTabType;
   title: string;
   customTitle?: string;
   resource: any;
@@ -295,7 +297,7 @@ export interface NavigationSlice {
 export interface BottomTabSlice {
   bottomTabs: BottomTab[];
   activeBottomTab: string | null;
-  openBottomTab: (type: 'logs' | 'shell' | 'edit' | 'trace' | 'deployment-logs' | 'create', resource: any, cluster: string) => void;
+  openBottomTab: (type: BottomTabType, resource: any, cluster: string) => void;
   closeBottomTab: (tabId: string) => void;
   setActiveBottomTab: (tabId: string) => void;
   updateBottomTabContainer: (tabId: string, container: string) => void;

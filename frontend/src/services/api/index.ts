@@ -10,3 +10,4 @@ export * from './helm';
 export * from './metrics';
 export * from './finops';
 export * from './vclusters';
+export * from './awsIdentity';

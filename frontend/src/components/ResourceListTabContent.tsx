@@ -7,6 +7,8 @@ import NodeShell from './NodeShell';
 import TerminalContainer from './TerminalContainer';
 import YamlEditor from './YamlEditor';
 import CrossplaneTrace from './CrossplaneTrace';
+import AWSIdentityPanel from './awsIdentity/AWSIdentityPanel';
+import { identityTargetFromResource } from './awsIdentity/awsIdentityUtils';
 
 interface BottomTabContentProps {
   tab: any;
@@ -96,6 +98,21 @@ export function BottomTabContent({ tab }: BottomTabContentProps) {
         />
       </ScrollContainer>
     );
+  } else if (tab.type === 'aws-identity') {
+    const target = identityTargetFromResource(tab.resource);
+    content = target ? (
+      <ScrollContainer
+        className="resource-list-tab-body"
+        viewportClassName="resource-list-tab-viewport"
+      >
+        <AWSIdentityPanel
+          cluster={tab.cluster}
+          namespace={target.namespace}
+          serviceAccount={target.serviceAccount}
+          podName={target.podName}
+        />
+      </ScrollContainer>
+    ) : null;
   }
 
   return content ? (

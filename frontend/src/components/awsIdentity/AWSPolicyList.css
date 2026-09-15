@@ -1,0 +1,114 @@
+.awsid-policy-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.awsid-policy {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  overflow: hidden;
+}
+
+.awsid-policy.type-boundary {
+  border-color: rgba(255, 152, 0, 0.35);
+}
+
+.awsid-policy-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: var(--font-xs);
+}
+
+.awsid-policy-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  max-width: 50%;
+}
+
+.awsid-policy-count {
+  font-size: var(--font-xxs);
+  white-space: nowrap;
+}
+
+.awsid-policy-spacer {
+  flex: 1;
+}
+
+.awsid-policy-raw-toggle {
+  font-size: var(--font-xxs);
+  color: var(--text-secondary);
+}
+
+.awsid-policy-raw-toggle svg {
+  transition: transform 0.12s ease;
+}
+
+.awsid-policy-raw-toggle.open svg {
+  transform: rotate(90deg);
+}
+
+.awsid-policy-statements {
+  display: flex;
+  flex-direction: column;
+}
+
+.awsid-statement {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.awsid-statement:last-child {
+  border-bottom: none;
+}
+
+.awsid-statement-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.awsid-statement-actions,
+.awsid-statement-resources {
+  min-width: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.awsid-statement-condition {
+  font-size: var(--font-xxxs);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #ff9800;
+  border: 1px dashed rgba(255, 152, 0, 0.5);
+  border-radius: 3px;
+  padding: 1px 5px;
+  white-space: nowrap;
+  align-self: center;
+}
+
+.awsid-policy-empty {
+  padding: 6px 10px;
+  font-size: var(--font-xxs);
+}
+
+.awsid-policy .awsid-pre {
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+}
+
+.awsid-policy-boundary-note {
+  font-size: var(--font-xxs);
+  line-height: var(--line-height-normal);
+}
