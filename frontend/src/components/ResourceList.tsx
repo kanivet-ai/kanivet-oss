@@ -9,12 +9,14 @@ import {
   CrossCircledIcon,
 } from '@radix-ui/react-icons';
 import CrossplaneIcon from './icons/CrossplaneIcon';
+import AWSIcon from './AWSIcon';
 import ResourceTable from './ResourceTable';
 import ClusterDashboard from './ClusterDashboard';
 import ArgoApplicationsPage from './ArgoApplicationsPage';
 import HelmPage from './HelmPage';
 import FinOpsDashboard from './finops/FinOpsDashboard';
 import IncidentTimelinePage from './incidents/IncidentTimelinePage';
+import AWSIdentitiesPage from './awsIdentity/AWSIdentitiesPage';
 import ResourceControlsBar from './common/ResourceControlsBar';
 import ResourceListDialogs from './ResourceListDialogs';
 import { BottomTabContent, DetailTabContent } from './ResourceListTabContent';
@@ -778,7 +780,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             {allCenterTabs.map((tab, index) => {
               const isDetailTabType = 'item' in tab;
               const isResourceListTabType = 'items' in tab;
-              const isBottomTabType = 'type' in tab && (tab.type === 'logs' || tab.type === 'deployment-logs' || tab.type === 'shell' || tab.type === 'edit' || tab.type === 'trace');
+              const isBottomTabType = 'type' in tab && (tab.type === 'logs' || tab.type === 'deployment-logs' || tab.type === 'shell' || tab.type === 'edit' || tab.type === 'trace' || tab.type === 'aws-identity');
 
               return (
                 <div
@@ -821,7 +823,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                         tab.type === 'logs' ? <ReaderIcon /> :
                           tab.type === 'shell' ? <DesktopIcon /> :
                             tab.type === 'edit' ? <FileTextIcon /> :
-                              tab.type === 'trace' ? <CrossplaneIcon width={14} height={14} /> : null
+                              tab.type === 'trace' ? <CrossplaneIcon width={14} height={14} /> :
+                                tab.type === 'aws-identity' ? <AWSIcon size={14} /> : null
                       ) : (
                         getResourceIcon(isDetailTabType ? tab.item?.kind : tab.resource?.kind || 'Unknown')
                       )}
@@ -930,7 +933,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
         ) : (
           allCenterTabs.map((tab) => {
             const isDetailTabType = 'item' in tab;
-            const isBottomTabType = 'type' in tab && (tab.type === 'logs' || tab.type === 'deployment-logs' || tab.type === 'shell' || tab.type === 'edit' || tab.type === 'trace');
+            const isBottomTabType = 'type' in tab && (tab.type === 'logs' || tab.type === 'deployment-logs' || tab.type === 'shell' || tab.type === 'edit' || tab.type === 'trace' || tab.type === 'aws-identity');
 
             return (
               <Tabs.Content key={tab.id} value={tab.id} className="resource-list-tab-content">
@@ -950,6 +953,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <IncidentTimelinePage key={`incident-timeline-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'AWSIdentities' ? (
+                      <AWSIdentitiesPage key={`aws-identities-${tab.id}`} cluster={currentTab || ''} />
                     ) : (
                       renderResourceList()
                     )}

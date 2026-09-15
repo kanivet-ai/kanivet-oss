@@ -1,5 +1,6 @@
 import { StateCreator } from 'zustand';
 import api from '../services/api';
+import { getAWSIdentityStatus } from '../services/api/awsIdentity';
 import { notifyDrainComplete, notifyRolloutComplete } from '../services/islandNotifications';
 import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } from './types';
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
@@ -52,6 +53,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         api.listVClusters(cluster).catch(() => [])
           .then((vcs) => setNodeDisabled('virtual-clusters', vcs.length === 0));
       }
+      getAWSIdentityStatus(cluster).catch(() => ({ available: false }))
+        .then((status) => setNodeDisabled('aws-identities', !status.available));
       const categoryMap = new Map<string, any>(rawCategories.map((cat: any) => [cat.id, cat]));
       [{ id: 'crossplane', name: 'Crossplane' }, { id: 'argocd', name: 'Argo CD' }].forEach((cat) => {
         if (!categoryMap.has(cat.id)) categoryMap.set(cat.id, cat);
@@ -65,6 +68,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const eventsNode: TreeNode = { id: 'cluster-events', label: 'Events', type: 'resource', hideCount: true, data: { name: 'events', group: '', version: 'v1', kind: 'Event', namespaced: true, cluster } };
       const helmNode: TreeNode = { id: 'helm-releases', label: 'Helm Releases', type: 'helm', data: { cluster } };
       const incidentsNode: TreeNode = { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline', data: { cluster } };
+      const awsIdentitiesNode: TreeNode = { id: 'aws-identities', label: 'AWS Identities', type: 'aws-identities', data: { cluster } };
       const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
       let vclustersNode: TreeNode = { id: 'virtual-clusters', label: 'Virtual Clusters', type: 'vclusters', data: { cluster }, disabled: disabledActionables.vclusters };
       if (initialExpandedNodes.has(vclustersNode.id)) {
@@ -90,7 +94,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx),
+          overviewNode, finopsNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, awsIdentitiesNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx),
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };

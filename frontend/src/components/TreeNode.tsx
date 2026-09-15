@@ -4,6 +4,7 @@ import { DashboardIcon } from '@radix-ui/react-icons';
 import { getResourceIcon, getCategoryIcon } from '../utils/resourceIcons';
 import { useStore } from '../store';
 import ExpandIcon from './icons/ExpandIcon';
+import AWSIcon from './AWSIcon';
 import './TreeNode.css';
 
 interface TreeNodeProps {
@@ -26,7 +27,8 @@ const nodeHasChevron = (n: any): boolean =>
   n.type !== 'helm' &&
   n.type !== 'vcluster' &&
   n.type !== 'finops' &&
-  n.type !== 'incident-timeline';
+  n.type !== 'incident-timeline' &&
+  n.type !== 'aws-identities';
 
 const nodeMatchesSearch = (
   node: any,
@@ -319,6 +321,8 @@ const TreeNode = ({
                   ? getCategoryIcon('argocd')
                 : node.type === 'finops'
                   ? getCategoryIcon('finops')
+                  : node.type === 'aws-identities'
+                    ? <AWSIcon />
                   : node.type === 'helm'
                     ? getCategoryIcon('helm')
                     : node.type === 'resource'

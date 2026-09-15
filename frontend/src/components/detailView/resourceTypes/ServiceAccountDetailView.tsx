@@ -3,6 +3,7 @@ import { PersonIcon, LockClosedIcon, Link2Icon } from '@radix-ui/react-icons';
 import PropertyRow from '../../common/PropertyRow';
 import PropertyGroup from '../shared/PropertyGroup';
 import MetadataSection from '../shared/MetadataSection';
+import AWSIdentitySection from '../../awsIdentity/AWSIdentitySection';
 import { getApiBase } from '../../../services/api/types';
 import { wsManager } from '../../../services/api/websocket';
 import './ServiceAccountDetailView.css';
@@ -55,6 +56,8 @@ const ServiceAccountDetailView: React.FC<ServiceAccountDetailViewProps> = ({ res
         <PropertyRow label="Pull Secrets" value={imagePullSecrets.length} />
       </PropertyGroup>
       <div className="section-divider" />
+
+      <AWSIdentitySection resource={resource} cluster={cluster} />
 
       <MetadataSection metadata={metadata} handleResourceClick={handleResourceClick} />
       <div className="section-divider" />

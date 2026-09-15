@@ -1,15 +1,19 @@
 import { StateCreator } from 'zustand';
-import { BottomTabSlice, StoreState, BottomTab } from './types';
+import { BottomTabSlice, StoreState, BottomTab, BottomTabType } from './types';
 
 export const createBottomTabSlice: StateCreator<StoreState, [], [], BottomTabSlice> = (set, get) => ({
   bottomTabs: [],
   activeBottomTab: null,
 
-  openBottomTab: (type: 'logs' | 'shell' | 'edit' | 'trace' | 'deployment-logs' | 'create', resource: any, cluster: string) => {
+  openBottomTab: (type: BottomTabType, resource: any, cluster: string) => {
     const { bottomTabs } = get();
     const resourceName = resource.metadata?.name || 'Unknown';
     const namespace = resource.metadata?.namespace;
     let title = namespace ? `${resourceName} (${namespace})` : resourceName;
+
+    if (type === 'aws-identity') {
+      title = `Identity · ${resourceName}`;
+    }
 
     if (type === 'edit' && resource._isHelmValues) {
       title = `${resource._helmReleaseName} values (${resource._helmReleaseNamespace})`;

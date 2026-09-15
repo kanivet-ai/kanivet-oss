@@ -328,6 +328,26 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
+      } else if (node.type === 'aws-identities') {
+        selectNode(node);
+        if (currentTab) {
+          const awsIdentitiesResource = {
+            name: 'aws-identities',
+            group: '',
+            version: 'v1',
+            kind: 'AWSIdentities',
+            namespaced: false,
+          };
+          await openResourceListTab(
+            awsIdentitiesResource,
+            currentTab,
+            isPinned,
+            freshPaneId || undefined,
+          );
+          recordNavigation('aws-identities', node.id, node.data).catch((error) => {
+            console.error('Error recording navigation:', error);
+          });
+        }
       } else if (node.type === 'vcluster') {
         if (!node.data) return;
         try {

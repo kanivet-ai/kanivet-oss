@@ -1,0 +1,39 @@
+.awsid-permission-error {
+  gap: 8px;
+}
+
+.awsid-permission-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #ff9800;
+}
+
+.awsid-permission-message {
+  font-family: var(--font-mono);
+  font-size: var(--font-xxs);
+  color: var(--text-secondary);
+  word-break: break-word;
+}
+
+.awsid-permission-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.awsid-permission-policy {
+  position: relative;
+}
+
+.awsid-permission-policy .awsid-pre {
+  max-height: 220px;
+}
+
+.awsid-permission-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+}
