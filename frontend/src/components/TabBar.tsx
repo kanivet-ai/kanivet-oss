@@ -5,6 +5,7 @@ import { parseClusterName } from '../utils/clusterUtils';
 import AWSIcon from './AWSIcon';
 import AzureIcon from './AzureIcon';
 import GCPIcon from './GCPIcon';
+import KanivetMark from './icons/KanivetMark';
 import { useTheme } from './ThemeProvider';
 import {
   MoonIcon,
@@ -244,19 +245,7 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
         className="tab-bar-logo"
         title="Kanivet"
       >
-        <svg
-          className="tab-bar-logo-icon"
-          width="20"
-          height="20"
-          viewBox="0 0 512 512"
-          xmlns="http://www.w3.org/2000/svg"
-        >
-          <rect width="512" height="512" rx="96" fill="var(--bg-tertiary)" />
-          <path
-            d="M168 96 L168 416 L232 416 L232 280 L340 416 L420 416 L290 256 L410 96 L330 96 L232 232 L232 96 Z"
-            fill="var(--accent)"
-          />
-        </svg>
+        <KanivetMark className="tab-bar-logo-icon" size={20} tile />
         <span className="tab-bar-logo-text">Kanivet</span>
       </button>
       <div className="tab-bar-divider" />

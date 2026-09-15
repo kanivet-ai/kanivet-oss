@@ -20,11 +20,11 @@
         if (mode === 'custom') mode = 'dark';
         document.documentElement.setAttribute('data-theme', mode);
         document.documentElement.style.colorScheme = mode;
-        document.documentElement.style.backgroundColor = mode === 'dark' ? '#0d1117' : '#f8f8f7';
+        document.documentElement.style.backgroundColor = mode === 'dark' ? '#0a0b0f' : '#fbfaf7';
         window.__KANIVET_THEME__ = mode;
       } catch (e) {
         document.documentElement.setAttribute('data-theme', 'dark');
-        document.documentElement.style.backgroundColor = '#0d1117';
+        document.documentElement.style.backgroundColor = '#0a0b0f';
         window.__KANIVET_THEME__ = 'dark';
       }
     })();
@@ -38,20 +38,23 @@
   </script>
   <style>
     #native-splash{position:fixed;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;z-index:999999;transition:opacity .3s ease}
-    #native-splash.dark{background:#0d1117}
-    #native-splash.light{background:#f8f8f7}
+    #native-splash.dark{background:#0a0b0f}
+    #native-splash.light{background:#fbfaf7}
     #native-splash .content{display:flex;flex-direction:column;align-items:center;gap:24px;animation:fadeIn .5s ease-out}
-    #native-splash .k{font-size:72px;font-weight:800;color:#58a6ff;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;letter-spacing:-0.04em;line-height:1;text-shadow:0 4px 24px rgba(88,166,255,0.3);animation:float 3s ease-in-out infinite}
+    #native-splash .k{display:block;width:88px;height:88px;filter:drop-shadow(0 10px 24px rgba(64,57,168,0.35));animation:float 3s ease-in-out infinite}
     #native-splash .title{font-size:42px;font-weight:700;margin:0;letter-spacing:-0.02em;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-    #native-splash.dark .title{color:#f0f6fc}
-    #native-splash.light .title{color:#1f2328}
+    #native-splash.dark .title{color:#ecedf0}
+    #native-splash.light .title{color:#14131a}
     #native-splash .loader{width:200px;height:3px;border-radius:2px;overflow:hidden}
-    #native-splash.dark .loader{background:#21262d}
-    #native-splash.light .loader{background:#d1d5db}
-    #native-splash .bar{width:40%;height:100%;background:linear-gradient(90deg,#58a6ff,#3fb950);border-radius:2px;animation:loading 1.2s ease-in-out infinite}
+    #native-splash.dark .loader{background:#161922}
+    #native-splash.light .loader{background:#ede9e1}
+    #native-splash .bar{width:40%;height:100%;border-radius:2px;animation:loading 1.2s ease-in-out infinite}
+    #native-splash.dark .bar{background:linear-gradient(90deg,#8a8cff,#a5a7ff)}
+    #native-splash.light .bar{background:linear-gradient(90deg,#4039a8,#5b54c4)}
     #native-splash .msg{font-size:14px;margin:0;min-height:20px;animation:pulse 2.5s ease-in-out infinite;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-    #native-splash.dark .msg{color:#9ca3af}
-    #native-splash.light .msg{color:#6b7280}
+    #native-splash.dark .msg{color:#767889}
+    #native-splash.light .msg{color:#7a7589}
+    @media (prefers-reduced-motion:reduce){#native-splash .k,#native-splash .msg{animation:none}}
     @keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
     @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
     @keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
@@ -62,7 +65,7 @@
 <body style="margin:0;background:inherit">
   <div id="native-splash" class="dark">
     <div class="content">
-      <span class="k">K</span>
+      <svg class="k" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><defs><linearGradient id="splash-k-bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#8b8dff"/><stop offset="1" stop-color="#4d44c4"/></linearGradient></defs><rect width="512" height="512" rx="114" fill="url(#splash-k-bg)"/><path d="M179 132V380M181 256L321 138M227 217L333 380" fill="none" stroke="#ffffff" stroke-width="68" stroke-linecap="round" stroke-linejoin="round"/></svg>
       <h1 class="title">Kanivet</h1>
       <div class="loader"><div class="bar"></div></div>
       <p class="msg">Kubernefying the system...</p>
