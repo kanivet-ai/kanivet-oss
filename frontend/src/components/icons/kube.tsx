@@ -514,3 +514,67 @@ export const ResourceIcon = (p: KubeIconProps) => (
     <path d="M9.5 2.5V6H13" />
   </Svg>
 );
+
+// ---------------------------------------------------------------------------
+// Ecosystem kinds and inferred fallbacks
+// ---------------------------------------------------------------------------
+
+/** Tiers: any `*Class` kind. */
+export const LayersIcon = StorageClassIcon;
+
+/** Archway: a gateway into the cluster. */
+export const GatewayIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M3 14V7.5a5 5 0 0 1 10 0V14" />
+    <path d="M1.5 14h13" />
+  </Svg>
+);
+
+/** A path between two points. */
+export const RouteIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M3.5 12.5C3.5 8 12.5 8 12.5 3.5" />
+    <Dot cx={3.5} cy={12.5} r={1.6} />
+    <Dot cx={12.5} cy={3.5} r={1.6} />
+  </Svg>
+);
+
+/** Pulse line: monitoring, alerting, metrics. */
+export const MonitorIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M1.75 8.5h2.75l1.75-4 2.5 7.5 1.75-4.5 1 1h2.75" />
+  </Svg>
+);
+
+/** Archive box: backups, snapshots, restores. */
+export const ArchiveIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <rect x={2} y={2.75} width={12} height={3} rx={1} />
+    <path d="M3 5.75v6.5a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-6.5M6.5 9h3" />
+  </Svg>
+);
+
+/** Clock: leases, schedules. */
+export const ClockIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <circle cx={8} cy={8} r={5.75} />
+    <path d="M8 4.75V8l2.25 1.5" />
+  </Svg>
+);
+
+/** Two stages joined by an arrow: pipelines, workflows, tasks. */
+export const PipelineIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <rect x={1.5} y={5.5} width={4} height={5} rx={1} />
+    <rect x={10.5} y={5.5} width={4} height={5} rx={1} />
+    <path d="M5.5 8h4.5M8.5 6.5 10 8l-1.5 1.5" />
+  </Svg>
+);
+
+/** A person: human identities, users, groups. */
+export const PersonIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <circle cx={8} cy={5.25} r={2.5} />
+    <path d="M2.75 14a5.25 5.25 0 0 1 10.5 0" />
+  </Svg>
+);
