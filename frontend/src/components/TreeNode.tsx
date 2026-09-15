@@ -1,6 +1,5 @@
 import { useEffect, useRef, useMemo, useState, memo } from 'react';
 import clsx from 'clsx';
-import { DashboardIcon } from '@radix-ui/react-icons';
 import { getResourceIcon, getCategoryIcon } from '../utils/resourceIcons';
 import { useStore } from '../store';
 import ExpandIcon from './icons/ExpandIcon';
@@ -312,9 +311,9 @@ const TreeNode = ({
           )}
           <span className="tree-node-icon">
             {node.id === 'kakauide-root'
-              ? getCategoryIcon('kakauide')
+              ? getCategoryIcon('kanivetide')
               : node.type === 'overview'
-                ? <DashboardIcon />
+                ? getCategoryIcon('overview')
                 : node.type === 'argo-overview'
                   ? getCategoryIcon('argocd')
                 : node.type === 'finops'
