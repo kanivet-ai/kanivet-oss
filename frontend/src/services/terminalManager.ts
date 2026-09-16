@@ -164,6 +164,13 @@ class TerminalManager {
     }
   }
 
+  clearSessionId(tabId: string): void {
+    const session = this.sessions.get(tabId);
+    if (session) {
+      session.sessionId = null;
+    }
+  }
+
   getSession(tabId: string): TerminalSession | undefined {
     return this.sessions.get(tabId);
   }
