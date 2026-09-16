@@ -185,6 +185,14 @@
   line-height: 1.4;
 }
 
+.setting-error {
+  display: block;
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--error-color, #f87171);
+}
+
 .setting-group select option:disabled {
   color: var(--text-secondary);
   opacity: 0.6;
