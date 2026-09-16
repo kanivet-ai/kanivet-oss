@@ -1,0 +1,62 @@
+.awsid-section {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 2px var(--property-padding-x) 6px;
+  font-size: var(--font-xxs);
+}
+
+.awsid-section-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  min-width: 0;
+}
+
+.awsid-section-label {
+  color: var(--text-muted);
+  min-width: 40px;
+}
+
+.awsid-section-role {
+  color: var(--text-primary);
+}
+
+.awsid-section-role .awsid-truncate {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.awsid-section-problem {
+  color: #f44336;
+}
+
+.awsid-section-denied {
+  color: #ff9800;
+  font-weight: 600;
+}
+
+.awsid-section-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  padding: 4px 0;
+}
+
+.awsid-section-error {
+  color: #f44336;
+}
+
+.awsid-section-open {
+  align-self: flex-start;
+  margin-top: 4px;
+  height: 22px;
+  font-size: var(--font-xxs);
+}
+
+.awsid-section-pill {
+  height: 16px;
+  font-size: var(--font-xxxs);
+}

@@ -13,6 +13,9 @@ import PodShell from './PodShell';
 import NodeShell from './NodeShell';
 import YamlEditor from './YamlEditor';
 import CrossplaneTrace from './CrossplaneTrace';
+import AWSIdentityPanel from './awsIdentity/AWSIdentityPanel';
+import { identityTargetFromResource } from './awsIdentity/awsIdentityUtils';
+import AWSIcon from './AWSIcon';
 import TerminalContainer from './TerminalContainer';
 import { useStore, type BottomTab } from '../store';
 import { useShallow } from 'zustand/react/shallow';
@@ -259,6 +262,7 @@ const BottomDock = () => {
                         )}
                         {(tab.type === 'edit' || tab.type === 'create') && <Pencil2Icon />}
                         {tab.type === 'trace' && <LinkBreak2Icon />}
+                        {tab.type === 'aws-identity' && <AWSIcon size={14} />}
                       </span>
                       <span className="tab-title">
                         {tab.customTitle || tab.title}
@@ -372,6 +376,24 @@ const BottomDock = () => {
                             kind={tab.resource.kind || ''}
                             namespace={tab.resource.metadata?.namespace}
                             name={tab.resource.metadata?.name || ''}
+                          />
+                        </ScrollContainer>
+                      );
+                    })()}
+                  {tab.type === 'aws-identity' &&
+                    (() => {
+                      const target = identityTargetFromResource(tab.resource);
+                      if (!target) return null;
+                      return (
+                        <ScrollContainer
+                          className="bottom-dock-scroll"
+                          viewportClassName="bottom-dock-viewport"
+                        >
+                          <AWSIdentityPanel
+                            cluster={tab.cluster}
+                            namespace={target.namespace}
+                            serviceAccount={target.serviceAccount}
+                            podName={target.podName}
                           />
                         </ScrollContainer>
                       );
