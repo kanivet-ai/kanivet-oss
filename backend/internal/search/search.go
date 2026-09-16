@@ -13,9 +13,12 @@ import (
 
 func (s *Service) Search(query string, options SearchOptions) ([]SearchResult, error) {
 	searchQuery := s.parseQuery(query, options)
-	if searchQuery.Cluster != "" {
+	if clusters := queryClusters(searchQuery); len(clusters) > 0 {
 		s.mu.Lock()
-		s.activeClusters[searchQuery.Cluster] = time.Now()
+		now := time.Now()
+		for _, cluster := range clusters {
+			s.activeClusters[cluster] = now
+		}
 		s.mu.Unlock()
 	}
 	cacheKey := s.buildSearchCacheKey(query, searchQuery)
@@ -84,10 +87,7 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 			Version:    result.Resource.Version,
 		}
 	}
-	var kindClusters []string
-	if query.Cluster != "" {
-		kindClusters = []string{query.Cluster}
-	}
+	kindClusters := queryClusters(query)
 	queryLower := strings.ToLower(query.Text)
 	for _, info := range s.index.FindKindsLike(queryLower, kindClusters, 100) {
 		if clusterKindInfo[info.Cluster] == nil {
@@ -188,20 +188,45 @@ func (s *Service) parseQuery(text string, options SearchOptions) SearchQuery {
 	if len(options.Clusters) > 0 {
 		clusters := append([]string(nil), options.Clusters...)
 		sort.Strings(clusters)
-		query.Cluster = clusters[0]
+		// The index treats Cluster as an exact single-cluster filter and
+		// Clusters as a set. Keep the single-cluster fast path, and pass a
+		// multi-select through as a set so no selected cluster is dropped.
+		if len(clusters) == 1 {
+			query.Cluster = clusters[0]
+		} else {
+			query.Clusters = clusters
+		}
 	}
 	return query
 }
 
+// queryClusters returns every cluster a query is scoped to, or nil when it
+// spans all clusters.
+func queryClusters(q SearchQuery) []string {
+	if q.Cluster != "" {
+		return []string{q.Cluster}
+	}
+	return q.Clusters
+}
+
 func (s *Service) buildSearchCacheKey(text string, q SearchQuery) string {
-	global, clusterVersion := s.searchVersions(q.Cluster)
+	clusters := append([]string(nil), queryClusters(q)...)
+	sort.Strings(clusters)
+	// One version stamp per selected cluster, so invalidating any of them
+	// misses the cache. With no cluster filter only the global version applies.
+	global, _ := s.searchVersions("")
+	versions := []string{fmt.Sprintf("v%d", global)}
+	for _, cluster := range clusters {
+		_, clusterVersion := s.searchVersions(cluster)
+		versions = append(versions, fmt.Sprintf("%d", clusterVersion))
+	}
 	namespaces := append([]string(nil), q.Namespaces...)
 	kinds := append([]string(nil), q.Kinds...)
 	sort.Strings(namespaces)
 	sort.Strings(kinds)
 	return s.cache.BuildKey("search",
-		fmt.Sprintf("v%d.%d", global, clusterVersion),
-		q.Cluster,
+		strings.Join(versions, "."),
+		strings.Join(clusters, ","),
 		strings.ToLower(strings.TrimSpace(text)),
 		strings.Join(namespaces, ","),
 		strings.Join(kinds, ","),
@@ -235,10 +260,7 @@ func (s *Service) searchDBFallback(query SearchQuery, limit int, existingResults
 	for _, r := range existingResults {
 		existingIDs[r.Resource.ID] = true
 	}
-	var clusters []string
-	if query.Cluster != "" {
-		clusters = []string{query.Cluster}
-	}
+	clusters := queryClusters(query)
 	dbResources, _, err := s.db.SearchResources(query.Text, clusters, limit*2, 0)
 	if err != nil {
 		log.Printf("[SEARCH] DB fallback search failed: %v", err)
