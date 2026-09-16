@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/models"
 	"github.com/kanivet/backend/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -176,17 +177,25 @@ func (h *Handler) GetResourceEventsQuery(c *gin.Context) {
 	if !ok {
 		return
 	}
+	group := c.Param("group")
+	version := c.Param("version")
+	kind := c.Param("kind")
 	namespace := c.Param("namespace")
 	name := c.Param("name")
+	if group == "_" {
+		group = ""
+	}
 	if namespace == "_" {
 		namespace = ""
 	}
 
-	cacheKey := h.cache.BuildKey("resource-events", cluster, namespace, name)
+	// Kind is part of the key and the query: a Deployment, Service and HPA that
+	// share a name (standard Helm practice) must not share an events list.
+	cacheKey := h.cache.BuildKey("resource-events", cluster, group, version, kind, namespace, name)
 	data, _ := h.cache.GetOrSet(cacheKey, 5*time.Second, func() (interface{}, error) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
-		events := h.fetchResourceEvents(ctx, cluster, namespace, name, "")
+		events := h.fetchResourceEvents(ctx, cluster, namespace, name, kind)
 		if events == nil {
 			events = []interface{}{}
 		}
@@ -1026,29 +1035,38 @@ func (h *Handler) SetDetailTabState(c *gin.Context) {
 }
 
 // fetchResourceEvents returns the events for a resource as a JSON-ready slice.
+// Events are matched on name, namespace and kind. The API version is
+// deliberately not part of the match: for multi-version CRDs the recorded
+// involvedObject.apiVersion can differ from the version being browsed.
 // It prefers the event listener's DB-backed cache and falls back to a live API
-// list. uid may be empty. This no longer blocks any detail response — it backs
+// list. kind may be empty. This no longer blocks any detail response — it backs
 // the dedicated events endpoint so the detail view loads instantly and pulls
 // events separately.
-func (h *Handler) fetchResourceEvents(ctx context.Context, cluster, namespace, name, uid string) []interface{} {
+func (h *Handler) fetchResourceEvents(ctx context.Context, cluster, namespace, name, kind string) []interface{} {
 	if !h.eventListener.IsListening(cluster) {
 		log.Printf("Starting event listener for cluster %s on first resource events request", cluster)
 		if err := h.eventListener.StartListening(cluster); err != nil {
 			log.Printf("Failed to start event listener for cluster %s: %v", cluster, err)
-			return h.buildEventsDirect(ctx, cluster, namespace, name)
+			return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
 		}
 		// The listener's initial DB sync is still in flight on first start, so
 		// serve this request from the live API rather than waiting for it.
-		return h.buildEventsDirect(ctx, cluster, namespace, name)
+		return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
 	}
 
-	events, err := h.db.GetEventsForResource(cluster, namespace, name, uid)
+	var events []db.K8sEvent
+	var err error
+	if kind != "" {
+		events, err = h.db.GetEventsForResourceByKind(cluster, namespace, name, kind, "")
+	} else {
+		events, err = h.db.GetEventsForResource(cluster, namespace, name, "")
+	}
 	if err != nil {
 		log.Printf("Failed to get events from database for %s/%s: %v", namespace, name, err)
-		return h.buildEventsDirect(ctx, cluster, namespace, name)
+		return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
 	}
 	if len(events) == 0 {
-		return h.buildEventsDirect(ctx, cluster, namespace, name)
+		return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
 	}
 
 	eventsList := make([]interface{}, len(events))
@@ -1076,15 +1094,26 @@ func (h *Handler) fetchResourceEvents(ctx context.Context, cluster, namespace, n
 	return eventsList
 }
 
-func (h *Handler) buildEventsDirect(ctx context.Context, cluster, namespace, name string) []interface{} {
+// eventsFieldSelector builds the core/v1 Events field selector for one object.
+// Namespace and kind are only added when known so cluster-scoped objects and
+// legacy callers without a kind keep matching.
+func eventsFieldSelector(name, namespace, kind string) string {
+	parts := []string{"involvedObject.name=" + name}
+	if namespace != "" {
+		parts = append(parts, "involvedObject.namespace="+namespace)
+	}
+	if kind != "" {
+		parts = append(parts, "involvedObject.kind="+kind)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (h *Handler) buildEventsDirect(ctx context.Context, cluster, namespace, name, kind string) []interface{} {
 	client, err := h.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return nil
 	}
-	fieldSelector := fmt.Sprintf("involvedObject.name=%s", name)
-	if namespace != "" {
-		fieldSelector = fmt.Sprintf("involvedObject.name=%s,involvedObject.namespace=%s", name, namespace)
-	}
+	fieldSelector := eventsFieldSelector(name, namespace, kind)
 	timeout := int64(2)
 	limit := int64(50)
 	events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{
