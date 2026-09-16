@@ -72,10 +72,10 @@ export async function deleteResources(
   const failed: string[] = [];
   let succeeded = 0;
   results.forEach((result, i) => {
-    if (result.status === 'rejected') {
+    if (result.status === 'rejected' || result.value.data?.deleted !== 1) {
       const name = items[i].namespace ? `${items[i].namespace}/${items[i].name}` : items[i].name;
       failed.push(name);
-      logger.error(`Failed to delete ${name}`, { error: result.reason });
+      logger.error(`Failed to delete ${name}`, { error: result.status === 'rejected' ? result.reason : result.value.data?.errors });
     } else {
       succeeded++;
     }
@@ -94,10 +94,10 @@ export async function removeFinalizers(
   const failed: string[] = [];
   let succeeded = 0;
   results.forEach((result, i) => {
-    if (result.status === 'rejected') {
+    if (result.status === 'rejected' || result.value.data?.success !== 1 || result.value.data?.failed > 0) {
       const name = items[i].namespace ? `${items[i].namespace}/${items[i].name}` : items[i].name;
       failed.push(name);
-      logger.error(`Failed to remove finalizers for ${name}`, { error: result.reason });
+      logger.error(`Failed to remove finalizers for ${name}`, { error: result.status === 'rejected' ? result.reason : result.value.data?.errors });
     } else {
       succeeded++;
     }
