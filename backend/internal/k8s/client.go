@@ -1537,11 +1537,10 @@ func (c *Client) UpdateResource(ctx context.Context, cluster string, gvr schema.
 	result, err := resourceInterface.Update(ctx, obj, metav1.UpdateOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
-			created, cerr := resourceInterface.Create(ctx, obj, metav1.CreateOptions{})
-			if cerr != nil {
-				return nil, fmt.Errorf("failed to create resource: %w", cerr)
-			}
-			return created, nil
+			// Deliberately no Create fallback. An edit targets an object the
+			// user believes exists; if it vanished meanwhile, recreating it
+			// would silently undo someone's delete with possibly stale config.
+			return nil, fmt.Errorf("%w: %s %q: %w", ErrResourceGone, gvr.Resource, name, err)
 		}
 		return nil, fmt.Errorf("failed to update resource: %w", err)
 	}

@@ -1,6 +1,20 @@
 package k8s
 
-import "strings"
+import (
+	"errors"
+	"strings"
+)
+
+// ErrResourceGone is returned by UpdateResource when the object being edited
+// no longer exists in the cluster. Callers must surface it, never recreate the
+// object: the caller believed it was editing something live, and resurrecting
+// a resource someone else deleted can restore obsolete or unsafe configuration.
+var ErrResourceGone = errors.New("resource no longer exists")
+
+// IsResourceGone reports whether err wraps ErrResourceGone.
+func IsResourceGone(err error) bool {
+	return errors.Is(err, ErrResourceGone)
+}
 
 // ClassifyClusterError maps a raw error string to a stable error code and a
 // user-facing message. Returns ok=false when no pattern matches; callers can
