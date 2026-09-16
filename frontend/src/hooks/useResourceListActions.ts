@@ -5,6 +5,7 @@ import {
   handleActionSelect as handleResourceActionSelect,
   ActionHandlerParams,
 } from '../utils/resourceActions';
+import { failureMessage } from '../utils/errorMessage';
 
 interface UseResourceListActionsProps {
   selectedNode: any;
@@ -159,6 +160,7 @@ export function useResourceListActions({
       setSelectedResources(new Set());
     } catch (error) {
       console.error('Failed to restart resources:', error);
+      addToast({ type: 'error', message: failureMessage(`Failed to restart ${itemsToRestart.length} resource${itemsToRestart.length !== 1 ? 's' : ''}`, error) });
     } finally {
       setTimeout(() => {
         setRestartingItems((prev) => {
@@ -168,7 +170,7 @@ export function useResourceListActions({
         });
       }, 2000);
     }
-  }, [selectedResources, currentTab, selectedNode, listItems, getResourceKey, setRestartingItems, bulkRestartResources, setSelectedResources]);
+  }, [selectedResources, currentTab, selectedNode, listItems, getResourceKey, setRestartingItems, bulkRestartResources, setSelectedResources, addToast]);
 
   const confirmScale = useCallback(async (replicas: number) => {
     if (!currentTab || !selectedNode || !scaleDialog) return;
@@ -179,10 +181,11 @@ export function useResourceListActions({
       setScaleDialog(null);
     } catch (error) {
       console.error('Failed to scale resource:', error);
+      addToast({ type: 'error', message: failureMessage(`Failed to scale ${scaleDialog.item.name || scaleDialog.item.metadata?.name}`, error) });
     } finally {
       setIsScaling(false);
     }
-  }, [currentTab, selectedNode, scaleDialog, scaleResource, reloadListItems, setScaleDialog, setIsScaling]);
+  }, [currentTab, selectedNode, scaleDialog, scaleResource, reloadListItems, setScaleDialog, setIsScaling, addToast]);
 
   const confirmTaint = useCallback(async (key: string, value: string, effect: 'NoSchedule' | 'PreferNoSchedule' | 'NoExecute') => {
     if (!currentTab || !taintDialog) return;
@@ -193,10 +196,11 @@ export function useResourceListActions({
       setTaintDialog(null);
     } catch (error) {
       console.error('Failed to taint node:', error);
+      addToast({ type: 'error', message: failureMessage(`Failed to taint ${taintDialog.item.name}`, error) });
     } finally {
       setIsTainting(false);
     }
-  }, [currentTab, taintDialog, taintNode, reloadListItems, setTaintDialog, setIsTainting]);
+  }, [currentTab, taintDialog, taintNode, reloadListItems, setTaintDialog, setIsTainting, addToast]);
 
   const confirmDrain = useCallback(async () => {
     if (!currentTab || !drainDialog) return;
@@ -208,10 +212,11 @@ export function useResourceListActions({
       setDrainResults(result);
     } catch (error) {
       console.error('Failed to drain node:', error);
+      addToast({ type: 'error', message: failureMessage(`Failed to drain ${drainDialog.item.name}`, error) });
     } finally {
       setIsDraining(false);
     }
-  }, [currentTab, drainDialog, drainOptions, drainNode, reloadListItems, setDrainDialog, setIsDraining, setDrainResults]);
+  }, [currentTab, drainDialog, drainOptions, drainNode, reloadListItems, setDrainDialog, setIsDraining, setDrainResults, addToast]);
 
   const handleBulkAction = useCallback((action: string) => {
     switch (action) {
@@ -264,10 +269,11 @@ export function useResourceListActions({
       setTaintDialog,
       getCurrentTabState,
       getResourceKey,
+      addToast,
     };
 
     await handleResourceActionSelect(params);
-  }, [currentTab, selectedNode, loadDetails, openBottomTab, restartResource, triggerCronJob, cordonNode, reloadListItems, setRestartingItems, setScaleDialog, setSelectedResources, setShowDeleteConfirm, setDrainDialog, setTaintDialog, getCurrentTabState, getResourceKey, setActionMenu]);
+  }, [currentTab, selectedNode, loadDetails, openBottomTab, restartResource, triggerCronJob, cordonNode, reloadListItems, setRestartingItems, setScaleDialog, setSelectedResources, setShowDeleteConfirm, setDrainDialog, setTaintDialog, getCurrentTabState, getResourceKey, setActionMenu, addToast]);
 
   return {
     handleDelete,
