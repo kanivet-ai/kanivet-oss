@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { wsManager } from '../../services/api/websocket';
 import { LogBuffer, RawBatchLine } from './logEngine';
+import { subscribeLogStream } from './logSubscription';
 
 export interface PodInfo {
   name: string;
@@ -41,9 +42,6 @@ export function useLogFeed(o: FeedOptions) {
 
   useEffect(() => {
     if (!o.cluster || !o.namespace || !o.name) return;
-    buffer.clear();
-    setStatus('connecting');
-    setError(null);
     let lastSeq = 0;
 
     const handler = (raw: any) => {
@@ -81,34 +79,22 @@ export function useLogFeed(o: FeedOptions) {
       }
     };
 
-    const handlers = wsManager.getHandlers();
-    if (!handlers.has('logs')) handlers.set('logs', new Set());
-    handlers.get('logs')!.add(handler);
-
-    wsManager.sendWS({
-      type: 'logs',
-      payload: {
-        action: 'start',
-        key,
-        cluster: o.cluster,
-        namespace: o.namespace,
-        name: o.name,
-        resourceType: o.kind,
-        container: o.container || undefined,
-        tailLines: o.tailLines,
-        follow: !o.previous,
-        previous: o.previous,
-      },
-    });
-
-    return () => {
-      wsManager.sendWS({ type: 'logs', payload: { action: 'stop', key } });
-      const set = wsManager.getHandlers().get('logs');
-      if (set) {
-        set.delete(handler);
-        if (set.size === 0) wsManager.getHandlers().delete('logs');
-      }
-    };
+    return subscribeLogStream(wsManager, window, {
+      key,
+      cluster: o.cluster,
+      namespace: o.namespace,
+      name: o.name,
+      resourceType: o.kind,
+      container: o.container || undefined,
+      tailLines: o.tailLines,
+      follow: !o.previous,
+      previous: o.previous,
+    }, handler, () => {
+      lastSeq = 0;
+      buffer.clear();
+      setStatus('connecting');
+      setError(null);
+    }, () => setStatus('connecting'));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
