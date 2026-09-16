@@ -1,13 +1,60 @@
-# Kanivet
+# Kanivet — Open-source Kubernetes desktop GUI
 
-Kanivet is a standalone Electron application for navigating, troubleshooting, and operating Kubernetes clusters from your local environment.
+Kanivet is an open-source Kubernetes desktop application for macOS, Windows, and Linux. Browse Kubernetes resources, troubleshoot pods, stream container logs, trace Crossplane resources, and manage Helm releases and Argo CD applications from a graphical interface using your existing kubeconfig credentials.
 
-Browse resources and live updates, inspect logs and incident timelines, search across cluster data, and work with terminals, Helm releases, and Argo applications using your existing Kubernetes credentials. Available workflows depend on your permissions and cluster components.
+Built for developers, platform engineers, and SREs, Kanivet brings Kubernetes cluster navigation and troubleshooting into one local workspace. Switch between clusters and namespaces, inspect live resource updates, and investigate workload issues without deploying an additional service into your cluster for basic resource browsing.
 
-## Download
+[Download Kanivet](https://github.com/kanivet-ai/kanivet-oss/releases/latest) · [Getting started](docs/QUICKSTART.md) · [Development setup](SETUP.md) · [Report a bug](https://github.com/kanivet-ai/kanivet-oss/issues)
 
-- Latest build: [GitHub Releases](https://github.com/kanivet-ai/kanivet-oss/releases/latest)
-- [Get started with Kanivet](docs/QUICKSTART.md)
+## Kubernetes management and troubleshooting features
+
+- **Browse Kubernetes resources:** navigate pods, deployments, services, configuration, storage, RBAC, and custom resources with live updates.
+- **Work across clusters and namespaces:** find and open clusters from local kubeconfigs, then switch contexts within the desktop app.
+- **Troubleshoot pods and workloads:** inspect resource status, container logs, Kubernetes events, and incident timelines.
+- **Search cluster resources:** find resources across your cluster data to move from an issue to the relevant object.
+- **Edit Kubernetes YAML:** inspect, create, and update resource definitions in the built-in editor.
+- **Use terminals and port forwarding:** open pod shells and forward pod or service ports to your local machine.
+
+### Crossplane, GitOps, and cloud integrations
+
+- **Trace Crossplane resources:** follow relationships between claims, composite resources, and composed resources in a visual tree. Inspect Ready and Synced conditions to investigate infrastructure provisioning issues.
+- **Manage Helm releases:** inspect release details and values, and upgrade releases from the app.
+- **Work with Argo CD:** inspect application topology and diffs, trigger syncs, and roll back to earlier revisions when Argo CD is installed.
+- **Discover cloud Kubernetes clusters:** find Amazon EKS, Azure AKS, and Google GKE clusters through cloud discovery and provider authentication.
+- **Connect to virtual clusters:** discover and connect to vCluster instances from their host cluster.
+- **Inspect Kubernetes metrics and costs:** view CPU and memory usage alongside resource requests and limits, and explore estimated costs, resource efficiency, and idle costs in the FinOps dashboard.
+
+Available actions depend on your Kubernetes permissions and the components installed in each cluster. Metrics and cost views use optional integrations; they are not required for basic resource browsing. See [project scope and ecosystem fit](docs/PROJECT.md) for more detail.
+
+## Download and install Kanivet
+
+Get the installer for your operating system from [GitHub Releases](https://github.com/kanivet-ai/kanivet-oss/releases/latest):
+
+- **macOS:** choose the DMG for Apple Silicon (ARM64) or Intel (x64), then drag Kanivet into Applications.
+- **Windows:** download and run the EXE installer.
+- **Linux:** download the AppImage for your architecture, make it executable, and launch it.
+
+### Connect your first Kubernetes cluster
+
+1. Make sure you have a working kubeconfig, such as `~/.kube/config`, and network access to your cluster.
+2. Launch Kanivet, open the cluster selector, and use **Quick Find** to select a cluster.
+3. Choose a namespace and open a pod or workload to inspect its status, logs, and events.
+
+If your kubeconfig uses a cloud authentication plugin, install the required CLI and make sure your login is current. For kubeconfig refresh, cloud discovery, and connection troubleshooting, follow the [Kubernetes desktop quickstart](docs/QUICKSTART.md).
+
+## Frequently asked questions
+
+### What is Kanivet used for?
+
+Kanivet is a Kubernetes GUI for everyday cluster navigation, resource management, and troubleshooting. Use it to investigate pod failures, read container logs, inspect events, edit YAML, trace Crossplane infrastructure, and work with Helm releases or Argo CD applications.
+
+### Does Kanivet require an in-cluster installation?
+
+Basic resource browsing connects to Kubernetes APIs from your desktop using your existing kubeconfig and cluster permissions. It does not require deploying a Kanivet service into the cluster. Read the [architecture](ARCHITECTURE.md) and [security model](docs/SECURITY_MODEL.md) for connection and trust boundaries.
+
+### Is Kanivet free and open source?
+
+Yes. Kanivet's original application code is licensed under Apache-2.0, and its documentation is licensed under CC-BY-4.0. You can download the desktop app or build it from source. See [licensing](LICENSING.md) and [privacy and data handling](docs/PRIVACY.md) for details.
 
 ## Documentation and community
 
