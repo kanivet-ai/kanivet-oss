@@ -339,3 +339,12 @@ func TestSimplifyPreservesKind(t *testing.T) {
 		t.Fatalf("kind/apiVersion: %+v", got)
 	}
 }
+
+func TestHasAdapter(t *testing.T) {
+	if !HasAdapter(schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}) {
+		t.Fatal("deployments should have an adapter")
+	}
+	if HasAdapter(schema.GroupVersionResource{Group: "cloud.physicsx.ai", Version: "v1alpha1", Resource: "tenantsv2"}) {
+		t.Fatal("generic CRs should not have an adapter")
+	}
+}

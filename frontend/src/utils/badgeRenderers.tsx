@@ -1,5 +1,6 @@
 import React from 'react';
 import { formatStatus } from './formatters';
+import LiveAge from '../components/common/LiveAge';
 
 type BadgeTone = 'success' | 'warning' | 'danger' | 'neutral';
 
@@ -151,4 +152,28 @@ export const ReadyBadge = ({
   }
 
   return '-';
+};
+
+export const PrinterValueBadge = ({
+  value,
+  type,
+}: {
+  value?: string;
+  type?: string;
+}): React.ReactElement | string => {
+  if (value === undefined || value === null || value === '') return '-';
+  if (String(type).toLowerCase() === 'date') {
+    return React.createElement(LiveAge, { timestamp: value });
+  }
+  const lower = String(value).toLowerCase();
+  if (lower === 'true' || lower === 'false' || lower === 'unknown') {
+    const tone: BadgeTone =
+      lower === 'true' ? 'success' : lower === 'unknown' ? 'warning' : 'danger';
+    return (
+      <span className={`status-badge ${tone}`} title={value}>
+        {value}
+      </span>
+    );
+  }
+  return value;
 };

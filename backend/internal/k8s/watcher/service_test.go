@@ -18,7 +18,7 @@ func TestProcessWatchEventsReturnsCredentialError(t *testing.T) {
 	var expired bool
 	var err error
 	go func() {
-		expired, err = svc.processWatchEvents(context.Background(), fw, schema.GroupVersionResource{}, "topic", new(string))
+		expired, err = svc.processWatchEvents(context.Background(), fw, "", schema.GroupVersionResource{}, "topic", new(string))
 		close(done)
 	}()
 
@@ -52,7 +52,7 @@ func TestProcessWatchEventsReturnsExpiredForGoneStatus(t *testing.T) {
 	var expired bool
 	var err error
 	go func() {
-		expired, err = svc.processWatchEvents(context.Background(), fw, schema.GroupVersionResource{}, "topic", new(string))
+		expired, err = svc.processWatchEvents(context.Background(), fw, "", schema.GroupVersionResource{}, "topic", new(string))
 		close(done)
 	}()
 
