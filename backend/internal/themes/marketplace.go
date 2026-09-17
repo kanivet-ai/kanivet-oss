@@ -1,6 +1,7 @@
 package themes
 
 import (
+	"encoding/json/jsontext"
 	jsonv2 "encoding/json/v2"
 	"fmt"
 	"io"
@@ -73,7 +74,7 @@ func (mc *MarketplaceClient) SearchThemes(query string, size int, sortBy string)
 	}
 
 	var result OpenVSXResponse
-	if err := jsonv2.Unmarshal(body, &result); err != nil {
+	if err := jsonv2.Unmarshal(body, &result, jsontext.AllowDuplicateNames(true)); err != nil {
 		return nil, fmt.Errorf("failed to parse search response: %w", err)
 	}
 
