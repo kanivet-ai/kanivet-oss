@@ -54,20 +54,26 @@ type VClusterSupervisor struct {
 	stopCh      chan struct{}
 	stoppedCh   chan struct{}
 
+	// probe and probeInterval drive the health loop; tests override them so
+	// the loop can run without a real tunnel or port-forward manager.
+	probe         func(*rest.Config) bool
+	probeInterval time.Duration
+
 	startedOnce atomic.Bool
 }
 
 func NewVClusterSupervisor(c *Client, id, host, namespace, name string) *VClusterSupervisor {
 	return &VClusterSupervisor{
-		id:          id,
-		host:        host,
-		namespace:   namespace,
-		name:        name,
-		owner:       c,
-		state:       VClusterStateConnecting,
-		subscribers: make(map[uint64]chan VClusterStatus),
-		stopCh:      make(chan struct{}),
-		stoppedCh:   make(chan struct{}),
+		id:            id,
+		host:          host,
+		namespace:     namespace,
+		name:          name,
+		owner:         c,
+		state:         VClusterStateConnecting,
+		subscribers:   make(map[uint64]chan VClusterStatus),
+		stopCh:        make(chan struct{}),
+		stoppedCh:     make(chan struct{}),
+		probeInterval: 4 * time.Second,
 	}
 }
 
@@ -303,11 +309,15 @@ func (s *VClusterSupervisor) connectOnce() error {
 	return nil
 }
 
+// runHealthLoop probes the tunnel until two consecutive probes fail or the
+// supervisor stops. A single failed probe flips the state to reconnecting so
+// callers block instead of using a possibly dead tunnel; the next successful
+// probe must flip it back, otherwise ensureVClusterAlive waits out its full
+// timeout on every call even though the tunnel is fine.
 func (s *VClusterSupervisor) runHealthLoop() {
-	probeInterval := 4 * time.Second
 	failureThreshold := 2
 	failures := 0
-	t := time.NewTicker(probeInterval)
+	t := time.NewTicker(s.probeInterval)
 	defer t.Stop()
 
 	for {
@@ -321,12 +331,13 @@ func (s *VClusterSupervisor) runHealthLoop() {
 		if cfg == nil {
 			return
 		}
-		ok := s.healthProbe(cfg)
+		ok := s.runProbe(cfg)
 		if ok {
 			if failures > 0 {
 				log.Printf("[VCLUSTER-SUP] %s recovered after %d failed probes", s.id, failures)
 			}
 			failures = 0
+			s.setState(VClusterStateHealthy, "")
 			continue
 		}
 		failures++
@@ -336,6 +347,13 @@ func (s *VClusterSupervisor) runHealthLoop() {
 			return
 		}
 	}
+}
+
+func (s *VClusterSupervisor) runProbe(cfg *rest.Config) bool {
+	if s.probe != nil {
+		return s.probe(cfg)
+	}
+	return s.healthProbe(cfg)
 }
 
 func (s *VClusterSupervisor) healthProbe(cfg *rest.Config) bool {
