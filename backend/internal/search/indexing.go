@@ -272,12 +272,22 @@ func (s *Service) loadPersistedIndexAsync() {
 			r := p.Resource
 			if r.Kind == "KindDefinition" {
 				kindDefCount++
+				// Kind definitions persist their keywords as
+				// "Kind kind resourcename", which is enough to answer
+				// kind -> resource-name lookups before the cluster is opened.
+				if len(r.Keywords) >= 3 {
+					s.rememberResourceName(r.Cluster, r.Group, r.Version, r.Name, r.Keywords[2])
+				}
 				continue
 			}
 			if clusterVersionMap[r.Cluster] == nil {
 				clusterVersionMap[r.Cluster] = make(map[string]time.Time)
 			}
-			resourceKey := fmt.Sprintf("%s/%s/%s", r.Group, r.Version, utils.PluralizeKind(r.Kind))
+			resource, ok := storage.ResourceNameFromID(r.ID, r.Cluster)
+			if !ok {
+				resource = utils.PluralizeKind(r.Kind)
+			}
+			resourceKey := fmt.Sprintf("%s/%s/%s", r.Group, r.Version, resource)
 			if r.UpdatedAt.After(clusterVersionMap[r.Cluster][resourceKey]) {
 				clusterVersionMap[r.Cluster][resourceKey] = r.UpdatedAt
 			}
@@ -447,6 +457,8 @@ func (s *Service) performSmartIndexing(cluster string) {
 		s.updateIndexingStatus(cluster, nil, err)
 		return
 	}
+	resources = s.preferredAPIResources(cluster, resources)
+	s.rememberAPIResources(cluster, resources)
 	type res struct{ group, version, resource, kind string }
 	toCheck := make([]res, 0)
 	dynamicResources := map[string]bool{
@@ -499,7 +511,7 @@ func (s *Service) performSmartIndexing(cluster string) {
 		default:
 		}
 		time.Sleep(25 * time.Millisecond)
-		err := s.smartIndexResourceType(cluster, r.group, r.version, r.resource)
+		err := s.smartIndexResourceType(cluster, r.group, r.version, r.resource, r.kind)
 		s.indexingMu.Lock()
 		if err != nil {
 			status.FailedResources++
@@ -532,7 +544,11 @@ func (s *Service) performSmartIndexing(cluster string) {
 		cluster, status.IndexedResources, status.TotalResources)
 }
 
-func (s *Service) smartIndexResourceType(cluster, group, version, kind string) error {
+// smartIndexResourceType LISTs one resource type and reconciles the index
+// against it. resource is the plural resource name and kind the Kind, both as
+// discovery reported them: documents carry the Kind, and their IDs the
+// resource name, exactly like documents produced from watch events.
+func (s *Service) smartIndexResourceType(cluster, group, version, resource, kind string) error {
 	select {
 	case <-s.stopChan:
 		return context.Canceled
@@ -542,17 +558,15 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 	if err != nil {
 		return fmt.Errorf("failed to get metadata client: %w", err)
 	}
-	resourceName := s.k8sClient.GetResourceName(cluster, group, version, kind)
-	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourceName}
-	resource := metadataClient.Resource(gvr)
-	resourceKey := fmt.Sprintf("%s/%s/%s", group, version, kind)
+	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resource}
+	lister := metadataClient.Resource(gvr)
+	resourceKey := fmt.Sprintf("%s/%s/%s", group, version, resource)
 	var newVersion string
 	apiVersion := version
 	if group != "" {
 		apiVersion = group + "/" + version
 	}
-	idKind := utils.PluralizeKind(kind)
-	category := getCategoryForKind(strings.ToLower(kind))
+	category := getCategoryForKind(kind)
 	var allSearchables []storage.SearchableResource
 	continueToken := ""
 	pageOpts := metav1.ListOptions{Limit: 500}
@@ -567,10 +581,10 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		pageOpts.Continue = continueToken
-		list, err := resource.List(ctx, pageOpts)
+		list, err := lister.List(ctx, pageOpts)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("failed to list %s/%s/%s: %w", group, version, kind, err)
+			return fmt.Errorf("failed to list %s/%s/%s: %w", group, version, resource, err)
 		}
 		if newVersion == "" {
 			newVersion = list.GetResourceVersion()
@@ -579,12 +593,7 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 			item := &list.Items[i]
 			name := item.Name
 			namespace := item.Namespace
-			var resID string
-			if namespace != "" {
-				resID = fmt.Sprintf("%s/%s/%s/%s/%s/%s", cluster, group, version, idKind, namespace, name)
-			} else {
-				resID = fmt.Sprintf("%s/%s/%s/%s/%s", cluster, group, version, idKind, name)
-			}
+			resID := storage.BuildResourceID(cluster, group, version, resource, namespace, name)
 			allSearchables = append(allSearchables, storage.SearchableResource{
 				ID: resID, Cluster: cluster, Kind: kind, APIVersion: apiVersion,
 				Name: name, Namespace: namespace, Category: category,
@@ -643,8 +652,8 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 		}
 		liveKeys[key] = struct{}{}
 	}
-	if removed := s.index.ReconcileType(cluster, group, version, kind, liveKeys); len(removed) > 0 {
-		log.Printf("[SEARCH] Reconcile removed %d stale %s/%s/%s entries in cluster %s", len(removed), group, version, kind, cluster)
+	if removed := s.index.ReconcileType(cluster, group, version, resource, liveKeys); len(removed) > 0 {
+		log.Printf("[SEARCH] Reconcile removed %d stale %s/%s/%s entries in cluster %s", len(removed), group, version, resource, cluster)
 		s.eventHandler.forgetFingerprints(removed)
 		if s.db != nil {
 			ids := removed
@@ -667,6 +676,31 @@ func (s *Service) smartIndexResourceType(cluster, group, version, kind string) e
 	return nil
 }
 
+// preferredAPIResources keeps one entry per group+resource: the one served
+// under the group's preferred version. Discovery lists every served version,
+// and indexing each would store the same objects once per version.
+func (s *Service) preferredAPIResources(cluster string, resources []metav1.APIResource) []metav1.APIResource {
+	type key struct{ group, name string }
+	chosen := make(map[key]int, len(resources))
+	out := make([]metav1.APIResource, 0, len(resources))
+	for _, r := range resources {
+		k := key{r.Group, r.Name}
+		idx, seen := chosen[k]
+		if !seen {
+			chosen[k] = len(out)
+			out = append(out, r)
+			continue
+		}
+		if s.k8sClient == nil {
+			continue
+		}
+		if preferred, ok := s.k8sClient.PreferredVersion(cluster, r.Group); ok && r.Version == preferred && out[idx].Version != preferred {
+			out[idx] = r
+		}
+	}
+	return out
+}
+
 func (s *Service) apiResources(cluster string) ([]metav1.APIResource, error) {
 	cached, err := s.cache.GetOrSet(s.cache.BuildKey("api-resources", cluster), 5*time.Minute, func() (interface{}, error) {
 		return s.k8sClient.ListAPIResources(cluster)
@@ -683,6 +717,8 @@ func (s *Service) indexResourceKinds(cluster string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list API resources: %w", err)
 	}
+	resources = s.preferredAPIResources(cluster, resources)
+	s.rememberAPIResources(cluster, resources)
 	kindDefs := make([]storage.SearchableResource, 0, len(resources))
 	for _, resource := range resources {
 		if strings.Contains(resource.Name, "/") || !hasVerb(resource.Verbs, "list") {

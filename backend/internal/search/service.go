@@ -35,6 +35,9 @@ type RecentResource struct {
 	Cluster    string `json:"cluster"`
 	APIVersion string `json:"apiVersion,omitempty"`
 	Category   string `json:"category,omitempty"`
+	// Resource is the plural resource name (deployments), so reopening a
+	// recent entry needs no pluralization guesswork.
+	Resource string `json:"resource,omitempty"`
 }
 
 type IndexingStatus struct {
@@ -47,14 +50,17 @@ type IndexingStatus struct {
 	LastError        error
 }
 
+// ResourceEvent is one watch event routed to the index. Resource is the plural
+// resource name from the items topic the watch was started with; it names the
+// type the way discovery spells it, which the object's own kind may not.
 type ResourceEvent struct {
 	Cluster   string
 	Group     string
 	Version   string
-	Kind      string
+	Resource  string
 	Namespace string
 	Action    string
-	Resource  map[string]interface{}
+	Item      map[string]interface{}
 }
 
 func defaultConfig() *Config {
@@ -108,6 +114,14 @@ type Service struct {
 	loadedMu       sync.Mutex
 	loadedClusters map[string]bool
 	dbHasUnloaded  atomic.Bool
+
+	// resourceNames maps cluster|group|version|kind to the plural resource
+	// name discovery reported, and kindNames the reverse. They let search
+	// results and watch events carry the spelling the tree uses without a
+	// live discovery round trip.
+	kindNamesMu   sync.RWMutex
+	resourceNames map[string]string
+	kindNames     map[string]string
 }
 
 func (s *Service) nowFn() time.Time {
@@ -133,6 +147,15 @@ func (s *Service) RemoveCluster(cluster string) int {
 	delete(s.indexingStatus, cluster)
 	delete(s.resourceVersions, cluster)
 	s.indexingMu.Unlock()
+	s.kindNamesMu.Lock()
+	for _, m := range []map[string]string{s.resourceNames, s.kindNames} {
+		for k := range m {
+			if strings.HasPrefix(k, cluster+"|") {
+				delete(m, k)
+			}
+		}
+	}
+	s.kindNamesMu.Unlock()
 	if s.eventHandler != nil {
 		s.eventHandler.forgetCluster(cluster)
 	}
@@ -171,6 +194,8 @@ func NewService(k8sClient *k8s.Client, cache *cache.Cache, database *db.DB, inva
 		indexLimiter:         rate.NewLimiter(rate.Limit(100), 25),
 		sweepSem:             make(chan struct{}, maxConcurrentSweeps),
 		loadedClusters:       make(map[string]bool),
+		resourceNames:        make(map[string]string),
+		kindNames:            make(map[string]string),
 	}
 	index.SetEvictionCallback(func(evicted []storage.SearchableResource) {})
 	if home, err := os.UserHomeDir(); err == nil {
@@ -210,20 +235,21 @@ func (s *Service) SetWatchedChecker(fn func(cluster, group, version, resource st
 
 // OnResourceEvent coalesces events per resource identity instead of queueing
 // them: a burst of MODIFIED events for one pod costs a single index pass, and
-// nothing is dropped under load.
-func (s *Service) OnResourceEvent(cluster, group, version, kind, namespace, action string, resource map[string]interface{}) {
-	name, _ := resource["name"].(string)
-	ns, _ := resource["namespace"].(string)
+// nothing is dropped under load. resource is the plural resource name from
+// the items topic.
+func (s *Service) OnResourceEvent(cluster, group, version, resource, namespace, action string, item map[string]interface{}) {
+	name, _ := item["name"].(string)
+	ns, _ := item["namespace"].(string)
 	if ns == "" {
 		ns = namespace
 	}
-	key := cluster + "|" + group + "|" + version + "|" + kind + "|" + ns + "|" + name
+	key := cluster + "|" + group + "|" + version + "|" + resource + "|" + ns + "|" + name
 	s.pendingMu.Lock()
 	if name == "" {
 		s.pendingSeq++
 		key = fmt.Sprintf("%s|#%d", key, s.pendingSeq)
 	}
-	s.pending[key] = ResourceEvent{Cluster: cluster, Group: group, Version: version, Kind: kind, Namespace: namespace, Action: action, Resource: resource}
+	s.pending[key] = ResourceEvent{Cluster: cluster, Group: group, Version: version, Resource: resource, Namespace: namespace, Action: action, Item: item}
 	s.pendingMu.Unlock()
 	select {
 	case s.wake <- struct{}{}:
@@ -246,10 +272,10 @@ func (s *Service) drainEvents() []ResourceEvent {
 func (s *Service) handleEventSafe(evt ResourceEvent) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[PANIC] handleEvent for %s/%s: %v", evt.Kind, evt.Namespace, r)
+			log.Printf("[PANIC] handleEvent for %s/%s: %v", evt.Resource, evt.Namespace, r)
 			faults.CaptureExceptionWithContext(
 				fmt.Errorf("panic in handleEvent: %v", r),
-				map[string]any{"kind": evt.Kind, "namespace": evt.Namespace, "panic": r, "stack": string(debug.Stack())},
+				map[string]any{"resource": evt.Resource, "namespace": evt.Namespace, "panic": r, "stack": string(debug.Stack())},
 			)
 			panic(r) // Re-panic to crash
 		}
@@ -314,28 +340,34 @@ func (s *Service) processEvents() {
 }
 
 func (s *Service) handleEvent(event ResourceEvent) {
-	if nk := utils.PluralizeKind(event.Kind); (nk == "customresourcedefinitions" || nk == "apiservices") &&
+	if nk := utils.PluralizeKind(event.Resource); (nk == "customresourcedefinitions" || nk == "apiservices") &&
 		(event.Action == "ADDED" || event.Action == "added" || event.Action == "DELETED" || event.Action == "deleted") {
-		log.Printf("[SEARCH] Detected %s %s in cluster %s", event.Kind, event.Action, event.Cluster)
+		log.Printf("[SEARCH] Detected %s %s in cluster %s", event.Resource, event.Action, event.Cluster)
 		cacheKey := s.cache.BuildKey("api-resources", event.Cluster)
 		s.cache.Delete(cacheKey)
 		if event.Action == "ADDED" || event.Action == "added" {
 			go func() {
 				time.Sleep(2 * time.Second)
 				if err := s.indexResourceKinds(event.Cluster); err != nil {
-					log.Printf("[SEARCH] Failed to re-index kinds after %s %s: %v", event.Kind, event.Action, err)
+					log.Printf("[SEARCH] Failed to re-index kinds after %s %s: %v", event.Resource, event.Action, err)
 				}
 			}()
 		}
 	}
 	if event.Namespace != "" {
-		if _, ok := event.Resource["namespace"]; !ok {
-			event.Resource["namespace"] = event.Namespace
+		if _, ok := event.Item["namespace"]; !ok {
+			event.Item["namespace"] = event.Namespace
 		}
+	}
+	coords := resourceCoords{
+		group:    event.Group,
+		version:  event.Version,
+		resource: event.Resource,
+		kind:     s.kindFor(event.Cluster, event.Group, event.Version, event.Resource),
 	}
 	switch event.Action {
 	case "ADDED", "MODIFIED", "added", "modified":
-		changed, err := s.eventHandler.OnAdd(event.Cluster, event.Resource)
+		changed, err := s.eventHandler.OnAddWithCoords(event.Cluster, coords, event.Item)
 		if err != nil {
 			log.Printf("Failed to index resource on %s: %v", event.Action, err)
 		}
@@ -343,13 +375,75 @@ func (s *Service) handleEvent(event ResourceEvent) {
 			s.invalidateSearchCacheForCluster(event.Cluster)
 		}
 	case "DELETED", "deleted":
-		if err := s.eventHandler.onDeleteWithCoords(event.Cluster, event.Group, event.Version, event.Kind, event.Resource); err != nil {
+		if err := s.eventHandler.onDeleteWithCoords(event.Cluster, coords, event.Item); err != nil {
 			log.Printf("Failed to remove resource on DELETE: %v", err)
 		}
 		s.invalidateSearchCacheForCluster(event.Cluster)
 	default:
 		log.Printf("Unknown event action: %s", event.Action)
 	}
+}
+
+func resourceNameKey(cluster, group, version, kind string) string {
+	return cluster + "|" + group + "|" + version + "|" + strings.ToLower(kind)
+}
+
+// rememberAPIResources records the kind/resource-name pairs discovery reported
+// for a cluster.
+func (s *Service) rememberAPIResources(cluster string, resources []metav1.APIResource) {
+	s.kindNamesMu.Lock()
+	defer s.kindNamesMu.Unlock()
+	if s.resourceNames == nil {
+		s.resourceNames = make(map[string]string)
+		s.kindNames = make(map[string]string)
+	}
+	for _, r := range resources {
+		if r.Kind == "" || r.Name == "" || strings.Contains(r.Name, "/") {
+			continue
+		}
+		s.resourceNames[resourceNameKey(cluster, r.Group, r.Version, r.Kind)] = r.Name
+		s.kindNames[resourceNameKey(cluster, r.Group, r.Version, r.Name)] = r.Kind
+	}
+}
+
+func (s *Service) rememberResourceName(cluster, group, version, kind, resource string) {
+	if kind == "" || resource == "" {
+		return
+	}
+	s.kindNamesMu.Lock()
+	if s.resourceNames == nil {
+		s.resourceNames = make(map[string]string)
+		s.kindNames = make(map[string]string)
+	}
+	s.resourceNames[resourceNameKey(cluster, group, version, kind)] = resource
+	s.kindNames[resourceNameKey(cluster, group, version, resource)] = kind
+	s.kindNamesMu.Unlock()
+}
+
+// ResourceNameFor returns the plural resource name for a kind: the spelling
+// discovery reported for the cluster when known, else the pluralization
+// fallback. Passing a resource name returns it unchanged.
+func (s *Service) ResourceNameFor(cluster, group, version, kind string) string {
+	s.kindNamesMu.RLock()
+	name := s.resourceNames[resourceNameKey(cluster, group, version, kind)]
+	if name == "" {
+		if _, isResource := s.kindNames[resourceNameKey(cluster, group, version, kind)]; isResource {
+			name = strings.ToLower(kind)
+		}
+	}
+	s.kindNamesMu.RUnlock()
+	if name != "" {
+		return name
+	}
+	return utils.PluralizeKind(kind)
+}
+
+// kindFor returns the Kind discovery reported for a plural resource name, or
+// "" when the cluster's resources have not been discovered yet.
+func (s *Service) kindFor(cluster, group, version, resource string) string {
+	s.kindNamesMu.RLock()
+	defer s.kindNamesMu.RUnlock()
+	return s.kindNames[resourceNameKey(cluster, group, version, resource)]
 }
 
 const versionBumpInterval = 2 * time.Second

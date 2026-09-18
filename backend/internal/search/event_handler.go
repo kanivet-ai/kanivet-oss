@@ -1,7 +1,6 @@
 package search
 
 import (
-	"fmt"
 	"hash/fnv"
 	"log"
 	"sort"
@@ -13,6 +12,15 @@ import (
 	"github.com/kanivet/backend/internal/search/storage"
 	"github.com/kanivet/backend/internal/utils"
 )
+
+// resourceCoords are the coordinates of the items topic an event arrived on:
+// the group, version and plural resource name the watch was started with,
+// plus the Kind discovery reported for that resource when known. They are
+// authoritative for the document ID; the object's own kind/apiVersion fill in
+// only what the topic does not say.
+type resourceCoords struct {
+	group, version, resource, kind string
+}
 
 type ResourceEventHandler struct {
 	index       *storage.ShardedIndex
@@ -124,10 +132,21 @@ func fingerprintSearchable(s storage.SearchableResource) uint64 {
 }
 
 func (h *ResourceEventHandler) OnAdd(cluster string, resource map[string]interface{}) (bool, error) {
+	return h.OnAddWithCoords(cluster, resourceCoords{}, resource)
+}
+
+// OnAddWithCoords indexes an added or modified object. coords come from the
+// items topic and pin the document ID to the same plural resource name the
+// LIST sweep uses, so the two paths never produce two documents for one
+// object.
+func (h *ResourceEventHandler) OnAddWithCoords(cluster string, coords resourceCoords, resource map[string]interface{}) (bool, error) {
 	if kind, ok := resource["kind"].(string); ok && utils.PluralizeKind(kind) == "events" {
 		return false, nil
 	}
-	searchable := h.convertToSearchable(cluster, resource)
+	if coords.resource == "events" {
+		return false, nil
+	}
+	searchable := h.convertToSearchable(cluster, coords, resource)
 	fp := fingerprintSearchable(searchable)
 	h.fpMu.RLock()
 	prev, hasPrev := h.fingerprints[searchable.ID]
@@ -173,7 +192,7 @@ func (h *ResourceEventHandler) filterChanged(resources []storage.SearchableResou
 }
 
 func (h *ResourceEventHandler) OnDelete(cluster string, resource map[string]interface{}) error {
-	return h.onDeleteWithCoords(cluster, "", "", "", resource)
+	return h.onDeleteWithCoords(cluster, resourceCoords{}, resource)
 }
 
 // forgetFingerprints drops the cached fingerprints for the given resource IDs so
@@ -193,32 +212,25 @@ func (h *ResourceEventHandler) forgetFingerprints(ids []string) {
 // onDeleteWithCoords removes a resource from the index. Kubernetes watch DELETE
 // events frequently strip kind/apiVersion from the object (tombstones,
 // DeletedFinalStateUnknown), which previously produced an ID that didn't match
-// the one used at index time, so the document was never removed. The authoritative
-// group/version/kind from the topic are used to fill any missing fields so the
+// the one used at index time, so the document was never removed. The topic's
+// group/version/resource fill in whatever the object lacks so the
 // reconstructed ID is byte-identical to the indexed one.
-func (h *ResourceEventHandler) onDeleteWithCoords(cluster, group, version, kind string, resource map[string]interface{}) error {
+func (h *ResourceEventHandler) onDeleteWithCoords(cluster string, coords resourceCoords, resource map[string]interface{}) error {
 	name, _ := resource["name"].(string)
 	namespace, _ := resource["namespace"].(string)
-	if rk, _ := resource["kind"].(string); rk != "" {
-		kind = rk
+	kind, _ := resource["kind"].(string)
+	group, version := coords.group, coords.version
+	if apiVersion, _ := resource["apiVersion"].(string); apiVersion != "" && (group == "" && version == "") {
+		group, version = splitAPIVersion(apiVersion)
 	}
-	if apiVersion, _ := resource["apiVersion"].(string); apiVersion != "" {
-		parts := strings.Split(apiVersion, "/")
-		if len(parts) == 2 {
-			group, version = parts[0], parts[1]
-		} else {
-			group, version = "", apiVersion
-		}
+	resourceName := coords.resource
+	if resourceName == "" && kind != "" {
+		resourceName = utils.PluralizeKind(kind)
 	}
-	if name == "" || kind == "" {
+	if name == "" || resourceName == "" {
 		return nil
 	}
-	var id string
-	if namespace != "" {
-		id = fmt.Sprintf("%s/%s/%s/%s/%s/%s", cluster, group, version, utils.PluralizeKind(kind), namespace, name)
-	} else {
-		id = fmt.Sprintf("%s/%s/%s/%s/%s", cluster, group, version, utils.PluralizeKind(kind), name)
-	}
+	id := storage.BuildResourceID(cluster, group, version, resourceName, namespace, name)
 	if err := h.index.Remove(id); err != nil {
 		// The reconstructed ID didn't match what was indexed — legacy docs from
 		// before kind normalization, or deletes whose payload disagrees with the
@@ -232,7 +244,14 @@ func (h *ResourceEventHandler) onDeleteWithCoords(cluster, group, version, kind 
 	return nil
 }
 
-func (h *ResourceEventHandler) convertToSearchable(cluster string, resource map[string]interface{}) storage.SearchableResource {
+func splitAPIVersion(apiVersion string) (group, version string) {
+	if i := strings.IndexByte(apiVersion, '/'); i >= 0 {
+		return apiVersion[:i], apiVersion[i+1:]
+	}
+	return "", apiVersion
+}
+
+func (h *ResourceEventHandler) convertToSearchable(cluster string, coords resourceCoords, resource map[string]interface{}) storage.SearchableResource {
 	searchable := storage.SearchableResource{
 		Cluster: cluster,
 	}
@@ -242,20 +261,28 @@ func (h *ResourceEventHandler) convertToSearchable(cluster string, resource map[
 	if ns, ok := resource["namespace"].(string); ok {
 		searchable.Namespace = ns
 	}
-	if kind, ok := resource["kind"].(string); ok {
+	if kind, ok := resource["kind"].(string); ok && kind != "" {
 		searchable.Kind = kind
-		searchable.Category = getCategoryForKind(strings.ToLower(kind))
+	} else {
+		searchable.Kind = coords.kind
 	}
-	if apiVersion, ok := resource["apiVersion"].(string); ok {
+	searchable.Category = getCategoryForKind(searchable.Kind)
+	if apiVersion, ok := resource["apiVersion"].(string); ok && apiVersion != "" {
 		searchable.APIVersion = apiVersion
-		parts := strings.Split(apiVersion, "/")
-		if len(parts) == 2 {
-			searchable.Group = parts[0]
-			searchable.Version = parts[1]
+		searchable.Group, searchable.Version = splitAPIVersion(apiVersion)
+	} else if coords.group != "" || coords.version != "" {
+		searchable.Group, searchable.Version = coords.group, coords.version
+		if coords.group != "" {
+			searchable.APIVersion = coords.group + "/" + coords.version
 		} else {
-			searchable.Group = ""
-			searchable.Version = apiVersion
+			searchable.APIVersion = coords.version
 		}
+	}
+	// The topic's plural resource name wins over pluralizing the kind: it is
+	// what discovery reported and what the LIST sweep used for its IDs.
+	resourceName := coords.resource
+	if resourceName == "" {
+		resourceName = utils.PluralizeKind(searchable.Kind)
 	}
 	if labels, ok := resource["labels"].(map[string]interface{}); ok {
 		searchable.Labels = make(map[string]string)
@@ -273,11 +300,7 @@ func (h *ResourceEventHandler) convertToSearchable(cluster string, resource map[
 			}
 		}
 	}
-	if searchable.Namespace != "" {
-		searchable.ID = fmt.Sprintf("%s/%s/%s/%s/%s/%s", cluster, searchable.Group, searchable.Version, utils.PluralizeKind(searchable.Kind), searchable.Namespace, searchable.Name)
-	} else {
-		searchable.ID = fmt.Sprintf("%s/%s/%s/%s/%s", cluster, searchable.Group, searchable.Version, utils.PluralizeKind(searchable.Kind), searchable.Name)
-	}
+	searchable.ID = storage.BuildResourceID(cluster, searchable.Group, searchable.Version, resourceName, searchable.Namespace, searchable.Name)
 	searchable.UpdatedAt = time.Now()
 	return searchable
 }

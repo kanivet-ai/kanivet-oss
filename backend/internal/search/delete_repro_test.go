@@ -53,7 +53,7 @@ func TestOnDeletePluralKindStillRemoves(t *testing.T) {
 		t.Fatalf("OnAdd: %v", err)
 	}
 	del := map[string]interface{}{"name": "pod-1", "namespace": "default", "kind": "pods", "apiVersion": "v1"}
-	if err := h.onDeleteWithCoords("c", "", "v1", "pods", del); err != nil {
+	if err := h.onDeleteWithCoords("c", resourceCoords{version: "v1", resource: "pods"}, del); err != nil {
 		t.Fatalf("OnDelete: %v", err)
 	}
 	if h.index.DocumentCount() != 0 {
@@ -70,7 +70,7 @@ func TestOnDeleteMissingKindStillRemoves(t *testing.T) {
 		t.Fatalf("OnAdd: %v", err)
 	}
 	del := map[string]interface{}{"name": "pod-1", "namespace": "default"}
-	if err := h.onDeleteWithCoords("c", "", "v1", "pods", del); err != nil {
+	if err := h.onDeleteWithCoords("c", resourceCoords{version: "v1", resource: "pods"}, del); err != nil {
 		t.Fatalf("OnDelete: %v", err)
 	}
 	if h.index.DocumentCount() != 0 {

@@ -27,6 +27,7 @@ var kindCategories = map[string]string{
 	"volumeattachment":        "Storage",
 	"namespace":               "Cluster",
 	"node":                    "Cluster",
+	"lease":                   "Cluster",
 	"componentstatus":         "Cluster",
 	"event":                   "Cluster",
 	"serviceaccount":          "Security",
@@ -42,6 +43,9 @@ var kindCategories = map[string]string{
 	"resourcequota":           "Policy",
 }
 
+// singularize maps a lowercase plural resource name back to its kind, the
+// inverse of utils.PluralizeKind: ingresses -> ingress, policies -> policy,
+// leases -> lease, componentstatuses -> componentstatus.
 func singularize(kind string) string {
 	if kind == "" {
 		return kind
@@ -53,10 +57,14 @@ func singularize(kind string) string {
 	if strings.HasSuffix(kind, "ies") {
 		return kind[:len(kind)-3] + "y"
 	}
-	if strings.HasSuffix(kind, "ses") || strings.HasSuffix(kind, "xes") || strings.HasSuffix(kind, "ches") || strings.HasSuffix(kind, "shes") {
-		return kind[:len(kind)-2]
+	// Only -sses/-uses/-xes/-zes/-ches/-shes drop an "es"; other -ses words
+	// (leases, releases) end in a silent e and drop just the "s".
+	for _, suffix := range []string{"sses", "uses", "xes", "zes", "ches", "shes"} {
+		if strings.HasSuffix(kind, suffix) {
+			return kind[:len(kind)-2]
+		}
 	}
-	if strings.HasSuffix(kind, "s") {
+	if strings.HasSuffix(kind, "s") && !strings.HasSuffix(kind, "ss") {
 		return kind[:len(kind)-1]
 	}
 	return kind

@@ -123,7 +123,11 @@ type Client struct {
 	mu                  sync.RWMutex
 	portForwardManager  *PortForwardManager
 	resourceNameCache   map[string]string
-	resourceNameMu      sync.RWMutex
+	// preferredVersions records, per cluster, the version each API group
+	// serves as preferred (from discovery), so indexers can skip the other
+	// served versions of the same resources. Guarded by resourceNameMu.
+	preferredVersions map[string]map[string]string
+	resourceNameMu    sync.RWMutex
 
 	contextIndexMu    sync.RWMutex
 	contextIndex      map[string]string
@@ -230,6 +234,7 @@ func NewClient() *Client {
 		vclusterStatusSubs:  make(map[uint64]chan VClusterStatus),
 		kubeconfigs:         discoverKubeconfigs(),
 		resourceNameCache:   make(map[string]string),
+		preferredVersions:   make(map[string]map[string]string),
 	}
 	c.portForwardManager = NewPortForwardManager(c)
 
@@ -265,6 +270,7 @@ func (c *Client) RefreshClusterCache(cluster string) {
 	c.resourceNameMu.Lock()
 	if cluster == "" {
 		clear(c.resourceNameCache)
+		clear(c.preferredVersions)
 	} else {
 		prefix := cluster + ":"
 		for k := range c.resourceNameCache {
@@ -272,6 +278,7 @@ func (c *Client) RefreshClusterCache(cluster string) {
 				delete(c.resourceNameCache, k)
 			}
 		}
+		delete(c.preferredVersions, cluster)
 	}
 	c.resourceNameMu.Unlock()
 }
@@ -667,12 +674,23 @@ func (c *Client) ListAPIResources(cluster string) ([]metav1.APIResource, error) 
 	// ServerGroupsAndResources uses aggregated discovery on K8s >= 1.26: every
 	// group and version in a single round trip, with automatic per-group
 	// fallback on older servers. All versions are returned, not just preferred.
-	_, resourceLists, err := discoveryClient.ServerGroupsAndResources()
+	apiGroups, resourceLists, err := discoveryClient.ServerGroupsAndResources()
 	if err != nil {
 		if len(resourceLists) == 0 {
 			return nil, fmt.Errorf("failed to get server resources: %w", err)
 		}
 		log.Printf("ListAPIResources partial discovery failure for cluster %s: %v", cluster, err)
+	}
+	if len(apiGroups) > 0 {
+		preferred := make(map[string]string, len(apiGroups))
+		for _, g := range apiGroups {
+			if g != nil && g.PreferredVersion.Version != "" {
+				preferred[g.Name] = g.PreferredVersion.Version
+			}
+		}
+		c.resourceNameMu.Lock()
+		c.preferredVersions[cluster] = preferred
+		c.resourceNameMu.Unlock()
 	}
 
 	var resources []metav1.APIResource
@@ -705,6 +723,20 @@ func (c *Client) ListAPIResources(cluster string) ([]metav1.APIResource, error) 
 	c.resourceNameMu.Unlock()
 
 	return resources, nil
+}
+
+// PreferredVersion returns the version discovery reported as preferred for an
+// API group on a cluster. It is known once ListAPIResources has run for that
+// cluster; ok is false before then.
+func (c *Client) PreferredVersion(cluster, group string) (string, bool) {
+	c.resourceNameMu.RLock()
+	defer c.resourceNameMu.RUnlock()
+	versions, ok := c.preferredVersions[cluster]
+	if !ok {
+		return "", false
+	}
+	v, ok := versions[group]
+	return v, ok
 }
 
 func (c *Client) ResolveKindToResource(cluster, group, version, kind string) (string, error) {
