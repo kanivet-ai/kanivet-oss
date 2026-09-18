@@ -1,8 +1,10 @@
-interface SearchableResource {
+export interface SearchableResource {
   id: string;
   cluster: string;
   kind: string;
   apiVersion: string;
+  /** Plural API resource name (deployments), as discovery spells it. */
+  resource?: string;
   name: string;
   namespace?: string;
   labels?: Record<string, string>;
@@ -41,4 +43,16 @@ export interface SearchResponse {
   results: SearchResult[];
   query: string;
   count: number;
+}
+
+/** A resource the user opened from search, as the backend remembers it. */
+export interface RecentResource {
+  name: string;
+  kind: string;
+  namespace?: string;
+  cluster: string;
+  apiVersion?: string;
+  category?: string;
+  /** Plural API resource name (deployments), when known. */
+  resource?: string;
 }
