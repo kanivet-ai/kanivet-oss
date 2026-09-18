@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -140,7 +141,24 @@ func (s *ShardedIndex) Remove(id string) error {
 	return s.shardForCluster(cluster).Remove(id)
 }
 
+// clusterFromID recovers the cluster from a document ID so lookups land on
+// the shard Index chose. Resource IDs are cluster/group/version/kind[/ns]/name
+// and the cluster never contains a slash. Kind definitions use
+// kind:<cluster>:<group>:<version>:<kind>, where the cluster itself may hold
+// colons (EKS ARNs do), so the last three colon-separated fields are peeled
+// off instead.
 func clusterFromID(id string) string {
+	if strings.HasPrefix(id, "kind:") {
+		rest := id[len("kind:"):]
+		for i := 0; i < 3; i++ {
+			cut := strings.LastIndexByte(rest, ':')
+			if cut < 0 {
+				return rest
+			}
+			rest = rest[:cut]
+		}
+		return rest
+	}
 	for i := 0; i < len(id); i++ {
 		if id[i] == '/' {
 			return id[:i]
@@ -278,28 +296,6 @@ func (s *ShardedIndex) FindKindsLike(text string, clusters []string, limit int) 
 		}
 	}
 	return out
-}
-
-// SwapData distributes the documents of a freshly bulk-loaded IndexData into
-// per-cluster shards. Each shard is rebuilt from the subset of documents
-// belonging to the clusters it owns, then finalized for fuzzy search.
-func (s *ShardedIndex) SwapData(newData *IndexData) {
-	if len(s.shards) == 1 {
-		s.shards[0].SwapData(newData)
-		return
-	}
-	perShard := make([][]PreparedResource, len(s.shards))
-	for _, compact := range newData.compactDocs {
-		r := compact.ToSearchable(newData.pools)
-		idx := s.shardIndex(r.Cluster)
-		perShard[idx] = append(perShard[idx], prepareResource(r))
-	}
-	for i, prepared := range perShard {
-		d := NewIndexData()
-		BatchIndexToDataFast(d, prepared)
-		FinalizeBulkLoad(d)
-		s.shards[i].SwapData(d)
-	}
 }
 
 // GetDocumentWithWarmTier looks up a document by ID on its cluster's shard.
