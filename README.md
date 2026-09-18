@@ -2,7 +2,7 @@
   <img src="docs/assets/kanivet-logo.svg" alt="Kanivet logo" width="144" height="144">
 </p>
 
-# Kanivet — Open-source Kubernetes desktop GUI
+# Kanivet — Open-source Kubernetes Workbench
 
 Kanivet is an open-source Kubernetes desktop application for macOS, Windows, and Linux. Browse Kubernetes resources, troubleshoot pods, stream container logs, trace Crossplane resources, and manage Helm releases and Argo CD applications from a graphical interface using your existing kubeconfig credentials.
 
