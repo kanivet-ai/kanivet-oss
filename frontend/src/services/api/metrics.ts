@@ -194,13 +194,24 @@ export async function setClusterMetricsSettings(cluster: string, settings: { mim
   }
 }
 
+/**
+ * Discovery endpoints answer 200 with an empty list plus an `error` field when
+ * the probe itself failed. Surface that as a rejection so callers can tell
+ * "nothing found" from "could not look".
+ */
+function discoveryError(data: any, fallback: string): Error | null {
+  return data?.error ? new Error(String(data.error)) : data ? null : new Error(fallback);
+}
+
 export async function listMimirServices(cluster: string): Promise<MimirServiceInfo[]> {
   try {
     const response = await apiClient.getAxios().get('/metrics/mimir-services', { params: { cluster } });
+    const failure = discoveryError(response.data, 'Empty response from Mimir service discovery');
+    if (failure) throw failure;
     return response.data.services || [];
   } catch (error) {
     logger.error('Failed to list Mimir services', { error, cluster });
-    return [];
+    throw error;
   }
 }
 
@@ -212,10 +223,12 @@ export async function discoverMimirTenants(cluster: string, hints: string[] = []
       if (h) params.append('hint', h);
     }
     const response = await apiClient.getAxios().get(`/metrics/tenants?${params.toString()}`);
+    const failure = discoveryError(response.data, 'Empty response from Mimir tenant discovery');
+    if (failure) throw failure;
     return response.data.tenants || [];
   } catch (error) {
     logger.error('Failed to discover Mimir tenants', { error, cluster });
-    return [];
+    throw error;
   }
 }
 

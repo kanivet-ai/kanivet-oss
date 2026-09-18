@@ -31,6 +31,7 @@ import ApplicationDetailView from './resourceTypes/ApplicationDetailView';
 import MetadataSection from './shared/MetadataSection';
 import ScaleDialog from '../dialogs/ScaleDialog';
 import Dialog from '../common/Dialog';
+import { failureMessage } from '../../utils/errorMessage';
 
 const getContainerState = (container: any) => {
   if (container.state) {
@@ -131,7 +132,7 @@ const QuickActions: React.FC<{ resource: any; cluster: string; hideDelete?: bool
   const [showScaleDialog, setShowScaleDialog] = useState(false);
   const [showRestartDialog, setShowRestartDialog] = useState(false);
   const [showTriggerDialog, setShowTriggerDialog] = useState(false);
-  const { loadDetails } = useStore(useShallow((s) => ({ loadDetails: s.loadDetails })));
+  const { loadDetails, addToast } = useStore(useShallow((s) => ({ loadDetails: s.loadDetails, addToast: s.addToast })));
 
   const kind = resource.kind || '';
   const metadata = resource.metadata || {};
@@ -156,6 +157,7 @@ const QuickActions: React.FC<{ resource: any; cluster: string; hideDelete?: bool
       await loadDetails(cluster, resourceDef, item);
     } catch (e: any) {
       console.error(`Failed to scale: ${e.message}`);
+      addToast({ type: 'error', message: failureMessage(`Failed to scale ${metadata.name}`, e) });
     } finally {
       setIsScaling(false);
     }
@@ -170,6 +172,7 @@ const QuickActions: React.FC<{ resource: any; cluster: string; hideDelete?: bool
       await loadDetails(cluster, resourceDef, item);
     } catch (e: any) {
       console.error(`Failed to restart: ${e.message}`);
+      addToast({ type: 'error', message: failureMessage(`Failed to restart ${metadata.name}`, e) });
     } finally {
       setIsRestarting(false);
     }
@@ -182,6 +185,7 @@ const QuickActions: React.FC<{ resource: any; cluster: string; hideDelete?: bool
       setShowTriggerDialog(false);
     } catch (e: any) {
       console.error(`Failed to trigger: ${e.message}`);
+      addToast({ type: 'error', message: failureMessage(`Failed to trigger ${metadata.name}`, e) });
     } finally {
       setIsTriggering(false);
     }

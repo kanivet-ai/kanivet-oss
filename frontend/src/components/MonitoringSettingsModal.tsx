@@ -3,6 +3,7 @@ import { useStore, MonitoringSettings } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import type { MimirServiceInfo } from '../services/api/metrics';
+import { getErrorMessage } from '../utils/errorMessage';
 import './MonitoringSettingsModal.css';
 
 interface ProviderInfo {
@@ -38,6 +39,8 @@ const MonitoringSettingsModal = ({ onClose, cluster }: MonitoringSettingsModalPr
   // (host-level plus vcluster-mapped copies) and only some hold the container
   // metrics we query, so the operator picks which one. Empty = auto-discovery.
   const [mimirServices, setMimirServices] = useState<MimirServiceInfo[]>([]);
+  const [mimirServicesError, setMimirServicesError] = useState<string | null>(null);
+  const [tenantDiscoveryError, setTenantDiscoveryError] = useState<string | null>(null);
   const [chosenMimir, setChosenMimir] = useState<string>('');
 
   const activeCluster = cluster || currentTab;
@@ -74,8 +77,11 @@ const MonitoringSettingsModal = ({ onClose, cluster }: MonitoringSettingsModalPr
     if (!activeCluster) return;
     try {
       setMimirServices(await api.listMimirServices(activeCluster));
+      setMimirServicesError(null);
     } catch (err) {
       console.error('Failed to list Mimir services:', err);
+      setMimirServices([]);
+      setMimirServicesError(getErrorMessage(err, 'Could not look for Mimir services in this cluster'));
     }
   }, [activeCluster]);
 
@@ -99,12 +105,18 @@ const MonitoringSettingsModal = ({ onClose, cluster }: MonitoringSettingsModalPr
   const runTenantDiscovery = useCallback(async () => {
     if (!activeCluster) return;
     setDiscovering(true);
+    setTenantDiscoveryError(null);
     try {
       const hints = tenantInput ? [tenantInput] : [];
       const tenants = await api.discoverMimirTenants(activeCluster, hints);
       setDiscoveredTenants(tenants);
+      if (tenants.length === 0) {
+        setTenantDiscoveryError('Discovery ran but found no tenant with data. Enter the tenant ID manually.');
+      }
     } catch (err) {
       console.error('Failed to discover tenants:', err);
+      setDiscoveredTenants([]);
+      setTenantDiscoveryError(getErrorMessage(err, 'Tenant discovery failed'));
     } finally {
       setDiscovering(false);
     }
@@ -222,25 +234,33 @@ const MonitoringSettingsModal = ({ onClose, cluster }: MonitoringSettingsModalPr
             )}
           </div>
 
-          {mimirServices.length > 0 && (
+          {(mimirServices.length > 0 || mimirServicesError) && (
             <div className="setting-group">
               <label>Mimir Instance</label>
-              <select
-                value={chosenMimir}
-                onChange={(e) => void persistMimirService(e.target.value)}
-              >
-                <option value="">Auto-detect → {mimirServices[0].service} in {mimirServices[0].namespace}</option>
-                {mimirServices.map((s) => (
-                  <option key={mimirKey(s)} value={mimirKey(s)}>
-                    {s.service} in {s.namespace}
-                  </option>
-                ))}
-              </select>
-              <span className="setting-hint">
-                {mimirServices.length > 1
-                  ? 'This cluster exposes several Mimir gateways — pick the one that holds your container metrics.'
-                  : 'Override which Mimir Kanivet queries for this cluster.'}
-              </span>
+              {mimirServices.length > 0 && (
+                <select
+                  value={chosenMimir}
+                  onChange={(e) => void persistMimirService(e.target.value)}
+                >
+                  <option value="">Auto-detect → {mimirServices[0].service} in {mimirServices[0].namespace}</option>
+                  {mimirServices.map((s) => (
+                    <option key={mimirKey(s)} value={mimirKey(s)}>
+                      {s.service} in {s.namespace}
+                    </option>
+                  ))}
+                </select>
+              )}
+              {mimirServicesError ? (
+                <span className="setting-error" role="alert">
+                  Mimir service discovery failed: {mimirServicesError}
+                </span>
+              ) : (
+                <span className="setting-hint">
+                  {mimirServices.length > 1
+                    ? 'This cluster exposes several Mimir gateways — pick the one that holds your container metrics.'
+                    : 'Override which Mimir Kanivet queries for this cluster.'}
+                </span>
+              )}
             </div>
           )}
 
@@ -265,6 +285,9 @@ const MonitoringSettingsModal = ({ onClose, cluster }: MonitoringSettingsModalPr
                   {discovering ? 'Probing…' : 'Discover'}
                 </button>
               </div>
+              {tenantDiscoveryError && (
+                <span className="setting-error" role="alert">{tenantDiscoveryError}</span>
+              )}
               {discoveredTenants.length > 0 && (
                 <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                   {discoveredTenants.map((t) => (
