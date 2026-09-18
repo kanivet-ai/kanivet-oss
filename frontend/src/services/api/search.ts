@@ -1,5 +1,5 @@
 import logger from '../../utils/logger';
-import { SearchResult, SearchOptions, SearchResponse } from '../../types/search';
+import { SearchResult, SearchOptions, SearchResponse, RecentResource } from '../../types/search';
 import { apiClient } from './client';
 
 export async function search(query: string, options: SearchOptions = {}): Promise<SearchResult[]> {
@@ -31,7 +31,7 @@ export async function getSearchSuggestions(prefix: string, limit: number = 10): 
   }
 }
 
-export async function getRecentSearches(limit: number = 10): Promise<{ name: string; kind: string; namespace?: string; cluster: string; apiVersion?: string; category?: string }[]> {
+export async function getRecentSearches(limit: number = 10): Promise<RecentResource[]> {
   try {
     const response = await apiClient.getAxios().get('/search/recent', { params: { limit } });
     return response.data.resources || [];
@@ -41,7 +41,7 @@ export async function getRecentSearches(limit: number = 10): Promise<{ name: str
   }
 }
 
-export async function saveSearchHistory(resource: { name: string; kind: string; namespace?: string; cluster: string; apiVersion?: string; category?: string }): Promise<void> {
+export async function saveSearchHistory(resource: RecentResource): Promise<void> {
   if (!resource.name) return;
   try {
     await apiClient.getAxios().post('/search/recent', resource);

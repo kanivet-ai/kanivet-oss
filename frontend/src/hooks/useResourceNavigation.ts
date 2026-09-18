@@ -50,7 +50,7 @@ const useResourceNavigation = (cluster: string) => {
       name: resourceName,
       group: apiGroup,
       version: version,
-      kind: resourceName,
+      kind: kind,
       namespaced: !!namespace,
     };
 
@@ -193,7 +193,7 @@ const useResourceNavigation = (cluster: string) => {
         name: resourceName,
         group: apiGroup,
         version: version,
-        kind: resourceName,
+        kind: kind,
         namespaced: !!namespace,
       };
 
