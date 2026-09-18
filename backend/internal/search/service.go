@@ -8,6 +8,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/cache"
@@ -95,6 +96,18 @@ type Service struct {
 	now                  func() time.Time
 	versionLastBump      map[string]time.Time
 	versionBumpPending   map[string]bool
+
+	// sweepSem bounds how many clusters run a full LIST sweep at once. Every
+	// tab restored at boot used to start its own sweep, so N tabs meant N
+	// concurrent sweeps plus N sets of tokenizer workers.
+	sweepSem chan struct{}
+	// loadedClusters records which clusters have their persisted documents in
+	// memory. Boot loads the most recently indexed ones up to a budget; the
+	// rest are pulled in when their tab is opened. dbHasUnloaded flips the
+	// search path to also consult the database while any cluster is missing.
+	loadedMu       sync.Mutex
+	loadedClusters map[string]bool
+	dbHasUnloaded  atomic.Bool
 }
 
 func (s *Service) nowFn() time.Time {
@@ -156,6 +169,8 @@ func NewService(k8sClient *k8s.Client, cache *cache.Cache, database *db.DB, inva
 		indexingStatus:       make(map[string]*IndexingStatus),
 		resourceVersions:     make(map[string]map[string]string),
 		indexLimiter:         rate.NewLimiter(rate.Limit(100), 25),
+		sweepSem:             make(chan struct{}, maxConcurrentSweeps),
+		loadedClusters:       make(map[string]bool),
 	}
 	index.SetEvictionCallback(func(evicted []storage.SearchableResource) {})
 	if home, err := os.UserHomeDir(); err == nil {
