@@ -4,18 +4,9 @@ import HelmIcon from '../components/icons/HelmIcon';
 import CrossplaneIcon from '../components/icons/CrossplaneIcon';
 import ArgoIcon from '../components/icons/ArgoIcon';
 import KanivetMark from '../components/icons/KanivetMark';
+import { pluralize } from './pluralization';
 
 type IconRenderer = ReactNode;
-
-/**
- * Plural resource name for a lowercase kind, the way the API server spells it: `policy` becomes
- * `policies`, `ingress` becomes `ingresses`, `gateway` becomes `gateways`.
- */
-const plural = (kind: string): string => {
-  if (/(s|x|ch|sh)$/.test(kind)) return `${kind}es`;
-  if (/[^aeiou]y$/.test(kind)) return `${kind.slice(0, -1)}ies`;
-  return `${kind}s`;
-};
 
 /**
  * Registers an icon under every spelling the app passes around: the singular `kind` from tabs,
@@ -30,7 +21,7 @@ const register = (
   for (const kind of kinds) {
     const k = kind.toLowerCase();
     map[k] = icon;
-    map[plural(k)] = icon;
+    map[pluralize(k)] = icon;
   }
 };
 

@@ -7,6 +7,7 @@ import MetadataSection from '../shared/MetadataSection';
 import SpecificationSection from '../shared/SpecificationSection';
 import EventsSection from '../shared/EventsSection';
 import ClipboardCopy from '../../common/ClipboardCopy';
+import SmartValue from '../../common/SmartValue';
 import { useStore } from '../../../store';
 import { parseApiVersion, kindToResource } from '../../../utils/resourceUtils';
 import { DetailViewPropsWithCluster } from '../../../types/detailView';
@@ -49,9 +50,9 @@ const CustomResourceDetailView: React.FC<DetailViewPropsWithCluster> = ({ resour
       {spec?.parameters && Object.keys(spec.parameters).length > 0 && (
         <>
           <PropertyGroup title="Parameters" icon={<GearIcon />} count={Object.keys(spec.parameters).length} defaultOpen>
-            {Object.entries(spec.parameters).map(([key, value]) => (
-              <PropertyRow key={key} label={key} value={typeof value === 'object' ? JSON.stringify(value) : String(value)} copyText={typeof value === 'object' ? JSON.stringify(value) : String(value)} />
-            ))}
+            <div className="spec-content">
+              <SmartValue value={spec.parameters} forceExpanded />
+            </div>
           </PropertyGroup>
           <div className="section-divider" />
         </>

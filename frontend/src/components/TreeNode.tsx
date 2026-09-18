@@ -9,7 +9,13 @@ interface TreeNodeProps {
   node: any;
   level: number;
   searchQuery: string;
+  /** Keyboard cursor: the row j/k and the arrow keys move. */
   focusedNodeId?: string | null;
+  /**
+   * The one tree node whose list is open. Resolved once by the sidebar so a
+   * selection made elsewhere (search, a link, a tab) highlights a single row.
+   */
+  selectedNodeId?: string | null;
   onNodeClick: (node: any, isPinned?: boolean) => void;
   isLast?: boolean;
   parentPath?: boolean[];
@@ -17,7 +23,7 @@ interface TreeNodeProps {
   siblingsHaveChevron?: boolean;
 }
 
-const nodeHasChevron = (n: any): boolean =>
+export const nodeHasChevron = (n: any): boolean =>
   !n.disabled &&
   n.type !== 'resource' &&
   n.type !== 'overview' &&
@@ -51,6 +57,7 @@ const TreeNode = ({
   level,
   searchQuery,
   focusedNodeId,
+  selectedNodeId = null,
   onNodeClick,
   isLast = false,
   parentPath = [],
@@ -58,9 +65,6 @@ const TreeNode = ({
   siblingsHaveChevron = true,
 }: TreeNodeProps) => {
   const currentTab = useStore((state) => state.currentTab);
-  const selectedNode = useStore(
-    (state) => state.getCurrentTabState()?.selectedNode,
-  );
   const nodeRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -73,16 +77,7 @@ const TreeNode = ({
   const fullPath = [...ancestorLabels, node.label].join(' ').toLowerCase();
   const isMatch = searchQuery && fullPath.includes(searchQuery.toLowerCase());
   const isFocused = focusedNodeId === node.id;
-  const isSelected = useMemo(() => {
-    if (!selectedNode) return false;
-    if (selectedNode.id && selectedNode.id === node.id) return true;
-    if (node.type === 'resource' && selectedNode.type === 'resource' && node.data && selectedNode.data) {
-      return node.data.name === selectedNode.data.name &&
-        node.data.group === selectedNode.data.group &&
-        node.data.version === selectedNode.data.version;
-    }
-    return false;
-  }, [selectedNode, node]);
+  const isSelected = !!selectedNodeId && selectedNodeId === node.id;
 
   const shouldShowNode = useMemo(() => {
     return nodeMatchesSearch(node, searchQuery, ancestorLabels);
@@ -310,12 +305,10 @@ const TreeNode = ({
             </span>
           )}
           <span className="tree-node-icon">
-            {node.id === 'kakauide-root'
-              ? getCategoryIcon('kanivetide')
-              : node.type === 'overview'
-                ? getCategoryIcon('overview')
-                : node.type === 'argo-overview'
-                  ? getCategoryIcon('argocd')
+            {node.type === 'overview'
+              ? getCategoryIcon('overview')
+              : node.type === 'argo-overview'
+                ? getCategoryIcon('argocd')
                 : node.type === 'finops'
                   ? getCategoryIcon('finops')
                   : node.type === 'helm'
@@ -352,6 +345,7 @@ const TreeNode = ({
               level={level + 1}
               searchQuery={searchQuery}
               focusedNodeId={focusedNodeId}
+              selectedNodeId={selectedNodeId}
               onNodeClick={onNodeClick}
               isLast={index === filteredChildren.length - 1}
               parentPath={[...parentPath, isLast]}

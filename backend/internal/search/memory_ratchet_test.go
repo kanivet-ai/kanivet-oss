@@ -37,7 +37,7 @@ func TestDeletedThenRecreatedPodIsSearchable(t *testing.T) {
 		t.Fatal(err)
 	}
 	del := map[string]interface{}{"name": "web-1", "namespace": "ns"}
-	if err := h.onDeleteWithCoords("c", "", "v1", "pods", del); err != nil {
+	if err := h.onDeleteWithCoords("c", resourceCoords{version: "v1", resource: "pods"}, del); err != nil {
 		t.Fatal(err)
 	}
 	if got := h.index.DocumentCount(); got != 0 {
@@ -65,7 +65,7 @@ func TestEvictedDocIsReindexedDespiteFingerprint(t *testing.T) {
 	if _, err := h.OnAdd("c", add); err != nil {
 		t.Fatal(err)
 	}
-	searchable := h.convertToSearchable("c", add)
+	searchable := h.convertToSearchable("c", resourceCoords{}, add)
 	if err := h.index.Remove(searchable.ID); err != nil {
 		t.Fatalf("simulated eviction failed: %v", err)
 	}

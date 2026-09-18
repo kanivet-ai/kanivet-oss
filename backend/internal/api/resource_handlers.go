@@ -12,7 +12,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/models"
-	"github.com/kanivet/backend/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -473,7 +472,7 @@ func (h *Handler) DeleteResources(c *gin.Context) {
 		return
 	}
 
-	resourcePlural := utils.PluralizeKind(kind)
+	resourcePlural := h.k8s.GetResourceName(cluster, group, version, kind)
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourcePlural}
 
 	var errors []string
@@ -549,7 +548,7 @@ func (h *Handler) RemoveFinalizers(c *gin.Context) {
 		return
 	}
 
-	resourcePlural := utils.PluralizeKind(kind)
+	resourcePlural := h.k8s.GetResourceName(cluster, group, version, kind)
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourcePlural}
 	errors := []string{}
 	successCount := 0
@@ -627,7 +626,7 @@ func (h *Handler) ForceRefreshResources(c *gin.Context) {
 		return
 	}
 
-	resourcePlural := utils.PluralizeKind(kind)
+	resourcePlural := h.k8s.GetResourceName(cluster, group, version, kind)
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourcePlural}
 	errors := []string{}
 	successCount := 0

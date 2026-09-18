@@ -24,7 +24,7 @@
 }
 
 .cr-ref-kind {
-  font-size: 9px;
+  font-size: var(--font-xxxs);
   font-weight: 500;
   color: var(--text-muted);
   background: var(--bg-subtle-2);

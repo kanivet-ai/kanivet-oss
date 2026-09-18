@@ -3,14 +3,18 @@ import './CommandPalette.css';
 import api from '../services/api';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
-import type { SearchResult } from '../types/search';
+import type { RecentResource, SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
 import {
-  kindToResource,
-  getResourceCategory,
-  kindToResourceDef,
-} from '../utils/resourceUtils';
+  dedupeByIdentity,
+  dedupeSearchResults,
+  describeKindDefinition,
+  describeSearchResource,
+  findTreeResourceNode,
+  resourceIdentity,
+  resourceListNode,
+} from '../utils/searchResults';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -30,7 +34,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const [results, setResults] = useState<SearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [recentSearches, setRecentSearches] = useState<{ name: string; kind: string; namespace?: string; cluster: string; apiVersion?: string; category?: string }[]>([]);
+  const [recentSearches, setRecentSearches] = useState<RecentResource[]>([]);
   const [showRecent, setShowRecent] = useState(true);
   // Filters
   const [clusters, setClusters] = useState<string[]>([]);
@@ -136,7 +140,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const loadRecentSearches = async () => {
     try {
       const recent = await api.getRecentSearches(5);
-      setRecentSearches(recent);
+      // Entries saved by earlier releases may name the same object under two
+      // spellings of its kind; show each object once.
+      setRecentSearches(dedupeByIdentity(recent, resourceIdentity));
     } catch (error) {
       logger.error('Failed to load recent searches', error);
     }
@@ -160,10 +166,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
           effectiveClusters && effectiveClusters.length > 0
             ? effectiveClusters
             : undefined;
-        const searchResults = await api.search(searchQuery, {
-          clusters: useClusters,
-          limit: 50,
-        });
+        const searchResults = dedupeSearchResults(
+          await api.search(searchQuery, {
+            clusters: useClusters,
+            limit: 50,
+          }),
+        );
 
         // Prioritize current tab cluster when showing All clusters
         let ordered = searchResults;
@@ -346,8 +354,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   // Handle kind definition selection
   const handleKindSelect = async (result: SearchResult) => {
     const { resource } = result;
-    const targetKind = resource.name; // The actual kind name
     const targetCluster = resource.cluster;
+    const target = describeKindDefinition(resource);
 
     onClose();
 
@@ -385,93 +393,26 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
-    // Navigate to the kind in the tree
-    // For custom resources, we need to get the actual plural resource name from labels
-    let resourceName = '';
-
-    // Get resource definition info - check if it's a known k8s resource
-    const resourceDef = kindToResourceDef(targetKind);
-    let group = '';
-    let version = 'v1';
-    let namespaced = true;
-
-    if (resourceDef) {
-      // Known Kubernetes resource - use our plural conversion
-      resourceName = kindToResource(targetKind);
-      group = resourceDef.group;
-      version = resourceDef.version;
-      namespaced = resourceDef.namespaced;
-    } else {
-      // Custom resource - extract info from search result
-      // Use group and version from the search result if available
-      if (resource.group) {
-        group = resource.group;
-      } else if (resource.labels && resource.labels['group']) {
-        group = resource.labels['group'];
-      }
-
-      if (resource.version) {
-        version = resource.version;
-      } else if (resource.labels && resource.labels['version']) {
-        version = resource.labels['version'];
-      }
-
-      // Check namespaced flag
-      if (resource.labels && resource.labels['namespaced'] === 'false') {
-        namespaced = false;
-      }
-
-      // The resource.labels should contain the actual plural resource name
-      if (resource.labels && resource.labels['resource-name']) {
-        resourceName = resource.labels['resource-name'];
-      } else {
-        // Fallback to simple pluralization
-        resourceName = kindToResource(targetKind);
-      }
-    }
-
-    const categoryId = getResourceCategory(group, resourceName);
-
+    const { categoryId } = target;
     await expandNode(targetCluster, categoryId, 'category', { categoryId });
     await new Promise((resolve) => setTimeout(resolve, 50));
 
-    // For custom resources, we might need to expand the apiVersion level
-    if (categoryId === 'crossplane' || categoryId === 'custom') {
-      // We don't have group/version info for kind definitions, so we can't expand further
-      // User will need to manually expand to find the specific API version
-    }
+    // Prefer the node the tree built from discovery: it carries the exact
+    // kind, scope and version. Fall back to one shaped from the result.
+    const treeData = getCurrentTabState()?.treeData || [];
+    const node =
+      findTreeResourceNode(treeData, target.group, target.version, target.resourceName, { anyVersion: true }) ||
+      resourceListNode(target);
 
-    // Create a tree node for this kind
-    const treeNodeId = `${categoryId}-${
-      group || 'core'
-    }-${version}-${resourceName}`;
-    const node = {
-      id: treeNodeId,
-      label: resourceName,
-      type: 'resource' as const,
-      data: {
-        name: resourceName, // The plural resource name (e.g., "pods", "tenants")
-        group: group,
-        version: version,
-        kind: targetKind, // Backend expects singular Kind and will pluralize it
-        namespaced: namespaced,
-      },
-    };
-
-    selectNode(node as any);
+    // Open the list exactly the way a sidebar click does.
+    selectNode(node);
     setFocusArea('list');
-
-    await loadListItems(targetCluster, (node as any).data);
-    await openResourceListTab(
-      (node as any).data,
-      targetCluster,
-      true,
-      undefined,
-    );
-    await recordNavigation('resource', treeNodeId, (node as any).data);
+    await openResourceListTab(node.data, targetCluster, true, undefined);
+    await loadListItems(targetCluster, node.data);
+    await recordNavigation('resource', node.id, node.data);
 
     logger.info('Selected kind definition', {
-      kind: targetKind,
+      kind: target.kind,
       cluster: targetCluster,
     });
   };
@@ -480,28 +421,35 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const handleResultSelect = async (result: SearchResult) => {
     const { resource } = result;
 
-    // Save clicked resource to history
-    api.saveSearchHistory({
-      name: resource.name,
-      kind: resource.kind,
-      namespace: resource.namespace,
-      cluster: resource.cluster,
-      apiVersion: resource.apiVersion,
-      category: resource.category,
-    });
-
     // Handle kind definitions differently
     if (resource.kind === 'KindDefinition') {
       return handleKindSelect(result);
     }
 
+    // Resolve the plural resource name and the Kind up front. Documents
+    // indexed by earlier releases carry the plural in `kind`, which used to
+    // produce a "Deployments" tab whose realtime subscription never matched.
+    const target = describeSearchResource(resource);
+
+    // Save clicked resource to history with both spellings normalised, so the
+    // same object never shows up twice in Recent.
+    api.saveSearchHistory({
+      name: target.name,
+      kind: target.kind,
+      namespace: target.namespace,
+      cluster: target.cluster,
+      apiVersion: target.apiVersion,
+      category: resource.category,
+      resource: target.resourceName,
+    });
+
     onClose();
 
     const { setCurrentTab, openTab, updateCurrentTabState } =
       useStore.getState();
-    if (resource.cluster !== currentTab) {
-      openTab(resource.cluster);
-      setCurrentTab(resource.cluster);
+    if (target.cluster !== currentTab) {
+      openTab(target.cluster);
+      setCurrentTab(target.cluster);
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
@@ -516,12 +464,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       loadDetails,
     } = useStore.getState();
 
-    await loadTreeData(resource.cluster);
+    await loadTreeData(target.cluster);
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     const cur = getCurrentTabState();
     if (
-      resource.namespace &&
+      target.namespace &&
       cur?.selectedNamespace !== 'all' &&
       cur?.selectedNamespace !== undefined
     ) {
@@ -532,65 +480,42 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
 
-    const rawKind = String(resource.kind || '');
-    const capKind = rawKind
-      ? rawKind.charAt(0).toUpperCase() + rawKind.slice(1)
-      : '';
-    const resourceName = rawKind.toLowerCase().endsWith('s')
-      ? rawKind.toLowerCase()
-      : kindToResource(capKind);
-    const group =
-      resource.group ||
-      (resource.apiVersion && resource.apiVersion.includes('/')
-        ? resource.apiVersion.split('/')[0]
-        : '');
-    const version =
-      resource.version ||
-      (resource.apiVersion && resource.apiVersion.includes('/')
-        ? resource.apiVersion.split('/')[1]
-        : resource.apiVersion || 'v1');
-    const categoryId = getResourceCategory(group, resourceName);
+    const { categoryId, group, version, resourceName } = target;
 
-    await expandNode(resource.cluster, categoryId, 'category', { categoryId });
+    await expandNode(target.cluster, categoryId, 'category', { categoryId });
     await new Promise((resolve) => setTimeout(resolve, 50));
 
     if (categoryId === 'crossplane' || categoryId === 'custom') {
       const apiVersionNodeId = `${categoryId}-${group || 'core'}-${version}`;
-      toggleNodeExpansion(apiVersionNodeId);
-      await new Promise((resolve) => setTimeout(resolve, 30));
+      if (!getCurrentTabState()?.expandedNodes.has(apiVersionNodeId)) {
+        toggleNodeExpansion(apiVersionNodeId);
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      }
     }
 
-    const treeNodeId = `${categoryId}-${
-      group || 'core'
-    }-${version}-${resourceName}`;
-    const nodeData = {
-      name: resourceName,
-      group,
-      version,
-      kind: capKind,
-      namespaced: !!resource.namespace,
-    };
-    const node = {
-      id: treeNodeId,
-      label: resourceName,
-      type: 'resource' as const,
-      data: nodeData,
-    };
+    // Prefer the node the tree built from discovery, so the tab, its title
+    // and its realtime subscription use the cluster's own spelling of the
+    // type; otherwise shape one exactly like the sidebar would.
+    const treeData = getCurrentTabState()?.treeData || [];
+    const node =
+      findTreeResourceNode(treeData, group, version, resourceName, { anyVersion: true }) ||
+      resourceListNode(target);
+    const nodeData = node.data;
 
-    selectNode(node as any);
+    // Open the list the same way a sidebar click does.
+    selectNode(node);
     setFocusArea('list');
-
-    await loadListItems(resource.cluster, nodeData);
-    await openResourceListTab(nodeData, resource.cluster, false, undefined);
-    await recordNavigation('resource', treeNodeId, nodeData);
+    await openResourceListTab(nodeData, target.cluster, false, undefined);
+    await loadListItems(target.cluster, nodeData);
+    await recordNavigation('resource', node.id, nodeData);
 
     const findTarget = () => {
       const state = getCurrentTabState();
       const items = state?.listItems || [];
       return items.find(
         (i: any) =>
-          i?.name === resource.name &&
-          (!resource.namespace || i?.namespace === resource.namespace),
+          i?.name === target.name &&
+          (!target.namespace || i?.namespace === target.namespace),
       );
     };
 
@@ -608,8 +533,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       if (activeListTabId)
         updateResourceListTab(activeListTabId, { selectedItem: targetItem });
       const enhancedItem = {
-        kind: capKind,
-        apiVersion: group ? `${group}/${version}` : version,
+        kind: nodeData.kind,
+        apiVersion: nodeData.group ? `${nodeData.group}/${nodeData.version}` : nodeData.version,
         metadata: {
           name: targetItem.name,
           namespace: targetItem.namespace,
@@ -630,25 +555,25 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         ...targetItem,
       };
       const { openDetailTab } = useStore.getState();
-      openDetailTab(nodeData, enhancedItem, resource.cluster);
-      await loadDetails(resource.cluster, nodeData, targetItem);
+      openDetailTab(nodeData, enhancedItem, target.cluster);
+      await loadDetails(target.cluster, nodeData, targetItem);
       updateCurrentTabState({ isDetailsPanelCollapsed: false });
     } else {
       logger.warn('Target item not found after waiting', {
-        name: resource.name,
-        namespace: resource.namespace,
+        name: target.name,
+        namespace: target.namespace,
         resource: resourceName,
       });
     }
 
     logger.info('Selected search result', {
-      resource: resource.name,
-      kind: resource.kind,
+      resource: target.name,
+      kind: target.kind,
     });
   };
 
   // Handle recent resource selection
-  const handleRecentResourceSelect = (resource: { name: string; kind: string; namespace?: string; cluster: string; apiVersion?: string; category?: string }) => {
+  const handleRecentResourceSelect = (resource: RecentResource) => {
     const [group, version] = (resource.apiVersion || 'v1').includes('/')
       ? (resource.apiVersion || '').split('/')
       : ['', resource.apiVersion || 'v1'];
@@ -657,6 +582,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         id: `${resource.cluster}/${resource.kind}/${resource.namespace || ''}/${resource.name}`,
         name: resource.name,
         kind: resource.kind,
+        resource: resource.resource,
         namespace: resource.namespace || '',
         cluster: resource.cluster,
         apiVersion: resource.apiVersion || 'v1',
@@ -671,8 +597,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     };
     handleResultSelect(searchResult);
   };
-
-  // No pluralization helper needed; backend returns already-plural resource kinds
 
   // Separate kind definition results from regular resource results
   const kindDefinitionResults = results.filter(
@@ -934,7 +858,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     const isSelected = globalIndex === selectedIndex;
 
                     const resource = result.resource;
-                    const kind = resource.kind.toLowerCase();
+                    // Quick actions are keyed by plural resource name, which
+                    // covers documents that carry either spelling of the kind.
+                    const kind = describeSearchResource(resource).resourceName;
 
                     const hasActions =
                       kind === 'pods' ||

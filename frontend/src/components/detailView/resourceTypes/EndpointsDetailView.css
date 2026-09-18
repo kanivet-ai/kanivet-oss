@@ -23,7 +23,7 @@
   margin-bottom: 4px;
 }
 
-.port-badge {
+.endpoints-ports .port-badge {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -33,18 +33,18 @@
   font-size: var(--font-xxs);
 }
 
-.port-name {
+.endpoints-ports .port-name {
   color: var(--text-secondary);
   font-weight: 500;
 }
 
-.port-number {
+.endpoints-ports .port-number {
   font-family: var(--font-mono);
   color: var(--text-primary);
   font-weight: 600;
 }
 
-.port-protocol {
+.endpoints-ports .port-protocol {
   color: var(--text-muted);
   text-transform: uppercase;
   font-size: var(--font-xxxs);
@@ -55,11 +55,7 @@
   margin-bottom: 8px;
 }
 
-.endpoints-addresses.not-ready .address-ip {
-  color: var(--text-muted);
-}
-
-.addresses-header {
+.endpoints-addresses .addresses-header {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -69,41 +65,56 @@
   margin-bottom: 4px;
 }
 
-.addresses-header .ready-icon {
+.endpoints-addresses .addresses-header .ready-icon {
   color: var(--success);
   width: 12px;
   height: 12px;
 }
 
-.addresses-header .not-ready-icon {
+.endpoints-addresses .addresses-header .not-ready-icon {
   color: var(--danger);
   width: 12px;
   height: 12px;
 }
 
-.addresses-list {
+.endpoints-addresses .addresses-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
 }
 
-.address-item {
+.endpoints-addresses .address-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   padding: 3px 8px;
+  min-height: 20px;
   background: var(--bg-subtle);
   border-radius: var(--radius-xs);
 }
 
-.address-ip {
+.endpoints-addresses .address-ip {
   font-family: var(--font-mono);
   font-size: var(--font-xxs);
   color: var(--text-primary);
+  flex-shrink: 0;
 }
 
-.address-target {
+.endpoints-addresses.not-ready .address-ip {
+  color: var(--text-muted);
+}
+
+.endpoints-addresses .address-target,
+.endpoints-addresses .address-item .link-button {
   font-size: var(--font-xxs);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
+.endpoints-addresses .address-target {
   color: var(--text-muted);
 }

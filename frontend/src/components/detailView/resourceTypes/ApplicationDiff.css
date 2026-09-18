@@ -24,7 +24,7 @@
   text-align: left;
   cursor: pointer;
   color: var(--text-primary);
-  font-size: 11px;
+  font-size: var(--font-xs);
   display: flex;
   flex-direction: column;
   border-radius: 3px;
@@ -32,7 +32,7 @@
 }
 
 .argo-diff-item:hover {
-  background: var(--hover-bg, var(--bg-secondary));
+  background: var(--bg-hover);
 }
 
 .argo-diff-item.active {
@@ -42,22 +42,22 @@
 
 .argo-diff-item-kind {
   text-transform: uppercase;
-  font-size: 9px;
+  font-size: var(--font-xxxs);
   font-weight: 600;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
 }
 
 .argo-diff-item-name {
-  font-family: var(--font-monospace, monospace);
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: var(--font-xs);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .argo-diff-item-ns {
-  font-size: 10px;
+  font-size: var(--font-xxs);
   color: var(--text-secondary);
 }
 
@@ -75,7 +75,7 @@
   display: flex;
   justify-content: space-between;
   padding: 4px 10px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   font-weight: 600;
   color: var(--text-secondary);
   background: var(--bg-secondary);
@@ -92,7 +92,7 @@
 .argo-diff-empty {
   padding: 16px;
   text-align: center;
-  font-size: 13px;
+  font-size: var(--font-base);
   color: var(--text-secondary);
 }
 
@@ -110,5 +110,5 @@
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }

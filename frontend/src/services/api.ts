@@ -1,5 +1,5 @@
 import { ClusterStatus } from '../types';
-import { SearchResult, SearchOptions } from '../types/search';
+import { SearchResult, SearchOptions, RecentResource } from '../types/search';
 import { HelmRelease, HelmReleaseDetail, HelmHistoryResponse } from '../types/helm';
 import { wsManager } from './api/websocket';
 import { apiClient } from './api/client';
@@ -193,7 +193,7 @@ class API {
   async search(query: string, options: SearchOptions = {}): Promise<SearchResult[]> { return searchApi.search(query, options); }
   async getSearchSuggestions(prefix: string, limit: number = 10): Promise<string[]> { return searchApi.getSearchSuggestions(prefix, limit); }
   async getRecentSearches(limit: number = 10) { return searchApi.getRecentSearches(limit); }
-  async saveSearchHistory(resource: { name: string; kind: string; namespace?: string; cluster: string; apiVersion?: string; category?: string }): Promise<void> {
+  async saveSearchHistory(resource: RecentResource): Promise<void> {
     return searchApi.saveSearchHistory(resource);
   }
   async indexCluster(cluster: string): Promise<void> { return searchApi.indexCluster(cluster); }
