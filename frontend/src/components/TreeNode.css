@@ -51,12 +51,19 @@
   padding-left: 2px;
 }
 
-.tree-node-focused {
-  background: var(--bg-active);
+/*
+ * Two distinct states, so they never read as two selections:
+ * the selected row (whose list is open) gets the tinted background and the
+ * accent bar; the keyboard cursor gets a thin ring, and only while the tree
+ * has focus.
+ */
+.tree-node-selected {
+  background: rgba(var(--accent-rgb), 0.15);
+  color: var(--text-primary);
   position: relative;
 }
 
-.tree-node-focused::before {
+.tree-node-selected::before {
   content: '';
   position: absolute;
   left: 0;
@@ -67,13 +74,12 @@
   border-radius: 0 2px 2px 0;
 }
 
-.tree-node-selected {
-  background: rgba(var(--accent-rgb), 0.15);
-  color: var(--text-primary);
-}
-
 .tree-node-selected:hover {
   background: rgba(var(--accent-rgb), 0.2);
+}
+
+.tree-sidebar.focused .tree-node-focused {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
 .tree-node-indent {
@@ -181,13 +187,11 @@
   filter: brightness(1.15);
 }
 
-/* Subtle color accents for categories and resources */
+/* Subtle color accents: categories at the top level, resources beneath */
 .tree-node-level-0 .tree-node-icon {
-  color: var(--icon-top, #6b86ff);
-}
-.tree-node-level-1 .tree-node-icon {
   color: var(--icon-mid, #7da3ff);
 }
+.tree-node-level-1 .tree-node-icon,
 .tree-node-level-2 .tree-node-icon {
   color: var(--icon-low, #9bb6ff);
 }
@@ -213,10 +217,6 @@
   color: var(--text-primary);
 }
 
-.tree-node-focused .tree-node-label {
-  color: #fff;
-}
-
 .tree-node-children {
   position: relative;
   animation: treeChildrenExpand 0.15s ease-out;
@@ -227,14 +227,11 @@
   to { opacity: 1; transform: translateY(0); }
 }
 
-.tree-node-level-0 {
-  font-weight: 500;
-}
-
-.tree-node-level-1 .tree-node-label {
+.tree-node-level-0 .tree-node-label {
   font-size: var(--font-sm);
 }
 
+.tree-node-level-1 .tree-node-label,
 .tree-node-level-2 .tree-node-label,
 .tree-node-level-3 .tree-node-label {
   font-size: var(--font-sm);

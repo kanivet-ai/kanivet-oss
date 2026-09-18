@@ -19,7 +19,7 @@
   padding: 0 var(--property-padding-x);
 }
 
-.address-item {
+.node-addresses .address-item {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -29,7 +29,7 @@
   min-height: 20px;
 }
 
-.address-type {
+.node-addresses .address-type {
   font-size: var(--font-xxxs);
   font-weight: 600;
   text-transform: uppercase;
@@ -37,7 +37,7 @@
   min-width: 60px;
 }
 
-.address-value {
+.node-addresses .address-value {
   font-family: var(--font-mono);
   font-size: var(--font-xxs);
   color: var(--text-primary);
@@ -94,7 +94,7 @@
   padding: 0 var(--property-padding-x);
 }
 
-.taint-item {
+.node-taints .taint-item {
   display: flex;
   align-items: center;
   gap: 4px;
@@ -104,19 +104,19 @@
   min-height: 20px;
 }
 
-.taint-key {
+.node-taints .taint-key {
   font-family: var(--font-mono);
   font-size: var(--font-xxs);
   color: var(--text-primary);
 }
 
-.taint-value {
+.node-taints .taint-value {
   font-family: var(--font-mono);
   font-size: var(--font-xxs);
   color: var(--text-secondary);
 }
 
-.taint-effect {
+.node-taints .taint-effect {
   margin-left: auto;
   font-size: var(--font-xxxs);
   font-weight: 600;
@@ -125,17 +125,17 @@
   border-radius: 2px;
 }
 
-.taint-effect.effect-noschedule {
+.node-taints .taint-effect.effect-noschedule {
   background: var(--warning-bg);
   color: var(--warning-fg);
 }
 
-.taint-effect.effect-noexecute {
+.node-taints .taint-effect.effect-noexecute {
   background: var(--danger-bg);
   color: var(--danger-fg);
 }
 
-.taint-effect.effect-prefernoschedule {
+.node-taints .taint-effect.effect-prefernoschedule {
   background: var(--info-bg);
   color: var(--info-fg);
 }

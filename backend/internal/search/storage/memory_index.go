@@ -131,10 +131,14 @@ func putTokens(tokens map[string]float32) {
 
 // SearchableResource represents a Kubernetes resource that can be searched
 type SearchableResource struct {
-	ID          string            `json:"id"`
-	Cluster     string            `json:"cluster"`
-	Kind        string            `json:"kind"`
-	APIVersion  string            `json:"apiVersion"`
+	ID         string `json:"id"`
+	Cluster    string `json:"cluster"`
+	Kind       string `json:"kind"`
+	APIVersion string `json:"apiVersion"`
+	// Resource is the plural API resource name (deployments for a Deployment).
+	// It is filled in on the way out of a search from the document ID or from
+	// discovery and is not stored with the document.
+	Resource    string            `json:"resource,omitempty"`
 	Name        string            `json:"name"`
 	Namespace   string            `json:"namespace"`
 	Description string            `json:"description"`
@@ -286,18 +290,27 @@ type IndexData struct {
 	accessGen   int64
 }
 
-// typeKey identifies one resource type; kind is plural-normalized so watch-path
-// docs ("Pod") and re-index docs ("pods") land in the same bucket.
+// typeKey identifies one resource type by its plural resource name, so a
+// document indexed from a watch event and one from a LIST sweep land in the
+// same bucket whatever spelling of the kind each carried.
 type typeKey struct {
 	cluster, group, version uint32
 	kind                    string
 }
 
+// typeKeyFor derives the type bucket from the document ID, whose resource
+// segment is authoritative, and only falls back to pluralizing the Kind for
+// IDs that are not in canonical form.
 func (d *IndexData) typeKeyFor(c CompactResource) typeKey {
-	plural, ok := d.kindPlural[c.Kind]
-	if !ok {
-		plural = utils.PluralizeKind(d.pools.Kinds.Get(c.Kind))
-		d.kindPlural[c.Kind] = plural
+	plural, ok := ResourceNameFromID(d.pools.IDs.Get(c.ID), d.pools.Clusters.Get(c.Cluster))
+	if ok {
+		plural = utils.PluralizeKind(plural)
+	} else {
+		plural, ok = d.kindPlural[c.Kind]
+		if !ok {
+			plural = utils.PluralizeKind(d.pools.Kinds.Get(c.Kind))
+			d.kindPlural[c.Kind] = plural
+		}
 	}
 	return typeKey{c.Cluster, c.Group, c.Version, plural}
 }

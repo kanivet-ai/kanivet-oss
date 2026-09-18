@@ -17,24 +17,26 @@
 }
 
 .event-message-box {
+  position: relative;
   margin: 0 var(--property-padding-x);
-  padding: 8px;
-  background: var(--bg-tertiary);
+  padding: 6px 26px 6px 8px;
+  background: var(--bg-subtle);
   border: 1px solid var(--border);
   border-radius: var(--radius-xs);
-  position: relative;
 }
 
 .event-message-box pre {
   margin: 0;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   font-size: var(--font-xxs);
+  line-height: 1.4;
   color: var(--text-primary);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 
-.event-message-box .clipboard-copy {
+.event-message-box .clipboard-copy-btn {
   position: absolute;
   top: 4px;
   right: 4px;

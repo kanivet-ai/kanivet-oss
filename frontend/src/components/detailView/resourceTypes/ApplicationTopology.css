@@ -9,7 +9,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 6px 2px 2px;
-  font-size: 12px;
+  font-size: var(--font-sm);
   color: var(--text-secondary);
 }
 
@@ -24,11 +24,11 @@
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 11px;
+  font-size: var(--font-xs);
 }
 
 .topo-refresh:hover {
-  background: var(--hover-bg, var(--bg-secondary));
+  background: var(--bg-hover);
   color: var(--text-primary);
 }
 
@@ -83,7 +83,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 10px;
+  font-size: var(--font-xxs);
   text-transform: uppercase;
   letter-spacing: 0.06em;
   font-weight: 600;
@@ -100,7 +100,7 @@
 .topo-card-sync {
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 9px;
+  font-size: var(--font-xxxs);
   border: 1px solid;
 }
 
@@ -111,8 +111,8 @@
   text-align: left;
   cursor: pointer;
   color: var(--text-primary);
-  font-family: var(--font-monospace, monospace);
-  font-size: 12px;
+  font-family: var(--font-mono);
+  font-size: var(--font-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -132,12 +132,12 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: 11px;
+  font-size: var(--font-xs);
   color: var(--text-secondary);
 }
 
 .topo-card-ns {
-  font-family: var(--font-monospace, monospace);
+  font-family: var(--font-mono);
 }
 
 .topo-card-ready {
@@ -149,7 +149,7 @@
   border: none;
   cursor: pointer;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: var(--font-sm);
   padding: 0 4px;
   align-self: center;
 }
@@ -172,14 +172,14 @@
   padding: 2px 8px;
   color: var(--text-secondary);
   cursor: pointer;
-  font-size: 14px;
+  font-size: var(--font-md);
   line-height: 1;
 }
 
 .topo-card-menu-btn:hover:not(:disabled) {
   color: var(--text-primary);
   border-color: var(--border);
-  background: var(--hover-bg, var(--bg-tertiary, var(--bg-secondary)));
+  background: var(--bg-hover);
 }
 
 .topo-card-menu-btn:disabled {
@@ -209,12 +209,12 @@
   text-align: left;
   cursor: pointer;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-sm);
   border-radius: 3px;
 }
 
 .topo-card-menu button:hover {
-  background: var(--hover-bg, var(--bg-tertiary, var(--bg-primary)));
+  background: var(--bg-hover);
 }
 
 @keyframes topo-spin {
@@ -255,17 +255,17 @@
 /* Status palette */
 .topo-card.topo-healthy .topo-card-ring,
 .topo-card-ring.topo-healthy {
-  background: var(--status-running, #2ea043);
+  background: var(--success);
 }
 
 .topo-card.topo-degraded .topo-card-ring,
 .topo-card-ring.topo-degraded {
-  background: var(--status-failed, #d73a49);
+  background: var(--danger);
 }
 
 .topo-card.topo-progressing .topo-card-ring,
 .topo-card-ring.topo-progressing {
-  background: var(--status-pending, #d29922);
+  background: var(--warning);
 }
 
 .topo-card.topo-suspended .topo-card-ring,
@@ -279,15 +279,15 @@
 }
 
 .topo-card-sync.topo-sync-synced {
-  color: var(--status-running, #2ea043);
-  border-color: var(--status-running, #2ea043);
-  background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent);
+  color: var(--success);
+  border-color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
 }
 
 .topo-card-sync.topo-sync-out {
-  color: var(--status-pending, #d29922);
-  border-color: var(--status-pending, #d29922);
-  background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent);
+  color: var(--warning);
+  border-color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 10%, transparent);
 }
 
 .topo-card-sync.topo-sync-unknown {
@@ -297,7 +297,7 @@
 
 .topo-empty {
   padding: 16px;
-  font-size: 13px;
+  font-size: var(--font-base);
   color: var(--text-secondary);
   text-align: center;
 }
@@ -316,9 +316,9 @@
   border-radius: 4px;
   cursor: pointer;
   color: var(--text-primary);
-  font-size: 12px;
+  font-size: var(--font-sm);
 }
 
 .topo-retry:hover {
-  background: var(--hover-bg, var(--bg-secondary));
+  background: var(--bg-hover);
 }

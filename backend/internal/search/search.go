@@ -48,6 +48,7 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 		dbResults := s.searchDBFallback(query, desiredResults-len(results), results)
 		results = append(results, dbResults...)
 	}
+	results = s.finishResults(results)
 	if query.Text == "" {
 		return results, nil
 	}
@@ -78,13 +79,20 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 	}
 	clusterKindInfo := make(map[string]map[string]KindInfo)
 	for _, result := range regularResults {
-		if clusterKindInfo[result.Resource.Cluster] == nil {
-			clusterKindInfo[result.Resource.Cluster] = make(map[string]KindInfo)
+		r := result.Resource
+		if clusterKindInfo[r.Cluster] == nil {
+			clusterKindInfo[r.Cluster] = make(map[string]KindInfo)
 		}
-		clusterKindInfo[result.Resource.Cluster][result.Resource.Kind] = KindInfo{
-			Namespaced: result.Resource.Namespace != "",
-			Group:      result.Resource.Group,
-			Version:    result.Resource.Version,
+		// Documents indexed before kinds were normalized may carry the plural
+		// resource name as their kind; discovery knows the real Kind.
+		kind := r.Kind
+		if known := s.kindFor(r.Cluster, r.Group, r.Version, r.Resource); known != "" {
+			kind = known
+		}
+		clusterKindInfo[r.Cluster][kind] = KindInfo{
+			Namespaced: r.Namespace != "",
+			Group:      r.Group,
+			Version:    r.Version,
 		}
 	}
 	kindClusters := queryClusters(query)
@@ -117,6 +125,7 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 			if kindInfo.Group != "" {
 				apiVersion = kindInfo.Group + "/" + kindInfo.Version
 			}
+			resourceName := s.ResourceNameFor(cluster, kindInfo.Group, kindInfo.Version, kind)
 			kindResult := SearchResult{
 				Resource: SearchableResource{
 					ID:         fmt.Sprintf("kind:%s:%s:%s:%s", cluster, kindInfo.Group, kindInfo.Version, kind),
@@ -128,9 +137,10 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 					APIVersion: apiVersion,
 					Group:      kindInfo.Group,
 					Version:    kindInfo.Version,
+					Resource:   resourceName,
 					Labels: map[string]string{
 						"resource-kind": kind,
-						"resource-name": utils.PluralizeKind(kind),
+						"resource-name": resourceName,
 						"namespaced":    fmt.Sprintf("%t", kindInfo.Namespaced),
 						"group":         kindInfo.Group,
 						"version":       kindInfo.Version,
@@ -154,6 +164,56 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 		combinedResults = combinedResults[:query.Limit]
 	}
 	return combinedResults, nil
+}
+
+// finishResults fills in each result's plural resource name and drops
+// duplicates. Documents written by earlier releases can describe one object
+// under two IDs (a singular kind segment, a plural one, or a missing
+// group/version), and kind definitions can repeat per served version; the
+// first, highest-scoring occurrence of each identity wins.
+func (s *Service) finishResults(results []SearchResult) []SearchResult {
+	if len(results) == 0 {
+		return results
+	}
+	out := make([]SearchResult, 0, len(results))
+	seen := make(map[string]int, len(results))
+	for _, result := range results {
+		r := &result.Resource
+		var identity string
+		if r.Kind == "KindDefinition" {
+			if r.Resource == "" {
+				r.Resource = r.Labels["resource-name"]
+			}
+			if r.Resource == "" {
+				r.Resource = s.ResourceNameFor(r.Cluster, r.Group, r.Version, r.Name)
+			}
+			if r.Labels == nil {
+				r.Labels = map[string]string{}
+			}
+			if r.Labels["resource-name"] == "" {
+				r.Labels["resource-name"] = r.Resource
+			}
+			identity = "kind|" + r.Cluster + "|" + r.Group + "|" + strings.ToLower(r.Name)
+		} else {
+			if r.Resource == "" {
+				if fromID, ok := storage.ResourceNameFromID(r.ID, r.Cluster); ok {
+					r.Resource = utils.PluralizeKind(fromID)
+				} else {
+					r.Resource = s.ResourceNameFor(r.Cluster, r.Group, r.Version, r.Kind)
+				}
+			}
+			identity = r.Cluster + "|" + r.Group + "|" + r.Resource + "|" + r.Namespace + "|" + r.Name
+		}
+		if idx, dup := seen[identity]; dup {
+			if result.Score > out[idx].Score {
+				out[idx] = result
+			}
+			continue
+		}
+		seen[identity] = len(out)
+		out = append(out, result)
+	}
+	return out
 }
 
 func (s *Service) GetRecentSearches(limit int) ([]RecentResource, error) {
@@ -240,8 +300,12 @@ func (s *Service) saveToRecentSearches(resource RecentResource) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if resource.Resource == "" {
+		resource.Resource = utils.PluralizeKind(resource.Kind)
+	}
 	for i, r := range s.recentSearches {
-		if r.Name == resource.Name && r.Kind == resource.Kind && r.Namespace == resource.Namespace && r.Cluster == resource.Cluster {
+		sameType := strings.EqualFold(r.Kind, resource.Kind) || utils.PluralizeKind(r.Kind) == resource.Resource
+		if r.Name == resource.Name && sameType && r.Namespace == resource.Namespace && r.Cluster == resource.Cluster {
 			s.recentSearches = append(s.recentSearches[:i], s.recentSearches[i+1:]...)
 			break
 		}

@@ -309,11 +309,11 @@ body.resizing-width .detail-resize-handle {
 
 .detail-tab-deleted .tab-title {
   text-decoration: line-through;
-  text-decoration-color: var(--danger-text, #ef4444);
+  text-decoration-color: var(--danger);
 }
 
 .tab-deleted-indicator {
-  color: var(--danger-text, #ef4444);
+  color: var(--danger);
 }
 
 /* Tooltip Styles */
@@ -2152,7 +2152,7 @@ body.resizing-width .detail-resize-handle {
 }
 
 .helm-dryrun-stats .stat {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
 }
 
 .helm-dryrun-stats .stat.added {
@@ -2191,21 +2191,21 @@ body.resizing-width .detail-resize-handle {
 }
 
 .helm-dryrun-diff .diff-line.diff-added {
-  background: rgba(34, 197, 94, 0.15);
+  background: var(--success-bg);
 }
 
 .helm-dryrun-diff .diff-line.diff-removed {
-  background: rgba(239, 68, 68, 0.15);
+  background: var(--danger-bg);
 }
 
 .helm-dryrun-diff .diff-line.diff-changed {
-  background: rgba(234, 179, 8, 0.15);
+  background: var(--warning-bg);
 }
 
 .helm-dryrun-diff .diff-marker {
   width: 16px;
   flex-shrink: 0;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   user-select: none;
 }
 
@@ -2313,7 +2313,7 @@ body.resizing-width .detail-resize-handle {
   font-weight: var(--font-weight-medium);
   color: var(--text-secondary);
   background: var(--bg-secondary);
-  border: 1px dashed var(--border-color);
+  border: 1px dashed var(--border);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s;
@@ -2322,7 +2322,7 @@ body.resizing-width .detail-resize-handle {
 .load-more-button:hover:not(:disabled) {
   color: var(--text-primary);
   background: var(--bg-hover);
-  border-color: var(--border-hover);
+  border-color: var(--accent);
 }
 
 .load-more-button:disabled {
@@ -2344,7 +2344,7 @@ body.resizing-width .detail-resize-handle {
 
 .dialog-secondary-btn:hover:not(:disabled) {
   background: var(--bg-hover);
-  border-color: var(--border-hover);
+  border-color: var(--accent);
 }
 
 .dialog-secondary-btn:disabled {
@@ -2384,7 +2384,7 @@ body.resizing-width .detail-resize-handle {
   font-weight: var(--font-weight-medium);
   color: var(--text-primary);
   background: var(--bg-tertiary);
-  border: 1px solid var(--border-primary);
+  border: 1px solid var(--border);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.15s ease;
@@ -2392,7 +2392,7 @@ body.resizing-width .detail-resize-handle {
 
 .add-values-button:hover {
   background: var(--bg-hover);
-  border-color: var(--accent-color);
+  border-color: var(--accent);
 }
 
 /* Skeleton placeholders for progressive loading */
@@ -2400,9 +2400,9 @@ body.resizing-width .detail-resize-handle {
   height: 16px;
   background: linear-gradient(
     90deg,
-    rgba(var(--bg-secondary-rgb, 30, 30, 30), 0.5) 0%,
-    rgba(var(--bg-tertiary-rgb, 40, 40, 40), 0.3) 50%,
-    rgba(var(--bg-secondary-rgb, 30, 30, 30), 0.5) 100%
+    color-mix(in srgb, var(--bg-tertiary) 60%, transparent) 0%,
+    color-mix(in srgb, var(--bg-hover) 70%, transparent) 50%,
+    color-mix(in srgb, var(--bg-tertiary) 60%, transparent) 100%
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s ease-in-out infinite;

@@ -44,10 +44,10 @@ const OwnerLink: React.FC<OwnerLinkProps> = ({ ownerReferences }) => {
   }
 
   const ownerResource = {
-    name: pluralizeKind(owner.kind.toLowerCase()),
+    name: pluralizeKind(owner.kind),
     group: getGroupForKind(owner.kind),
     version: getVersionForKind(owner.kind),
-    kind: pluralizeKind(owner.kind.toLowerCase()),
+    kind: owner.kind,
     namespaced: isNamespacedKind(owner.kind),
   };
 

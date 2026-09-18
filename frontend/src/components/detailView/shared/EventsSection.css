@@ -1,38 +1,45 @@
-.events-list {
+/* Scoped under the owning PropertyGroup / list so that the legacy .event-* rules in
+   DetailView.css (written for the old inline events renderer, loaded later in the bundle)
+   cannot override this compact style, which mirrors ConditionsView. */
+.property-group .events-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding: 0 var(--property-padding-x);
 }
 
-.event-item {
+.events-list .event-item {
+  margin: 0;
   padding: 4px 8px;
+  font-size: var(--font-xxs);
   background: var(--bg-subtle);
-  border-radius: var(--radius-xs);
+  border: none;
   border-left: 2px solid var(--border);
+  border-radius: var(--radius-xs);
   transition: background 0.1s;
 }
 
-.event-item:hover {
+.events-list .event-item:hover {
   background: var(--bg-hover);
 }
 
-.event-item.event-warning {
+.events-list .event-item.event-warning {
   border-left-color: var(--warning);
 }
 
-.event-item.event-normal {
+.events-list .event-item.event-normal {
   border-left-color: var(--success);
 }
 
-.event-header {
+.events-list .event-header {
   display: flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   margin-bottom: 2px;
 }
 
-.event-type-badge {
+.events-list .event-type-badge {
   font-size: var(--font-xxxs);
   font-weight: 600;
   text-transform: uppercase;
@@ -41,31 +48,35 @@
   flex-shrink: 0;
 }
 
-.event-type-badge.event-type-warning {
+.events-list .event-type-badge.event-type-warning {
   background: var(--warning-bg);
   color: var(--warning-fg);
 }
 
-.event-type-badge.event-type-normal {
+.events-list .event-type-badge.event-type-normal {
   background: var(--success-bg);
   color: var(--success-fg);
 }
 
-.event-reason {
+.events-list .event-reason {
   font-size: var(--font-xxs);
   font-weight: 500;
   color: var(--text-primary);
 }
 
-.event-time {
+.events-list .event-time {
   font-size: var(--font-xxxs);
+  font-weight: normal;
   color: var(--text-muted);
   margin-left: auto;
 }
 
-.event-message {
+.events-list .event-message {
+  display: block;
+  margin-top: 0;
+  padding-left: 2px;
   font-size: var(--font-xxxs);
   color: var(--text-secondary);
   line-height: 1.4;
-  padding-left: 2px;
+  overflow-wrap: anywhere;
 }

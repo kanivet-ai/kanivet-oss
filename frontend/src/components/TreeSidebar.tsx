@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import TreeNode from './TreeNode';
+import TreeNode, { nodeHasChevron } from './TreeNode';
+import { findTreeResourceNode } from '../utils/searchResults';
 import ScrollContainer from './ScrollContainer';
 import DebugPanel from './DebugPanel';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
@@ -32,9 +33,9 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     openDetailTab,
   } = useStore(useShallow((s) => ({ currentTab: s.currentTab, loadTreeData: s.loadTreeData, setSearchQuery: s.setSearchQuery, expandNode: s.expandNode, selectNode: s.selectNode, loadListItems: s.loadListItems, loadDetails: s.loadDetails, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, toggleNodeExpansion: s.toggleNodeExpansion, openResourceListTab: s.openResourceListTab, openDetailTab: s.openDetailTab })));
 
-  const { treeData, searchQuery, focusArea } = useStore(useShallow((s) => {
+  const { treeData, searchQuery, focusArea, selectedNode } = useStore(useShallow((s) => {
     const t = s.getCurrentTabState();
-    return { treeData: t?.treeData || EMPTY_TREE, searchQuery: t?.searchQuery || '', focusArea: t?.focusArea || 'tree' };
+    return { treeData: t?.treeData || EMPTY_TREE, searchQuery: t?.searchQuery || '', focusArea: t?.focusArea || 'tree', selectedNode: t?.selectedNode || null };
   }));
 
   const [localSearch, setLocalSearch] = useState('');
@@ -213,6 +214,35 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     indexNodes(clusterData);
     return map;
   }, [clusterData]);
+
+  // The single tree row that shows as selected. Selections made from search,
+  // links or list tabs carry a node built outside the tree; match it to the
+  // tree's own node for that resource type by id first, then by coordinates.
+  const effectiveSelectedId = useMemo(() => {
+    if (!selectedNode) return null;
+    if (selectedNode.id && nodeIndexMap.has(selectedNode.id)) return selectedNode.id;
+    if (selectedNode.type === 'resource' && selectedNode.data?.name) {
+      const match = findTreeResourceNode(
+        clusterData,
+        selectedNode.data.group || '',
+        selectedNode.data.version,
+        selectedNode.data.name,
+      );
+      if (match) return match.id;
+    }
+    return selectedNode.id || null;
+  }, [selectedNode, nodeIndexMap, clusterData]);
+
+  // Keep the keyboard cursor on the selected row whenever the selection
+  // changes, so a row selected elsewhere is not shown next to a stale cursor.
+  useEffect(() => {
+    if (effectiveSelectedId) setFocusedNodeId(effectiveSelectedId);
+  }, [effectiveSelectedId]);
+
+  const topLevelHasChevron = useMemo(
+    () => clusterData.some((node: any) => nodeHasChevron(node)),
+    [clusterData],
+  );
 
   const handleNodeClick = useCallback(
     async (node: any, isPinned: boolean = false) => {
@@ -610,28 +640,20 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         viewportClassName="tree-viewport"
       >
         <div className="tree-content">
-          {(() => {
-            const ideNode = {
-              id: 'kanivetide-root',
-              label: 'kanivetIDE',
-              type: 'category',
-              expanded: true,
-              children: clusterData,
-            };
-            return (
-              <>
-                <TreeNode
-                  key={`${currentTab}-${ideNode.id}`}
-                  node={ideNode}
-                  level={0}
-                  searchQuery={searchQuery}
-                  focusedNodeId={focusedNodeId}
-                  onNodeClick={handleNodeClick}
-                  ancestorLabels={[]}
-                />
-              </>
-            );
-          })()}
+          {clusterData.map((node: any, index: number) => (
+            <TreeNode
+              key={`${currentTab}-${node.id}`}
+              node={node}
+              level={0}
+              searchQuery={searchQuery}
+              focusedNodeId={focusedNodeId}
+              selectedNodeId={effectiveSelectedId}
+              onNodeClick={handleNodeClick}
+              isLast={index === clusterData.length - 1}
+              ancestorLabels={[]}
+              siblingsHaveChevron={topLevelHasChevron}
+            />
+          ))}
         </div>
       </ScrollContainer>
       <DebugPanel
