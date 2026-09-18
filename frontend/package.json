@@ -14,6 +14,7 @@
     "test:unit": "vitest run",
     "typecheck": "tsc --noEmit",
     "electron": "electron .",
+    "build:icons": "electron scripts/build-icons.cjs",
     "dev": "concurrently \"BROWSER=none npm start\" \"wait-on http://localhost:5173 && electron . --dev\"",
     "build:backend": "cd ../backend && go mod download && go build -ldflags=\"-s -w\" -trimpath -o ../frontend/resources/kanivet-backend ./cmd/main.go",
     "build:app": "npm run build && npm run build:backend",

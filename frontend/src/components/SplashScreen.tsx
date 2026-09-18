@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import KanivetMark from './icons/KanivetMark';
 import './SplashScreen.css';
 
 const LOADING_MESSAGES = [
@@ -46,7 +47,7 @@ const SplashScreen = () => {
     <div className="splash-screen">
       <div className="splash-content">
         <div className="splash-logo">
-          <span className="splash-k">K</span>
+          <KanivetMark className="splash-k" size={88} tile />
         </div>
         <h1 className="splash-title">Kanivet</h1>
         <div className="splash-loader">

@@ -1,0 +1,11 @@
+{
+  "viewBox": "0 0 512 512",
+  "stroke": 68,
+  "tileRadius": 114,
+  "tileGradient": ["#8b8dff", "#4d44c4"],
+  "segments": {
+    "stem": "M179 132V380",
+    "arm": "M181 256L321 138",
+    "leg": "M227 217L333 380"
+  }
+}
