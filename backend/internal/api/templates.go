@@ -11,7 +11,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/k8s"
-	"github.com/kanivet/backend/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -197,7 +196,7 @@ func (h *Handler) GetResourceSchema(c *gin.Context) {
 			return
 		}
 
-		pluralName := strings.ToLower(utils.PluralizeKind(kind))
+		pluralName := h.k8s.GetResourceName(cluster, group, version, kind)
 		crdName := fmt.Sprintf("%s.%s", pluralName, group)
 		crdGVR := schema.GroupVersionResource{
 			Group:    "apiextensions.k8s.io",
