@@ -9,6 +9,7 @@ import Editor from '@monaco-editor/react';
 import * as yaml from 'js-yaml';
 import { Cross2Icon, ExclamationTriangleIcon, CheckCircledIcon, UpdateIcon, CheckIcon, PlayIcon, CrossCircledIcon } from '@radix-ui/react-icons';
 import api from '../services/api';
+import { saveResourceYaml } from '../utils/saveResourceYaml';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { installKanivetMonacoTheme, KANIVET_MONACO_THEME } from '../utils/monacoTheme';
@@ -434,97 +435,29 @@ data:
           setError(`Failed to upgrade: ${errorMsg}`);
         }
       } else {
-        // For edit mode, parse the YAML (should be single document)
-        const parsedYaml = yaml.load(yamlContent) as any;
-        
-        // Use the existing update logic with retries
-        const maxRetries = 3;
-        let retryCount = 0;
-        
-        while (retryCount < maxRetries) {
-          try {
-            const group = parsedYaml.apiVersion?.includes('/')
-              ? parsedYaml.apiVersion.split('/')[0]
-              : '';
-            const version = parsedYaml.apiVersion?.includes('/')
-              ? parsedYaml.apiVersion.split('/')[1]
-              : parsedYaml.apiVersion;
-            const namespace = parsedYaml.metadata?.namespace || '';
-            const name = parsedYaml.metadata?.name;
-
-            const kind = parsedYaml.kind;
-
-            // Always fetch the latest resource version before updating
-            api.invalidateCache();
-            const latestResource = await api.getResourceDetails(
-              cluster,
-              group,
-              version,
-              kind,
-              namespace,
-              name,
-            );
-
-            // Update metadata from the latest version
-            parsedYaml.metadata.resourceVersion =
-              latestResource.metadata.resourceVersion;
-            parsedYaml.metadata.generation = latestResource.metadata.generation;
-            parsedYaml.metadata.uid = latestResource.metadata.uid;
-
-            const updatedYamlContent = yaml.dump(parsedYaml, {
-              lineWidth: -1,
-              noRefs: true,
-              sortKeys: false,
-            });
-
-            const updatedResource = await api.updateResource(
-              cluster,
-              updatedYamlContent,
-            );
-
-            // Successfully updated - update the editor with the new version
-            const resourceCopy = JSON.parse(JSON.stringify(updatedResource));
-            delete resourceCopy.metadata?.managedFields;
-            delete resourceCopy.metadata?.uid;
-            delete resourceCopy.metadata?.selfLink;
-            delete resourceCopy.events;
-            const yamlStr = yaml.dump(resourceCopy, {
-              lineWidth: -1,
-              noRefs: true,
-              sortKeys: false,
-            });
-            setYamlContent(yamlStr);
-
-            updateDetailData(updatedResource);
-
-            setIsDirty(false);
-            showSuccess(`Updated ${updatedResource.kind} "${updatedResource.metadata?.name}" successfully`);
-            if (onSave) {
-              onSave(yamlStr);
-            }
-            
-            // Success - break out of retry loop
-            break;
-          } catch (e: any) {
-            const errorMessage =
-              e.response?.data?.error || e.message || 'Failed to update resource';
-            
-            // Check if it's a conflict error
-            if (errorMessage.includes('the object has been modified') && retryCount < maxRetries - 1) {
-              retryCount++;
-              // Exponential backoff: wait 100ms, 200ms, 400ms
-              await new Promise(resolve => setTimeout(resolve, 100 * Math.pow(2, retryCount - 1)));
-              console.log(`Retrying save due to version conflict (attempt ${retryCount + 1}/${maxRetries})`);
-              continue;
-            }
-            
-            // If not a conflict or max retries reached, show error
-            if (errorMessage.includes('the object has been modified')) {
-              setError(`Failed to save: The resource was modified by another process. Please refresh the editor and try again.`);
-            } else {
-              setError(`Failed to save: ${errorMessage}`);
-            }
-            break;
+        try {
+          const updatedResource = await saveResourceYaml(cluster, yamlContent);
+          const resourceCopy = JSON.parse(JSON.stringify(updatedResource));
+          delete resourceCopy.metadata?.managedFields;
+          delete resourceCopy.metadata?.uid;
+          delete resourceCopy.metadata?.selfLink;
+          delete resourceCopy.events;
+          const yamlStr = yaml.dump(resourceCopy, {
+            lineWidth: -1,
+            noRefs: true,
+            sortKeys: false,
+          });
+          setYamlContent(yamlStr);
+          updateDetailData(updatedResource);
+          setIsDirty(false);
+          showSuccess(`Updated ${updatedResource.kind} "${updatedResource.metadata?.name}" successfully`);
+          onSave?.(yamlStr);
+        } catch (e: any) {
+          const message = e.response?.data?.error || e.message || 'Failed to update resource';
+          if (e.response?.status === 409 || message.includes('the object has been modified')) {
+            setError('Failed to save: The resource was modified by another process. Your edits are preserved. Copy them before refreshing, then reapply your changes.');
+          } else {
+            setError(`Failed to save: ${message}`);
           }
         }
       }
