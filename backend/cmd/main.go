@@ -375,6 +375,26 @@ func main() {
 		// Update API handler with the bridge for managing watches
 		apiHandler.SetWatcherBridge(bridge)
 
+		// Daily retention: drop cached rows for clusters gone from every
+		// kubeconfig, purge stale rows, and hand freed pages back to disk.
+		if database := apiHandler.GetDB(); database != nil {
+			database.StartMaintenance(appCtx, func() ([]string, error) {
+				clusters, err := k8sClient.ListClusters()
+				if err != nil {
+					return nil, err
+				}
+				names := make([]string, 0, len(clusters))
+				for _, c := range clusters {
+					names = append(names, c.Name)
+				}
+				return names, nil
+			}, func(purged []string) {
+				for _, c := range purged {
+					searchService.RemoveCluster(c)
+				}
+			})
+		}
+
 		// Trigger cheap schema indexing (API resource kinds only) when a new
 		// cluster is watched. Resource data is populated incrementally by the
 		// watcher's own List/Watch feeding through SearchBroadcaster, and the
