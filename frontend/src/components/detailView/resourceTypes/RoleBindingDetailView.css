@@ -59,11 +59,17 @@
   color: var(--warning-fg);
 }
 
-.subject-name {
+.subject-name,
+.subject-item .link-button {
   font-family: var(--font-mono);
   font-size: var(--font-xxs);
-  color: var(--text-primary);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: left;
+}
+
+.subject-name {
+  color: var(--text-primary);
 }

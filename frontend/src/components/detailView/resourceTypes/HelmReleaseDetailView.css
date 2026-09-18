@@ -96,8 +96,8 @@
 }
 
 .helm-action-btn:hover {
-  background: var(--error);
-  border-color: var(--error);
+  background: var(--danger);
+  border-color: var(--danger);
   color: white;
 }
 
@@ -226,12 +226,12 @@
 }
 
 .helm-resource-item .resource-namespace {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: var(--font-xxs);
 }
 
 .helm-empty-state {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   text-align: center;
   padding: 40px;
 }
@@ -267,7 +267,7 @@
 }
 
 .helm-history-table tr.current {
-  background: var(--bg-selected);
+  background: var(--bg-active);
 }
 
 .revision-cell {
@@ -279,7 +279,7 @@
 
 .current-badge {
   background: var(--accent);
-  color: white;
+  color: var(--bg-primary);
   padding: 2px 6px;
   border-radius: 4px;
   font-size: var(--font-xxxs);
@@ -438,6 +438,21 @@
   cursor: pointer;
 }
 
+.helm-chart-sources {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 0;
+}
+
+.helm-chart-keywords {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
 .helm-values-code,
 .helm-manifest-code,
 .helm-notes-code {
@@ -476,7 +491,7 @@
 }
 
 .helm-modal.danger {
-  border-color: var(--error);
+  border-color: var(--danger);
 }
 
 .helm-modal-header {
@@ -500,7 +515,7 @@
 }
 
 .helm-modal-header .danger-icon {
-  color: var(--error);
+  color: var(--danger);
   width: 24px;
   height: 24px;
 }
@@ -551,8 +566,8 @@
 }
 
 .helm-modal-actions .danger-btn {
-  background: var(--error);
-  border: 1px solid var(--error);
+  background: var(--danger);
+  border: 1px solid var(--danger);
   color: white;
 }
 
@@ -575,7 +590,7 @@
 
 .helm-scrollbar-thumb {
   flex: 1;
-  background: var(--text-tertiary);
+  background: var(--text-muted);
   border-radius: 4px;
   opacity: 0.5;
   transition: opacity 0.15s ease;
