@@ -56,9 +56,9 @@ func TestVersionedMigrationV1(t *testing.T) {
 	}
 	now := time.Now()
 	rows := []SearchableResource{
-		{ResourceID: "fresh", Cluster: "c1", Kind: "Pod", Name: "a", Namespace: "ns", IndexedAt: now},
-		{ResourceID: "stale", Cluster: "c1", Kind: "Pod", Name: "b", Namespace: "ns", IndexedAt: now.Add(-searchRowRetention - time.Hour)},
-		{ResourceID: "legacy-zero-time", Cluster: "c1", Kind: "Pod", Name: "c", Namespace: "ns"},
+		{ResourceID: "c1//v1/pods/ns/a", Cluster: "c1", Kind: "Pod", Name: "a", Namespace: "ns", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: "c1//v1/pods/ns/b", Cluster: "c1", Kind: "Pod", Name: "b", Namespace: "ns", ResourceVersion: "v1", IndexedAt: now.Add(-searchRowRetention - time.Hour)},
+		{ResourceID: "c1//v1/pods/ns/c", Cluster: "c1", Kind: "Pod", Name: "c", Namespace: "ns", ResourceVersion: "v1"},
 	}
 	if err := d.Create(&rows).Error; err != nil {
 		t.Fatalf("seed search rows: %v", err)
@@ -96,7 +96,7 @@ func TestVersionedMigrationV1(t *testing.T) {
 	// Re-running is a no-op: a fresh stale row planted after the migration
 	// must survive until the next maintenance pass, proving the step did not
 	// run twice.
-	if err := d.Create(&SearchableResource{ResourceID: "stale2", Cluster: "c1", Kind: "Pod", Name: "d", Namespace: "ns", IndexedAt: now.Add(-2 * searchRowRetention)}).Error; err != nil {
+	if err := d.Create(&SearchableResource{ResourceID: "c1//v1/pods/ns/d", Cluster: "c1", Kind: "Pod", Name: "d", Namespace: "ns", ResourceVersion: "v1", IndexedAt: now.Add(-2 * searchRowRetention)}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := d.runVersionedMigrations(); err != nil {
@@ -199,4 +199,53 @@ func fmtSlice(s []string) string {
 		out += v
 	}
 	return out + "]"
+}
+
+// Databases written before kinds were normalized hold the same object under
+// several shapes: a row from the LIST sweep with the plural resource name as
+// its kind, a row from the watch path whose ID used a singular segment, and
+// a row with an empty group and version. Each shape made the object appear
+// more than once in search. The migration drops them and leaves canonical
+// rows, and kind definitions go too since opening a cluster rebuilds them.
+func TestVersionedMigrationV2PurgesNonCanonicalSearchRows(t *testing.T) {
+	d := newMigratedTestDB(t)
+	if err := d.setSchemaVersion(1); err != nil {
+		t.Fatal(err)
+	}
+	arn := "arn:aws:eks:eu-west-2:1:cluster/bench"
+	now := time.Now()
+	rows := []SearchableResource{
+		{ResourceID: "c1/apps/v1/deployments/ns/api", Cluster: "c1", Kind: "Deployment", Name: "api", Namespace: "ns", ResourceGroup: "apps", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: "c1/apps/v1/deployment/ns/web", Cluster: "c1", Kind: "Deployment", Name: "web", Namespace: "ns", ResourceGroup: "apps", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: "c1///deployments/ns/web", Cluster: "c1", Kind: "deployments", Name: "web", Namespace: "ns", IndexedAt: now},
+		{ResourceID: arn + "/rbac.authorization.k8s.io/v1/clusterroles/admin", Cluster: arn, Kind: "ClusterRole", Name: "admin", ResourceGroup: "rbac.authorization.k8s.io", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: arn + "/rbac.authorization.k8s.io/v1/clusterroles/admin2", Cluster: arn, Kind: "clusterroles", Name: "admin", ResourceGroup: "rbac.authorization.k8s.io", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: "c1/gateway.networking.k8s.io/v1/gateways/ns/edge", Cluster: "c1", Kind: "Gateway", Name: "edge", Namespace: "ns", ResourceGroup: "gateway.networking.k8s.io", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: "c1/gateway.networking.k8s.io/v1/gatewaies/ns/edge", Cluster: "c1", Kind: "Gateway", Name: "edge2", Namespace: "ns", ResourceGroup: "gateway.networking.k8s.io", ResourceVersion: "v1", IndexedAt: now},
+		{ResourceID: "kind:c1:apps:v1:Deployment", Cluster: "c1", Kind: "KindDefinition", Name: "Deployment", ResourceGroup: "apps", ResourceVersion: "v1", IndexedAt: now},
+	}
+	if err := d.Create(&rows).Error; err != nil {
+		t.Fatalf("seed rows: %v", err)
+	}
+	if err := d.runVersionedMigrations(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	var kept []string
+	d.Raw("SELECT resource_id FROM searchable_resources ORDER BY resource_id").Scan(&kept)
+	want := []string{
+		arn + "/rbac.authorization.k8s.io/v1/clusterroles/admin",
+		"c1/apps/v1/deployments/ns/api",
+		"c1/gateway.networking.k8s.io/v1/gateways/ns/edge",
+	}
+	if len(kept) != len(want) {
+		t.Fatalf("kept %v, want %v", kept, want)
+	}
+	for i := range want {
+		if kept[i] != want[i] {
+			t.Fatalf("kept %v, want %v", kept, want)
+		}
+	}
+	if v := d.currentSchemaVersion(); v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
+	}
 }
