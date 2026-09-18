@@ -2,13 +2,8 @@ package api
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
-	"log"
-	"net/http"
-	"sync"
-	"time"
-
-	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/db"
@@ -23,6 +18,10 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"log"
+	"net/http"
+	"sync"
+	"time"
 )
 
 var categoryMap = map[string][]models.Resource{
@@ -224,7 +223,7 @@ func (h *Handler) broadcastClusterError(cluster, errorMsg string) {
 		Details:      errorMsg,
 		Recoverable:  true,
 	}
-	data, err := sonic.Marshal(msg)
+	data, err := jsonv2.Marshal(msg)
 	if err != nil {
 		log.Printf("Failed to marshal cluster error: %v", err)
 		return
@@ -247,7 +246,7 @@ func (h *Handler) BroadcastClustersRefreshed(clusters []k8s.ClusterInfo, reason 
 		Reason:   reason,
 		Clusters: clusters,
 	}
-	data, err := sonic.Marshal(msg)
+	data, err := jsonv2.Marshal(msg)
 	if err != nil {
 		log.Printf("Failed to marshal clusters refreshed event: %v", err)
 		return

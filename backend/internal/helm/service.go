@@ -24,9 +24,9 @@ import (
 )
 
 type Service struct {
-	k8sClient     k8s.Interface
-	settings      *cli.EnvSettings
-	mu            sync.RWMutex
+	k8sClient k8s.Interface
+	settings  *cli.EnvSettings
+	mu        sync.RWMutex
 	// ActionConfig cache per cluster for faster subsequent requests
 	configCache   map[string]*action.Configuration
 	configCacheMu sync.RWMutex
@@ -50,8 +50,8 @@ type Release struct {
 
 type ReleaseDetail struct {
 	Release
-	ChartMetadata *ChartMetadata   `json:"chartMetadata,omitempty"`
-	Hooks         []Hook           `json:"hooks,omitempty"`
+	ChartMetadata *ChartMetadata    `json:"chartMetadata,omitempty"`
+	Hooks         []Hook            `json:"hooks,omitempty"`
 	Resources     []ManagedResource `json:"resources,omitempty"`
 }
 
@@ -102,7 +102,7 @@ func NewService(k8sClient k8s.Interface) *Service {
 func (s *Service) getActionConfig(cluster, namespace string) (*action.Configuration, error) {
 	// Cache key includes cluster and namespace
 	cacheKey := cluster + ":" + namespace
-	
+
 	// Check cache first
 	s.configCacheMu.RLock()
 	if cfg, ok := s.configCache[cacheKey]; ok {
@@ -110,7 +110,7 @@ func (s *Service) getActionConfig(cluster, namespace string) (*action.Configurat
 		return cfg, nil
 	}
 	s.configCacheMu.RUnlock()
-	
+
 	// Create new config
 	_, restConfig, err := s.k8sClient.GetClientAndConfig(cluster)
 	if err != nil {
@@ -139,7 +139,7 @@ func (s *Service) getActionConfig(cluster, namespace string) (*action.Configurat
 func (s *Service) InvalidateConfigCache(cluster string) {
 	s.configCacheMu.Lock()
 	defer s.configCacheMu.Unlock()
-	
+
 	for key := range s.configCache {
 		if strings.HasPrefix(key, cluster+":") {
 			delete(s.configCache, key)
@@ -171,20 +171,20 @@ func (s *Service) listReleasesInNamespace(ctx context.Context, cluster, namespac
 	listAction := action.NewList(actionConfig)
 	// Only list deployed releases (not superseded/failed history) for much better performance
 	listAction.Deployed = true
-	listAction.Failed = true      // Include failed so user can see issues
-	listAction.Pending = true     // Include pending installs/upgrades
+	listAction.Failed = true  // Include failed so user can see issues
+	listAction.Pending = true // Include pending installs/upgrades
 	listAction.AllNamespaces = false
 
 	startList := time.Now()
 	releases, err := listAction.Run()
 	listDur := time.Since(startList)
-	
+
 	// Log slow namespaces
 	if configDur > 500*time.Millisecond || listDur > 500*time.Millisecond {
-		log.Printf("[Helm] Slow namespace %s: config=%v, list=%v, releases=%d", 
+		log.Printf("[Helm] Slow namespace %s: config=%v, list=%v, releases=%d",
 			namespace, configDur, listDur, len(releases))
 	}
-	
+
 	if err != nil {
 		if err == driver.ErrReleaseNotFound {
 			return []Release{}, nil
@@ -204,7 +204,7 @@ func (s *Service) listReleasesInNamespace(ctx context.Context, cluster, namespac
 // This is typically 3-5x faster than a single allNamespaces query
 func (s *Service) listReleasesAllNamespacesParallel(ctx context.Context, cluster string) ([]Release, error) {
 	startTotal := time.Now()
-	
+
 	// Get list of namespaces
 	startNsList := time.Now()
 	client, _, err := s.k8sClient.GetClientAndConfig(cluster)
@@ -232,14 +232,14 @@ func (s *Service) listReleasesAllNamespacesParallel(ctx context.Context, cluster
 	// Limit concurrency to avoid overwhelming the API server
 	const maxConcurrency = 20 // Increased from 10
 	semaphore := make(chan struct{}, maxConcurrency)
-	
+
 	type namespaceResult struct {
 		namespace string
 		releases  []Release
 		err       error
 		duration  time.Duration
 	}
-	
+
 	results := make(chan namespaceResult, len(namespaces))
 	var wg sync.WaitGroup
 
@@ -248,7 +248,7 @@ func (s *Service) listReleasesAllNamespacesParallel(ctx context.Context, cluster
 		wg.Add(1)
 		go func(namespace string) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			select {
 			case semaphore <- struct{}{}:
@@ -281,7 +281,7 @@ func (s *Service) listReleasesAllNamespacesParallel(ctx context.Context, cluster
 	var slowest time.Duration
 	var slowestNs string
 	nsWithReleases := 0
-	
+
 	for result := range results {
 		if result.duration > slowest {
 			slowest = result.duration
@@ -299,7 +299,7 @@ func (s *Service) listReleasesAllNamespacesParallel(ctx context.Context, cluster
 			allReleases = append(allReleases, result.releases...)
 		}
 	}
-	
+
 	log.Printf("[Helm] Parallel fetch: %d namespaces, %d with releases, %d total releases, slowest: %s (%v), parallel time: %v, total: %v",
 		len(namespaces), nsWithReleases, len(allReleases), slowestNs, slowest, time.Since(startParallel), time.Since(startTotal))
 
@@ -583,9 +583,9 @@ func (s *Service) GetReleaseHistory(ctx context.Context, cluster, namespace, nam
 	history := make([]HistoryEntry, 0, len(releases))
 	for _, rel := range releases {
 		entry := HistoryEntry{
-			Revision:   rel.Version,
-			Status:     rel.Info.Status.String(),
-			Updated:    rel.Info.LastDeployed.Time,
+			Revision:    rel.Version,
+			Status:      rel.Info.Status.String(),
+			Updated:     rel.Info.LastDeployed.Time,
 			Description: rel.Info.Description,
 		}
 		if rel.Chart != nil && rel.Chart.Metadata != nil {
@@ -789,7 +789,7 @@ func (s *Service) convertHooks(hooks []*release.Hook) []Hook {
 func (s *Service) parseManifestResources(manifest string) []ManagedResource {
 	resources := []ManagedResource{}
 	docs := strings.Split(manifest, "---")
-	
+
 	for _, doc := range docs {
 		doc = strings.TrimSpace(doc)
 		if doc == "" {
@@ -799,10 +799,10 @@ func (s *Service) parseManifestResources(manifest string) []ManagedResource {
 		var kind, name, namespace string
 		lines := strings.Split(doc, "\n")
 		inMetadata := false
-		
+
 		for _, line := range lines {
 			trimmed := strings.TrimSpace(line)
-			
+
 			if strings.HasPrefix(trimmed, "kind:") {
 				kind = strings.TrimSpace(strings.TrimPrefix(trimmed, "kind:"))
 			} else if trimmed == "metadata:" {
@@ -855,23 +855,23 @@ func (s *Service) ParseReleaseFromSecret(obj interface{}) (*Release, error) {
 		if !ok {
 			return nil, fmt.Errorf("cannot convert to unstructured")
 		}
-		
+
 		// Parse from unstructured
 		labels := unstr.GetLabels()
 		if labels["owner"] != "helm" {
 			return nil, fmt.Errorf("not a helm release secret")
 		}
-		
+
 		name := labels["name"]
 		namespace := unstr.GetNamespace()
 		status := labels["status"]
-		
+
 		// Parse version from label
 		version := 0
 		if v, ok := labels["version"]; ok {
 			fmt.Sscanf(v, "%d", &version)
 		}
-		
+
 		return &Release{
 			Name:      name,
 			Namespace: namespace,
@@ -880,23 +880,23 @@ func (s *Service) ParseReleaseFromSecret(obj interface{}) (*Release, error) {
 			Updated:   unstr.GetCreationTimestamp().Time,
 		}, nil
 	}
-	
+
 	// Parse from typed secret
 	labels := secret.Labels
 	if labels["owner"] != "helm" {
 		return nil, fmt.Errorf("not a helm release secret")
 	}
-	
+
 	name := labels["name"]
 	namespace := secret.Namespace
 	status := labels["status"]
-	
+
 	// Parse version from label
 	version := 0
 	if v, ok := labels["version"]; ok {
 		fmt.Sscanf(v, "%d", &version)
 	}
-	
+
 	// Try to decode the release data for more info
 	// The release data is base64 + gzip compressed in the secret
 	// For now, just return basic info from labels

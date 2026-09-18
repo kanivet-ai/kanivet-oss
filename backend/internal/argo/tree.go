@@ -61,26 +61,26 @@ type ResourceNode struct {
 }
 
 type AppSummary struct {
-	Name           string          `json:"name"`
-	Namespace      string          `json:"namespace"`
-	Project        string          `json:"project,omitempty"`
-	SyncStatus     string          `json:"syncStatus"`
-	Health         string          `json:"health"`
-	Revision       string          `json:"revision,omitempty"`
-	TargetRevision string          `json:"targetRevision,omitempty"`
-	RepoURL        string          `json:"repoUrl,omitempty"`
-	Path           string          `json:"path,omitempty"`
-	DestServer     string          `json:"destServer,omitempty"`
-	DestName       string          `json:"destName,omitempty"`
-	DestNamespace  string          `json:"destNamespace,omitempty"`
-	Resources      []ResourceNode  `json:"resources"`
-	Conditions     []Condition     `json:"conditions,omitempty"`
-	Operation      *OperationState `json:"operation,omitempty"`
-	History        []HistoryEntry  `json:"history,omitempty"`
-	ReconciledAt   string          `json:"reconciledAt,omitempty"`
-	LastSyncedAt   string          `json:"lastSyncedAt,omitempty"`
-	LastSyncPhase  string          `json:"lastSyncPhase,omitempty"`
-	RefreshRequested bool          `json:"refreshRequested,omitempty"`
+	Name             string          `json:"name"`
+	Namespace        string          `json:"namespace"`
+	Project          string          `json:"project,omitempty"`
+	SyncStatus       string          `json:"syncStatus"`
+	Health           string          `json:"health"`
+	Revision         string          `json:"revision,omitempty"`
+	TargetRevision   string          `json:"targetRevision,omitempty"`
+	RepoURL          string          `json:"repoUrl,omitempty"`
+	Path             string          `json:"path,omitempty"`
+	DestServer       string          `json:"destServer,omitempty"`
+	DestName         string          `json:"destName,omitempty"`
+	DestNamespace    string          `json:"destNamespace,omitempty"`
+	Resources        []ResourceNode  `json:"resources"`
+	Conditions       []Condition     `json:"conditions,omitempty"`
+	Operation        *OperationState `json:"operation,omitempty"`
+	History          []HistoryEntry  `json:"history,omitempty"`
+	ReconciledAt     string          `json:"reconciledAt,omitempty"`
+	LastSyncedAt     string          `json:"lastSyncedAt,omitempty"`
+	LastSyncPhase    string          `json:"lastSyncPhase,omitempty"`
+	RefreshRequested bool            `json:"refreshRequested,omitempty"`
 }
 
 type HistoryEntry struct {
@@ -92,17 +92,17 @@ type HistoryEntry struct {
 }
 
 type OperationState struct {
-	Phase      string                   `json:"phase,omitempty"`
-	Message    string                   `json:"message,omitempty"`
-	StartedAt  string                   `json:"startedAt,omitempty"`
-	FinishedAt string                   `json:"finishedAt,omitempty"`
-	SyncResult *OperationSyncResult     `json:"syncResult,omitempty"`
-	Resources  []OperationResource      `json:"resources,omitempty"`
+	Phase      string               `json:"phase,omitempty"`
+	Message    string               `json:"message,omitempty"`
+	StartedAt  string               `json:"startedAt,omitempty"`
+	FinishedAt string               `json:"finishedAt,omitempty"`
+	SyncResult *OperationSyncResult `json:"syncResult,omitempty"`
+	Resources  []OperationResource  `json:"resources,omitempty"`
 }
 
 type OperationSyncResult struct {
-	Revision string              `json:"revision,omitempty"`
-	Source   map[string]string   `json:"source,omitempty"`
+	Revision  string              `json:"revision,omitempty"`
+	Source    map[string]string   `json:"source,omitempty"`
 	Resources []OperationResource `json:"resources,omitempty"`
 }
 

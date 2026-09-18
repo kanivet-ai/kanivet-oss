@@ -16,10 +16,10 @@ import (
 )
 
 const (
-	GroupArgoproj = "argoproj.io"
-	ApplicationKind        = "Application"
-	ApplicationSetKind     = "ApplicationSet"
-	AppProjectKind         = "AppProject"
+	GroupArgoproj      = "argoproj.io"
+	ApplicationKind    = "Application"
+	ApplicationSetKind = "ApplicationSet"
+	AppProjectKind     = "AppProject"
 )
 
 var trackedKinds = []struct {
@@ -41,10 +41,10 @@ type Resource struct {
 }
 
 type Detection struct {
-	Installed   bool   `json:"installed"`
-	Namespace   string `json:"namespace,omitempty"`
-	HasAPI      bool   `json:"hasApi"`
-	ServerName  string `json:"serverName,omitempty"`
+	Installed  bool   `json:"installed"`
+	Namespace  string `json:"namespace,omitempty"`
+	HasAPI     bool   `json:"hasApi"`
+	ServerName string `json:"serverName,omitempty"`
 }
 
 func IsArgoGroup(group string) bool {

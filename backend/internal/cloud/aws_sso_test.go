@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	jsonv2 "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -8,7 +9,6 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/credentials/ssocreds"
-	"github.com/bytedance/sonic"
 	"gopkg.in/ini.v1"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
@@ -396,7 +396,7 @@ func readCachedSSOToken(t *testing.T, key string) ssoTokenCache {
 	}
 
 	var cached ssoTokenCache
-	if err := sonic.Unmarshal(data, &cached); err != nil {
+	if err := jsonv2.Unmarshal(data, &cached); err != nil {
 		t.Fatalf("unmarshal cache for %q: %v", key, err)
 	}
 	return cached

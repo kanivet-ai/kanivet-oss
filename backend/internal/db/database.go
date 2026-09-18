@@ -102,12 +102,12 @@ func New() (*DB, error) {
 	sqlDB.SetMaxIdleConns(5)
 
 	// Execute PRAGMA statements for better performance
-	db.Exec("PRAGMA cache_size = -128000")       // 128MB cache (increased from 64MB)
+	db.Exec("PRAGMA cache_size = -128000") // 128MB cache (increased from 64MB)
 	db.Exec("PRAGMA temp_store = MEMORY")
-	db.Exec("PRAGMA mmap_size = 536870912")      // 512MB memory-mapped I/O (increased from 256MB)
-	db.Exec("PRAGMA page_size = 8192")           // Larger page size for better performance
-	db.Exec("PRAGMA locking_mode = NORMAL")      // Allow concurrent access
-	db.Exec("PRAGMA read_uncommitted = true")    // Allow dirty reads for better concurrency
+	db.Exec("PRAGMA mmap_size = 536870912")   // 512MB memory-mapped I/O (increased from 256MB)
+	db.Exec("PRAGMA page_size = 8192")        // Larger page size for better performance
+	db.Exec("PRAGMA locking_mode = NORMAL")   // Allow concurrent access
+	db.Exec("PRAGMA read_uncommitted = true") // Allow dirty reads for better concurrency
 
 	if err := db.AutoMigrate(&ClusterGroup{}, &ClusterAssignment{}, &ClusterAlias{}, &SSOSession{}, &SSOActiveAccount{}, &ClusterMetricsSettings{}); err != nil {
 		return nil, err
