@@ -158,7 +158,7 @@
   font-weight: 500;
 }
 
-.no-results {
+.configmap-entries .no-results {
   padding: 8px;
   text-align: center;
   color: var(--text-muted);

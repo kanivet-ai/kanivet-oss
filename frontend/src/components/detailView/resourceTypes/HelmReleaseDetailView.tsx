@@ -423,7 +423,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
 
   // Use detail if loaded, otherwise fall back to release prop for basic info
   const displayData = detail || release;
-  const valuesContent = values ? JSON.stringify(values, null, 2) : '';
+  const valuesContent = values ? yaml.dump(values, { indent: 2, lineWidth: -1, skipInvalid: true }) : '';
 
   // Skeleton placeholder components matching the product style
   const SkeletonLine = ({ width = '100%' }: { width?: string }) => (
@@ -539,7 +539,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
                     )}
                     {detail.chartMetadata.sources && detail.chartMetadata.sources.length > 0 && (
                       <PropertyRow label="Sources" value={
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', alignItems: 'flex-end' }}>
+                        <div className="helm-chart-sources">
                           {detail.chartMetadata.sources.map((source, idx) => (
                             <a key={idx} href={source} target="_blank" rel="noopener noreferrer" className="link-button">
                               {source}
@@ -553,7 +553,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
                     )}
                     {detail.chartMetadata.keywords && detail.chartMetadata.keywords.length > 0 && (
                       <PropertyRow label="Keywords" value={
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', justifyContent: 'flex-end' }}>
+                        <div className="helm-chart-keywords">
                           {detail.chartMetadata.keywords.map((keyword, idx) => (
                             <span key={idx} className="resource-kind-label">{keyword}</span>
                           ))}
@@ -588,7 +588,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
                             {typeof entry.status === 'string' ? entry.status : 'unknown'}
                           </span>
                           {entry.revision === displayData.revision && (
-                            <span className="format-badge" style={{ background: 'var(--accent)' }}>CURRENT</span>
+                            <span className="current-badge">CURRENT</span>
                           )}
                         </div>
                         <div className="helm-history-center">
@@ -629,7 +629,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
                 icon={<CodeIcon />} 
                 defaultOpen
                 actions={
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  <label className="values-toggle">
                     <input 
                       type="checkbox" 
                       checked={showAllValues} 
@@ -645,7 +645,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
                   <CodeBlock 
                     title="values.yaml"
                     content={valuesContent}
-                    format="json"
+                    format="yaml"
                     showSearch={false}
                     onContentClick={handleEditValues}
                   />
