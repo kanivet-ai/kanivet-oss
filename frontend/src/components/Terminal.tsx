@@ -198,6 +198,14 @@ const Terminal = ({
         console.log('WebSocket disconnected');
         setIsConnected(false);
 
+        // The backend tears the PTY down when its connection closes, so the
+        // session ID is dead. Forget it so the reconnect sends a fresh
+        // `create` instead of writing into a session that no longer exists.
+        // Guard so a stale socket's close event can't clobber a newer one.
+        if (manager.getSession(tabId)?.ws === ws) {
+          manager.clearSessionId(tabId);
+        }
+
         // Only reconnect if component is still mounted
         if (terminalRef.current && !reconnectTimeoutRef.current) {
           const session = manager.getSession(tabId);

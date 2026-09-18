@@ -1,3 +1,6 @@
+import type { Toast } from '../store/types';
+import { failureMessage } from './errorMessage';
+
 interface ResourceActionConfig {
   hasActions: boolean;
   actions: string[];
@@ -31,7 +34,11 @@ export interface ActionHandlerParams {
   setTaintDialog: (dialog: { item: any }) => void;
   getCurrentTabState: () => any;
   getResourceKey: (item: any) => string;
+  addToast: (toast: Omit<Toast, 'id'>) => void;
 }
+
+const displayName = (item: any): string =>
+  item?.metadata?.name || item?.name || 'resource';
 
 export const workloadControllerKinds = ['deployment', 'statefulset', 'daemonset', 'replicaset', 'job'];
 
@@ -171,6 +178,7 @@ export const handleActionSelect = async (
     setTaintDialog,
     getCurrentTabState,
     getResourceKey,
+    addToast,
   } = params;
 
   switch (action.toLowerCase()) {
@@ -182,6 +190,10 @@ export const handleActionSelect = async (
           await restartResource(currentTab, selectedNode.data, item);
         } catch (error: any) {
           console.error('Failed to restart resource:', error);
+          addToast({
+            type: 'error',
+            message: failureMessage(`Failed to restart ${displayName(item)}`, error),
+          });
         } finally {
           setTimeout(() => {
             setRestartingItems((prev) => {
@@ -202,6 +214,10 @@ export const handleActionSelect = async (
           await reloadListItems();
         } catch (error: any) {
           console.error('Failed to trigger cronjob:', error);
+          addToast({
+            type: 'error',
+            message: failureMessage(`Failed to trigger ${displayName(item)}`, error),
+          });
         } finally {
           setTimeout(() => {
             setRestartingItems((prev) => {
@@ -261,6 +277,10 @@ export const handleActionSelect = async (
           await reloadListItems();
         } catch (error) {
           console.error('Failed to cordon node:', error);
+          addToast({
+            type: 'error',
+            message: failureMessage(`Failed to cordon ${displayName(item)}`, error),
+          });
         }
       }
       break;
@@ -271,6 +291,10 @@ export const handleActionSelect = async (
           await reloadListItems();
         } catch (error) {
           console.error('Failed to uncordon node:', error);
+          addToast({
+            type: 'error',
+            message: failureMessage(`Failed to uncordon ${displayName(item)}`, error),
+          });
         }
       }
       break;

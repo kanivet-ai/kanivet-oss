@@ -24,6 +24,7 @@ const logsRouteParams = (kind: string) => {
       setTaintDialog: vi.fn(),
       getCurrentTabState: vi.fn(),
       getResourceKey: vi.fn(),
+      addToast: vi.fn(),
     } as any,
   };
 };
@@ -69,5 +70,61 @@ describe('edit and shell actions', () => {
     params.getCurrentTabState = vi.fn().mockReturnValue({ detailData: { kind: 'Pod', metadata: { name: 'previous', namespace: 'ns' } } });
     await handleActionSelect(params);
     expect(openBottomTab).toHaveBeenCalledWith(action, fresh, params.currentTab);
+  });
+});
+
+describe('failed operational actions surface an error toast', () => {
+  const failingParams = (action: string, overrides: Record<string, any>) => {
+    const { params } = logsRouteParams('Deployment');
+    const addToast = vi.fn();
+    Object.assign(params, {
+      action,
+      addToast,
+      item: { name: 'api', namespace: 'ns' },
+      ...overrides,
+    });
+    return { params, addToast };
+  };
+
+  it('restart failure reports the backend error body', async () => {
+    const err = { response: { data: { error: 'deployments.apps "api" not found' } } };
+    const { params, addToast } = failingParams('restart', {
+      restartResource: vi.fn().mockRejectedValue(err),
+    });
+    await handleActionSelect(params);
+    expect(addToast).toHaveBeenCalledWith({
+      type: 'error',
+      message: 'Failed to restart api: deployments.apps "api" not found',
+    });
+  });
+
+  it('trigger failure falls back to the transport message', async () => {
+    const { params, addToast } = failingParams('trigger', {
+      triggerCronJob: vi.fn().mockRejectedValue(new Error('Network Error')),
+    });
+    await handleActionSelect(params);
+    expect(addToast).toHaveBeenCalledWith({
+      type: 'error',
+      message: 'Failed to trigger api: Network Error',
+    });
+  });
+
+  it.each([
+    ['cordon', 'Failed to cordon api: forbidden'],
+    ['uncordon', 'Failed to uncordon api: forbidden'],
+  ])('%s failure toasts', async (action, message) => {
+    const { params, addToast } = failingParams(action, {
+      cordonNode: vi.fn().mockRejectedValue(new Error('forbidden')),
+    });
+    await handleActionSelect(params);
+    expect(addToast).toHaveBeenCalledWith({ type: 'error', message });
+  });
+
+  it('a successful restart does not toast', async () => {
+    const { params, addToast } = failingParams('restart', {
+      restartResource: vi.fn().mockResolvedValue(undefined),
+    });
+    await handleActionSelect(params);
+    expect(addToast).not.toHaveBeenCalled();
   });
 });

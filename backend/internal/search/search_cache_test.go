@@ -15,6 +15,7 @@ func newTestSearchService() *Service {
 		index:                storage.NewShardedIndex(1),
 		recentSearches:       make([]RecentResource, 0, 10),
 		clusterSearchVersion: make(map[string]uint64),
+		activeClusters:       make(map[string]time.Time),
 	}
 }
 

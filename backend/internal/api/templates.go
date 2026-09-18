@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/utils"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -52,15 +53,28 @@ func (h *Handler) UpdateResource(c *gin.Context) {
 		return
 	}
 
+	detailKey := h.cache.BuildKey("detail", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace, name)
+	topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace)
+
 	updatedResource, err := h.k8s.UpdateResource(context.Background(), cluster, gvr, namespace, name, obj)
 	if err != nil {
+		if k8s.IsResourceGone(err) {
+			// The cached detail is what let the editor believe the object was
+			// still there; drop it so the next load reflects the deletion.
+			h.cache.Delete(detailKey)
+			if h.invalidationBus != nil {
+				h.invalidationBus.Invalidate(topic)
+			}
+			h.respond(c, http.StatusNotFound, nil, fmt.Errorf(
+				"%s %q no longer exists, so it was not updated and was not recreated. Reopen it from the list, or use Create to make a new one",
+				gvk.Kind, name))
+			return
+		}
 		h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to update resource: %v", err))
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace, name)
 	h.cache.Delete(detailKey)
-	topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace)
 	if h.invalidationBus != nil {
 		h.invalidationBus.Invalidate(topic)
 	}
