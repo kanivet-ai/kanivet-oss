@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	jsonv2 "encoding/json/v2"
-	"github.com/kanivet/backend/internal/websocket/core"
 	"log"
+	"strconv"
 	"sync"
 	"time"
+
+	"github.com/kanivet/backend/internal/websocket/core"
 )
 
 type sortPreference struct {
@@ -72,8 +74,58 @@ type BatchedMessage struct {
 	Count  int               `json:"count"`
 }
 
+// Marshal writes the batch envelope by hand. Every event is JSON this process
+// produced moments earlier, so pushing them through the encoder again as
+// []json.RawMessage only re-validates known-good bytes: on a 100-event batch
+// that made the envelope 13x more expensive than splicing. The shape matches
+// what encoding/json/v2 produced for the struct, minus the never-set metadata.
 func (bm *BatchedMessage) Marshal() ([]byte, error) {
-	return jsonv2.Marshal(bm)
+	size := 96 + len(bm.MessageType) + len(bm.ID) + len(bm.Topic)
+	for _, e := range bm.Events {
+		size += len(e) + 1
+	}
+	buf := make([]byte, 0, size)
+	buf = append(buf, `{"type":`...)
+	typ, err := jsonv2.Marshal(string(bm.MessageType))
+	if err != nil {
+		return nil, err
+	}
+	buf = append(buf, typ...)
+	if bm.ID != "" {
+		id, err := jsonv2.Marshal(bm.ID)
+		if err != nil {
+			return nil, err
+		}
+		buf = append(buf, `,"id":`...)
+		buf = append(buf, id...)
+	}
+	ts, err := bm.Timestamp.MarshalJSON()
+	if err != nil {
+		return nil, err
+	}
+	buf = append(buf, `,"timestamp":`...)
+	buf = append(buf, ts...)
+	topic, err := jsonv2.Marshal(bm.Topic)
+	if err != nil {
+		return nil, err
+	}
+	buf = append(buf, `,"topic":`...)
+	buf = append(buf, topic...)
+	buf = append(buf, `,"events":[`...)
+	for i, e := range bm.Events {
+		if i > 0 {
+			buf = append(buf, ',')
+		}
+		if len(e) == 0 {
+			buf = append(buf, "null"...)
+			continue
+		}
+		buf = append(buf, e...)
+	}
+	buf = append(buf, `],"count":`...)
+	buf = strconv.AppendInt(buf, int64(bm.Count), 10)
+	buf = append(buf, '}')
+	return buf, nil
 }
 
 func NewEventBatcher(hub topicBroadcaster, batchInterval time.Duration, maxBatchSize int) *EventBatcher {
@@ -214,6 +266,7 @@ func (eb *EventBatcher) flushExtracted(batch *topicBatch) error {
 	batchedMsg := &BatchedMessage{
 		BaseMessage: core.BaseMessage{
 			MessageType: "batch",
+			Timestamp:   time.Now(),
 		},
 		Topic:  batch.topic,
 		Events: raws,

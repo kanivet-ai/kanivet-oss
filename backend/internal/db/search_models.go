@@ -77,12 +77,19 @@ type SearchHistory struct {
 func (db *DB) MigrateSearch() error {
 	var indexSQL string
 	db.Raw("SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_sr_natural_key'").Scan(&indexSQL)
-	if indexSQL != "" && !strings.Contains(indexSQL, "resource_group") {
-		db.Exec("DROP INDEX IF EXISTS idx_sr_natural_key")
+	if !strings.Contains(indexSQL, "resource_group") && db.Migrator().HasTable(&SearchableResource{}) {
+		// The natural key is about to be created as a unique index, which
+		// fails if rows written before it existed collide. Deduplicate only in
+		// that case: on a current schema the unique index already guarantees
+		// there is nothing to remove, and this DELETE is a full-table GROUP BY
+		// that used to run on every start.
+		if indexSQL != "" {
+			db.Exec("DROP INDEX IF EXISTS idx_sr_natural_key")
+		}
+		db.Exec(`DELETE FROM searchable_resources WHERE rowid NOT IN (
+			SELECT MIN(rowid) FROM searchable_resources
+			GROUP BY cluster, kind, name, namespace, resource_group)`)
 	}
-	db.Exec(`DELETE FROM searchable_resources WHERE rowid NOT IN (
-		SELECT MIN(rowid) FROM searchable_resources
-		GROUP BY cluster, kind, name, namespace, resource_group)`)
 	return db.AutoMigrate(&SearchableResource{}, &IndexingStatus{}, &SearchHistory{})
 }
 

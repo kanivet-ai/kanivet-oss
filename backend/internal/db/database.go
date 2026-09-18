@@ -131,6 +131,11 @@ func New() (*DB, error) {
 		log.Printf("[DB] snapshot table migration failed, list snapshots disabled: %v", err)
 	}
 
+	// One-time schema steps for databases created by earlier releases.
+	if err := dbInstance.runVersionedMigrations(); err != nil {
+		return nil, err
+	}
+
 	// Create or update predefined groups
 	predefinedGroups := []struct {
 		name        string

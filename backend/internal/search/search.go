@@ -44,7 +44,7 @@ func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
 	if desiredResults == 0 {
 		desiredResults = 20
 	}
-	if s.db != nil && s.index.AtCapacity() && len(results) < desiredResults {
+	if s.db != nil && (s.index.AtCapacity() || s.dbHasUnloaded.Load()) && len(results) < desiredResults {
 		dbResults := s.searchDBFallback(query, desiredResults-len(results), results)
 		results = append(results, dbResults...)
 	}

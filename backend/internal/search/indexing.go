@@ -7,12 +7,12 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/search/storage"
 	"github.com/kanivet/backend/internal/utils"
+	"gorm.io/gorm"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -37,6 +37,7 @@ func (s *Service) IndexCluster(cluster string) error {
 			s.indexingMu.Unlock()
 		}()
 		log.Printf("[SEARCH] Starting indexing for cluster: %s", cluster)
+		s.ensureClusterLoaded(cluster)
 		if err := s.indexResourceKinds(cluster); err != nil {
 			log.Printf("[SEARCH] Failed to index resource kinds for cluster %s: %v", cluster, err)
 		}
@@ -146,11 +147,98 @@ func (s *Service) SetOnIndexingComplete(callback func(cluster string)) {
 	s.onIndexingComplete = callback
 }
 
+// bootLoadBudget caps how many regular documents the persisted index load
+// brings into memory at startup. Clusters are loaded most recently indexed
+// first until the budget is spent; the rest stay searchable through the
+// database and are loaded when their tab is opened. Kind definitions are
+// always loaded since they drive kind autocomplete. Tests shrink it.
+var bootLoadBudget = storage.MaxIndexDocuments
+
+// maxConcurrentSweeps bounds how many clusters run a full LIST sweep at once.
+const maxConcurrentSweeps = 2
+
+const loadBatchSize = 2000
+
+// forEachRowBatch streams rows matching query in id order, calling fn with
+// each batch. query must return a fresh builder on every call so conditions
+// do not accumulate between pages. It returns the number of rows seen.
+func (s *Service) forEachRowBatch(query func() *gorm.DB, fn func([]db.SearchableResource)) int {
+	var lastID uint
+	total := 0
+	for {
+		var rows []db.SearchableResource
+		if err := query().Where("id > ?", lastID).Order("id ASC").Limit(loadBatchSize).Find(&rows).Error; err != nil {
+			log.Printf("[SEARCH] Failed to load rows after id %d: %v", lastID, err)
+			return total
+		}
+		if len(rows) == 0 {
+			return total
+		}
+		lastID = rows[len(rows)-1].ID
+		total += len(rows)
+		fn(rows)
+		if len(rows) < loadBatchSize {
+			return total
+		}
+	}
+}
+
+// preparePipeline tokenizes database rows on a couple of workers and hands
+// the prepared documents, in arrival order, to a single consumer. The
+// consumer owns the non-thread-safe loader.
+type preparePipeline struct {
+	in   chan []db.SearchableResource
+	done chan struct{}
+	wg   sync.WaitGroup
+}
+
+func (s *Service) startPreparePipeline(consume func([]storage.PreparedResource)) *preparePipeline {
+	p := &preparePipeline{in: make(chan []db.SearchableResource, 4), done: make(chan struct{})}
+	out := make(chan []storage.PreparedResource, 4)
+	for i := 0; i < 2; i++ {
+		p.wg.Add(1)
+		go func() {
+			defer p.wg.Done()
+			for rows := range p.in {
+				prepared := make([]storage.PreparedResource, 0, len(rows))
+				for _, row := range rows {
+					prepared = append(prepared, storage.PrepareResource(s.convertDBToSearchable(row)))
+				}
+				out <- prepared
+			}
+		}()
+	}
+	go func() {
+		p.wg.Wait()
+		close(out)
+	}()
+	go func() {
+		for prepared := range out {
+			consume(prepared)
+		}
+		close(p.done)
+	}()
+	return p
+}
+
+func (p *preparePipeline) submit(rows []db.SearchableResource) { p.in <- rows }
+
+func (p *preparePipeline) finish() {
+	close(p.in)
+	<-p.done
+}
+
+// loadPersistedIndexAsync rebuilds the in-memory index from the database in a
+// single pass: every row is tokenized once and lands directly in its shard.
+// Kind definitions for every cluster load first, then clusters in order of
+// most recent indexing until bootLoadBudget regular documents are in memory.
+// Whatever is left stays in the database, reachable through the DB fallback
+// and loaded into memory when its cluster is opened.
 func (s *Service) loadPersistedIndexAsync() {
 	if s.db == nil {
 		return
 	}
-	log.Printf("[SEARCH] Starting async load of persisted search index from database...")
+	startTime := time.Now()
 	var totalCount int64
 	if err := s.db.Model(&db.SearchableResource{}).Count(&totalCount).Error; err != nil {
 		log.Printf("[SEARCH] Failed to count persisted resources: %v", err)
@@ -160,101 +248,79 @@ func (s *Service) loadPersistedIndexAsync() {
 		log.Printf("[SEARCH] No resources to load from database")
 		return
 	}
-	log.Printf("[SEARCH] Found %d resources to load from database (search available immediately)", totalCount)
-	newData := storage.NewIndexDataWithCapacity(int(totalCount))
-	numWorkers := 2
-	dbBatchSize := 2000
-	type workItem struct {
-		resources []db.SearchableResource
+	log.Printf("[SEARCH] Loading persisted search index: %d rows in database, budget %d documents", totalCount, bootLoadBudget)
+
+	// Only the ordering matters here, so the MAX() text SQLite returns is not
+	// parsed; rows written by one driver sort correctly as strings.
+	var order []struct {
+		Cluster string
+		Newest  string
 	}
-	workChan := make(chan workItem, numWorkers*2)
-	resultChan := make(chan []storage.PreparedResource, numWorkers*2)
-	doneChan := make(chan struct{})
-	var indexed int64
-	var kindDefCount int64
+	if err := s.db.Raw(`SELECT cluster, MAX(indexed_at) AS newest FROM searchable_resources
+		WHERE kind <> 'KindDefinition' GROUP BY cluster ORDER BY newest DESC`).Scan(&order).Error; err != nil {
+		log.Printf("[SEARCH] Failed to rank clusters by recency: %v", err)
+		return
+	}
+
+	capHint := int(min(totalCount, int64(bootLoadBudget)+int64(bootLoadBudget)/4))
+	loader := s.index.NewBulkLoader(capHint)
 	clusterVersionMap := make(map[string]map[string]time.Time)
-	var clusterMapMu sync.Mutex
-	startTime := time.Now()
-	var workerWg sync.WaitGroup
-	for i := 0; i < numWorkers; i++ {
-		workerWg.Add(1)
-		go func() {
-			defer workerWg.Done()
-			for work := range workChan {
-				prepared := make([]storage.PreparedResource, 0, len(work.resources))
-				for _, dbResource := range work.resources {
-					searchable := s.convertDBToSearchable(dbResource)
-					prepared = append(prepared, storage.PrepareResource(searchable))
-				}
-				resultChan <- prepared
+	var kindDefCount int64
+	pipeline := s.startPreparePipeline(func(prepared []storage.PreparedResource) {
+		loader.Add(prepared)
+		for _, p := range prepared {
+			r := p.Resource
+			if r.Kind == "KindDefinition" {
+				kindDefCount++
+				continue
 			}
-		}()
-	}
-	go func() {
-		lastLogTime := time.Now()
-		batchCount := 0
-		for prepared := range resultChan {
-			storage.BatchIndexToDataFast(newData, prepared)
-			atomic.AddInt64(&indexed, int64(len(prepared)))
-			batchCount++
-			if batchCount%10 == 0 {
-				runtime.Gosched()
+			if clusterVersionMap[r.Cluster] == nil {
+				clusterVersionMap[r.Cluster] = make(map[string]time.Time)
 			}
-			clusterMapMu.Lock()
-			for _, p := range prepared {
-				r := p.Resource
-				if r.Kind == "KindDefinition" {
-					atomic.AddInt64(&kindDefCount, 1)
-				} else {
-					if clusterVersionMap[r.Cluster] == nil {
-						clusterVersionMap[r.Cluster] = make(map[string]time.Time)
-					}
-					resourceKey := fmt.Sprintf("%s/%s/%s", r.Group, r.Version, utils.PluralizeKind(r.Kind))
-					if r.UpdatedAt.After(clusterVersionMap[r.Cluster][resourceKey]) {
-						clusterVersionMap[r.Cluster][resourceKey] = r.UpdatedAt
-					}
-				}
-			}
-			clusterMapMu.Unlock()
-			if time.Since(lastLogTime) > 2*time.Second {
-				current := atomic.LoadInt64(&indexed)
-				progress := float64(current) / float64(totalCount) * 100
-				log.Printf("[SEARCH] Loading index: %d/%d resources (%.1f%%) - search available now", current, totalCount, progress)
-				lastLogTime = time.Now()
+			resourceKey := fmt.Sprintf("%s/%s/%s", r.Group, r.Version, utils.PluralizeKind(r.Kind))
+			if r.UpdatedAt.After(clusterVersionMap[r.Cluster][resourceKey]) {
+				clusterVersionMap[r.Cluster][resourceKey] = r.UpdatedAt
 			}
 		}
-		close(doneChan)
-	}()
-	var lastID uint
-	for batches := 1; ; batches++ {
-		var resources []db.SearchableResource
-		if err := s.db.Where("id > ?", lastID).Order("id ASC").Limit(dbBatchSize).Find(&resources).Error; err != nil {
-			log.Printf("[SEARCH] Failed to load batch after id %d: %v", lastID, err)
-			break
+	})
+
+	s.forEachRowBatch(func() *gorm.DB { return s.db.Where("kind = ?", "KindDefinition") }, pipeline.submit)
+
+	loaded := make([]string, 0, len(order))
+	docs := 0
+	skipped := 0
+	lastLog := time.Now()
+	for _, c := range order {
+		if docs >= bootLoadBudget {
+			skipped++
+			continue
 		}
-		if len(resources) == 0 {
-			break
-		}
-		lastID = resources[len(resources)-1].ID
-		workChan <- workItem{resources: resources}
-		runtime.Gosched()
-		if batches%5 == 0 {
-			time.Sleep(50 * time.Millisecond)
+		cluster := c.Cluster
+		docs += s.forEachRowBatch(func() *gorm.DB {
+			return s.db.Where("cluster = ? AND kind <> ?", cluster, "KindDefinition")
+		}, pipeline.submit)
+		loaded = append(loaded, cluster)
+		if time.Since(lastLog) > 2*time.Second {
+			log.Printf("[SEARCH] Loading index: %d documents from %d clusters so far", docs, len(loaded))
+			lastLog = time.Now()
 		}
 	}
-	close(workChan)
-	workerWg.Wait()
-	close(resultChan)
-	<-doneChan
-	bktStart := time.Now()
-	storage.FinalizeBulkLoad(newData)
-	log.Printf("[SEARCH] BK-trees built in %v", time.Since(bktStart))
-	s.index.SwapData(newData)
-	indexedCount := atomic.LoadInt64(&indexed)
-	log.Printf("[SEARCH] Index swap complete - all %d resources now searchable (total time: %v)", indexedCount, time.Since(startTime))
-	if indexedCount >= int64(storage.MaxIndexDocuments) {
-		log.Printf("[SEARCH] Memory index at capacity (%d docs). LRU eviction enabled, DB fallback active for searches.", storage.MaxIndexDocuments)
+	pipeline.finish()
+
+	finalizeStart := time.Now()
+	loader.Finish()
+	log.Printf("[SEARCH] Shards finalized in %v", time.Since(finalizeStart).Round(time.Millisecond))
+
+	s.loadedMu.Lock()
+	if s.loadedClusters == nil {
+		s.loadedClusters = make(map[string]bool)
 	}
+	for _, c := range loaded {
+		s.loadedClusters[c] = true
+	}
+	s.loadedMu.Unlock()
+	s.dbHasUnloaded.Store(skipped > 0)
+
 	s.indexingMu.Lock()
 	for cluster, resourceMap := range clusterVersionMap {
 		if s.indexedResources[cluster] == nil {
@@ -265,9 +331,58 @@ func (s *Service) loadPersistedIndexAsync() {
 		}
 	}
 	s.indexingMu.Unlock()
-	elapsed := time.Since(startTime)
-	log.Printf("[SEARCH] Async load complete: loaded %d resources (%d kinds) from persisted index in %v",
-		atomic.LoadInt64(&indexed), atomic.LoadInt64(&kindDefCount), elapsed)
+
+	log.Printf("[SEARCH] Persisted index loaded: %d documents and %d kind definitions from %d clusters in %v (%d clusters left in the database, loaded on open)",
+		docs, kindDefCount, len(loaded), time.Since(startTime).Round(time.Millisecond), skipped)
+}
+
+// ensureClusterLoaded pulls a cluster's persisted documents into memory if the
+// boot load left them in the database. It is called when the cluster's tab
+// opens, before the LIST sweep, so search over that cluster is complete while
+// the sweep refreshes it.
+func (s *Service) ensureClusterLoaded(cluster string) {
+	if s.db == nil {
+		return
+	}
+	s.loadedMu.Lock()
+	if s.loadedClusters == nil {
+		s.loadedClusters = make(map[string]bool)
+	}
+	already := s.loadedClusters[cluster]
+	if !already {
+		s.loadedClusters[cluster] = true
+	}
+	s.loadedMu.Unlock()
+	if already {
+		return
+	}
+	start := time.Now()
+	n := s.forEachRowBatch(func() *gorm.DB {
+		return s.db.Where("cluster = ? AND kind <> ?", cluster, "KindDefinition")
+	}, func(rows []db.SearchableResource) {
+		prepared := make([]storage.PreparedResource, 0, len(rows))
+		for _, row := range rows {
+			prepared = append(prepared, storage.PrepareResource(s.convertDBToSearchable(row)))
+		}
+		s.index.BatchIndexPrepared(prepared)
+	})
+	if n > 0 {
+		log.Printf("[SEARCH] Loaded %d persisted documents for cluster %s on open in %v", n, cluster, time.Since(start).Round(time.Millisecond))
+	}
+}
+
+// acquireSweepSlot blocks until this cluster may run a LIST sweep, or the
+// service stops. It returns a release func, or nil if stopping.
+func (s *Service) acquireSweepSlot() func() {
+	if s.sweepSem == nil {
+		return func() {}
+	}
+	select {
+	case s.sweepSem <- struct{}{}:
+		return func() { <-s.sweepSem }
+	case <-s.stopChan:
+		return nil
+	}
 }
 
 func (s *Service) updateIndexingStatus(cluster string, completedAt *time.Time, err error) {
@@ -307,6 +422,11 @@ func (s *Service) convertDBToSearchable(dbResource db.SearchableResource) storag
 }
 
 func (s *Service) performSmartIndexing(cluster string) {
+	release := s.acquireSweepSlot()
+	if release == nil {
+		return
+	}
+	defer release()
 	log.Printf("[SEARCH] Performing smart indexing for cluster: %s", cluster)
 	s.indexingMu.Lock()
 	status := &IndexingStatus{
