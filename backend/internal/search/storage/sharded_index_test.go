@@ -91,10 +91,10 @@ func TestShardedRemove(t *testing.T) {
 	}
 }
 
-func TestShardedSwapDataDistributes(t *testing.T) {
-	// Build a full IndexData spanning several clusters, then swap it into the
-	// sharded index. Every doc must end up searchable on its cluster's shard.
-	d := NewIndexData()
+func TestBulkLoaderRoutesEveryDocumentToItsClusterShard(t *testing.T) {
+	// Feed documents spanning several clusters through the loader in two
+	// batches. Every doc must land on the shard live indexing would pick, so
+	// ID lookups and cluster-filtered searches keep working after the swap.
 	var prepared []PreparedResource
 	for c := 0; c < 5; c++ {
 		cluster := fmt.Sprintf("cluster-%d", c)
@@ -103,17 +103,59 @@ func TestShardedSwapDataDistributes(t *testing.T) {
 			prepared = append(prepared, PrepareResource(r))
 		}
 	}
-	BatchIndexToData(d, prepared)
 
 	s := NewShardedIndex(4)
-	s.SwapData(d)
+	loader := s.NewBulkLoader(len(prepared))
+	loader.Add(prepared[:17])
+	loader.Add(prepared[17:])
+	loader.Finish()
 
+	if got := loader.Added(); got != 30 {
+		t.Fatalf("expected loader to report 30 added, got %d", got)
+	}
 	if got := s.DocumentCount(); got != 30 {
-		t.Fatalf("expected 30 docs after swap, got %d", got)
+		t.Fatalf("expected 30 docs after load, got %d", got)
+	}
+	for _, p := range prepared {
+		if !s.HasDocument(p.Resource.ID) {
+			t.Fatalf("doc %s not found on its cluster's shard", p.Resource.ID)
+		}
 	}
 	res, _ := s.Search(SearchQuery{Text: "deploy", Clusters: []string{"cluster-3"}, Limit: 100})
 	if len(res) != 6 {
-		t.Fatalf("expected 6 docs for cluster-3 after swap, got %d", len(res))
+		t.Fatalf("expected 6 docs for cluster-3 after load, got %d", len(res))
+	}
+	// Live indexing after the load must coexist with loaded documents.
+	if err := s.Index(testResource("cluster-3", "apps", "v1", "Deployment", "ns", "d-live")); err != nil {
+		t.Fatal(err)
+	}
+	res, _ = s.Search(SearchQuery{Text: "deploy", Clusters: []string{"cluster-3"}, Limit: 100})
+	if len(res) != 7 {
+		t.Fatalf("expected 7 docs for cluster-3 after live index, got %d", len(res))
+	}
+}
+
+func TestClusterFromIDHandlesKindDefinitionsWithColonsInCluster(t *testing.T) {
+	cases := map[string]string{
+		"c1/apps/v1/deployments/ns/api":                                         "c1",
+		"arn:aws:eks:eu-west-1:123:cluster/prod/apps/v1/deployments/ns/api":     "arn:aws:eks:eu-west-1:123:cluster",
+		"kind:c1:apps:v1:Deployment":                                            "c1",
+		"kind:arn:aws:eks:eu-west-1:123:cluster/prod:apps:v1:Deployment":        "arn:aws:eks:eu-west-1:123:cluster/prod",
+		"kind:vcluster:arn:aws:eks:eu-west-1:123:cluster/prod:team:dev::v1:Pod": "vcluster:arn:aws:eks:eu-west-1:123:cluster/prod:team:dev",
+	}
+	for id, want := range cases {
+		if got := clusterFromID(id); got != want {
+			t.Errorf("clusterFromID(%q) = %q, want %q", id, got, want)
+		}
+	}
+	// A kind definition indexed by cluster must be found again by ID.
+	s := NewShardedIndex(8)
+	kind := SearchableResource{ID: "kind:arn:aws:eks:eu-west-1:123:cluster/prod:apps:v1:Deployment", Cluster: "arn:aws:eks:eu-west-1:123:cluster/prod", Kind: "KindDefinition", Name: "Deployment", Group: "apps", Version: "v1"}
+	if err := s.Index(kind); err != nil {
+		t.Fatal(err)
+	}
+	if !s.HasDocument(kind.ID) {
+		t.Fatal("kind definition not found on its cluster's shard")
 	}
 }
 
