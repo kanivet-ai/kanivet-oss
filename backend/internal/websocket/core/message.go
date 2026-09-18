@@ -2,9 +2,8 @@ package core
 
 import (
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
 	"time"
-
-	"github.com/bytedance/sonic"
 )
 
 type MessageType string
@@ -26,7 +25,7 @@ func (m BaseMessage) Type() MessageType {
 }
 
 func (m BaseMessage) Marshal() ([]byte, error) {
-	return sonic.Marshal(m)
+	return jsonv2.Marshal(m)
 }
 
 type IncomingMessage struct {
@@ -35,7 +34,7 @@ type IncomingMessage struct {
 }
 
 func (m *IncomingMessage) UnmarshalPayload(v interface{}) error {
-	return sonic.Unmarshal(m.Payload, v)
+	return jsonv2.Unmarshal(m.Payload, v)
 }
 
 type OutgoingMessage struct {
@@ -54,7 +53,7 @@ func NewOutgoingMessage(msgType MessageType, payload interface{}) *OutgoingMessa
 }
 
 func (m OutgoingMessage) Marshal() ([]byte, error) {
-	return sonic.Marshal(m)
+	return jsonv2.Marshal(m)
 }
 
 type ErrorMessage struct {
@@ -76,5 +75,5 @@ func NewErrorMessage(err error, code string) *ErrorMessage {
 }
 
 func MarshalMessage(msg interface{}) ([]byte, error) {
-	return sonic.Marshal(msg)
+	return jsonv2.Marshal(msg)
 }

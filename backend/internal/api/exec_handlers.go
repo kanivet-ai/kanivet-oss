@@ -3,22 +3,21 @@ package api
 import (
 	"bytes"
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
-	"io"
-	"log"
-	"net/http"
-	"strings"
-	"time"
-
-	"github.com/bytedance/sonic"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"io"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	"log"
+	"net/http"
+	"strings"
+	"time"
 )
 
 var upgrader = websocket.Upgrader{
@@ -249,7 +248,7 @@ func (h *Handler) HandleExecWebSocket(c *gin.Context) {
 		switch messageType {
 		case websocket.TextMessage:
 			var msg map[string]interface{}
-			if err := sonic.Unmarshal(data, &msg); err == nil {
+			if err := jsonv2.Unmarshal(data, &msg); err == nil {
 				if msg["type"] == "resize" {
 					if cols, ok := msg["cols"].(float64); ok {
 						if rows, ok := msg["rows"].(float64); ok {
@@ -465,7 +464,7 @@ func (h *Handler) HandleNodeExecWebSocket(c *gin.Context) {
 		switch messageType {
 		case websocket.TextMessage:
 			var msg map[string]interface{}
-			if err := sonic.Unmarshal(data, &msg); err == nil {
+			if err := jsonv2.Unmarshal(data, &msg); err == nil {
 				if msg["type"] == "resize" {
 					if cols, ok := msg["cols"].(float64); ok {
 						if rows, ok := msg["rows"].(float64); ok {

@@ -2,15 +2,14 @@ package handlers
 
 import (
 	"context"
-	"log"
-	"sync"
-	"time"
-
-	"github.com/bytedance/sonic"
+	jsonv2 "encoding/json/v2"
 	"github.com/kanivet/backend/internal/helm"
 	"github.com/kanivet/backend/internal/websocket/core"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/watch"
+	"log"
+	"sync"
+	"time"
 )
 
 type HelmHandler struct {
@@ -49,11 +48,11 @@ type LoadProgress struct {
 }
 
 func (m *HelmReleasesMessage) Marshal() ([]byte, error) {
-	return sonic.Marshal(m)
+	return jsonv2.Marshal(m)
 }
 
 func (m *HelmReleaseEvent) Marshal() ([]byte, error) {
-	return sonic.Marshal(m)
+	return jsonv2.Marshal(m)
 }
 
 func NewHelmHandler(helmService *helm.Service, hub *core.Hub) *HelmHandler {
@@ -74,7 +73,7 @@ func (h *HelmHandler) HandleMessage(ctx context.Context, conn *core.Connection, 
 		Cluster string `json:"cluster"`
 	}
 
-	if err := sonic.Unmarshal(msg.Payload, &payload); err != nil {
+	if err := jsonv2.Unmarshal(msg.Payload, &payload); err != nil {
 		return err
 	}
 
@@ -182,7 +181,7 @@ func (h *HelmHandler) streamReleases(ctx context.Context, cluster, topic string,
 				if err := h.hub.Broadcast(topic, msg); err != nil {
 					log.Printf("[HelmHandler] Error broadcasting final: %v", err)
 				}
-				
+
 				// Start watching for changes after initial load
 				go h.watchHelmSecrets(ctx, cluster, topic, stopChan)
 				return
@@ -255,7 +254,7 @@ func (h *HelmHandler) watchHelmSecrets(ctx context.Context, cluster, topic strin
 		}
 
 		h.processWatchEvents(ctx, watcher, cluster, topic, stopChan)
-		
+
 		// If we get here, watch ended - restart after a short delay
 		select {
 		case <-ctx.Done():
@@ -309,7 +308,7 @@ func (h *HelmHandler) processWatchEvents(ctx context.Context, watcher watch.Inte
 			}
 
 			releaseKey := basicRelease.Namespace + "/" + basicRelease.Name
-			
+
 			// For delete events, just send the basic info
 			if eventType == "deleted" {
 				log.Printf("[HelmHandler] Helm release deleted: %s", releaseKey)
@@ -355,34 +354,34 @@ func (h *HelmHandler) processWatchEvents(ctx context.Context, watcher watch.Inte
 			go func(ns, name, evtType string) {
 				var fullRelease *helm.Release
 				var err error
-				
+
 				// Retry up to 3 times with increasing delay
 				// Helm might not have fully registered the release yet
 				for attempt := 0; attempt < 3; attempt++ {
 					if attempt > 0 {
 						time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
 					}
-					
+
 					fullRelease, err = h.helmService.GetReleaseBasic(ctx, cluster, ns, name)
 					if err != nil {
 						log.Printf("[HelmHandler] Attempt %d: Failed to fetch release %s/%s: %v", attempt+1, ns, name, err)
 						continue
 					}
-					
+
 					// Check if we got complete data
 					if fullRelease.Chart != "" && fullRelease.Status != "" {
 						break // Success
 					}
-					
+
 					log.Printf("[HelmHandler] Attempt %d: Got incomplete data for %s/%s, retrying...", attempt+1, ns, name)
 				}
-				
+
 				if fullRelease == nil || fullRelease.Chart == "" {
 					log.Printf("[HelmHandler] Failed to get complete release data for %s/%s after retries", ns, name)
 					return
 				}
 
-				log.Printf("[HelmHandler] Helm release %s: %s/%s (chart=%s, status=%s, rev=%d)", 
+				log.Printf("[HelmHandler] Helm release %s: %s/%s (chart=%s, status=%s, rev=%d)",
 					evtType, ns, name, fullRelease.Chart, fullRelease.Status, fullRelease.Revision)
 
 				msg := &HelmReleaseEvent{

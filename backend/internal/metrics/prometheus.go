@@ -2,8 +2,16 @@ package metrics
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
+	"github.com/kanivet/backend/internal/cache"
+	"github.com/kanivet/backend/internal/k8s"
 	"io"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	"log"
 	"math"
 	"net"
@@ -12,15 +20,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
-	"github.com/kanivet/backend/internal/cache"
-	"github.com/kanivet/backend/internal/k8s"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/dynamic"
 )
 
 type PrometheusProvider struct {
@@ -42,10 +41,10 @@ type PortForwardInfo struct {
 // listening on 9090) caused the metrics stream to kill+rebuild the port-forward
 // on every failed query — ~7 recreates/second under sustained subscriptions.
 type recreateTracker struct {
-	mu                 sync.Mutex
-	lastRecreate       time.Time
-	consecutiveFails   int
-	lastSuccess        time.Time
+	mu               sync.Mutex
+	lastRecreate     time.Time
+	consecutiveFails int
+	lastSuccess      time.Time
 }
 
 // minRecreateInterval is the minimum time between successive port-forward
@@ -360,13 +359,13 @@ func scorePrometheusService(svc v1.Service) (int, bool) {
 	// not a queryable cluster-wide TSDB.
 	excludedNameFragments := []string{
 		"alertmanager", "pushgateway", "operator", "node-exporter",
-		"adapter",        // prometheus-adapter is an HPA metrics shim, not a TSDB
-		"thanos",         // thanos-prometheus is for cross-cluster federation queries
-		"karma",          // karma is an alertmanager UI
-		"blackbox",       // prometheus-blackbox-exporter
-		"snmp",           // prometheus-snmp-exporter
-		"statsd",         // prometheus-statsd-exporter
-		"msteams",        // prometheus-msteams notifier
+		"adapter",  // prometheus-adapter is an HPA metrics shim, not a TSDB
+		"thanos",   // thanos-prometheus is for cross-cluster federation queries
+		"karma",    // karma is an alertmanager UI
+		"blackbox", // prometheus-blackbox-exporter
+		"snmp",     // prometheus-snmp-exporter
+		"statsd",   // prometheus-statsd-exporter
+		"msteams",  // prometheus-msteams notifier
 	}
 	for _, frag := range excludedNameFragments {
 		if strings.Contains(name, frag) {
@@ -649,7 +648,7 @@ func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*M
 		Error     string `json:"error,omitempty"`
 	}
 
-	if err := sonic.Unmarshal(body, &promResponse); err != nil {
+	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse prometheus response: %w", err)
 	}
 
@@ -777,7 +776,7 @@ func (p *PrometheusProvider) QueryWorkloadMetrics(cluster string, query Workload
 		Error     string `json:"error,omitempty"`
 	}
 
-	if err := sonic.Unmarshal(body, &promResponse); err != nil {
+	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
 		return nil, fmt.Errorf("failed to parse prometheus response: %w", err)
 	}
 

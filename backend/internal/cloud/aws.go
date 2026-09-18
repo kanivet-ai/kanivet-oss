@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/base64"
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"log"
 	"net/url"
@@ -23,7 +24,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/sso"
 	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
-	"github.com/bytedance/sonic"
 	"github.com/kanivet/backend/internal/faults"
 	"gopkg.in/ini.v1"
 	"k8s.io/client-go/kubernetes"
@@ -243,7 +243,7 @@ func (p *AWSProvider) loadCachedSSOTokens() {
 		}
 
 		var cached ssoTokenCache
-		if err := sonic.Unmarshal(data, &cached); err != nil || cached.StartURL == "" || cached.AccessToken == "" {
+		if err := jsonv2.Unmarshal(data, &cached); err != nil || cached.StartURL == "" || cached.AccessToken == "" {
 			continue
 		}
 
@@ -539,7 +539,7 @@ func (p *AWSProvider) StartSSOLogin(ctx context.Context, startURL, region string
 }
 
 func writeSSOTokenCache(key string, token ssoTokenCache) error {
-	data, err := sonic.Marshal(token)
+	data, err := jsonv2.Marshal(token)
 	if err != nil {
 		return err
 	}
@@ -598,7 +598,7 @@ func readSSOTokenCache(key string) (ssoTokenCache, error) {
 		return ssoTokenCache{}, err
 	}
 	var token ssoTokenCache
-	if err := sonic.Unmarshal(data, &token); err != nil {
+	if err := jsonv2.Unmarshal(data, &token); err != nil {
 		return ssoTokenCache{}, err
 	}
 	if token.StartURL == "" || token.AccessToken == "" {
@@ -1992,7 +1992,7 @@ func (p *AWSProvider) getEKSTokenWithCLI(ctx context.Context, clusterName, regio
 			Token string `json:"token"`
 		} `json:"status"`
 	}
-	if err := sonic.Unmarshal(out, &result); err != nil {
+	if err := jsonv2.Unmarshal(out, &result); err != nil {
 		return "", fmt.Errorf("failed to parse token: %w", err)
 	}
 	return result.Status.Token, nil

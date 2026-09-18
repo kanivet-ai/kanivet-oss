@@ -35,7 +35,8 @@ class TerminalManager {
       const terminal = new XTerm({
         cursorBlink: true,
         fontSize: 14,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+        fontFamily:
+          '"JetBrainsMono Nerd Font", "JetBrains Mono Nerd Font", "MesloLGS NF", "CaskaydiaMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font", "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", "Monaco", "Menlo", "Courier New", monospace',
         scrollback: 10000, // Increased scrollback for better history
         fastScrollModifier: 'shift', // Use shift for fast scrolling
         smoothScrollDuration: 0, // Disable smooth scrolling for better performance

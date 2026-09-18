@@ -32,15 +32,15 @@ type AppListEntry struct {
 }
 
 type AppStats struct {
-	Total       int            `json:"total"`
-	BySync      map[string]int `json:"bySync"`
-	ByHealth    map[string]int `json:"byHealth"`
-	ByProject   map[string]int `json:"byProject"`
-	ByNamespace map[string]int `json:"byNamespace"`
-	Syncing     int            `json:"syncing"`
-	RecentSync1h  int          `json:"recentSync1h"`
-	RecentSync24h int          `json:"recentSync24h"`
-	TopUnhealthy []AppListEntry `json:"topUnhealthy,omitempty"`
+	Total         int            `json:"total"`
+	BySync        map[string]int `json:"bySync"`
+	ByHealth      map[string]int `json:"byHealth"`
+	ByProject     map[string]int `json:"byProject"`
+	ByNamespace   map[string]int `json:"byNamespace"`
+	Syncing       int            `json:"syncing"`
+	RecentSync1h  int            `json:"recentSync1h"`
+	RecentSync24h int            `json:"recentSync24h"`
+	TopUnhealthy  []AppListEntry `json:"topUnhealthy,omitempty"`
 }
 
 func ListApplicationsSummary(ctx context.Context, dyn dynamic.Interface) ([]AppListEntry, error) {

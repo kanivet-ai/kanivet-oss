@@ -3,12 +3,11 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"github.com/kanivet/backend/internal/websocket/core"
 	"log"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
-	"github.com/kanivet/backend/internal/websocket/core"
 )
 
 type sortPreference struct {
@@ -74,7 +73,7 @@ type BatchedMessage struct {
 }
 
 func (bm *BatchedMessage) Marshal() ([]byte, error) {
-	return sonic.Marshal(bm)
+	return jsonv2.Marshal(bm)
 }
 
 func NewEventBatcher(hub topicBroadcaster, batchInterval time.Duration, maxBatchSize int) *EventBatcher {

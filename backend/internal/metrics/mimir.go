@@ -2,20 +2,19 @@ package metrics
 
 import (
 	"context"
+	jsonv2 "encoding/json/v2"
 	"fmt"
+	"github.com/kanivet/backend/internal/cache"
+	"github.com/kanivet/backend/internal/k8s"
 	"io"
+	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
-	"github.com/kanivet/backend/internal/cache"
-	"github.com/kanivet/backend/internal/k8s"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type MimirProvider struct {
@@ -110,7 +109,7 @@ func (p *MimirProvider) DiscoverTenants(cluster string, hints []string) ([]strin
 			Status string   `json:"status"`
 			Data   []string `json:"data"`
 		}
-		if sonic.Unmarshal(body, &probe) == nil && probe.Status == "success" && len(probe.Data) > 0 {
+		if jsonv2.Unmarshal(body, &probe) == nil && probe.Status == "success" && len(probe.Data) > 0 {
 			viable = append(viable, tenant)
 		}
 	}
@@ -146,7 +145,7 @@ func parseUserStatsTenants(body []byte) []string {
 	var stats []struct {
 		UserID string `json:"userID"`
 	}
-	if sonic.Unmarshal(body, &stats) != nil {
+	if jsonv2.Unmarshal(body, &stats) != nil {
 		return nil
 	}
 	tenants := make([]string, 0, len(stats))
@@ -607,7 +606,7 @@ func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*Metric
 		Error     string `json:"error,omitempty"`
 	}
 
-	if err := sonic.Unmarshal(body, &promResponse); err != nil {
+	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
 		return nil, fmt.Errorf("mimir returned unexpected response")
 	}
 
@@ -737,7 +736,7 @@ func (p *MimirProvider) QueryWorkloadMetrics(cluster string, query WorkloadMetri
 		Error     string `json:"error,omitempty"`
 	}
 
-	if err := sonic.Unmarshal(body, &promResponse); err != nil {
+	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
 		return nil, fmt.Errorf("mimir returned unexpected response")
 	}
 

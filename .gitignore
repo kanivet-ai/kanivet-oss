@@ -1,6 +1,7 @@
 # Dependencies
 node_modules/
 vendor/
+.devbox/
 
 # Build outputs
 dist/

@@ -264,16 +264,16 @@ func (c *Client) Rollback(ctx context.Context, appName string, id int64, prune b
 }
 
 type ManagedResource struct {
-	Group           string `json:"group"`
-	Version         string `json:"version"`
-	Kind            string `json:"kind"`
-	Namespace       string `json:"namespace"`
-	Name            string `json:"name"`
-	TargetState     string `json:"targetState"`
-	LiveState       string `json:"liveState"`
-	NormalizedLive  string `json:"normalizedLiveState"`
-	PredictedLive   string `json:"predictedLiveState"`
-	Diff            string `json:"diff,omitempty"`
+	Group          string `json:"group"`
+	Version        string `json:"version"`
+	Kind           string `json:"kind"`
+	Namespace      string `json:"namespace"`
+	Name           string `json:"name"`
+	TargetState    string `json:"targetState"`
+	LiveState      string `json:"liveState"`
+	NormalizedLive string `json:"normalizedLiveState"`
+	PredictedLive  string `json:"predictedLiveState"`
+	Diff           string `json:"diff,omitempty"`
 }
 
 type managedResourcesResponse struct {
@@ -314,4 +314,3 @@ func readError(resp *http.Response, op string) error {
 	}
 	return fmt.Errorf("argo %s failed: %s: %s", op, resp.Status, body)
 }
-

@@ -129,7 +129,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
       term = new Terminal({
         fontSize: 14,
         fontFamily:
-          'JetBrains Mono, SF Mono, Cascadia Code, Fira Code, Monaco, Menlo, monospace',
+          '"JetBrainsMono Nerd Font", "JetBrains Mono Nerd Font", "MesloLGS NF", "CaskaydiaMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font", "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", "Monaco", "Menlo", monospace',
         theme: terminalTheme,
         cursorBlink: true,
         scrollback: 10000,

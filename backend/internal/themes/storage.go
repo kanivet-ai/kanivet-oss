@@ -1,13 +1,12 @@
 package themes
 
 import (
+	jsonv2 "encoding/json/v2"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/bytedance/sonic"
 )
 
 type Storage interface {
@@ -53,7 +52,7 @@ func (fs *FileStorage) GetTheme(id string) (*Theme, error) {
 	}
 
 	var theme Theme
-	if err := sonic.Unmarshal(data, &theme); err != nil {
+	if err := jsonv2.Unmarshal(data, &theme); err != nil {
 		return nil, fmt.Errorf("failed to parse theme: %w", err)
 	}
 
@@ -93,7 +92,7 @@ func (fs *FileStorage) getThemeUnsafe(id string) (*Theme, error) {
 	}
 
 	var theme Theme
-	if err := sonic.Unmarshal(data, &theme); err != nil {
+	if err := jsonv2.Unmarshal(data, &theme); err != nil {
 		return nil, err
 	}
 
@@ -110,7 +109,7 @@ func (fs *FileStorage) SaveTheme(theme *Theme) error {
 	}
 	theme.UpdatedAt = now
 
-	data, err := sonic.Marshal(theme)
+	data, err := jsonv2.Marshal(theme)
 	if err != nil {
 		return fmt.Errorf("failed to marshal theme: %w", err)
 	}
@@ -154,7 +153,7 @@ func (fs *FileStorage) GetSettings() (*ThemeSettings, error) {
 	}
 
 	var settings ThemeSettings
-	if err := sonic.Unmarshal(data, &settings); err != nil {
+	if err := jsonv2.Unmarshal(data, &settings); err != nil {
 		return nil, fmt.Errorf("failed to parse settings: %w", err)
 	}
 
@@ -165,7 +164,7 @@ func (fs *FileStorage) SaveSettings(settings *ThemeSettings) error {
 	fs.mu.Lock()
 	defer fs.mu.Unlock()
 
-	data, err := sonic.Marshal(settings)
+	data, err := jsonv2.Marshal(settings)
 	if err != nil {
 		return fmt.Errorf("failed to marshal settings: %w", err)
 	}
