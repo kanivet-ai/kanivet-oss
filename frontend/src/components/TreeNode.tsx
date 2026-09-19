@@ -20,7 +20,6 @@ interface TreeNodeProps {
   isLast?: boolean;
   parentPath?: boolean[];
   ancestorLabels?: string[];
-  siblingsHaveChevron?: boolean;
 }
 
 export const nodeHasChevron = (n: any): boolean =>
@@ -62,7 +61,6 @@ const TreeNode = ({
   isLast = false,
   parentPath = [],
   ancestorLabels = [],
-  siblingsHaveChevron = true,
 }: TreeNodeProps) => {
   const currentTab = useStore((state) => state.currentTab);
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -89,11 +87,6 @@ const TreeNode = ({
       nodeMatchesSearch(child, searchQuery, [...ancestorLabels, node.label])
     );
   }, [node.children, expanded, searchQuery, ancestorLabels, node.label]);
-
-  const childrenHaveChevron = useMemo(
-    () => filteredChildren.some((c: any) => nodeHasChevron(c)),
-    [filteredChildren],
-  );
 
   const childMaxCountDigits = useMemo(() => {
     let m = 0;
@@ -294,13 +287,15 @@ const TreeNode = ({
           })}
         </div>
         <div className="tree-node-content">
+          {/* The chevron column is always reserved, as in an outline view: a
+              group of leaves would otherwise sit left of its own parent. */}
           {nodeHasChevron(node) ? (
             <span className="tree-node-arrow">
               <ExpandIcon expanded={expanded} />
             </span>
-          ) : siblingsHaveChevron ? (
+          ) : (
             <span className="tree-node-arrow tree-node-arrow-placeholder" aria-hidden="true" />
-          ) : null}
+          )}
           {(node.type === 'resource' || node.type === 'apiVersion') && !node.hideCount && (
             <span className="tree-node-count">
               {node.count === undefined || node.count === null ? '-' : `${node.count}`}
@@ -352,7 +347,6 @@ const TreeNode = ({
               isLast={index === filteredChildren.length - 1}
               parentPath={[...parentPath, isLast]}
               ancestorLabels={[...ancestorLabels, node.label]}
-              siblingsHaveChevron={childrenHaveChevron}
             />
           ))}
         </div>
