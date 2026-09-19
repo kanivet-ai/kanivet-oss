@@ -36,6 +36,210 @@ ChartJS.register(
   zoomPlugin,
 );
 
+/* ---- Chart theme ---------------------------------------------------------
+   Chart.js paints on a canvas, so it cannot use CSS variables directly. The
+   colours below are read from the design tokens on <html> at runtime and
+   re-read whenever the appearance flips (data-theme / inline theme vars).
+   Shared by PodMetrics, NodeMetrics and WorkloadMetrics.
+--------------------------------------------------------------------------- */
+
+export interface ChartTheme {
+  fontSans: string;
+  fontMono: string;
+  text: string;
+  text2: string;
+  text3: string;
+  hair: string;
+  sep: string;
+  content: string;
+  card: string;
+  toolbar: string;
+  blue: string;
+  green: string;
+  orange: string;
+  red: string;
+  purple: string;
+  teal: string;
+  yellow: string;
+  pink: string;
+  indigo: string;
+  gray: string;
+  chartCpu: string;
+  chartMemory: string;
+  chartStorage: string;
+  chartNetwork: string;
+  chartIdle: string;
+}
+
+const CHART_TOKEN_VARS: Record<keyof ChartTheme, string> = {
+  fontSans: '--font-sans',
+  fontMono: '--font-mono',
+  text: '--text',
+  text2: '--text2',
+  text3: '--text3',
+  hair: '--hair',
+  sep: '--sep',
+  content: '--content',
+  card: '--card',
+  toolbar: '--toolbar',
+  blue: '--blue',
+  green: '--green',
+  orange: '--orange',
+  red: '--red',
+  purple: '--purple',
+  teal: '--teal',
+  yellow: '--yellow',
+  pink: '--pink',
+  indigo: '--indigo',
+  gray: '--gray',
+  chartCpu: '--chart-cpu',
+  chartMemory: '--chart-memory',
+  chartStorage: '--chart-storage',
+  chartNetwork: '--chart-network',
+  chartIdle: '--chart-idle',
+};
+
+const FALLBACK_FONT_SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
+const FALLBACK_FONT_MONO = 'ui-monospace, "SF Mono", Menlo, Monaco, monospace';
+
+/** Read every chart token from <html>; var() references come back already resolved. */
+export const readChartTheme = (): ChartTheme => {
+  const style = getComputedStyle(document.documentElement);
+  const theme = {} as ChartTheme;
+  (Object.keys(CHART_TOKEN_VARS) as (keyof ChartTheme)[]).forEach((key) => {
+    theme[key] = style.getPropertyValue(CHART_TOKEN_VARS[key]).trim();
+  });
+  theme.fontSans ||= FALLBACK_FONT_SANS;
+  theme.fontMono ||= FALLBACK_FONT_MONO;
+  return theme;
+};
+
+let colorCanvas: CanvasRenderingContext2D | null | undefined;
+
+/** Parse #rgb / #rrggbb / #rrggbbaa / rgb() / rgba() (anything else via the canvas) into channels. */
+export const parseColor = (input: string): { r: number; g: number; b: number; a: number } | null => {
+  const value = (input || '').trim();
+  if (!value) return null;
+  const hex = value.match(/^#([0-9a-f]{3,8})$/i)?.[1];
+  if (hex && hex.length !== 5 && hex.length !== 7) {
+    const short = hex.length <= 4;
+    const step = short ? 1 : 2;
+    const channel = (i: number) => {
+      const part = hex.slice(i * step, i * step + step);
+      return parseInt(short ? part + part : part, 16);
+    };
+    const hasAlpha = hex.length === 4 || hex.length === 8;
+    return { r: channel(0), g: channel(1), b: channel(2), a: hasAlpha ? channel(3) / 255 : 1 };
+  }
+  const rgb = value.match(/^rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+%?))?\s*\)$/i);
+  if (rgb) {
+    const alpha = rgb[4] === undefined ? 1 : rgb[4].endsWith('%') ? parseFloat(rgb[4]) / 100 : parseFloat(rgb[4]);
+    return { r: +rgb[1], g: +rgb[2], b: +rgb[3], a: alpha };
+  }
+  if (colorCanvas === undefined) colorCanvas = document.createElement('canvas').getContext('2d');
+  if (!colorCanvas) return null;
+  colorCanvas.fillStyle = '#010203';
+  colorCanvas.fillStyle = value;
+  const normalised = String(colorCanvas.fillStyle);
+  if (normalised === '#010203' || normalised === value) return null;
+  return parseColor(normalised);
+};
+
+/** `withAlpha('#0a84ff', 0.22)` → `rgba(10, 132, 255, 0.22)`; works for hex and rgb(a) tokens alike. */
+export const withAlpha = (color: string, alpha: number): string => {
+  const c = parseColor(color);
+  if (!c) return color;
+  const a = Math.round(Math.min(1, Math.max(0, alpha)) * 1000) / 1000;
+  return `rgba(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)}, ${a})`;
+};
+
+let chartThemeCache: ChartTheme | null = null;
+const chartThemeListeners = new Set<() => void>();
+let chartThemeObserver: MutationObserver | null = null;
+
+export const getChartTheme = (): ChartTheme => (chartThemeCache ||= readChartTheme());
+
+const ensureChartThemeObserver = () => {
+  if (chartThemeObserver || typeof MutationObserver === 'undefined') return;
+  chartThemeObserver = new MutationObserver(() => {
+    chartThemeCache = null;
+    chartThemeListeners.forEach((listener) => listener());
+  });
+  chartThemeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme', 'style', 'class'],
+  });
+};
+
+/** The current chart theme; re-renders the caller when the appearance changes. */
+export const useChartTheme = (): ChartTheme => {
+  const [theme, setTheme] = useState<ChartTheme>(getChartTheme);
+  useEffect(() => {
+    ensureChartThemeObserver();
+    const listener = () => setTheme(getChartTheme());
+    chartThemeListeners.add(listener);
+    return () => {
+      chartThemeListeners.delete(listener);
+    };
+  }, []);
+  return theme;
+};
+
+/** Series colour for a metric: CPU blue, memory purple, network teal, disk orange. */
+export const chartMetricColor = (theme: ChartTheme, metric: string): string => {
+  switch (metric) {
+    case 'cpu':
+      return theme.chartCpu;
+    case 'memory':
+      return theme.chartMemory;
+    case 'network_rx':
+    case 'network_tx':
+      return theme.chartNetwork;
+    default:
+      return theme.chartStorage;
+  }
+};
+
+/** Soft vertical fill under a line: 0.22 alpha at the top of the plot area fading to 0 at the bottom. */
+export const chartAreaGradient = (color: string) => {
+  let cached: { key: string; gradient: CanvasGradient } | null = null;
+  return (context: { chart: { ctx: CanvasRenderingContext2D; chartArea?: { top: number; bottom: number } } }) => {
+    const { ctx, chartArea } = context.chart;
+    if (!chartArea) return withAlpha(color, 0.12);
+    const key = `${chartArea.top}:${chartArea.bottom}`;
+    if (!cached || cached.key !== key) {
+      const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom);
+      gradient.addColorStop(0, withAlpha(color, 0.22));
+      gradient.addColorStop(1, withAlpha(color, 0));
+      cached = { key, gradient };
+    }
+    return cached.gradient;
+  };
+};
+
+/** Tooltip colours/typography matching `.ap-tooltip` (vibrancy surface, secondary title, primary body). */
+export const chartTooltipStyle = (theme: ChartTheme) => ({
+  backgroundColor: theme.toolbar,
+  titleColor: theme.text2,
+  bodyColor: theme.text,
+  borderColor: theme.sep,
+  borderWidth: 1,
+  cornerRadius: 6,
+  padding: { top: 5, bottom: 5, left: 8, right: 8 },
+  caretSize: 4,
+  caretPadding: 6,
+  titleFont: { size: 11, weight: 'normal' as const, family: theme.fontSans },
+  bodyFont: { size: 11.5, weight: 'normal' as const, family: theme.fontSans },
+  titleMarginBottom: 3,
+  bodySpacing: 2,
+});
+
+/** Axis tick typography: 10.5px tertiary text in the system font. */
+export const chartTickStyle = (theme: ChartTheme) => ({
+  color: theme.text3,
+  font: { size: 10.5, family: theme.fontSans },
+});
+
 // Custom crosshair plugin - subtle vertical line
 const crosshairPlugin = {
   id: 'crosshair',
@@ -46,6 +250,7 @@ const crosshairPlugin = {
       const x = activePoint.element.x;
       const topY = chart.scales.y.top;
       const bottomY = chart.scales.y.bottom;
+      const accent = getChartTheme().blue;
 
       ctx.save();
       // Draw thin vertical line
@@ -53,13 +258,13 @@ const crosshairPlugin = {
       ctx.moveTo(x, topY);
       ctx.lineTo(x, bottomY);
       ctx.lineWidth = 1;
-      ctx.strokeStyle = 'rgba(59, 130, 246, 0.4)';
+      ctx.strokeStyle = withAlpha(accent, 0.4);
       ctx.stroke();
-      
+
       // Draw small dot at top
       ctx.beginPath();
       ctx.arc(x, topY + 3, 2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(59, 130, 246, 0.8)';
+      ctx.fillStyle = withAlpha(accent, 0.8);
       ctx.fill();
       ctx.restore();
     }
@@ -195,15 +400,6 @@ const METRIC_ICONS: Record<MetricType, JSX.Element> = {
   ),
 };
 
-const CHART_COLORS = {
-  cpu: '#3b82f6', // Modern blue
-  memory: '#10b981', // Emerald green
-  network_rx: '#f59e0b', // Amber
-  network_tx: '#ef4444', // Red
-  disk_read: '#8b5cf6', // Violet
-  disk_write: '#ec4899', // Pink
-};
-
 export const PodMetrics: React.FC<PodMetricsProps> = ({
   cluster,
   namespace,
@@ -213,6 +409,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
   resourceRequests,
 }) => {
   const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettings })));
+  const theme = useChartTheme();
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('cpu');
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('15m');
   const [metricsData, setMetricsData] = useState<{
@@ -431,7 +628,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
 
   // Build datasets with usage, limits, and requests
   const datasets = useMemo(() => {
-    const color = CHART_COLORS[selectedMetric];
+    const color = chartMetricColor(theme, selectedMetric);
     const result: any[] = [
       {
         label: `${METRIC_LABELS[selectedMetric]} ${
@@ -439,8 +636,8 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
         }`,
         data: metricsData?.values || [],
         borderColor: color,
-        backgroundColor: `${color}15`, // 15% opacity for subtle fill
-        borderWidth: 1.5,
+        backgroundColor: chartAreaGradient(color),
+        borderWidth: 2,
         fill: true,
         tension: 0.4,
         pointRadius: 0,
@@ -449,7 +646,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
         pointBorderColor: 'transparent',
         pointBorderWidth: 0,
         pointHoverBackgroundColor: color,
-        pointHoverBorderColor: '#ffffff',
+        pointHoverBorderColor: theme.content,
         pointHoverBorderWidth: 2,
       },
     ];
@@ -464,9 +661,9 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
       result.push({
         label: 'Limit',
         data: Array(metricsData?.labels.length || 1).fill(limitValue),
-        borderColor: 'rgba(239, 68, 68, 0.6)',
-        borderWidth: 1.5,
-        borderDash: [5, 5],
+        borderColor: theme.orange,
+        borderWidth: 1,
+        borderDash: [4, 4],
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
@@ -486,8 +683,8 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
       result.push({
         label: 'Request',
         data: Array(metricsData?.labels.length || 1).fill(requestValue),
-        borderColor: 'rgba(251, 191, 36, 0.6)',
-        borderWidth: 1.5,
+        borderColor: theme.text3,
+        borderWidth: 1,
         borderDash: [3, 3],
         fill: false,
         pointRadius: 0,
@@ -497,7 +694,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
     }
 
     return result;
-  }, [selectedMetric, metricsData, resourceLimits, resourceRequests]);
+  }, [theme, selectedMetric, metricsData, resourceLimits, resourceRequests]);
 
   const chartData = useMemo(
     () => ({
@@ -506,6 +703,43 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
     }),
     [metricsData, datasets],
   );
+
+  // Headline: latest sample, how it relates to the request, and the change over the window.
+  const headline = useMemo(() => {
+    const values = (metricsData?.values || []).filter(
+      (v): v is number => typeof v === 'number' && Number.isFinite(v),
+    );
+    if (values.length === 0) return null;
+    const last = values[values.length - 1];
+    const first = values[0];
+    const fmt = (v: number): { value: string; unit: string } => {
+      if (selectedMetric === 'cpu') {
+        return v >= 1000
+          ? { value: (v / 1000).toFixed(2), unit: 'cores' }
+          : { value: Math.round(v).toString(), unit: 'm' };
+      }
+      if (selectedMetric === 'memory') {
+        if (v >= 1073741824) return { value: (v / 1073741824).toFixed(2), unit: 'GiB' };
+        if (v >= 1048576) return { value: (v / 1048576).toFixed(0), unit: 'MiB' };
+        return { value: (v / 1024).toFixed(0), unit: 'KiB' };
+      }
+      return { value: v.toFixed(2), unit: metricsData?.unit || '' };
+    };
+    const current = fmt(last);
+    const request =
+      selectedMetric === 'cpu'
+        ? resourceRequests?.cpu
+        : selectedMetric === 'memory'
+          ? resourceRequests?.memory
+          : undefined;
+    const req = request ? fmt(request) : null;
+    const join = (n: string, u: string) => (u === 'm' ? `${n}m` : `${n} ${u}`.trim());
+    const context = req
+      ? `${current.unit} of ${join(req.value, req.unit)} requested`
+      : current.unit;
+    const delta = first > 0 ? Math.round(((last - first) / first) * 100) : null;
+    return { value: current.value, context, delta };
+  }, [metricsData, selectedMetric, resourceRequests]);
 
   const handleResetZoom = () => {
     const chart = chartRef.current;
@@ -539,19 +773,18 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
             display: false,
             drawBorder: false,
           },
+          border: {
+            display: false,
+          },
           ticks: {
-            color: '#8b949e', // Visible gray for both themes
-            font: {
-              size: 10,
-              family: "'Inter', 'SF Pro Text', -apple-system, sans-serif",
-            },
+            ...chartTickStyle(theme),
             maxTicksLimit: 6,
             maxRotation: 0,
             callback: function (this: any, value: any): string {
               // Get the label at this index
               const label: string = this.getLabelForValue(value);
               if (!label) return '';
-              
+
               // Parse the timestamp and format as HH:MM
               try {
                 // Handle different timestamp formats
@@ -574,18 +807,14 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
         },
         y: {
           grid: {
-            color: 'rgba(139, 148, 158, 0.08)', // Very subtle grid lines
+            color: theme.hair, // hairline gridlines
             drawBorder: false,
           },
           border: {
             display: false,
           },
           ticks: {
-            color: '#8b949e', // Visible gray for both themes
-            font: {
-              size: 10,
-              family: "'Inter', 'SF Pro Text', -apple-system, sans-serif",
-            },
+            ...chartTickStyle(theme),
             padding: 8,
             maxTicksLimit: 5,
             callback: function (value: any) {
@@ -624,8 +853,8 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
           zoom: {
             drag: {
               enabled: true,
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              borderColor: 'rgba(59, 130, 246, 0.5)',
+              backgroundColor: withAlpha(theme.blue, 0.1),
+              borderColor: withAlpha(theme.blue, 0.5),
               borderWidth: 1,
             },
             mode: 'x' as const,
@@ -653,30 +882,9 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
           mode: 'index' as const,
           intersect: false,
           position: 'nearest' as const,
-          // Compact styling
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          titleColor: 'rgba(255, 255, 255, 0.7)',
-          bodyColor: '#ffffff',
-          borderColor: 'rgba(255, 255, 255, 0.15)',
-          borderWidth: 1,
-          padding: 6,
+          // Styled like .ap-tooltip, colours from the design tokens
+          ...chartTooltipStyle(theme),
           displayColors: false,
-          cornerRadius: 4,
-          caretSize: 4,
-          caretPadding: 4,
-          // Smaller fonts for compact tooltip
-          titleFont: {
-            size: 9,
-            weight: 'normal' as const,
-            family: "'SF Mono', 'Monaco', monospace",
-          },
-          bodyFont: {
-            size: 10,
-            weight: 'normal' as const,
-            family: "'SF Mono', 'Monaco', monospace",
-          },
-          titleMarginBottom: 2,
-          bodySpacing: 2,
           // Position at top of chart
           yAlign: 'bottom' as const,
           xAlign: 'center' as const,
@@ -730,7 +938,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
         },
       },
     }),
-    [selectedMetric, metricsData],
+    [theme, selectedMetric, metricsData],
   );
 
   if (!monitoringSettings.showMetricsPanel || monitoringSettings.preferredProvider === 'disabled') {
@@ -996,6 +1204,19 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
             </button>
           </div>
         </div>
+
+        {headline && (
+          <div className="metrics-headline">
+            <span className="metrics-headline-value">{headline.value}</span>
+            <span className="metrics-headline-context">{headline.context}</span>
+            {headline.delta !== null && headline.delta !== 0 && (
+              <span className={`metrics-headline-delta ${headline.delta < 0 ? 'down' : 'up'}`}>
+                {headline.delta < 0 ? '↓' : '↑'}
+                {Math.abs(headline.delta)}%
+              </span>
+            )}
+          </div>
+        )}
 
         <div className="chart-wrapper" data-stale={loading && !!metricsData ? 'true' : undefined}>
           <div className="chart-hint">

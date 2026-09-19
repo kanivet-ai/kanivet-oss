@@ -1,69 +1,94 @@
+/*
+  Expanded container details inside the inspector (sits on the --inset area
+  DetailView gives .container-details). Rows 7px 14px, hairline separators,
+  labels --text left, values --text2 right; ports as info badges, mounts and
+  env in mono 11px, the command block on --inset with an 8px radius.
+*/
 .container-dropdown {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 4px var(--property-padding-x);
+  gap: 0;
+  padding: 0;
 }
 
+/* Ports */
 .container-ports {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
+  gap: 0;
+  padding: 0;
 }
 
 .port-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 3px 6px;
+  padding: 6px 14px;
+  min-height: 32px;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
+  font-size: 12.5px;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.port-row:hover {
+  background: var(--hover);
 }
 
 .port-label {
-  color: var(--text-secondary);
+  color: var(--text);
   font-family: var(--font-sans);
-  font-weight: var(--font-weight-medium);
+  font-weight: 400;
   min-width: 50px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .port-value {
-  font-family: var(--font-sans);
-  color: var(--text-primary);
+  font-family: var(--font-mono);
+  color: var(--blue);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 .port-btn {
   margin-left: auto;
-  padding: 2px 6px;
+  height: 24px;
+  padding: 0 9px;
   border: none;
-  border-radius: 3px;
-  background: var(--accent);
-  color: white;
+  border-radius: 6px;
+  background-color: var(--card);
+  color: var(--text);
   font-family: var(--font-sans);
-  font-size: var(--font-xxxs);
-  font-weight: var(--font-weight-semibold);
-  text-transform: uppercase;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
   cursor: pointer;
-  transition: all 0.1s;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .port-btn:hover:not(:disabled) {
-  background: var(--accent-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .port-btn.active {
-  background: var(--success-bg);
+  background-color: var(--success-bg);
   color: var(--success-fg);
+  box-shadow: none;
 }
 
 .port-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* Collapsible sections — each is a card row with a trailing chevron */
 .container-collapsible {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hair);
 }
 
 .container-collapsible:last-child {
@@ -73,30 +98,35 @@
 .container-collapsible-trigger {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   width: 100%;
-  min-height: 18px;
-  padding: 0;
+  min-height: 32px;
+  padding: 7px 14px;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text);
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--letter-spacing-wider);
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: 0;
   text-align: left;
-  cursor: pointer;
-  transition: color 0.1s ease;
+  cursor: default;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .container-collapsible-trigger:hover {
-  color: var(--text-secondary);
+  color: var(--text);
+  background: var(--hover);
 }
 
 .collapsible-chevron {
   width: 12px;
   height: 12px;
-  transition: transform 0.15s;
+  color: var(--text3);
+  order: 2;
+  margin-left: auto;
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease-quiet);
 }
 
 .collapsible-chevron.open {
@@ -105,14 +135,15 @@
 
 .container-collapsible-content {
   overflow: hidden;
+  border-top: 1px solid var(--hair);
 }
 
 .container-collapsible-content[data-state='open'] {
-  animation: slideDown 0.15s ease-out;
+  animation: slideDown var(--duration-base) var(--ease-quiet);
 }
 
 .container-collapsible-content[data-state='closed'] {
-  animation: slideUp 0.15s ease-out;
+  animation: slideUp var(--duration-base) var(--ease-quiet);
 }
 
 @keyframes slideDown {
@@ -125,41 +156,67 @@
   to { height: 0; opacity: 0; }
 }
 
+/* Requests / limits as key:value chips.  `.resource-item`, `.resource-key`
+   and `.resource-value` are shared names (SmartValue, ResourceSelector), so
+   the chip layout is scoped to this component. */
 .resource-display {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px 0;
+  gap: 6px;
+  padding: 8px 14px 10px;
 }
 
 .resource-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-xs);
-  font-size: var(--font-xxs);
+}
+
+.container-dropdown .resource-display .resource-item {
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  background: var(--card);
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep);
+  font-size: 11px;
+}
+
+.container-dropdown .resource-display .resource-item::after {
+  content: none;
 }
 
 .resource-key {
-  color: var(--text-muted);
+  color: var(--text2);
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
-  font-weight: var(--font-weight-medium);
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .resource-value {
-  font-family: var(--font-sans);
-  color: var(--text-primary);
+  font-family: var(--font-mono);
+  color: var(--text);
 }
 
+.container-dropdown .resource-display .resource-key {
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.container-dropdown .resource-display .resource-value {
+  font-family: var(--font-mono);
+  color: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Env / mounts */
 .env-list,
 .mounts-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 4px 0;
+  gap: 0;
+  padding: 0 0 4px;
   max-height: 320px;
   overflow-y: auto;
 }
@@ -169,113 +226,150 @@
   grid-template-columns: minmax(0, 5fr) minmax(0, 4fr) auto;
   align-items: center;
   gap: 10px;
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
+  padding: 5px 14px;
+  min-height: 28px;
+  border-radius: 0;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
+  font-size: 12px;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .env-item:hover {
-  background: color-mix(in srgb, var(--bg-hover) 60%, transparent);
+  background: var(--hover);
 }
 
 .env-key {
-  color: var(--text-secondary);
+  color: var(--text);
   font-family: var(--font-mono);
-  font-weight: var(--font-weight-normal);
-  font-size: var(--font-xxs);
+  font-weight: 400;
+  font-size: 11px;
   letter-spacing: 0;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
   text-align: left;
   cursor: default;
 }
 
+/* Sticky filter strip; the ::before paints the field on the strip's own surface */
 .env-filter {
   position: sticky;
   top: 0;
+  isolation: isolate;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px;
-  margin-bottom: 4px;
-  background: color-mix(in srgb, var(--bg-secondary) 85%, transparent);
-  backdrop-filter: blur(6px);
-  border-radius: var(--radius-sm);
-  border: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  height: 34px;
+  padding: 6px 22px;
+  margin: 0;
+  background: var(--inset);
+  backdrop-filter: none;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
   z-index: 1;
+}
+
+.env-filter::before {
+  content: '';
+  position: absolute;
+  inset: 6px 14px;
+  background: var(--ctrl);
+  border-radius: 6px;
+  z-index: -1;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.env-filter:focus-within::before {
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .env-filter-icon {
   width: 12px;
   height: 12px;
-  color: var(--text-muted);
+  color: var(--text3);
   flex-shrink: 0;
 }
 
 .env-filter-input {
   flex: 1;
+  height: 22px;
   background: transparent;
   border: none;
   outline: none;
-  font-family: var(--default-font-family, var(--font-sans));
-  font-size: var(--font-xxs);
-  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  color: var(--text);
   min-width: 0;
+  box-shadow: none !important;
 }
 
 .env-filter-input::placeholder {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .env-filter-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text3);
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   line-height: 1;
-  padding: 0 4px;
-  border-radius: var(--radius-xs);
+  padding: 0;
+  border-radius: 4px;
+  flex: none;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.env-filter-clear svg {
+  width: 11px;
+  height: 11px;
 }
 
 .env-filter-clear:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--hover);
 }
 
 .env-show-more {
   align-self: flex-start;
   background: transparent;
-  border: 1px dashed color-mix(in srgb, var(--text-muted) 40%, transparent);
-  color: var(--text-secondary);
-  font-family: var(--default-font-family, var(--font-sans));
-  font-size: var(--font-xxs);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
+  border: 0;
+  color: var(--blue);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  padding: 0;
+  border-radius: 0;
   cursor: pointer;
-  margin: 4px 6px 2px;
-  transition: border-color var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+  margin: 6px 14px 4px;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
 .env-show-more:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: transparent;
+  color: var(--blue-hover);
+  text-decoration: underline;
 }
 
 .env-empty {
-  font-family: var(--default-font-family, var(--font-sans));
-  font-size: var(--font-xxs);
-  color: var(--text-muted);
-  padding: 8px 6px;
-  font-style: italic;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  color: var(--text3);
+  padding: 8px 14px;
+  font-style: normal;
 }
 
 .env-value {
   font-family: var(--font-mono);
-  color: var(--text-primary);
-  font-size: var(--font-xxs);
+  color: var(--text2);
+  font-size: 11px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -287,68 +381,88 @@
 .mount-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px 6px;
-  border-radius: var(--radius-xs);
+  gap: 8px;
+  padding: 5px 14px;
+  min-height: 28px;
+  border-radius: 0;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
+  font-size: 12px;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.mount-item:hover {
+  background: var(--hover);
 }
 
 .mount-name {
-  color: var(--text-muted);
-  font-weight: var(--font-weight-medium);
+  color: var(--text);
+  font-weight: 400;
   min-width: 60px;
-}
-
-.mount-path {
-  flex: 1;
-  font-family: var(--font-mono);
-  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+.mount-path {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+}
+
 .mount-ro {
-  padding: 1px 3px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 5px;
   background: var(--warning-bg);
   color: var(--warning-fg);
-  border-radius: 2px;
+  border-radius: 4px;
   font-family: var(--font-sans);
-  font-size: var(--font-xxxs);
-  font-weight: var(--font-weight-semibold);
+  font-size: 10px;
+  font-weight: 600;
+  flex: none;
 }
 
 .mount-type {
-  color: var(--text-muted);
-  font-family: var(--font-sans);
-  font-size: var(--font-xxxs);
+  color: var(--text3);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  white-space: nowrap;
 }
 
+/* Command */
 .command-block {
-  margin: 0;
-  padding: 6px 0;
+  margin: 8px 14px 10px;
+  padding: 8px 10px;
   font-family: var(--font-mono);
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  border-radius: var(--radius-xs);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--inset);
+  border-radius: 8px;
+  box-shadow: 0 0 0 0.5px var(--sep);
   white-space: pre-wrap;
   word-break: break-all;
-  max-height: 100px;
+  max-height: 120px;
   overflow-y: auto;
 }
 
-/* Termination Status Styles */
+/* Termination status */
 .termination-alert {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 8px;
-  margin-bottom: 6px;
-  border-radius: var(--radius-sm);
+  gap: 8px;
+  padding: 7px 14px;
+  margin: 0;
+  border-radius: 0;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
-  font-weight: var(--font-weight-medium);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .termination-alert svg {
@@ -358,35 +472,35 @@
 }
 
 .termination-alert.oom-killed {
-  background: var(--error-bg);
-  color: var(--error-fg);
-  border: 1px solid var(--error-border);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border: 0;
 }
 
 .termination-alert.error {
   background: var(--warning-bg);
   color: var(--warning-fg);
-  border: 1px solid var(--warning-border);
+  border: 0;
 }
 
 .termination-info {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 
 .termination-info-inline {
-  padding: 2px 0;
+  padding: 0;
 }
 
 .current-termination-details {
-  padding: 4px 0;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--border);
+  padding: 0;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .last-termination-details {
-  padding: 4px 0;
+  padding: 0;
 }
 
 /* Collapsible variants */
@@ -395,10 +509,10 @@
 }
 
 .container-collapsible.collapsible-error .container-collapsible-trigger {
-  color: var(--error-fg);
+  color: var(--danger-fg);
 }
 
 .container-collapsible.collapsible-warning .container-collapsible-trigger:hover,
 .container-collapsible.collapsible-error .container-collapsible-trigger:hover {
-  opacity: 0.8;
+  opacity: 1;
 }

@@ -14,6 +14,7 @@ import {
   PinBottomIcon,
   ClockIcon,
   TextAlignLeftIcon,
+  ExclamationTriangleIcon,
 } from '@radix-ui/react-icons';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLogFeed, ContainerInfo } from './useLogFeed';
@@ -30,12 +31,22 @@ interface LogViewerProps {
 }
 
 const TAIL_OPTIONS = [100, 500, 1000, 2000, 5000, 10000];
-const POD_COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'];
+// System colours via the design tokens; these only ever land in inline styles, so var() is fine.
+const POD_COLORS = [
+  'var(--blue)',
+  'var(--green)',
+  'var(--orange)',
+  'var(--red)',
+  'var(--purple)',
+  'var(--pink)',
+  'var(--teal)',
+  'var(--indigo)',
+];
 const LEVEL_CHIPS: { key: LogLevel; label: string }[] = [
-  { key: 'error', label: 'ERR' },
-  { key: 'warn', label: 'WRN' },
-  { key: 'info', label: 'INF' },
-  { key: 'debug', label: 'DBG' },
+  { key: 'error', label: 'Error' },
+  { key: 'warn', label: 'Warn' },
+  { key: 'info', label: 'Info' },
+  { key: 'debug', label: 'Debug' },
 ];
 
 const PREFS_KEY = 'kanivet.logviewer.prefs';
@@ -561,7 +572,7 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers }
 
       {error && (
         <div className="lv-error">
-          <span>⚠</span>
+          <ExclamationTriangleIcon aria-hidden="true" />
           <span>{error}</span>
         </div>
       )}
@@ -603,6 +614,9 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers }
                           {shortPod(line.pod)}
                         </span>
                       )}
+                      <span className={`lv-level lv-level-${line.level}`} aria-hidden={line.level === 'none'}>
+                        {line.level === 'none' ? '' : line.level}
+                      </span>
                       <span className="lv-text">{renderContent(line, isMatch ? matcher : null)}</span>
                     </div>
                   );

@@ -389,9 +389,9 @@ export const ClusterSelector: React.FC<ClusterSelectorProps> = ({
       <div className="cluster-selector-body">
         <div className="assigned-clusters-section">
           <div className="section-header">
-            <h3>Cluster Groups</h3>
+            <h3>Cluster groups</h3>
             <button
-              className="add-group-btn"
+              className="add-group-btn ap-icon-btn ap-icon-btn--sm"
               onClick={() => setShowNewGroupForm(true)}
               title="Create new group"
             >
@@ -465,13 +465,13 @@ export const ClusterSelector: React.FC<ClusterSelectorProps> = ({
         >
           <div className="section-header">
             <h3>
-              Available Clusters
-              <span className="unassigned-count">
+              Available clusters
+              <span className="unassigned-count ap-badge">
                 {unassignedClusters.length}
               </span>
             </h3>
             <button
-              className={`refresh-clusters-btn ${isRefreshing ? 'refreshing' : ''} ${refreshError ? 'error' : ''}`}
+              className={`refresh-clusters-btn ap-icon-btn ap-icon-btn--sm ${isRefreshing ? 'refreshing' : ''} ${refreshError ? 'error' : ''}`}
               onClick={handleRefresh}
               disabled={isRefreshing || isLoadingClusters}
               title={refreshError || "Refresh kubeconfigs"}

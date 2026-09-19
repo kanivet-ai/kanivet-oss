@@ -15,7 +15,7 @@ export const EfficiencyExplainer: React.FC<EfficiencyExplainerProps> = ({ summar
 
   return (
     <div className="efficiency-explainer-overlay" onClick={onClose}>
-      <div className="efficiency-explainer-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="efficiency-explainer-modal ap-popover" onClick={(e) => e.stopPropagation()}>
         <div className="explainer-header">
           <h2>Understanding Resource Efficiency</h2>
           <button className="close-button" onClick={onClose}>

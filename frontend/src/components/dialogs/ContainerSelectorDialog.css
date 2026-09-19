@@ -1,10 +1,10 @@
+/* Container selector — sheet with a card list of containers. */
 .dialog-overlay {
   position: fixed;
   inset: 0;
-  background-color: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
+  background-color: var(--overlay);
   z-index: 9999;
-  animation: overlayShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  animation: overlayShow var(--duration-base) ease;
 }
 
 .dialog-content {
@@ -12,13 +12,12 @@
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 24px;
-  box-shadow: 0 24px 64px -12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  backdrop-filter: blur(12px);
-  animation: contentShow 150ms cubic-bezier(0.16, 1, 0.3, 1);
+  background-color: var(--win);
+  border: 0;
+  border-radius: 12px;
+  padding: 20px 22px 18px;
+  box-shadow: var(--shadow-window);
+  animation: contentShow var(--duration-base) var(--ease-snap);
   z-index: 10000;
 }
 
@@ -28,128 +27,164 @@
 }
 
 .dialog-title {
-  margin: 0 0 8px 0;
-  font-size: 18px;
+  margin: 0 0 6px 0;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  color: var(--text);
 }
 
 .dialog-description {
-  margin: 0 0 20px 0;
-  font-size: 14px;
-  color: var(--text-secondary);
+  margin: 0 0 14px 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text2);
 }
 
+/* Card of rows */
 .container-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin: 16px 0;
+  gap: 0;
+  margin: 14px 0;
   max-height: 400px;
   overflow-y: auto;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
 }
 
 .container-item {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 12px 16px;
-  background-color: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  transition: all 0.15s ease;
+  padding: 10px 14px;
+  background-color: var(--card);
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  border-radius: 0;
+  cursor: default;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
   text-align: left;
   width: 100%;
+  color: var(--text);
+}
+
+.container-item:last-child {
+  border-bottom: 0;
 }
 
 .container-item:hover:not(.container-disabled) {
-  background-color: var(--bg-hover);
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-  transform: translateY(-1px);
+  background-color: var(--card);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  border-color: var(--hair);
+  transform: none;
 }
 
 .container-item:focus:not(.container-disabled) {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 15%, transparent);
+  border-color: var(--hair);
+  box-shadow: inset 0 0 0 2px rgba(var(--blue-rgb), 0.35);
 }
 
 .container-item:active:not(.container-disabled) {
-  transform: scale(0.99);
+  transform: none;
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
 }
 
 .container-item.container-disabled {
   opacity: 0.5;
   cursor: not-allowed;
-  background-color: color-mix(in srgb, var(--bg-secondary) 50%, transparent);
+  background-color: var(--card);
 }
 
 .container-item.container-disabled .container-name {
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .container-info {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: 4px;
+  margin-bottom: 3px;
+  width: 100%;
 }
 
 .container-name {
-  font-weight: 600;
-  color: var(--text-primary);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text);
 }
 
+/* .ap-badge--solid values */
 .container-type {
-  padding: 2px 6px;
-  background-color: var(--accent);
-  color: white;
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  background-color: var(--blue);
+  color: #fff;
+  border-radius: 5px;
   font-size: 10px;
-  text-transform: uppercase;
+  text-transform: none;
+  letter-spacing: 0;
   font-weight: 600;
+  line-height: 1;
 }
 
 .container-image {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text2);
   word-break: break-all;
 }
 
+/* .ap-badge--danger values */
 .container-state {
-  padding: 2px 6px;
-  background-color: color-mix(in srgb, var(--danger) 15%, transparent);
-  color: var(--danger);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  background-color: var(--danger-bg);
+  color: var(--danger-fg);
+  border-radius: 5px;
   font-size: 10px;
   font-weight: 600;
+  line-height: 1;
   margin-left: auto;
 }
 
 .dialog-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 10px;
-  margin-top: 20px;
+  gap: 8px;
+  margin-top: 16px;
 }
 
+/* .ap-btn values */
 .dialog-button {
-  padding: 6px 16px;
-  border-radius: 4px;
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  min-width: 76px;
+  padding: 0 14px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .dialog-cancel-button {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
+  background-color: var(--card);
+  border: 0;
+  color: var(--text);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .dialog-cancel-button:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 @keyframes overlayShow {
@@ -164,7 +199,7 @@
 @keyframes contentShow {
   from {
     opacity: 0;
-    transform: translate(-50%, -48%) scale(0.96);
+    transform: translate(-50%, -50%) scale(0.96);
   }
   to {
     opacity: 1;

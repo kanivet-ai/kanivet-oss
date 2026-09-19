@@ -1,52 +1,90 @@
+/* "Last calculated" badge (header) + tooltip body. */
 .last-calculated-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 5px 10px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-  cursor: help;
-  transition: all 0.15s ease;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text2);
+  cursor: default;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .last-calculated-badge:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
+  background: var(--ctrl2);
+  border-color: transparent;
 }
 
 .last-calculated-badge svg {
-  width: 13px;
-  height: 13px;
+  width: 11px;
+  height: 11px;
   flex-shrink: 0;
 }
 
 .last-calculated-badge.fresh {
-  border-color: color-mix(in srgb, var(--success) 30%, var(--border));
-  color: var(--success);
+  border-color: transparent;
+  color: var(--text2);
+}
+
+.last-calculated-badge.fresh svg {
+  color: var(--green);
 }
 
 .last-calculated-badge.aging {
-  border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
-  color: var(--warning);
+  border-color: transparent;
+  color: var(--text2);
+}
+
+.last-calculated-badge.aging svg {
+  color: var(--orange);
 }
 
 .last-calculated-badge.stale {
-  border-color: color-mix(in srgb, var(--danger) 30%, var(--border));
-  color: var(--danger);
+  border-color: transparent;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.last-calculated-badge.stale svg {
+  color: var(--danger-fg);
 }
 
 .calc-time {
-  font-weight: 500;
-  font-family: var(--font-mono);
+  font-weight: 600;
+  font-family: var(--font-sans);
 }
 
 .calc-cache {
-  color: var(--text-muted);
-  font-size: 10px;
+  color: var(--text3);
+  font-size: 11px;
   padding-left: 6px;
-  border-left: 1px solid var(--border);
+  border-left: 1px solid var(--sep);
 }
 
+.last-calculated-badge.stale .calc-cache {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.calc-tooltip strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.calc-tooltip-row {
+  font-size: 11px;
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.calc-tooltip-muted {
+  color: var(--text3);
+}

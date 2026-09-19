@@ -428,7 +428,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
       <div className="argo-apps-toolbar">
         <input
           ref={searchRef}
-          className="argo-apps-search"
+          className="argo-apps-search ap-input"
           placeholder="/ to search by name, namespace, project, repo…"
           value={persisted.search}
           onChange={(e) => updateState({ search: e.target.value })}
@@ -443,7 +443,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
         )}
         <div className="argo-apps-control">
           <label>Group</label>
-          <select value={persisted.groupBy} onChange={(e) => updateState({ groupBy: e.target.value as GroupBy, collapsedGroups: [] })}>
+          <select className="ap-select" value={persisted.groupBy} onChange={(e) => updateState({ groupBy: e.target.value as GroupBy, collapsedGroups: [] })}>
             <option value="health">Health</option>
             <option value="sync">Sync</option>
             <option value="project">Project</option>
@@ -452,7 +452,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
             <option value="none">None</option>
           </select>
         </div>
-        <div className="argo-apps-control argo-apps-density">
+        <div className="argo-apps-control argo-apps-density ap-segmented ap-segmented--sm">
           <button className={persisted.density === 'compact' ? 'active' : ''} onClick={() => updateState({ density: 'compact' })} title="Compact rows">Compact</button>
           <button className={persisted.density === 'cozy' ? 'active' : ''} onClick={() => updateState({ density: 'cozy' })} title="Cozy rows">Cozy</button>
         </div>
@@ -546,7 +546,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
       </div>
 
       {contextMenu && (
-        <div className="argo-apps-ctx-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
+        <div className="argo-apps-ctx-menu ap-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
           <button onClick={() => { openApp(contextMenu.entry); setContextMenu(null); }}>Open</button>
           <button onClick={() => { runSync([contextMenu.entry]); setContextMenu(null); }}>Sync</button>
           <button onClick={() => { runSync([contextMenu.entry], { prune: true }); setContextMenu(null); }}>Sync + Prune</button>

@@ -1,9 +1,9 @@
-/* Owner Link Styles */
+/* Owner Link Styles — inline blue link button */
 
 .owner-link {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--blue);
   cursor: pointer;
   font-size: inherit;
   font-weight: 500;
@@ -11,21 +11,21 @@
   padding: 0;
   margin: 0;
   text-align: left;
-  transition: color 0.2s;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
 .owner-link:hover {
-  color: var(--accent-hover);
+  color: var(--blue-hover);
   text-decoration: underline;
 }
 
 .owner-link:active {
-  color: var(--accent);
+  color: var(--blue);
 }
 
 .owner-text {
-  color: var(--text-secondary);
-  font-weight: 500;
+  color: var(--text2);
+  font-weight: 400;
 }
 
 /* Focus state for accessibility */
@@ -38,15 +38,15 @@
   user-select: none;
 }
 
-/* Theme-specific adjustments */
+/* Theme-specific adjustments (tokens already flip; kept for compatibility) */
 [data-theme='light'] .owner-link {
-  color: var(--accent);
+  color: var(--blue);
 }
 
 [data-theme='light'] .owner-link:hover {
-  color: var(--accent-hover);
+  color: var(--blue-hover);
 }
 
 [data-theme='light'] .owner-text {
-  color: var(--text-secondary);
+  color: var(--text2);
 }

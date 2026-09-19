@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-primary);
+  background: var(--win);
   min-width: 0;
   overflow: auto;
 }
@@ -11,9 +11,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-primary);
-  background: var(--bg-secondary);
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--win);
   flex-shrink: 0;
   min-width: 0;
   gap: 8px;
@@ -28,90 +28,99 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-md);
-  color: var(--text-primary);
+  font-size: 13px;
+  color: var(--text);
   flex: 1;
   min-width: 0;
   overflow: hidden;
 }
 
 .tab-content-kind {
-  font-weight: var(--font-weight-semibold);
-  color: var(--text-secondary);
+  font-weight: 400;
+  color: var(--text2);
   flex-shrink: 0;
 }
 
 .tab-content-name {
-  font-weight: var(--font-weight-medium);
-  color: var(--text-primary);
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Compact toolbar actions (Logs · Edit · Shell · Trace · Pin) */
 .tab-content-actions {
   display: flex;
-  gap: 8px;
+  gap: 6px;
   align-items: center;
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 
-.tab-content-action-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s;
-}
-
-.tab-content-action-btn:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-}
-
-.tab-content-action-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-.tab-content-action-btn svg {
-  width: 16px;
-  height: 16px;
-}
-
+.tab-content-action-btn,
 .pin-detail-btn {
-  display: flex;
+  display: inline-flex;
+  flex-direction: row;
   align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
+  gap: 5px;
+  width: auto;
+  height: 26px;
+  padding: 0 9px 0 7px;
+  border: 0;
+  border-radius: 6px;
+  background-color: var(--card);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  border-radius: 4px;
-  transition: all 0.2s;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet), opacity var(--duration-fast) var(--ease-quiet);
 }
 
+.tab-content-action-btn:hover:not(:disabled),
 .pin-detail-btn:hover:not(:disabled) {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  color: var(--text);
 }
 
+.tab-content-action-btn:disabled,
 .pin-detail-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
 
+.tab-content-action-btn svg,
 .pin-detail-btn svg {
-  width: 16px;
-  height: 16px;
+  width: 13px;
+  height: 13px;
+}
+
+.tab-content-action-btn .ap-action-icon,
+.pin-detail-btn .ap-action-icon {
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  background: transparent;
+  color: var(--blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.pin-detail-btn .ap-action-icon {
+  color: var(--text2);
+}
+
+.tab-content-action-btn .ap-action-label,
+.pin-detail-btn .ap-action-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 .tab-content-body {
@@ -130,14 +139,15 @@
   min-height: 0;
 }
 
-/* Mode-specific styles */
+/* Center-pane mode: content sits on the main surface */
 .tab-content-center {
-  border: 1px solid var(--border-primary);
-  border-radius: 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--win);
 }
 
 .tab-content-center .tab-content-header {
-  border-radius: 4px 4px 0 0;
+  border-radius: 0;
 }
 
 .tab-content-header::-webkit-scrollbar {
@@ -149,11 +159,10 @@
 }
 
 .tab-content-header::-webkit-scrollbar-thumb {
-  background: var(--border-primary);
+  background: var(--ctrl2);
   border-radius: 2px;
 }
 
-/* Deleted resource state */
 .tab-content-deleted {
   opacity: 0.7;
 }
@@ -162,20 +171,19 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 16px;
-  background: var(--danger-bg, rgba(239, 68, 68, 0.15));
-  border-bottom: 1px solid var(--danger-border, rgba(239, 68, 68, 0.3));
-  color: var(--danger-text, #ef4444);
-  font-size: var(--font-base);
-  font-weight: var(--font-weight-medium);
+  padding: 7px 14px;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--hair);
+  color: var(--danger-fg);
+  font-size: 12.5px;
+  font-weight: 500;
   flex-shrink: 0;
 }
 
 .tab-content-deleted-banner .deleted-icon {
-  font-size: 14px;
+  font-size: 13px;
 }
 
-/* View Content */
 .view-content-root {
   display: flex;
   flex-direction: column;

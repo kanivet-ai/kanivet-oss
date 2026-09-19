@@ -145,22 +145,25 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
       id: 'dark',
       name: 'Default (Dark)',
       type: 'built-in' as const,
+      // Swatch preview data: the dark appearance's --content / --win / --text / --blue.
+      // Literal on purpose so the preview shows this theme's colours whichever theme is active.
       colors: {
-        primary: '#1e1e1e',
-        secondary: '#252526',
-        text: '#cccccc',
-        accent: '#007acc',
+        primary: '#1e1e20',
+        secondary: '#28282b',
+        text: '#f5f5f7',
+        accent: '#0a84ff',
       },
     },
     {
       id: 'light',
       name: 'Default (Light)',
       type: 'built-in' as const,
+      // Swatch preview data: the light appearance's --content / --win / --text / --blue.
       colors: {
         primary: '#ffffff',
-        secondary: '#f3f3f3',
-        text: '#333333',
-        accent: '#0066cc',
+        secondary: '#f5f5f7',
+        text: '#1d1d1f',
+        accent: '#007aff',
       },
     },
     ...customThemes.map((t) => ({
@@ -197,7 +200,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
       <div className="theme-header">
         <h3>Theme</h3>
         <button
-          className="browse-themes-btn"
+          className="browse-themes-btn ap-btn ap-btn--sm"
           onClick={() => setShowThemeBrowser(true)}
           title="Browse themes from marketplace"
         >
@@ -206,12 +209,12 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
         </button>
       </div>
 
-      <div className="current-theme-indicator">
-        <span className="current-theme-label">Active:</span>
-        <span className="current-theme-name">{getCurrentThemeName()}</span>
+      <div className="current-theme-indicator ap-card ap-card-row">
+        <span className="current-theme-label">Active</span>
+        <span className="current-theme-name ap-card-row-value">{getCurrentThemeName()}</span>
       </div>
 
-      <div className="theme-list-compact">
+      <div className="theme-list-compact ap-card">
         {allThemes.map((themeItem) => {
           const isActive =
             themeItem.type === 'built-in'
@@ -276,7 +279,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
       {isDev && onOpenComponentLibrary && (
         <div className="dev-section">
           <button
-            className="component-library-btn"
+            className="component-library-btn ap-btn"
             onClick={onOpenComponentLibrary}
             title="Browse component library"
           >
@@ -293,10 +296,10 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
             <p>Are you sure you want to delete "{deleteConfirmTheme}"?</p>
             <p className="delete-warning">This action cannot be undone.</p>
             <div className="delete-confirm-actions">
-              <button className="btn-cancel" onClick={cancelDeleteTheme}>
+              <button className="btn-cancel ap-btn" onClick={cancelDeleteTheme}>
                 Cancel
               </button>
-              <button className="btn-delete" onClick={confirmDeleteTheme}>
+              <button className="btn-delete ap-btn ap-btn--danger" onClick={confirmDeleteTheme}>
                 <TrashIcon />
                 Delete
               </button>
@@ -413,7 +416,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
                   {totalPages > 1 && (
                     <div className="theme-pagination">
                       <button
-                        className="pagination-btn"
+                        className="pagination-btn ap-btn ap-btn--sm"
                         onClick={() =>
                           setCurrentPage((prev) => Math.max(1, prev - 1))
                         }
@@ -425,7 +428,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
                         Page {currentPage} of {totalPages}
                       </span>
                       <button
-                        className="pagination-btn"
+                        className="pagination-btn ap-btn ap-btn--sm"
                         onClick={() =>
                           setCurrentPage((prev) =>
                             Math.min(totalPages, prev + 1),
@@ -446,7 +449,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({
                   Selected: <strong>{selectedTheme.displayName}</strong>
                 </div>
                 <button
-                  className="load-theme-btn"
+                  className="load-theme-btn ap-btn ap-btn--primary"
                   onClick={() => loadTheme(selectedTheme)}
                   disabled={loadingSelectedTheme}
                 >

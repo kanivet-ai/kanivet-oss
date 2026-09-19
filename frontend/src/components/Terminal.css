@@ -1,3 +1,4 @@
+/* Local terminal instance (dock / centre pane). Body on --content. */
 .terminal-instance {
   width: 100%;
   height: 100%;
@@ -5,13 +6,14 @@
   flex-direction: column;
   overflow: hidden;
   position: relative;
+  background: var(--content);
 }
 
 .terminal-container {
   width: 100%;
   height: 100%;
   flex: 1;
-  background: #1e1e1e;
+  background: var(--content);
   padding: 8px;
   overflow: hidden;
   display: flex;
@@ -49,6 +51,32 @@
 .terminal-container .xterm-screen {
   height: 100%;
   width: 100%;
+}
+
+/* Transient overlays */
+.terminal-error-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  pointer-events: none;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: 11.5px;
+  font-family: var(--font-sans);
+}
+
+.terminal-connecting {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  color: var(--text3);
+  font-size: 12.5px;
+  font-family: var(--font-sans);
 }
 
 /* Ensure proper sizing in split panes */

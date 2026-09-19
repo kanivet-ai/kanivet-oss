@@ -1,79 +1,89 @@
+/* ConfigMap — filter row, then one entry per key (header row + inset editor), hairline-separated. */
 .configmap-search {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px var(--property-padding-x);
-  margin-bottom: 2px;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .configmap-search svg {
-  width: 10px;
-  height: 10px;
-  color: var(--text-muted);
+  width: 12px;
+  height: 12px;
+  color: var(--text3);
   flex-shrink: 0;
 }
 
 .configmap-search input {
   flex: 1;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 2px 6px;
-  font-size: var(--font-xxs);
-  color: var(--text-primary);
+  min-width: 0;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text);
   outline: none;
-  transition: border-color 0.1s;
-  height: 22px;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+  height: 24px;
 }
 
 .configmap-search input:focus {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .configmap-search input::placeholder {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .configmap-entries {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 0 var(--property-padding-x);
+  gap: 0;
+  padding: 0;
 }
 
 .configmap-entry {
-  background: var(--bg-subtle);
-  border-radius: 2px;
+  background: transparent;
+  border-radius: 0;
   overflow: hidden;
+  border-bottom: 1px solid var(--hair);
+}
+
+.configmap-entry:last-child {
+  border-bottom: 0;
 }
 
 .configmap-entry-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 6px;
-  min-height: 22px;
+  gap: 12px;
+  padding: 8px 14px;
+  min-height: 36px;
 }
 
 .configmap-entry-key {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
   flex: 1;
 }
 
 .configmap-entry-key .binary-icon {
-  width: 10px;
-  height: 10px;
-  color: var(--text-muted);
+  width: 12px;
+  height: 12px;
+  color: var(--text3);
   flex-shrink: 0;
 }
 
 .configmap-entry-key .key-name {
-  font-size: var(--font-xxs);
+  font-family: var(--font-mono);
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -82,85 +92,104 @@
 .configmap-entry-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .entry-size {
-  font-size: var(--font-xxxs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Value area sits on the inset surface, separated from the header by a hairline */
 .configmap-entry-value {
-  padding: 0 6px 4px;
+  padding: 0;
+  background: var(--inset);
+  border-top: 1px solid var(--hair);
 }
 
 .configmap-entry-value.monaco-wrapper {
-  background: transparent;
+  background: var(--inset);
   padding: 0;
-  border: none;
+  border: 0;
+  border-top: 1px solid var(--hair);
 }
 
 .clickable-editor {
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
   position: relative;
 }
 
 .clickable-editor:hover {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 1px var(--accent);
+  box-shadow: inset 0 0 0 1px rgba(var(--blue-rgb), 0.45);
 }
 
 .clickable-editor:hover::after {
   content: 'Click to edit';
   position: absolute;
-  top: 4px;
+  top: 6px;
   right: 8px;
-  background: var(--accent);
-  color: white;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: var(--font-xxs);
+  height: 20px;
+  line-height: 20px;
+  background: var(--blue);
+  color: #fff;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 11px;
   font-weight: 500;
   pointer-events: none;
   z-index: 10;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .expand-toggle-btn {
-  padding: 2px 8px;
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text2);
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 5px;
   cursor: pointer;
-  transition: all 0.15s ease;
+  white-space: nowrap;
+  box-shadow: none;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .expand-toggle-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--accent);
+  background: var(--ctrl2);
+  color: var(--text);
+  background-image: none;
 }
 
 .entry-lines {
-  font-size: var(--font-xxxs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .format-badge.format-secondary {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  padding: 2px 6px;
-  border-radius: 3px;
-  font-size: var(--font-xxs);
-  font-weight: 500;
+  background: var(--ctrl);
+  color: var(--text2);
+  padding: 0 7px;
+  height: 18px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .configmap-entries .no-results {
-  padding: 8px;
+  padding: 14px;
   text-align: center;
-  color: var(--text-muted);
-  font-size: var(--font-xxs);
+  color: var(--text2);
+  font-size: 12.5px;
 }

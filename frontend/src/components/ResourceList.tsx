@@ -896,7 +896,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
         {allCenterTabs.length === 0 ? (
           <div
             className="resource-list-tab-content"
-            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-secondary)' }}
+            style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text2)' }}
             onDragOver={(e) => {
               if (e.dataTransfer.types.includes('tab-type')) {
                 e.preventDefault();
@@ -924,7 +924,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             <div style={{ textAlign: 'center' }}>
               <div style={{ marginBottom: '8px' }}>No tabs open in this pane</div>
               <div style={{ fontSize: '12px', marginBottom: '4px' }}>Select a resource from the sidebar to open a tab</div>
-              <div style={{ fontSize: '12px', color: 'var(--text-tertiary)' }}>Or drag tabs here from other panes</div>
+              <div style={{ fontSize: '12px', color: 'var(--text3)' }}>Or drag tabs here from other panes</div>
             </div>
           </div>
         ) : (
@@ -974,7 +974,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             right: 0,
             bottom: 0,
             zIndex: 10,
-            backgroundColor: 'var(--bg-primary)',
+            backgroundColor: 'var(--content)',
             overflow: 'auto',
           }}
         >

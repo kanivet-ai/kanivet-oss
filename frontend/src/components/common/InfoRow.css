@@ -2,30 +2,32 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  background: var(--bg-subtle);
-  font-size: var(--font-xxs);
-  min-height: 20px;
-  margin-bottom: 1px;
+  gap: 12px;
+  padding: 7px 14px;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12.5px;
+  min-height: 32px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .info-row:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .info-row:last-child {
   margin-bottom: 0;
+  border-bottom: 0;
 }
 
 .info-label {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: var(--font-xxs);
-  font-weight: 500;
-  color: var(--text-muted);
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text);
   flex-shrink: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -35,28 +37,28 @@
 .info-label-icon {
   display: flex;
   align-items: center;
-  color: var(--text-muted);
-  opacity: 0.7;
+  color: var(--text3);
 }
 
 .info-label-icon svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 .info-value {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 3px;
+  gap: 4px;
   margin-left: auto;
   min-width: 0;
   max-width: 60%;
   flex-shrink: 1;
-  color: var(--text-primary);
+  color: var(--text2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .info-value-text {
@@ -66,27 +68,29 @@
 }
 
 .info-row-complex {
-  padding: 2px 0;
-  margin-bottom: 2px;
+  padding: 7px 14px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .info-row-complex:last-child {
   margin-bottom: 0;
+  border-bottom: 0;
 }
 
 .info-label-complex {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: var(--font-xxs);
-  font-weight: 500;
-  color: var(--text-muted);
-  margin-bottom: 3px;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text);
+  margin-bottom: 4px;
 }
 
 .info-value-complex {
-  color: var(--text-primary);
-  padding-left: 6px;
-  border-left: 1px solid var(--border);
-  width: calc(100% - 6px);
+  color: var(--text2);
+  padding-left: 10px;
+  border-left: 1px solid var(--hair);
+  width: calc(100% - 10px);
 }

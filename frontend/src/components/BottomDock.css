@@ -1,41 +1,56 @@
+/* Console dock — window-chrome header with a segmented tab control, content on the main surface. */
 .bottom-dock {
   display: flex;
   flex-direction: column;
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border);
+  background: var(--content);
+  border-top: 1px solid var(--sep);
   position: relative;
   flex-shrink: 0;
   z-index: 5;
-  box-shadow: 0 -2px 8px var(--shadow-md, rgba(0, 0, 0, 0.2));
+  box-shadow: none;
   min-height: 200px;
 }
 
 .bottom-dock-header {
   display: flex;
   align-items: center;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
-  padding-right: 8px;
+  gap: 10px;
+  background: var(--win);
+  border-bottom: 1px solid var(--hair);
+  padding: 0 8px 0 10px;
   flex-shrink: 0;
-  height: 38px;
-  min-height: 38px;
+  height: 36px;
+  min-height: 36px;
   box-sizing: border-box;
 }
 
+/* Segmented control track */
 .bottom-dock-tabs {
-  flex: 1;
-  display: flex;
+  flex: 0 1 auto;
+  display: inline-flex;
   align-items: center;
+  gap: 1px;
+  padding: 2px;
+  background: var(--ctrl);
+  border-radius: 7px;
   overflow-x: auto;
-  padding: 0;
+  overflow-y: hidden;
+  scrollbar-width: none;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.bottom-dock-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .bottom-dock-tab-wrapper {
   position: relative;
   display: flex;
   align-items: center;
-  border-right: 1px solid var(--border);
-  cursor: grab;
+  border-right: 0;
+  cursor: default;
+  flex: none;
 }
 
 .bottom-dock-tab-wrapper:active {
@@ -49,102 +64,122 @@
 .bottom-dock-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 32px 8px 12px;
+  gap: 6px;
+  height: 22px;
+  padding: 0 24px 0 9px;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: all 0.2s;
-  min-width: 120px;
+  border-radius: 5px;
+  color: var(--text2);
+  cursor: default;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
+  min-width: 0;
+  max-width: 240px;
   white-space: nowrap;
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
 .bottom-dock-tab:hover {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+  background: transparent;
+  color: var(--text);
 }
 
 .bottom-dock-tab[data-state='active'] {
-  background: var(--bg-primary);
-  color: var(--text-primary);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-pill);
 }
 
 .bottom-dock-tab-wrapper:has(.bottom-dock-tab[data-state='active']) {
-  border-bottom: 2px solid var(--accent);
+  border-bottom: 0;
 }
 
 .tab-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: inherit;
+  color: var(--text3);
+}
+
+.bottom-dock-tab[data-state='active'] .tab-icon {
+  color: var(--blue);
 }
 
 .tab-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .tab-title {
-  font-size: var(--font-base);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .tab-close {
   position: absolute;
-  right: 8px;
+  right: 5px;
   top: 50%;
   transform: translateY(-50%);
-  padding: 4px;
+  width: 16px;
+  height: 16px;
+  padding: 0;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text3);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.7;
-  transition: all 0.2s;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-quiet), background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
   z-index: 1;
-  border-radius: 3px;
+  border-radius: 4px;
+}
+
+.bottom-dock-tab-wrapper:hover .tab-close,
+.bottom-dock-tab-wrapper:has(.bottom-dock-tab[data-state='active']) .tab-close {
+  opacity: 1;
 }
 
 .tab-close:hover {
   opacity: 1;
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--ctrl2);
 }
 
 .tab-close svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 .dock-close-all {
-  padding: 6px 10px;
+  margin-left: auto;
+  width: 24px;
+  height: 24px;
+  padding: 0;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text2);
   cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  opacity: 0.7;
-  transition: all 0.2s;
-  border-radius: 4px;
+  opacity: 1;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+  border-radius: 5px;
+  flex: none;
 }
 
 .dock-close-all:hover {
-  opacity: 1;
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--hover);
 }
 
 .dock-close-all svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .bottom-dock-contents {
@@ -154,6 +189,7 @@
   overflow: hidden;
   min-height: 0;
   position: relative;
+  background: var(--content);
 }
 
 .bottom-dock-content {
@@ -190,7 +226,6 @@
   box-sizing: border-box;
 }
 
-/* Fix Monaco editor scrolling in bottom dock */
 .bottom-dock-content-edit {
   display: flex;
   flex-direction: column;
@@ -198,7 +233,7 @@
   overflow: hidden;
 }
 
-/* Resize handle for the bottom dock */
+/* Resize handle — the top edge itself */
 .bottom-dock-resize-handle {
   position: absolute;
   top: -4px;
@@ -208,73 +243,72 @@
   cursor: row-resize;
   background: transparent;
   z-index: 1000;
-  transition: background 0.2s;
+  transition: none;
   user-select: none;
 }
 
 .bottom-dock-resize-handle:hover {
-  background: rgba(var(--accent-rgb), 0.1);
+  background: transparent;
 }
 
 .bottom-dock-resize-handle:active {
-  background: rgba(var(--accent-rgb), 0.2);
+  background: transparent;
 }
 
 .bottom-dock-resize-handle:focus {
-  /* Focus handled by global styles */
 }
 
 .bottom-dock-resize-handle::before {
   content: '';
   position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 30px;
-  height: 4px;
-  background: var(--bg-tertiary);
-  border-radius: 2px;
-  transition: all 0.2s;
+  top: 3px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  width: auto;
+  transform: none;
+  background: transparent;
+  border-radius: 0;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .bottom-dock-resize-handle:hover::before {
-  background: var(--accent);
-  width: 50px;
+  background: var(--sep);
+  width: auto;
 }
 
-/* Visual feedback during resize */
 body.resizing-height .bottom-dock {
-  opacity: 0.95;
+  opacity: 1;
 }
 
 body.resizing-height .bottom-dock-resize-handle {
-  background: rgba(var(--accent-rgb), 0.2);
+  background: transparent;
 }
 
 body.resizing-height .bottom-dock-resize-handle::before {
   opacity: 1;
-  background: var(--accent);
+  background: var(--blue);
 }
 
-/* Drop zone for returning tabs to bottom */
+/* Drop zone for returning tabs */
 .bottom-dock-drop-zone {
   position: fixed;
   bottom: 0;
   left: 0;
   right: 0;
   height: 80px;
-  background: var(--warning-bg, rgba(245, 158, 11, 0.05));
-  border-top: 2px dashed var(--warning-border, rgba(245, 158, 11, 0.3));
+  background: var(--sel-soft);
+  border-top: 2px dashed rgba(var(--blue-rgb), 0.45);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 100;
-  transition: all 0.2s;
+  transition: background var(--duration-fast) var(--ease-quiet), border-color var(--duration-fast) var(--ease-quiet);
 }
 
 .bottom-dock-drop-zone.drag-over {
-  background: var(--warning-bg-hover, rgba(245, 158, 11, 0.15));
-  border-top-color: var(--warning-border-hover, rgba(245, 158, 11, 0.8));
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+  border-top-color: var(--blue);
 }
 
 .drop-zone-content {
@@ -284,12 +318,11 @@ body.resizing-height .bottom-dock-resize-handle::before {
 }
 
 .drop-zone-text {
-  font-size: var(--font-base);
-  color: var(--warning-fg, rgba(245, 158, 11, 0.8));
+  font-size: 12.5px;
+  color: var(--blue);
   font-weight: 500;
 }
 
-/* Visual feedback when dragging over bottom dock */
 .bottom-dock.drag-over {
   position: relative;
 }
@@ -298,7 +331,7 @@ body.resizing-height .bottom-dock-resize-handle::before {
   content: '';
   position: absolute;
   inset: 0;
-  background: var(--warning-bg, rgba(245, 158, 11, 0.05));
+  background: var(--sel-soft);
   pointer-events: none;
 }
 
@@ -306,6 +339,6 @@ body.resizing-height .bottom-dock-resize-handle::before {
   content: '';
   position: absolute;
   inset: 0;
-  border: 2px solid var(--warning-border-medium, rgba(245, 158, 11, 0.5));
+  border: 2px solid var(--blue);
   pointer-events: none;
 }

@@ -1,3 +1,8 @@
+/*
+  Helm release — code entries (values / manifest / notes) as header row + inset editor,
+  history rows as card rows (shared rules live in DetailView.css). The legacy
+  standalone layout selectors below are kept and brought onto the same tokens.
+*/
 .helm-detail-scroll {
   height: 100%;
   overflow: hidden;
@@ -9,7 +14,8 @@
 }
 
 .helm-detail-view {
-  padding: 16px;
+  padding: 14px;
+  background: var(--win);
 }
 
 .helm-detail-loading,
@@ -20,7 +26,8 @@
   justify-content: center;
   gap: 12px;
   height: 100%;
-  color: var(--text-secondary);
+  color: var(--text2);
+  font-size: 12.5px;
 }
 
 .helm-detail-loading .spin {
@@ -31,9 +38,9 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--hair);
 }
 
 .helm-detail-identity {
@@ -45,7 +52,7 @@
 .helm-detail-icon {
   width: 32px;
   height: 32px;
-  color: var(--accent);
+  color: var(--blue);
   flex-shrink: 0;
 }
 
@@ -54,51 +61,56 @@
   align-items: center;
   gap: 8px;
   margin: 0;
-  font-size: var(--font-xl);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  color: var(--text);
 }
 
 .helm-detail-namespace {
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
+  color: var(--text2);
+  font-size: 12px;
 }
 
 .helm-detail-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
 }
 
 .helm-status-badge.large {
-  padding: 4px 12px;
-  font-size: var(--font-xxs);
+  height: 20px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  border-radius: 5px;
 }
 
 .helm-status-badge.small {
-  padding: 2px 6px;
-  font-size: var(--font-xxs);
+  height: 18px;
+  padding: 0 7px;
+  font-size: 11px;
+  border-radius: 5px;
 }
 
 .helm-action-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 6px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  background: transparent;
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-action-btn:hover {
-  background: var(--danger);
-  border-color: var(--danger);
-  color: white;
+  background: var(--danger-bg);
+  border-color: transparent;
+  color: var(--red);
 }
 
 .helm-detail-tabs {
@@ -106,37 +118,45 @@
   flex-direction: column;
 }
 
+/* Legacy tab strip → segmented control */
 .helm-tabs-list {
-  display: flex;
-  gap: 4px;
-  padding: 0;
-  margin-bottom: 16px;
-  border-bottom: 1px solid var(--border);
+  display: inline-flex;
+  gap: 1px;
+  padding: 2px;
+  margin-bottom: 14px;
+  background: var(--ctrl);
+  border-radius: 7px;
+  border-bottom: 0;
 }
 
 .helm-tab-trigger {
-  display: flex;
+  display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 10px 14px;
+  min-height: 22px;
+  padding: 0 10px;
   border: none;
-  border-bottom: 2px solid transparent;
+  border-bottom: 0;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
+  color: var(--text2);
+  font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-tab-trigger:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: transparent;
 }
 
 .helm-tab-trigger[data-state="active"] {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text);
+  background: var(--card);
+  border-bottom-color: transparent;
+  box-shadow: var(--shadow-pill);
 }
 
 .helm-tab-trigger svg {
@@ -145,12 +165,13 @@
 }
 
 .tab-count {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  padding: 2px 6px;
-  border-radius: 8px;
-  font-size: var(--font-xxs);
+  background: transparent;
+  color: var(--text3);
+  padding: 0;
+  border-radius: 0;
+  font-size: 11px;
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .helm-tab-content {
@@ -158,116 +179,140 @@
 }
 
 .helm-info-section {
-  margin-bottom: 24px;
+  margin-bottom: 14px;
 }
 
 .helm-info-section h3 {
-  margin: 0 0 12px 0;
-  font-size: var(--font-xs);
+  margin: 0 0 6px 0;
+  padding: 0 14px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
 .info-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .helm-resources-section h3 {
-  margin: 0 0 12px 0;
-  font-size: var(--font-xs);
+  margin: 0 0 6px 0;
+  padding: 0 14px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
 .helm-resources-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 0;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 
 .helm-resource-item {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  padding: 7px 14px;
+  min-height: 30px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  border-radius: 0;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.helm-resource-item:last-child {
+  border-bottom: 0;
 }
 
 .helm-resource-item:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
+  background: var(--hover);
+  border-color: var(--hair);
 }
 
 .helm-resource-item .resource-kind {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: var(--font-xs);
-  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  background: var(--ctrl);
+  color: var(--text2);
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
   min-width: 100px;
   text-align: center;
 }
 
 .helm-resource-item .resource-name {
   flex: 1;
-  color: var(--text-primary);
-  font-weight: 500;
+  color: var(--text);
+  font-weight: 400;
+  font-size: 12.5px;
 }
 
 .helm-resource-item .resource-namespace {
-  color: var(--text-muted);
-  font-size: var(--font-xxs);
+  color: var(--text3);
+  font-size: 11.5px;
 }
 
 .helm-empty-state {
-  color: var(--text-muted);
+  color: var(--text2);
   text-align: center;
-  padding: 40px;
+  padding: 24px;
+  font-size: 12.5px;
 }
 
 .helm-history-section h3 {
-  margin: 0 0 12px 0;
-  font-size: var(--font-xs);
+  margin: 0 0 6px 0;
+  padding: 0 14px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
+/* Legacy history table → table recipe */
 .helm-history-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-xxs);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .helm-history-table th {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  padding: 10px 12px;
+  background: transparent;
+  border-bottom: 1px solid var(--hair);
+  height: 26px;
+  padding: 0 14px;
   text-align: left;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text2);
 }
 
 .helm-history-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-primary);
+  height: 30px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--hair);
+  color: var(--text);
 }
 
 .helm-history-table tr.current {
-  background: var(--bg-active);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
 }
 
 .revision-cell {
@@ -278,18 +323,23 @@
 }
 
 .current-badge {
-  background: var(--accent);
-  color: var(--bg-primary);
-  padding: 2px 6px;
-  border-radius: 4px;
-  font-size: var(--font-xxxs);
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  background: var(--success-bg);
+  color: var(--success-fg);
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
+  text-transform: none;
+  letter-spacing: 0;
+  white-space: nowrap;
 }
 
 .chart-cell {
   font-family: var(--font-mono);
-  font-size: var(--font-xs);
+  font-size: 11.5px;
 }
 
 .description-cell {
@@ -297,28 +347,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .rollback-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .rollback-btn:hover {
-  background: var(--warning);
-  border-color: var(--warning);
-  color: white;
+  background: var(--warning-bg);
+  border-color: transparent;
+  color: var(--orange);
 }
 
 .helm-values-section,
@@ -331,60 +381,65 @@
 .helm-values-section h3,
 .helm-manifest-section h3,
 .helm-notes-section h3 {
-  margin: 0 0 12px 0;
-  font-size: var(--font-xs);
+  margin: 0 0 6px 0;
+  padding: 0 14px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
+/* Code entry: header row + editor */
 .helm-code-entry {
-  background: var(--bg-subtle);
-  border-radius: 2px;
+  background: transparent;
+  border-radius: 0;
   overflow: hidden;
-  padding: 0 var(--property-padding-x);
+  padding: 0;
 }
 
 .helm-code-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 6px;
-  min-height: 22px;
+  gap: 12px;
+  padding: 8px 14px;
+  min-height: 36px;
 }
 
 .helm-code-key-info {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
   flex: 1;
 }
 
 .helm-expand-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 22px;
+  height: 22px;
   background: transparent;
   border: none;
-  color: var(--text-secondary);
+  border-radius: 5px;
+  color: var(--text2);
   cursor: pointer;
   padding: 0;
-  transition: color 0.1s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
   flex-shrink: 0;
 }
 
 .helm-expand-btn:hover {
-  color: var(--text-primary);
+  color: var(--text);
+  background: var(--hover);
 }
 
 .helm-code-key {
-  font-size: var(--font-xxs);
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -394,16 +449,19 @@
 .helm-code-meta {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   flex-shrink: 0;
 }
 
 .helm-monaco-wrapper {
   padding: 0;
   overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  margin: 4px 0;
+  border: 0;
+  border-top: 1px solid var(--hair);
+  border-radius: 0;
+  margin: 0;
+  background: var(--inset);
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-monaco-wrapper.clickable {
@@ -411,14 +469,15 @@
 }
 
 .helm-monaco-wrapper.clickable:hover {
-  border-color: var(--accent);
+  border-color: var(--hair);
+  box-shadow: inset 0 0 0 1px rgba(var(--blue-rgb), 0.45);
 }
 
 .values-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .values-header h3 {
@@ -426,12 +485,14 @@
 }
 
 .values-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text2);
   cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
 }
 
 .values-toggle input {
@@ -456,127 +517,141 @@
 .helm-values-code,
 .helm-manifest-code,
 .helm-notes-code {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 16px;
+  background: var(--inset);
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 12px;
   font-family: var(--font-mono);
-  font-size: var(--font-sm);
-  line-height: 1.5;
-  color: var(--text-primary);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text);
   overflow-x: auto;
   white-space: pre;
   max-height: 500px;
   overflow-y: auto;
 }
 
+/* Legacy confirmation modal → sheet */
 .helm-modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.6);
+  background: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  animation: ap-fade var(--duration-base) ease;
 }
 
 .helm-modal {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  background: var(--win);
+  border: 0;
   border-radius: 12px;
-  padding: 24px;
+  padding: 20px 18px;
   max-width: 400px;
   width: 90%;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-window);
+  animation: ap-pop var(--duration-base) var(--ease-snap);
 }
 
 .helm-modal.danger {
-  border-color: var(--danger);
+  border-color: transparent;
+  box-shadow: var(--shadow-window), 0 0 0 1px var(--red);
 }
 
 .helm-modal-header {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .helm-modal-header h3 {
   margin: 0;
-  font-size: var(--font-lg);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  color: var(--text);
 }
 
 .helm-modal-header .warning-icon {
-  color: var(--warning);
-  width: 24px;
-  height: 24px;
+  color: var(--orange);
+  width: 22px;
+  height: 22px;
 }
 
 .helm-modal-header .danger-icon {
-  color: var(--danger);
-  width: 24px;
-  height: 24px;
+  color: var(--red);
+  width: 22px;
+  height: 22px;
 }
 
 .helm-modal p {
-  margin: 0 0 20px 0;
-  color: var(--text-secondary);
+  margin: 0 0 16px 0;
+  color: var(--text2);
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .helm-modal p strong {
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .helm-modal-actions {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   justify-content: flex-end;
 }
 
 .helm-modal-actions button {
-  padding: 8px 20px;
-  border-radius: 6px;
-  font-size: var(--font-base);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-modal-actions .cancel-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
+  background-color: var(--card);
+  border: 0;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  color: var(--text);
 }
 
 .helm-modal-actions .cancel-btn:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .helm-modal-actions .confirm-btn {
-  background: var(--warning);
-  border: 1px solid var(--warning);
-  color: white;
+  background-color: var(--orange);
+  border: 0;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .helm-modal-actions .confirm-btn:hover {
-  filter: brightness(1.1);
+  background-image: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08));
 }
 
 .helm-modal-actions .danger-btn {
-  background: var(--danger);
-  border: 1px solid var(--danger);
-  color: white;
+  background-color: var(--red);
+  border: 0;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .helm-modal-actions .danger-btn:hover {
-  filter: brightness(1.1);
+  background-image: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08));
 }
 
 .helm-modal-actions button:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -590,19 +665,20 @@
 
 .helm-scrollbar-thumb {
   flex: 1;
-  background: var(--text-muted);
+  background: var(--ctrl2);
   border-radius: 4px;
-  opacity: 0.5;
-  transition: opacity 0.15s ease;
+  opacity: 1;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-scrollbar-thumb:hover {
-  opacity: 0.8;
+  opacity: 1;
+  background: var(--scrollbar-thumb-hover);
 }
 
 .monaco-code-viewer {
   position: relative;
-  transition: all 0.15s ease;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .monaco-code-viewer.clickable {
@@ -610,8 +686,23 @@
 }
 
 .monaco-code-viewer.clickable:hover {
-  border-color: var(--accent) !important;
-  box-shadow: 0 0 0 1px var(--accent);
+  border-color: var(--hair);
+  box-shadow: inset 0 0 0 1px rgba(var(--blue-rgb), 0.45);
 }
 
+/* Current revision row in the (card) history list */
+.helm-history-item.current {
+  background: color-mix(in srgb, var(--green) 6%, transparent);
+}
 
+/* Header: the uninstall action reads as destructive */
+.resource-actions-row .tab-content-action-btn.ap-action--danger,
+.resource-actions-row .tab-content-action-btn.ap-action--danger .ap-action-icon,
+.resource-actions-row .tab-content-action-btn.ap-action--danger .ap-action-label {
+  background: transparent;
+  color: var(--red);
+}
+
+.resource-actions-row .tab-content-action-btn.ap-action--danger {
+  background-color: var(--card);
+}

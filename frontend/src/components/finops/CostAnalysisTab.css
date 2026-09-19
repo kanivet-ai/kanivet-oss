@@ -1,7 +1,11 @@
+/*
+  Cost analysis (inspector tab) — KPI tiles + card groups of hairline rows.
+*/
 .cost-analysis-tab {
-  padding: 16px;
+  padding: 14px;
   overflow: auto;
   height: 100%;
+  background: var(--content);
 }
 
 .cost-analysis-tab.cost-loading,
@@ -11,124 +15,155 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   min-height: 200px;
-  color: var(--text-muted);
+  color: var(--text2);
+  font-size: 13px;
 }
 
 .cost-analysis-tab.cost-error svg,
 .cost-analysis-tab.cost-empty svg {
-  width: 32px;
-  height: 32px;
-  opacity: 0.5;
+  width: 28px;
+  height: 28px;
+  color: var(--text4);
+  opacity: 1;
 }
 
 .cost-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .cost-header h3 {
-  font-size: var(--font-md);
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: -0.1px;
+  color: var(--text);
   margin: 0;
 }
 
 .refresh-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
+  padding: 0;
   background: transparent;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-secondary);
+  border: 0;
+  border-radius: 6px;
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .refresh-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--hover);
+  color: var(--text);
 }
 
+.refresh-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* KPI tiles */
 .cost-summary-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: 12px;
-  margin-bottom: 20px;
+  margin-bottom: 14px;
 }
 
 .cost-card {
-  padding: 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
 }
 
 .cost-card.primary {
-  background: color-mix(in srgb, var(--accent) 10%, var(--bg-tertiary));
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  background: color-mix(in srgb, var(--blue) 7%, var(--card));
 }
 
 .cost-card-label {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
   margin-bottom: 4px;
 }
 
 .cost-card-value {
-  font-size: var(--font-lg);
+  font-family: var(--font-sans);
+  font-size: 22px;
   font-weight: 600;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
+  letter-spacing: -0.5px;
+  line-height: 1.15;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
 .cost-card-value.instance-type {
-  font-size: var(--font-sm);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0;
+  line-height: 1.5;
 }
 
 .cost-card-sub {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  color: var(--text2);
   margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 
 .spot-indicator {
   color: var(--cost-low);
-  font-weight: 500;
+  font-weight: 600;
 }
 
+/* Details card */
 .cost-details {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 14px;
-  margin-bottom: 16px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 0;
+  margin-bottom: 14px;
+  overflow: hidden;
 }
 
 .cost-details h4 {
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 12px 0;
+  color: var(--text);
+  margin: 0;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--hair);
 }
 
 .details-grid {
   display: grid;
-  gap: 8px;
+  gap: 0;
 }
 
 .detail-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--border);
+  gap: 12px;
+  min-height: 32px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--hair);
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.detail-row:hover {
+  background: var(--hover);
 }
 
 .detail-row:last-child {
@@ -136,38 +171,55 @@
 }
 
 .detail-label {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 12.5px;
+  color: var(--text);
+  flex-shrink: 0;
 }
 
 .detail-value {
-  font-size: var(--font-xs);
-  color: var(--text-primary);
+  font-size: 12.5px;
+  color: var(--text2);
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .detail-value.mono {
   font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
+/* Breakdown card */
 .cost-breakdown-section {
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 14px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 0 0 12px;
+  overflow: hidden;
 }
 
 .cost-breakdown-section h4 {
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin: 0 0 12px 0;
+  color: var(--text);
+  margin: 0;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.cost-breakdown-section .cost-breakdown-bar {
+  margin: 0 14px;
 }
 
 .breakdown-visual {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 0;
+  margin-bottom: 10px;
 }
 
 .breakdown-item {
@@ -176,18 +228,33 @@
   align-items: center;
 }
 
+.breakdown-visual .breakdown-item {
+  gap: 12px;
+  min-height: 32px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+
 .breakdown-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.breakdown-visual .breakdown-label {
+  font-size: 12.5px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .breakdown-label .dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+  flex: none;
 }
 
 .breakdown-label .dot.cpu {
@@ -203,16 +270,21 @@
 }
 
 .breakdown-value {
-  font-size: var(--font-xs);
-  font-family: var(--font-mono);
-  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.breakdown-visual .breakdown-value {
+  font-weight: 500;
 }
 
 .loading-spinner {
-  width: 24px;
-  height: 24px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--ctrl2);
+  border-top-color: var(--blue);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }

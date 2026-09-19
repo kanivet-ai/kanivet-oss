@@ -7,43 +7,44 @@
 
 .search-input-container .search-input {
   width: 100%;
-  height: 20px;
-  padding: 2px 28px 2px 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  height: 28px;
+  padding: 0 28px 0 27px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--ctrl);
+  color: var(--text);
+  font-size: 13px;
   line-height: 1.4;
   outline: none;
   box-sizing: border-box;
-  transition: all 0.2s;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.5' y2='16.5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: 9px center;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet), background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .search-input-container .search-input:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  background: color-mix(in srgb, var(--bg-primary) 95%, var(--accent));
+  background-color: var(--ctrl2);
 }
 
 .search-input-container .search-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
-  background: var(--bg-primary);
+  background-color: var(--ctrl);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .search-input-container .search-input::placeholder {
-  color: var(--text-secondary);
-  opacity: 0.8;
+  color: var(--text3);
+  opacity: 1;
 }
 
 .search-input-container .search-clear {
   position: absolute;
-  right: 4px;
-  background: none;
+  right: 6px;
+  background: var(--ctrl2);
   border: none;
-  color: var(--text-secondary);
+  color: var(--text2);
   cursor: pointer;
-  padding: 2px;
+  padding: 0;
   font-size: 10px;
   line-height: 1;
   display: flex;
@@ -52,19 +53,20 @@
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  transition: all 0.2s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .search-input-container .search-clear:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--text3);
+  color: var(--content);
 }
 
 .search-input-container .search-results-count {
   position: absolute;
-  right: 24px;
-  font-size: 10px;
-  color: var(--text-secondary);
+  right: 26px;
+  font-size: 11px;
+  color: var(--text3);
   white-space: nowrap;
   pointer-events: none;
+  font-variant-numeric: tabular-nums;
 }

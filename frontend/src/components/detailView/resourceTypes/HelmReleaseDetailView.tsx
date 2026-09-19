@@ -105,8 +105,8 @@ const CodeBlock = ({
       <div className="helm-code-header">
         <div className="helm-code-key-info">
           {isMultiline && (
-            <button 
-              className="helm-expand-btn"
+            <button
+              className="helm-expand-btn ap-icon-btn ap-icon-btn--sm"
               onClick={() => setIsExpanded(!isExpanded)}
               title={isExpanded ? 'Collapse' : 'Expand'}
             >
@@ -114,7 +114,7 @@ const CodeBlock = ({
             </button>
           )}
           <span className="helm-code-key">{title}</span>
-          <span className={`format-badge format-${format}`}>{format.toUpperCase()}</span>
+          <span className={`format-badge format-${format}`}>{format}</span>
         </div>
         <div className="helm-code-meta">
           <span className="entry-size">{size}</span>
@@ -143,7 +143,7 @@ const CodeBlock = ({
             wordWrap: 'on',
             scrollBeyondLastLine: false,
             automaticLayout: true,
-            fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Menlo', monospace",
+            fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', Consolas, 'Liberation Mono', monospace",
             renderWhitespace: 'selection',
             scrollbar: {
               vertical: 'visible',
@@ -471,40 +471,68 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
     annotations: {},
   };
 
+  const statusText = typeof displayData.status === 'string' ? displayData.status : 'unknown';
+  const statusClass = getStatusClass(statusText);
+  const tileTone = statusClass === 'status-running'
+    ? 'success'
+    : statusClass === 'status-failed'
+      ? 'danger'
+      : statusClass === 'status-pending'
+        ? 'warning'
+        : statusClass === 'status-unknown'
+          ? 'neutral'
+          : 'info';
+
   return (
     <>
       <div className="resource-detail-view">
         <div className="resource-header">
           <div className="resource-header-top">
-            <div className="resource-kind-row">
-              <span className="resource-kind-badge">HelmRelease</span>
-              <div className="resource-status-row">
-                <span className={`status-badge ${getStatusClass(typeof displayData.status === 'string' ? displayData.status : 'unknown')}`}>
-                  {typeof displayData.status === 'string' ? displayData.status : 'unknown'}
-                </span>
-              </div>
-              <div className="resource-actions-row">
-                <button 
-                  className="tab-content-action-btn priority-low"
-                  onClick={handleEditValues}
-                  title="Edit values YAML"
-                  disabled={valuesLoading}
-                >
-                  <Pencil2Icon />
-                </button>
-                <button 
-                  className="tab-content-action-btn"
-                  onClick={() => setShowUninstallConfirm(true)}
-                  title="Uninstall release"
-                >
-                  <TrashIcon />
-                </button>
+            <div className="resource-identity">
+              <span className={`resource-header-tile resource-header-tile--${tileTone}`} aria-hidden="true">
+                <HelmIcon />
+              </span>
+              <div className="resource-identity-text">
+                <h2 className="resource-name">
+                  <span>{displayData.name}</span>
+                  <ClipboardCopy text={displayData.name} />
+                </h2>
+                <div className="resource-kind-row">
+                  <span className="resource-kind-badge">HelmRelease</span>
+                  {displayData.namespace && (
+                    <>
+                      <span className="resource-subtitle-sep">·</span>
+                      <span className="resource-namespace">{displayData.namespace}</span>
+                    </>
+                  )}
+                  <span className="resource-subtitle-sep">·</span>
+                  <div className="resource-status-row">
+                    <span className={`status-badge ${statusClass}`}>{statusText}</span>
+                  </div>
+                </div>
               </div>
             </div>
-            <h2 className="resource-name">
-              <span>{displayData.name}</span>
-              <ClipboardCopy text={displayData.name} />
-            </h2>
+            <div className="resource-actions-row">
+              <button
+                className="tab-content-action-btn priority-low"
+                onClick={handleEditValues}
+                title="Edit values YAML"
+                aria-label="Edit values YAML"
+                disabled={valuesLoading}
+              >
+                <span className="ap-action-icon"><Pencil2Icon /></span>
+                <span className="ap-action-label">Edit</span>
+              </button>
+              <button
+                className="tab-content-action-btn ap-action--danger"
+                onClick={() => setShowUninstallConfirm(true)}
+                title="Uninstall release"
+                aria-label="Uninstall release"
+              >
+                <span className="ap-action-icon"><TrashIcon /></span>
+                <span className="ap-action-label">Uninstall</span>
+              </button>
+            </div>
           </div>
         </div>
 
@@ -588,7 +616,7 @@ const HelmReleaseDetailView = ({ cluster, release, onRollback, onUninstall, mode
                             {typeof entry.status === 'string' ? entry.status : 'unknown'}
                           </span>
                           {entry.revision === displayData.revision && (
-                            <span className="current-badge">CURRENT</span>
+                            <span className="current-badge">Current</span>
                           )}
                         </div>
                         <div className="helm-history-center">

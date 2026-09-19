@@ -1,76 +1,121 @@
+/* Exec/node shell: 36px chrome bar on --win, xterm body on --content. */
 .terminal-container-wrapper {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: #1e1e1e;
+  background: var(--content);
 }
 
 .terminal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0 10px;
+  background: var(--win);
+  border-bottom: 1px solid var(--hair);
+  flex: none;
 }
 
 .terminal-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .connection-status {
-  font-size: var(--font-sm);
+  font-size: 11.5px;
+  font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.connection-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text4);
+  flex: none;
 }
 
 .connection-status.connected {
-  color: var(--success);
+  color: var(--text);
+}
+
+.connection-status.connected .connection-status-dot {
+  background: var(--green);
 }
 
 .connection-status.disconnected {
-  color: var(--text-secondary);
+  color: var(--text2);
+}
+
+.connection-status.disconnected .connection-status-dot {
+  background: var(--text4);
 }
 
 .terminal-header-info {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
 .reconnect-btn {
-  padding: 4px 12px;
-  font-size: var(--font-sm);
-  background: var(--primary);
-  color: white;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background-color: var(--blue);
+  color: #fff;
   border: none;
-  border-radius: 3px;
+  border-radius: 6px;
   cursor: pointer;
-  transition: opacity 0.2s;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .reconnect-btn:hover {
-  opacity: 0.8;
+  opacity: 1;
+  background-color: var(--blue-hover);
 }
 
 .terminal-error {
-  padding: 8px 12px;
-  background: rgba(205, 49, 49, 0.1);
-  color: var(--danger);
-  font-size: var(--font-sm);
-  border-bottom: 1px solid rgba(205, 49, 49, 0.2);
+  padding: 6px 12px;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: 12px;
+  border-bottom: 1px solid var(--hair);
 }
 
 .terminal-container {
   flex: 1;
   padding: 8px;
   overflow: hidden;
+  background: var(--content);
+}
+
+/* Shown by Shell while the session secret is fetched */
+.terminal-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 12.5px;
+  color: var(--text2);
+  background: var(--content);
 }

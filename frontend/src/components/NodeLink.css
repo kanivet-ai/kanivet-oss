@@ -1,9 +1,9 @@
-/* Node Link Styles */
+/* Node Link Styles — inline blue link button */
 
 .node-link {
   background: none;
   border: none;
-  color: var(--accent);
+  color: var(--blue);
   cursor: pointer;
   font-size: inherit;
   font-weight: 500;
@@ -11,16 +11,16 @@
   padding: 0;
   margin: 0;
   text-align: left;
-  transition: color 0.2s;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
 .node-link:hover {
-  color: var(--accent-hover);
+  color: var(--blue-hover);
   text-decoration: underline;
 }
 
 .node-link:active {
-  color: var(--accent);
+  color: var(--blue);
 }
 
 /* Focus state for accessibility */
@@ -33,11 +33,11 @@
   user-select: none;
 }
 
-/* Theme-specific adjustments */
+/* Theme-specific adjustments (tokens already flip; kept for compatibility) */
 [data-theme='light'] .node-link {
-  color: var(--accent);
+  color: var(--blue);
 }
 
 [data-theme='light'] .node-link:hover {
-  color: var(--accent-hover);
+  color: var(--blue-hover);
 }

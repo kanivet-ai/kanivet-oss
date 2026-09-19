@@ -1,18 +1,13 @@
 /*
-  Radix Themes bridge — minimal & opt-in.
+  Radix Themes bridge.
 
-  Goals:
-  - Make Radix Themes' <Theme> agree with the app's [data-theme] so dark mode works.
-  - Provide a small set of opt-in classes (.kanivet-btn, .kanivet-input) that look
-    like Radix-native components, for new surfaces.
-  - DO NOT restyle bespoke buttons/inputs the rest of the app already paints. Each
-    surface has its own visual story; touching them centrally always backfires.
+  - Keep Radix's <Theme> in step with the app's [data-theme] attribute.
+  - Point Radix's colour scales at the app's system blue / gray tokens so any
+    Radix component (Dialog, Button, Select…) reads as native.
+  - Opt-in .kanivet-btn / .kanivet-input remain for older surfaces; they now
+    render exactly like the .ap-btn / .ap-input primitives.
 */
 
-/* Make Radix Themes follow our [data-theme] attr.
-   Radix expects .dark / .light or appearance="..." on its root; we already pass
-   appearance via React, so this is just a belt-and-braces alignment for any
-   global Radix selectors that key off .dark. */
 [data-theme='dark'] .radix-themes,
 [data-theme='dark'][data-radix-themes],
 html[data-theme='dark'] {
@@ -25,151 +20,175 @@ html[data-theme='light'] {
   color-scheme: light;
 }
 
-/* ----- Opt-in button (use className="kanivet-btn"). Mirrors Radix Button look. ----- */
+.radix-themes {
+  --default-font-family: var(--font-sans);
+  --heading-font-family: var(--font-sans);
+  --code-font-family: var(--font-mono);
+  --color-background: var(--content);
+  --color-panel-solid: var(--card);
+  --color-panel-translucent: var(--toolbar);
+  --color-overlay: var(--overlay);
+  --accent-9: var(--blue);
+  --accent-10: var(--blue-hover);
+  --accent-a9: var(--blue);
+  --accent-contrast: #fff;
+  --accent-indicator: var(--blue);
+  --accent-track: var(--blue);
+  --gray-1: var(--content);
+  --gray-2: var(--win);
+  --gray-a2: var(--stripe);
+  --gray-a3: var(--hover);
+  --gray-a4: var(--ctrl);
+  --gray-a5: var(--ctrl2);
+  --gray-a6: var(--hair);
+  --gray-a7: var(--sep);
+  --gray-11: var(--text2);
+  --gray-12: var(--text);
+  --radius-1: 4px;
+  --radius-2: 6px;
+  --radius-3: 8px;
+  --radius-4: 10px;
+  --radius-5: 12px;
+  --radius-6: 14px;
+  --shadow-6: var(--shadow-window);
+  --shadow-5: var(--shadow-pop);
+}
+
+/* Radix Dialog → macOS sheet */
+.radix-themes .rt-DialogOverlay {
+  background: var(--overlay);
+}
+
+.radix-themes .rt-DialogContent {
+  background: var(--win);
+  border-radius: 12px;
+  box-shadow: var(--shadow-window);
+  padding: 20px 22px 18px;
+}
+
+.radix-themes .rt-DialogTitle {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.radix-themes .rt-DialogDescription {
+  color: var(--text2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.radix-themes .rt-Button {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.radix-themes .rt-Button.rt-variant-solid {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.radix-themes .rt-Button.rt-variant-soft {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.radix-themes .rt-Button.rt-variant-soft:hover {
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
+
+/* ----- Opt-in button (className="kanivet-btn") ------------------------- */
 
 .kanivet-btn {
-  font-family: var(--default-font-family, var(--font-sans));
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: -0.005em;
-  height: 32px;
-  padding: 0 14px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  cursor: pointer;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
   line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
   transition:
     background-color var(--duration-fast) var(--ease-quiet),
-    border-color var(--duration-fast) var(--ease-quiet),
     box-shadow var(--duration-fast) var(--ease-quiet),
     transform var(--duration-fast) var(--ease-quiet);
-  white-space: nowrap;
-  user-select: none;
 }
 
 .kanivet-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .kanivet-btn:active:not(:disabled) {
-  background: var(--bg-active);
-  transform: translateY(0.5px);
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
 }
 
 .kanivet-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .kanivet-btn--primary {
-  background: var(--accent);
-  color: white;
-  border-color: transparent;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  background-color: var(--blue);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .kanivet-btn--primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  color: white;
+  background-color: var(--blue-hover);
+  background-image: none;
+  color: #fff;
 }
 
 .kanivet-btn--danger {
-  background: var(--danger);
-  color: white;
+  background-color: var(--red);
+  color: #fff;
 }
 
 .kanivet-btn--ghost {
-  background: transparent;
-  color: var(--text-secondary);
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--text2);
 }
 
 .kanivet-btn--ghost:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background-color: var(--hover);
+  background-image: none;
+  color: var(--text);
 }
 
-/* ----- Opt-in input (use className="kanivet-input") ----- */
+/* ----- Opt-in input (className="kanivet-input") ------------------------ */
 
 .kanivet-input {
-  font-family: var(--default-font-family, var(--font-sans));
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--ctrl);
+  color: var(--text);
+  font-family: var(--font-sans);
   font-size: 13px;
-  height: 32px;
-  padding: 0 12px;
-  border-radius: 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
   outline: none;
-  transition:
-    border-color var(--duration-fast) var(--ease-quiet),
-    box-shadow var(--duration-fast) var(--ease-quiet);
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .kanivet-input::placeholder {
-  color: var(--text-muted);
-}
-
-.kanivet-input:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  color: var(--text3);
 }
 
 .kanivet-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.15);
-}
-
-/* ----- Selection accent ----- */
-
-::selection {
-  background: rgba(var(--accent-rgb), 0.35);
-  color: var(--text-primary);
-}
-
-/* ----- Refined scrollbars (visual only, no behavior change) ----- */
-
-* {
-  scrollbar-width: thin;
-  scrollbar-color: rgba(120, 122, 140, 0.35) transparent;
-}
-
-*::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-*::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-*::-webkit-scrollbar-thumb {
-  background: rgba(120, 122, 140, 0.3);
-  border-radius: 6px;
-  border: 2px solid transparent;
-  background-clip: padding-box;
-  transition: background-color var(--duration-fast) var(--ease-quiet);
-}
-
-*::-webkit-scrollbar-thumb:hover {
-  background: rgba(120, 122, 140, 0.5);
-  background-clip: padding-box;
-}
-
-[data-theme='light'] * {
-  scrollbar-color: rgba(80, 75, 85, 0.3) transparent;
-}
-
-[data-theme='light'] *::-webkit-scrollbar-thumb {
-  background: rgba(80, 75, 85, 0.25);
-  background-clip: padding-box;
-}
-
-[data-theme='light'] *::-webkit-scrollbar-thumb:hover {
-  background: rgba(80, 75, 85, 0.45);
-  background-clip: padding-box;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }

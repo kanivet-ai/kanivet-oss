@@ -710,7 +710,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
       <div className="cloud-settings-section">
         <div className="cloud-settings-section-header">
           <h3><LockClosedIcon /> SSO Sessions</h3>
-          <button className="cloud-icon-btn" onClick={() => setShowAddSso(!showAddSso)} title="Add SSO">
+          <button className="cloud-icon-btn ap-icon-btn" onClick={() => setShowAddSso(!showAddSso)} title="Add SSO">
             <PlusIcon />
           </button>
         </div>
@@ -722,9 +722,9 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
               value={newSsoUrl}
               onChange={(e) => setNewSsoUrl(e.target.value)}
               placeholder="https://my-org.awsapps.com/start"
-              className="cloud-input"
+              className="cloud-input ap-input"
             />
-            <select value={newSsoRegion} onChange={(e) => setNewSsoRegion(e.target.value)} className="cloud-select">
+            <select value={newSsoRegion} onChange={(e) => setNewSsoRegion(e.target.value)} className="cloud-select ap-select">
               <optgroup label="US">
                 <option value="us-east-1">us-east-1 (N. Virginia)</option>
                 <option value="us-east-2">us-east-2 (Ohio)</option>
@@ -778,7 +778,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                 <option value="mx-central-1">mx-central-1 (Central)</option>
               </optgroup>
             </select>
-            <button className="cloud-btn cloud-btn-primary cloud-btn-sm" onClick={handleAddSsoSession} disabled={loading || !newSsoUrl}>
+            <button className="cloud-btn cloud-btn-primary cloud-btn-sm ap-btn ap-btn--primary ap-btn--sm" onClick={handleAddSsoSession} disabled={loading || !newSsoUrl}>
               {loading ? 'Connecting...' : 'Connect'}
             </button>
           </div>
@@ -809,7 +809,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                       />
                     )}
                     <button
-                      className="cloud-icon-btn cloud-expand-btn"
+                      className="cloud-icon-btn cloud-expand-btn ap-icon-btn ap-icon-btn--sm"
                       onClick={() => !expired && toggleSessionExpanded(session.startUrl)}
                       disabled={expired}
                     >
@@ -819,7 +819,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                       {editingSessionUrl === session.startUrl ? (
                         <input
                           type="text"
-                          className="cloud-sso-label-input"
+                          className="cloud-sso-label-input ap-input ap-input--sm"
                           value={editingLabel}
                           onChange={(e) => setEditingLabel(e.target.value)}
                           onKeyDown={(e) => {
@@ -845,7 +845,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                     <div className="cloud-sso-item-actions">
                       {editingSessionUrl !== session.startUrl && (
                         <button
-                          className="cloud-icon-btn"
+                          className="cloud-icon-btn ap-icon-btn"
                           onClick={(e) => { e.stopPropagation(); startEditingLabel(session); }}
                           title="Edit alias"
                         >
@@ -853,7 +853,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                         </button>
                       )}
                       <button
-                        className="cloud-icon-btn"
+                        className="cloud-icon-btn ap-icon-btn"
                         onClick={() => reconnectSsoSession(session)}
                         title="Reconnect"
                         disabled={loading}
@@ -861,7 +861,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                         <ReloadIcon />
                       </button>
                       <button
-                        className="cloud-icon-btn cloud-icon-btn-danger"
+                        className="cloud-icon-btn cloud-icon-btn-danger ap-icon-btn"
                         onClick={() => handleRemoveSsoSession(session.startUrl)}
                         title="Remove"
                       >
@@ -934,7 +934,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                         onChange={() => toggleAllProfilesInGroup(source)}
                         onClick={(e) => e.stopPropagation()}
                       />
-                      <button className="cloud-icon-btn cloud-expand-btn">
+                      <button className="cloud-icon-btn cloud-expand-btn ap-icon-btn ap-icon-btn--sm">
                         <ChevronRightIcon style={{ transform: isExpanded ? 'rotate(90deg)' : 'none', transition: 'transform 0.15s' }} />
                       </button>
                       <span className="cloud-profile-group-label">{sourceLabel}</span>
@@ -978,7 +978,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
         <div className="cloud-auth-prompt-inline">
           <GCPIcon />
           <p>Login to discover GKE clusters</p>
-          <button className="cloud-btn cloud-btn-primary" onClick={handleLoginGCP} disabled={loading}>
+          <button className="cloud-btn cloud-btn-primary ap-btn ap-btn--primary" onClick={handleLoginGCP} disabled={loading}>
             {loading ? 'Authenticating...' : 'Login with gcloud'}
           </button>
         </div>
@@ -1011,7 +1011,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
         <div className="cloud-auth-prompt-inline">
           <AzureIcon />
           <p>Login to discover AKS clusters</p>
-          <button className="cloud-btn cloud-btn-primary" onClick={handleLoginAzure} disabled={loading}>
+          <button className="cloud-btn cloud-btn-primary ap-btn ap-btn--primary" onClick={handleLoginAzure} disabled={loading}>
             {loading ? 'Authenticating...' : 'Login with Azure CLI'}
           </button>
         </div>
@@ -1069,7 +1069,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
 
       <div className="cloud-clusters-actions">
         <button
-          className="cloud-btn cloud-btn-primary"
+          className="cloud-btn cloud-btn-primary ap-btn ap-btn--primary"
           onClick={handleDiscover}
           disabled={discovering || batchImporting || !canDiscover()}
         >
@@ -1078,7 +1078,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
         </button>
         {discoveredClusters.length > 0 && (
           <button
-            className="cloud-btn cloud-btn-secondary"
+            className="cloud-btn cloud-btn-secondary ap-btn"
             onClick={handleBatchImport}
             disabled={batchImporting || discoveredClusters.every(c => c.isImported)}
           >
@@ -1146,7 +1146,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
               </div>
               {cluster.availableRoles && cluster.availableRoles.length > 0 && !cluster.isImported && (
                 <select
-                  className="cloud-role-select"
+                  className="cloud-role-select ap-select"
                   value={selectedRoles.get(cluster.id) || cluster.availableRoles[0]}
                   onChange={(e) => setSelectedRoles(prev => new Map(prev).set(cluster.id, e.target.value))}
                   disabled={importing === cluster.id || cluster.availableRoles.length === 1}
@@ -1161,7 +1161,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                 {cluster.status}
               </span>
               <button
-                className={`cloud-import-btn ${cluster.isImported ? 'imported' : ''}`}
+                className={`cloud-import-btn ap-btn ap-btn--sm ${cluster.isImported ? 'imported' : ''}`}
                 onClick={() => handleImport(cluster)}
                 disabled={cluster.isImported || importing === cluster.id}
               >
