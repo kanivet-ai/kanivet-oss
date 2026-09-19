@@ -857,7 +857,8 @@ body.resizing-width .detail-resize-handle {
   background: transparent;
   border: 0;
   height: auto;
-  color: var(--text2);
+  /* Unscoped: this also styles the list's Status column, so the text is primary. */
+  color: var(--text);
 }
 
 .status-badge::before {
@@ -874,7 +875,7 @@ body.resizing-width .detail-resize-handle {
 .status-badge.status-succeeded,
 .status-badge.status-active,
 .status-badge.success {
-  color: var(--text2);
+  color: var(--text);
 }
 
 .status-badge.status-running::before,
@@ -914,11 +915,11 @@ body.resizing-width .detail-resize-handle {
 .status-badge.status-unknown,
 .status-badge.status-neutral,
 .status-badge.neutral {
-  color: var(--text2);
+  color: var(--text);
 }
 
 .status-badge.replicas {
-  color: var(--text2);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 

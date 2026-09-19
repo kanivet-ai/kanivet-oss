@@ -1,4 +1,4 @@
-/* Argo CD applications page — pivot tiles, controls bar, Finder-style table. */
+/* Argo CD applications page — stat tiles that filter, a toolbar, a Finder-style table. */
 .argo-apps-page {
   display: flex;
   flex-direction: column;
@@ -7,7 +7,7 @@
   background: var(--content);
 }
 
-/* Pivots — small stat tiles that double as filters */
+/* ---- Tiles — ring-shadow cards that double as filters ------------------ */
 .argo-apps-pivots {
   position: sticky;
   top: 0;
@@ -25,21 +25,21 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 3px;
-  padding: 7px 12px;
-  background: var(--card);
+  gap: 4px;
+  min-width: 96px;
+  padding: 8px 12px 7px;
+  background-color: var(--card);
   border: 0;
   border-radius: 8px;
   box-shadow: var(--shadow-card);
   cursor: pointer;
-  min-width: 72px;
   text-align: left;
-  transition: background var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
+  font-family: var(--font-sans);
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-apps-pivot:hover:not(:disabled) {
   background-image: linear-gradient(var(--hover), var(--hover));
-  border-color: transparent;
 }
 
 .argo-apps-pivot.static {
@@ -47,13 +47,17 @@
 }
 
 .argo-apps-pivot.active {
-  border-color: transparent;
-  background: var(--blue-soft);
-  box-shadow: 0 0 0 1px var(--blue);
+  background-color: var(--blue-soft);
+  background-image: none;
+  box-shadow: 0 0 0 0.5px var(--blue), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.argo-apps-pivot.active .argo-apps-pivot-label {
+  color: var(--blue);
 }
 
 .argo-apps-pivot-value {
-  font-size: 17px;
+  font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.4px;
   line-height: 1;
@@ -61,26 +65,30 @@
   font-variant-numeric: tabular-nums;
 }
 
-.argo-apps-pivot.pivot-good .argo-apps-pivot-value { color: var(--success-fg); }
-.argo-apps-pivot.pivot-warn .argo-apps-pivot-value { color: var(--warning-fg); }
-.argo-apps-pivot.pivot-bad .argo-apps-pivot-value { color: var(--danger-fg); }
+/* Only a non-zero count carries its status colour; zero is quiet. */
+.argo-apps-pivot.pivot-success .argo-apps-pivot-value { color: var(--success-fg); }
+.argo-apps-pivot.pivot-warning .argo-apps-pivot-value { color: var(--warning-fg); }
+.argo-apps-pivot.pivot-danger .argo-apps-pivot-value { color: var(--danger-fg); }
+.argo-apps-pivot.pivot-info .argo-apps-pivot-value { color: var(--blue); }
+.argo-apps-pivot .argo-apps-pivot-value[data-zero='true'] { color: var(--text3); }
 
 .argo-apps-pivot-label {
-  margin-top: 0;
   font-size: 11px;
-  text-transform: none;
-  letter-spacing: 0;
+  font-weight: 500;
+  line-height: 1;
   color: var(--text2);
+  white-space: nowrap;
 }
 
 .argo-apps-pivot-sep {
   width: 1px;
   height: 28px;
-  background: var(--hair);
+  background: var(--sep);
   margin: 0 4px;
+  flex: none;
 }
 
-/* Toolbar — search, chips, group select, density segmented, bulk actions */
+/* ---- Toolbar — search, chips, group pop-up, density, bulk actions ------- */
 .argo-apps-toolbar {
   display: flex;
   align-items: center;
@@ -93,28 +101,31 @@
 }
 
 .argo-apps-search {
-  flex: 1;
-  min-width: 220px;
-  max-width: 360px;
-  height: 28px;
-  padding: 0 9px;
-  font-size: 13px;
-  background: var(--ctrl);
-  border: 0;
-  border-radius: 7px;
-  color: var(--text);
-  outline: none;
-  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+  flex: 1 1 220px;
+  min-width: 200px;
+  max-width: 380px;
 }
 
-.argo-apps-search::placeholder {
+.argo-apps-search kbd {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--sep);
   color: var(--text3);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
 }
 
-.argo-apps-search:focus {
-  outline: none;
-  border-color: transparent;
-  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+.argo-apps-search:focus-within kbd {
+  display: none;
 }
 
 .argo-apps-chip-group {
@@ -127,9 +138,6 @@
 .argo-apps-chip-label {
   font-size: 12px;
   color: var(--text2);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
   margin-right: 2px;
 }
 
@@ -147,10 +155,10 @@
 }
 
 .argo-apps-chip:hover { color: var(--text); }
+
 .argo-apps-chip.active {
   background: var(--blue);
   color: #fff;
-  border-color: transparent;
 }
 
 .argo-apps-control {
@@ -162,54 +170,6 @@
 .argo-apps-control label {
   font-size: 12px;
   color: var(--text2);
-  font-weight: 400;
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.argo-apps-control select {
-  height: 28px;
-  padding: 0 26px 0 11px;
-  font-size: 12.5px;
-  font-weight: 500;
-  background-color: var(--card);
-  border: 0;
-  border-radius: 7px;
-  color: var(--text);
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-  cursor: pointer;
-}
-
-/* Density = segmented control */
-.argo-apps-density {
-  display: inline-flex;
-  align-items: stretch;
-  gap: 1px;
-  padding: 2px;
-  background: var(--ctrl);
-  border: 0;
-  border-radius: 7px;
-  overflow: hidden;
-}
-
-.argo-apps-density button {
-  min-height: 22px;
-  padding: 0 10px;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  background: transparent;
-  border: none;
-  border-radius: 5px;
-  color: var(--text2);
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
-}
-
-.argo-apps-density button.active {
-  background: var(--card);
-  color: var(--text);
-  box-shadow: var(--shadow-pill);
 }
 
 .argo-apps-bulk {
@@ -219,7 +179,6 @@
   height: 28px;
   padding: 0 4px 0 10px;
   background: var(--blue-soft);
-  border: 0;
   border-radius: 7px;
   margin-left: auto;
 }
@@ -252,12 +211,18 @@
 
 .argo-apps-bulk button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-.argo-apps-bulk-clear {
-  color: var(--text2) !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
+.argo-apps-bulk button.argo-apps-bulk-clear {
+  color: var(--text2);
+  background-color: transparent;
+  box-shadow: none;
 }
 
+.argo-apps-bulk button.argo-apps-bulk-clear:hover {
+  color: var(--text);
+  background-image: none;
+}
+
+/* ---- Banners ----------------------------------------------------------- */
 .argo-apps-stale-banner {
   display: flex;
   align-items: center;
@@ -265,7 +230,6 @@
   margin: 10px 14px 0;
   padding: 7px 10px;
   background: var(--warning-bg);
-  border: 0;
   color: var(--text);
   border-radius: 8px;
   font-size: 12.5px;
@@ -277,11 +241,6 @@
   border-radius: 50%;
   background: var(--orange);
   flex-shrink: 0;
-}
-
-@keyframes argo-apps-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
 }
 
 .argo-apps-stale-banner button {
@@ -306,13 +265,12 @@
   margin: 10px 14px;
   padding: 8px 10px;
   background: var(--danger-bg);
-  border: 0;
   color: var(--danger-fg);
   border-radius: 8px;
   font-size: 12.5px;
 }
 
-/* Table */
+/* ---- Table — same recipe as .resource-table ---------------------------- */
 .argo-apps-table-wrap {
   flex: 1;
   overflow: auto;
@@ -327,25 +285,18 @@
   table-layout: auto;
 }
 
-.argo-apps-table tbody td:last-child,
-.argo-apps-table thead th:last-child {
-  width: 60px;
-  white-space: nowrap;
-}
-
 .argo-apps-table thead th {
   position: sticky;
   top: 0;
   z-index: 1;
   height: 26px;
+  padding: 0 10px 0 6px;
   background: var(--content);
   color: var(--text2);
-  text-transform: none;
-  letter-spacing: 0;
   font-size: 11.5px;
   font-weight: 500;
+  line-height: 26px;
   text-align: left;
-  padding: 0 10px 0 6px;
   border-bottom: 1px solid var(--hair);
   border-left: 1px solid var(--hair);
   cursor: pointer;
@@ -359,7 +310,11 @@
   border-left: 0;
 }
 
-.argo-apps-table thead th:hover {
+.argo-apps-table thead th.is-static {
+  cursor: default;
+}
+
+.argo-apps-table thead th:hover:not(.is-static) {
   color: var(--text);
 }
 
@@ -368,37 +323,41 @@
   min-width: 10px;
   font-size: 8px;
   color: var(--blue);
-  margin-left: 2px;
+  margin-left: 3px;
+  vertical-align: middle;
 }
 
-/* Density */
-.density-compact .argo-apps-table tbody td { padding: 0 10px 0 6px; height: 30px; }
-.density-cozy .argo-apps-table tbody td { padding: 0 10px 0 6px; height: 36px; }
-
 .argo-apps-table tbody td {
-  border-bottom: 0;
+  padding: 0 10px 0 6px;
+  border: 0;
   vertical-align: middle;
   line-height: 18px;
   color: var(--text2);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 
-.argo-apps-table tbody tr:nth-child(even):not(.argo-apps-group-row) td {
+.density-compact .argo-apps-table tbody td { height: 28px; }
+.density-cozy .argo-apps-table tbody td { height: 34px; }
+
+.argo-apps-table tbody td:last-child,
+.argo-apps-table thead th:last-child {
+  width: 64px;
+}
+
+.argo-apps-col-status { width: 110px; }
+.argo-apps-col-rev { width: 104px; }
+.argo-apps-col-time { width: 84px; }
+
+/* Stripe lives on the row; hover and selection paint the cells above it. */
+.argo-apps-table tbody tr:nth-child(even):not(.argo-apps-group-row) {
   background: var(--stripe);
-}
-
-.argo-apps-table tbody tr:hover {
-  background: transparent;
 }
 
 .argo-apps-table tbody tr:hover:not(.argo-apps-group-row) td {
   background: var(--hover);
-}
-
-.argo-apps-table tbody tr.selected {
-  background: transparent;
 }
 
 .argo-apps-table tbody tr.selected td {
@@ -406,14 +365,9 @@
 }
 
 /* Keyboard cursor row = the selected row: solid blue, white text */
-.argo-apps-table tbody tr.focused {
-  outline: none;
-  outline-offset: 0;
-}
-
 .argo-apps-table tbody tr.focused td,
 .argo-apps-table tbody tr.focused:hover td {
-  background: var(--sel) !important;
+  background: var(--sel);
   color: var(--on-sel);
 }
 
@@ -429,82 +383,84 @@
 .argo-apps-table tbody tr.focused .argo-apps-dest-ns,
 .argo-apps-table tbody tr.focused .argo-apps-pill,
 .argo-apps-table tbody tr.focused .argo-apps-row-spinner-label {
-  color: var(--on-sel) !important;
+  color: var(--on-sel);
 }
 
 .argo-apps-table tbody tr.focused .argo-apps-ns,
 .argo-apps-table tbody tr.focused .argo-apps-arrow,
+.argo-apps-table tbody tr.focused .argo-apps-dest-target,
 .argo-apps-table tbody tr.focused .argo-apps-rev,
-.argo-apps-table tbody tr.focused .argo-apps-time {
-  color: var(--on-sel2) !important;
+.argo-apps-table tbody tr.focused .argo-apps-time,
+.argo-apps-table tbody tr.focused .argo-apps-empty-value {
+  color: var(--on-sel2);
 }
 
 .argo-apps-table tbody tr.focused .argo-apps-pill,
 .argo-apps-table tbody tr.focused .argo-apps-row-spinner-wrap {
-  background: color-mix(in srgb, var(--on-sel) 18%, transparent) !important;
+  background: color-mix(in srgb, var(--on-sel) 18%, transparent);
 }
 
-/* Group rows */
+/* ---- Group rows — section headers, not pills --------------------------- */
 .argo-apps-group-row td {
-  background: var(--win);
-  cursor: default;
-  font-size: 11.5px;
-  font-weight: 600;
-  color: var(--text2);
-  height: 28px;
-  padding: 0 10px !important;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--content);
   border-bottom: 1px solid var(--hair);
+  cursor: default;
+  user-select: none;
 }
 
-.argo-apps-group-row:hover td {
-  background: var(--win);
+.argo-apps-table tbody tr.argo-apps-group-row + tr td {
+  border-top: 0;
+}
+
+.argo-apps-group-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
 }
 
 .argo-apps-group-chevron {
-  display: inline-block;
-  width: 14px;
+  width: 10px;
+  height: 10px;
   color: var(--text3);
-  font-size: 9px;
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease-quiet);
 }
 
-.argo-apps-group-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  padding: 0 7px;
-  border-radius: 5px;
-  margin-right: 8px;
-  font-size: 11px;
+.argo-apps-group-chevron.open {
+  transform: rotate(90deg);
+}
+
+.argo-apps-group-label {
+  font-size: 11.5px;
   font-weight: 600;
-  line-height: 1;
-  text-transform: none;
-  letter-spacing: 0;
-  border: 0;
-  background: var(--ctrl);
   color: var(--text2);
-  vertical-align: middle;
+  letter-spacing: 0;
 }
 
-.argo-apps-group-pill.health-healthy { color: var(--success-fg); border-color: transparent; background: var(--success-bg); }
-.argo-apps-group-pill.health-degraded { color: var(--danger-fg); border-color: transparent; background: var(--danger-bg); }
-.argo-apps-group-pill.health-progressing { color: var(--blue); border-color: transparent; background: var(--blue-soft); }
-.argo-apps-group-pill.health-unknown { color: var(--text3); border-color: transparent; background: var(--ctrl); }
-.argo-apps-group-pill.sync-synced { color: var(--success-fg); border-color: transparent; background: var(--success-bg); }
-.argo-apps-group-pill.sync-outofsync { color: var(--warning-fg); border-color: transparent; background: var(--warning-bg); }
-.argo-apps-group-pill.sync-unknown { color: var(--text3); border-color: transparent; background: var(--ctrl); }
+.argo-apps-group-row:hover .argo-apps-group-label {
+  color: var(--text);
+}
 
 .argo-apps-group-count {
   font-size: 11.5px;
-  color: var(--text3);
   font-weight: 500;
+  color: var(--text3);
   font-variant-numeric: tabular-nums;
 }
 
-/* Cells */
+/* ---- Cells ------------------------------------------------------------- */
 .argo-apps-checkbox-col {
-  width: 26px;
-  text-align: center;
-  padding: 0 0 0 6px !important;
+  width: 28px;
+  padding: 0 0 0 8px;
+  text-align: left;
+}
+
+.argo-apps-table tbody td.argo-apps-checkbox-col,
+.argo-apps-table thead th.argo-apps-checkbox-col {
+  padding: 0 0 0 8px;
 }
 
 .argo-apps-checkbox-col input[type='checkbox'] {
@@ -559,7 +515,7 @@
 .argo-apps-name-cell {
   position: relative;
   white-space: nowrap;
-  min-width: 240px;
+  min-width: 220px;
 }
 
 .argo-apps-name-link {
@@ -570,10 +526,15 @@
   cursor: pointer;
   font-family: var(--font-sans);
   font-size: 13px;
+  font-weight: 400;
   letter-spacing: -0.1px;
+  line-height: 18px;
 }
 
-.argo-apps-name-link:hover { text-decoration: underline; color: var(--blue); }
+.argo-apps-name-link:hover {
+  text-decoration: underline;
+  color: var(--blue);
+}
 
 /* Row actions — a small floating pill group revealed on hover */
 .argo-apps-row-actions {
@@ -609,7 +570,6 @@
 }
 
 .argo-apps-row-actions button:hover {
-  border-color: transparent;
   background: var(--hover);
 }
 
@@ -630,7 +590,6 @@
   padding: 0 7px;
   border-radius: 5px;
   background: var(--blue-soft);
-  border: 0;
 }
 
 .argo-apps-row-spinner {
@@ -647,17 +606,11 @@
 .argo-apps-row-spinner-label {
   font-size: 10.5px;
   font-weight: 600;
-  text-transform: none;
-  letter-spacing: 0;
   color: var(--blue);
 }
 
 @keyframes argo-apps-spin {
   to { transform: rotate(360deg); }
-}
-
-.argo-apps-table tbody tr.row-busy {
-  background: transparent;
 }
 
 .argo-apps-table tbody tr.row-busy td {
@@ -674,29 +627,27 @@
   100% { background: transparent; }
 }
 
-.argo-apps-table tbody tr.row-flash,
 .argo-apps-table tbody tr.row-flash td {
   animation-duration: 1.6s;
   animation-timing-function: var(--ease-quiet);
   animation-fill-mode: forwards;
 }
 
-.argo-apps-table tbody tr.row-flash-sync,
 .argo-apps-table tbody tr.row-flash-sync td {
   animation-name: argo-apps-flash-good;
 }
 
-.argo-apps-table tbody tr.row-flash-refresh,
 .argo-apps-table tbody tr.row-flash-refresh td {
   animation-name: argo-apps-flash-warn;
 }
 
-.argo-apps-mono { font-family: var(--font-mono); font-size: 11.5px; }
+.argo-apps-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
 
 .argo-apps-dest {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  color: var(--text);
 }
 
 .argo-apps-ns {
@@ -705,11 +656,16 @@
 
 .argo-apps-arrow {
   color: var(--text4);
-  font-size: 9px;
+  margin: 0 5px;
 }
 
 .argo-apps-dest-ns {
   color: var(--text);
+}
+
+.argo-apps-dest-target {
+  color: var(--text3);
+  margin-left: 6px;
 }
 
 .argo-apps-rev {
@@ -717,38 +673,19 @@
 }
 
 .argo-apps-time {
-  white-space: nowrap;
   color: var(--text2);
   font-variant-numeric: tabular-nums;
 }
 
-/* Status badges — 18px, 5px radius, 11px/600, tinted */
-.argo-apps-pill {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
-  font-size: 11px;
-  text-transform: none;
-  letter-spacing: 0;
-  font-weight: 600;
-  line-height: 1;
-  padding: 0 7px;
-  border-radius: 5px;
-  border: 0;
-  background: var(--ctrl);
-  color: var(--text2);
+.argo-apps-empty-value {
+  color: var(--text3);
 }
 
-.argo-apps-pill.sync-synced { color: var(--success-fg); border-color: transparent; background: var(--success-bg); }
-.argo-apps-pill.sync-outofsync { color: var(--warning-fg); border-color: transparent; background: var(--warning-bg); }
-.argo-apps-pill.sync-unknown { color: var(--text3); border-color: transparent; background: var(--ctrl); }
-
-.argo-apps-pill.health-healthy { color: var(--success-fg); border-color: transparent; background: var(--success-bg); }
-.argo-apps-pill.health-degraded { color: var(--danger-fg); border-color: transparent; background: var(--danger-bg); }
-.argo-apps-pill.health-missing { color: var(--warning-fg); border-color: transparent; background: var(--warning-bg); }
-.argo-apps-pill.health-progressing { color: var(--blue); border-color: transparent; background: var(--blue-soft); }
-.argo-apps-pill.health-suspended { color: var(--gray); border-color: transparent; background: var(--ctrl); }
-.argo-apps-pill.health-unknown { color: var(--text3); border-color: transparent; background: var(--ctrl); }
+/* Status badges use the .ap-badge recipe; this class only exists so the
+   selected-row override can reach them. */
+.argo-apps-pill {
+  vertical-align: middle;
+}
 
 .argo-apps-empty {
   text-align: center;
@@ -786,7 +723,6 @@
   background: var(--toolbar);
   backdrop-filter: blur(30px) saturate(1.5);
   -webkit-backdrop-filter: blur(30px) saturate(1.5);
-  border: 0;
   border-radius: 10px;
   padding: 5px;
   box-shadow: var(--shadow-pop);

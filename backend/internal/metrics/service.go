@@ -27,6 +27,10 @@ type Service struct {
 	lastCacheClear  atomic.Int64
 }
 
+// ProviderInfo is the result of detecting one provider in one cluster. Found
+// means the Service has ready pods behind it and the Prometheus-compatible API
+// answered a probe (or, for Mimir, answered 401 asking for a tenant); Reason
+// says in plain words why it is not found or not usable yet.
 type ProviderInfo struct {
 	Type      string `json:"type"`
 	Found     bool   `json:"found"`
@@ -35,6 +39,18 @@ type ProviderInfo struct {
 	URL       string `json:"url"`
 	Version   string `json:"version"`
 	Port      int32  `json:"port"`
+	// Flavor is the concrete implementation behind a provider type:
+	// prometheus | thanos | victoriametrics for "prometheus", mimir | cortex
+	// for "mimir".
+	Flavor string `json:"flavor,omitempty"`
+	// Path is the URL prefix the API lives under ("/prometheus" for Mimir).
+	Path string `json:"path,omitempty"`
+	// Verified is true when the API answered the detection probe.
+	Verified bool `json:"verified,omitempty"`
+	// NeedsTenant is set when a multi-tenant gateway answered 401: it is
+	// reachable but will not return data until a tenant is configured.
+	NeedsTenant bool   `json:"needsTenant,omitempty"`
+	Reason      string `json:"reason,omitempty"`
 }
 
 func NewService(k8sClient k8s.Interface, cacheInstance *cache.Cache, invalidationBus *cache.InvalidationBus) *Service {
@@ -118,7 +134,7 @@ func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, 
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
-				results[n] = &ProviderInfo{Type: n, Found: false}
+				results[n] = &ProviderInfo{Type: n, Found: false, Reason: "detection failed: " + trimErr(err)}
 			} else {
 				results[n] = info
 			}
@@ -127,6 +143,15 @@ func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, 
 	wg.Wait()
 
 	return results, nil
+}
+
+// InvalidateDetection forgets every cached detection result for a cluster so
+// the next DetectAllProviders call probes again. Used by the UI's "Detect
+// again" and after an install.
+func (s *Service) InvalidateDetection(cluster string) {
+	for _, name := range []string{"prometheus-info", "mimir-info", "mimir-candidates", "metrics-server-info"} {
+		s.cache.Delete(s.cache.BuildKey(name, cluster))
+	}
 }
 
 func (s *Service) DetectProvider(cluster string, providerType string) (*ProviderInfo, error) {
@@ -194,7 +219,7 @@ func (s *Service) QueryWorkloadMetrics(cluster string, query WorkloadMetricQuery
 }
 
 func (s *Service) GetWorkingProvider(cluster string) (*ProviderInfo, error) {
-	providerOrder := []string{"prometheus", "metrics-server"}
+	providerOrder := []string{"prometheus", "mimir", "metrics-server"}
 	for _, name := range providerOrder {
 		if provider, exists := s.providers[name]; exists {
 			info, err := provider.Detect(cluster)

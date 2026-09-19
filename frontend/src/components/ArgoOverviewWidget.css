@@ -157,6 +157,10 @@
   background: var(--red);
 }
 
+.arg-seg-info {
+  background: var(--blue);
+}
+
 .arg-seg-neutral {
   background: var(--gray);
 }
@@ -196,6 +200,10 @@
 
 .argo-widget-bar-legend-item.arg-seg-bad::before {
   background: var(--red);
+}
+
+.argo-widget-bar-legend-item.arg-seg-info::before {
+  background: var(--blue);
 }
 
 .argo-widget-bar-legend-item.arg-seg-neutral::before {

@@ -1,250 +1,254 @@
-/* Monitoring settings — a small sheet with labelled controls. */
-.monitoring-settings-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: var(--overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Monitoring — a System Settings-style sheet: grouped cards of rows with the
+   label on the left and the control on the right. Built on .ap-overlay,
+   .ap-sheet, .ap-card, .ap-select, .ap-input, .ap-toggle, .ap-btn. */
+
+.ms-overlay {
   z-index: 10000;
-  animation: ap-fade var(--duration-base) ease;
 }
 
-.monitoring-settings-modal {
-  background: var(--win);
-  border: 0;
-  border-radius: 12px;
-  width: 420px;
-  max-width: 90vw;
-  box-shadow: var(--shadow-window);
-  overflow: hidden;
-  animation: ap-pop var(--duration-base) var(--ease-snap);
-}
-
-.monitoring-settings-header {
+.ms-sheet {
   display: flex;
-  justify-content: space-between;
+  flex-direction: column;
+  width: 480px;
+  max-width: 92vw;
+  max-height: min(84vh, 760px);
+}
+
+.ms-header {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   height: 52px;
   padding: 0 14px 0 20px;
   border-bottom: 1px solid var(--hair);
+  flex: none;
 }
 
-.monitoring-settings-header h3 {
+.ms-header h3 {
   margin: 0;
-  font-size: 15px;
-  font-weight: 600;
-  letter-spacing: -0.2px;
-  color: var(--text);
 }
 
-.monitoring-settings-header .close-btn {
-  background: none;
-  border: none;
-  color: var(--text2);
-  font-size: 17px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-  width: 28px;
-  height: 28px;
+.ms-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px 20px;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+  flex-direction: column;
+  gap: 18px;
 }
 
-.monitoring-settings-header .close-btn:hover {
-  background: var(--hover);
-  color: var(--text);
+.ms-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 
-.monitoring-settings-content {
-  padding: 16px 20px 18px;
+.ms-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
 }
 
-.setting-group {
-  margin-bottom: 16px;
-}
-
-.setting-group:last-child {
-  margin-bottom: 0;
-}
-
-.setting-group label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text);
-  margin-bottom: 6px;
-}
-
-/* Pop-up button (.ap-select values) */
-.setting-group select {
-  width: 100%;
-  height: 28px;
-  padding: 0 26px 0 11px;
-  background-color: var(--card);
-  border: 0;
-  border-radius: 7px;
-  color: var(--text);
-  font-size: 12.5px;
-  font-weight: 500;
-  cursor: pointer;
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-  appearance: none;
-  -webkit-appearance: none;
-  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%23007aff'/><path d='M5 6.5l3-3 3 3M5 9.5l3 3 3-3' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>");
-  background-repeat: no-repeat;
-  background-position: right 5px center;
-  background-size: 16px 16px;
-  transition: box-shadow var(--duration-fast) var(--ease-quiet);
-}
-
-.setting-group select:focus {
-  outline: none;
-  border-color: transparent;
-  box-shadow: 0 0 0 0.5px var(--sep), 0 0 0 3px rgba(var(--blue-rgb), 0.35);
-}
-
-.setting-hint {
-  display: block;
+.ms-section-title {
   font-size: 11.5px;
+  font-weight: 600;
   color: var(--text2);
-  margin-top: 6px;
-  line-height: 1.4;
 }
 
-.checkbox-group label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  cursor: default;
-  margin-bottom: 0;
-  font-size: 13px;
-  font-weight: 400;
-}
-
-.checkbox-group input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
-  accent-color: var(--blue);
-}
-
-.monitoring-settings-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 18px;
-  border-top: 1px solid var(--hair);
-  background: var(--win);
-}
-
-.monitoring-settings-footer button {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 28px;
-  min-width: 76px;
-  padding: 0 14px;
-  border-radius: 7px;
-  font-size: 12.5px;
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
-}
-
-.monitoring-settings-footer .cancel-btn {
-  background-color: var(--card);
-  border: 0;
-  color: var(--text);
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-.monitoring-settings-footer .cancel-btn:hover {
-  background-image: linear-gradient(var(--hover), var(--hover));
-}
-
-.monitoring-settings-footer .save-btn {
-  background-color: var(--blue);
-  border: 0;
-  color: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
-}
-
-.monitoring-settings-footer .save-btn:hover {
-  background-color: var(--blue-hover);
-  opacity: 1;
-}
-
-/* .ap-input values */
-.setting-input {
-  width: 100%;
-  height: 28px;
-  padding: 0 9px;
-  background: var(--ctrl);
-  border: 0;
-  border-radius: 7px;
-  color: var(--text);
-  font-size: 13px;
-  box-sizing: border-box;
-  outline: none;
-  transition: box-shadow var(--duration-fast) var(--ease-quiet);
-}
-
-.setting-input:focus {
-  outline: none;
-  border-color: transparent;
-  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
-}
-
-.setting-input::placeholder {
+.ms-section-meta {
+  font-size: 11px;
   color: var(--text3);
-  opacity: 1;
+  font-variant-numeric: tabular-nums;
 }
 
-.setting-loading {
+.ms-card {
+  overflow: visible;
+}
+
+/* Provider list */
+.ms-provider-row {
   display: flex;
   align-items: center;
-  height: 28px;
-  padding: 0 9px;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.ms-provider-dot {
+  flex: none;
+}
+
+.ms-provider-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ms-provider-name {
   font-size: 12.5px;
-  color: var(--text2);
-  background: var(--ctrl);
-  border: 0;
-  border-radius: 7px;
-}
-
-/* Tinted warning strip */
-.warning-group {
-  padding: 10px 12px;
-  background: var(--warning-bg);
-  border: 0;
-  border-radius: 8px;
-}
-
-.warning-text {
-  font-size: 12px;
   font-weight: 500;
-  color: var(--warning-fg);
-  line-height: 1.45;
+  color: var(--text);
 }
 
-.setting-error {
-  display: block;
-  margin-top: 6px;
+.ms-provider-status {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text2);
+  overflow-wrap: anywhere;
+}
+
+.ms-provider-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px 10px;
+}
+
+.ms-provider-footnote {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text3);
+  min-width: 0;
+}
+
+/* Settings rows */
+.ms-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.ms-row:last-child,
+.ms-provider-footer:last-child {
+  border-bottom: 0;
+}
+
+.ms-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.ms-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ms-row-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.ms-row-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text2);
+}
+
+.ms-select {
+  flex: 0 1 240px;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ms-row-stacked .ms-select,
+.ms-row-stacked .ms-input {
+  max-width: none;
+  flex: none;
+  width: 100%;
+}
+
+.ms-select-narrow {
+  flex: 0 0 auto;
+  width: 170px;
+}
+
+.ms-input {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.ms-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ms-inline .ms-input {
+  flex: 1 1 auto;
+}
+
+.ms-error {
   font-size: 11.5px;
   line-height: 1.4;
   color: var(--danger-fg);
 }
 
-.setting-group select option:disabled {
+/* Discovered tenant chips */
+.ms-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ms-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ctrl);
   color: var(--text2);
-  opacity: 0.6;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.ms-chip:hover {
+  color: var(--text);
+}
+
+.ms-chip[aria-pressed='true'] {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* The .ap-toggle recipe on a real button */
+.ms-switch {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ms-switch:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+}
+
+.ap-select option:disabled {
+  color: var(--text3);
 }

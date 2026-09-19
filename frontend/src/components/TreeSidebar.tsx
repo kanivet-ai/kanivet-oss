@@ -40,6 +40,13 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
 
   const [localSearch, setLocalSearch] = useState('');
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
+  // What moved the cursor last. The row ring is drawn only for keyboard moves;
+  // a mouse click selects (blue fill) and must not leave a ring behind.
+  const [navMode, setNavMode] = useState<'pointer' | 'keyboard'>('pointer');
+  const focusNodeByKeyboard = useCallback((value: React.SetStateAction<string | null>) => {
+    setNavMode('keyboard');
+    setFocusedNodeId(value);
+  }, []);
   const [width, setWidth] = useState(() => {
     const saved = localStorage.getItem('treeSidebarWidth');
     const defaultWidth = Math.floor(window.innerWidth * 0.2);
@@ -414,7 +421,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     focusArea,
     () => allNodesMemo,
     focusedNodeId,
-    setFocusedNodeId,
+    focusNodeByKeyboard,
   );
 
   useRegisteredKeyboard({
@@ -466,6 +473,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           return;
         e.preventDefault();
         if (!focusedNodeId) return;
+        setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (node?.expanded && node.type !== 'resource') {
           toggleNodeExpansion(node.id);
@@ -485,6 +493,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           return;
         e.preventDefault();
         if (!focusedNodeId) return;
+        setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (node?.expanded && node.type !== 'resource') {
           toggleNodeExpansion(node.id);
@@ -504,6 +513,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           return;
         e.preventDefault();
         if (!focusedNodeId) return;
+        setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
         if (node.type === 'resource' || node.type === 'argo-overview') {
@@ -532,6 +542,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           return;
         e.preventDefault();
         if (!focusedNodeId) return;
+        setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
         if (node.type === 'resource' || node.type === 'argo-overview') {
@@ -560,6 +571,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           return;
         e.preventDefault();
         if (!focusedNodeId) return;
+        setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (node) {
           await handleNodeClick(node, true);
@@ -616,11 +628,13 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     <div
       ref={sidebarRef}
       className={`tree-sidebar ${focusArea === 'tree' ? 'focused' : ''}`}
+      data-nav={navMode}
       style={{
         width: `${width}px`,
         minWidth: `${width}px`,
         maxWidth: `${width}px`,
       }}
+      onMouseDown={() => setNavMode('pointer')}
       onClick={() => setFocusArea('tree')}
     >
       <div className="sidebar-header">

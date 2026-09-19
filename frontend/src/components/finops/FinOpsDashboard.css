@@ -420,7 +420,7 @@
 }
 
 .cost-table td {
-  color: var(--text2);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

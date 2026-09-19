@@ -200,10 +200,31 @@
 }
 
 .command-palette-result.selected,
-.command-palette-result.selected:hover {
+.command-palette-result.selected:hover,
+.command-palette-recent-item.selected,
+.command-palette-recent-item.selected:hover {
   background-color: var(--sel);
   color: var(--on-sel);
   border-left-color: transparent;
+}
+
+/* Keyboard is driving: the row resting under the cursor must not show a
+   second, grey highlight next to the blue one. */
+.command-palette-results.keyboard-nav .command-palette-result:not(.selected):hover,
+.command-palette-results.keyboard-nav .command-palette-recent-item:not(.selected):hover {
+  background-color: transparent;
+}
+
+.command-palette-recent-item.selected .command-palette-icon {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+
+.command-palette-recent-item.selected .command-palette-result-meta,
+.command-palette-recent-item.selected .command-palette-kind,
+.command-palette-recent-item.selected .command-palette-namespace,
+.command-palette-recent-item.selected .command-palette-cluster {
+  color: var(--on-sel2);
 }
 
 /* Icon tile */

@@ -679,7 +679,8 @@ th.resource-table-filler-column:hover {
   height: 30px;
   line-height: 18px;
   padding: 0 10px 0 6px;
-  color: var(--text2);
+  /* Cell values are primary text; only namespace/age/labels step back to --text2. */
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -753,7 +754,7 @@ th.resource-table-filler-column:hover {
   position: relative;
   overflow: visible;
   background: transparent;
-  color: var(--text2);
+  color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
@@ -848,13 +849,13 @@ th.resource-table-filler-column:hover {
   letter-spacing: 0;
   border: 0;
   background: transparent;
-  color: var(--text2);
+  color: var(--text);
   vertical-align: middle;
   font-variant-numeric: tabular-nums;
 }
 
 .ready-badge.success {
-  color: var(--text2);
+  color: var(--text);
 }
 
 .ready-badge.warning {
