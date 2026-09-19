@@ -1,437 +1,232 @@
 /*
-  Pod / node / workload metrics — the macOS-native metric card.
+  Metrics card — shared by PodMetrics, NodeMetrics and WorkloadMetrics
+  (the shared pieces live in components/metrics/).
 
-  Chart.js colours are read from the design tokens at runtime in
-  PodMetrics.tsx (chart theme helpers). Inside the inspector,
-  DetailViewCompactOverrides.css lays these same pieces out as a card; the
-  values here agree with it so the component looks identical wherever it is
-  rendered.
+  Layout: toolbar (metric + time-range segmented controls) → headline →
+  chart frame (title row + plot). Chart.js colours are read from the design
+  tokens at runtime in metrics/chartTheme.ts. The card is a CSS container:
+  below 480px the metric segments drop their labels and keep the icons, and
+  the time-range control wraps under the metric control.
+
+  Inside the inspector the PropertyGroup body already paints the card ring,
+  so the ring is only drawn when the card stands alone.
 */
+
 .pod-metrics {
-  /* FIXED METRICS SECTION - NEVER CHANGES */
-  padding: 0 !important;
-  background: transparent !important;
-  margin-top: 8px !important;
-  width: 100% !important; /* Fixed width */
-  overflow: hidden !important; /* Prevent any overflow */
-  box-sizing: border-box !important;
-}
-
-.metrics-controls {
-  display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-/* Segmented control track (same recipe as .ap-segmented--sm) */
-.metric-selector {
-  display: flex;
-  gap: 1px;
-  background: var(--ctrl);
-  border-radius: 6px;
-  padding: 1.5px;
-  border: 0;
-}
-
-.metric-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 18px;
-  padding: 0 8px;
-  background: transparent;
-  color: var(--text2);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  letter-spacing: 0;
-  text-transform: none;
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
-}
-
-.metric-btn-icon {
-  padding: 0 6px;
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  min-width: 24px;
-}
-
-.metric-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 0;
-}
-
-.metric-icon svg {
-  width: 13px;
-  height: 13px;
-}
-
-.metric-label {
-  display: none;
-}
-
-.metric-btn:hover {
-  background: transparent;
-  color: var(--text);
-}
-
-.metric-btn.active {
-  background: var(--card);
-  color: var(--text);
-  font-weight: 500;
-  box-shadow: var(--shadow-pill);
-}
-
-.time-range-selector {
-  position: relative;
-  display: flex;
-  gap: 1px;
-  margin-left: auto;
-  background: var(--ctrl);
-  border-radius: 6px;
-  padding: 1.5px;
-  border: 0;
-}
-
-.time-range-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 18px;
-  padding: 0 8px;
-  min-width: 28px;
-  background: transparent;
-  color: var(--text2);
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 10.5px;
-  font-weight: 500;
-  line-height: 1;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
-}
-
-.time-range-btn:hover {
-  background: transparent;
-  color: var(--text);
-}
-
-.time-range-btn.active {
-  background: var(--card);
-  color: var(--text);
-  font-weight: 500;
-  box-shadow: var(--shadow-pill);
-}
-
-.metrics-chart-header {
-  position: absolute;
-  top: 8px;
-  left: 12px;
-  right: 8px;
-  z-index: 10;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 8px;
-}
-
-.metrics-title-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  container-type: inline-size;
+  container-name: metrics;
+  width: 100%;
   min-width: 0;
-}
-
-.metrics-chart-title {
+  box-sizing: border-box;
   font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text2);
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.metrics-header-actions {
-  display: flex;
-  gap: 2px;
-  align-items: center;
-}
-
-/* Icon buttons (same recipe as .ap-icon-btn--sm) */
-.refresh-btn-icon,
-.settings-btn-icon,
-.reset-zoom-btn-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  background: transparent;
-  color: var(--text2);
-  border: 0;
-  border-radius: 5px;
-  cursor: pointer;
-  line-height: 0;
-  flex: none;
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
-}
-
-.reset-zoom-btn-icon {
-  background: var(--blue-soft);
-  color: var(--blue);
-}
-
-.reset-zoom-btn-icon:hover {
-  background: var(--blue);
-  color: #fff;
-}
-
-.refresh-btn-icon:hover {
-  background: var(--hover);
-  border-color: transparent;
-  color: var(--text);
-  transform: none;
-}
-
-.refresh-btn-icon:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  transform: none;
-}
-
-.refresh-btn-icon:disabled:hover {
-  background: transparent;
-  border-color: transparent;
-  color: var(--text2);
-}
-
-@keyframes spin-refresh {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.refresh-btn-icon:disabled svg {
-  animation: spin-refresh 1s linear infinite;
-}
-
-.settings-btn-icon:hover {
-  background: var(--hover);
-  border-color: transparent;
   color: var(--text);
 }
 
-.metrics-chart-container {
-  position: relative;
-  height: 200px !important;
-  width: 100% !important;
-  background: transparent;
+.mx-card {
+  padding: 12px 14px 12px;
+  background: var(--card);
   border-radius: 10px;
-  padding: 34px 8px 8px 8px !important;
-  border: none;
-  overflow: hidden !important;
-  box-sizing: border-box !important;
-}
-
-
-.chart-wrapper {
-  height: 100%;
-  position: relative;
-  z-index: 1;
-  display: flex;
-  flex-direction: column;
-  transition: opacity var(--duration-base) var(--ease-quiet);
-}
-
-.chart-wrapper[data-stale='true'] {
-  opacity: 0.55;
-}
-
-.chart-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  background: color-mix(in srgb, var(--content) 60%, transparent);
-  backdrop-filter: blur(2px);
-  border-radius: 8px;
-  pointer-events: none;
-  z-index: 2;
-  padding: 12px;
+  box-shadow: var(--shadow-card);
   box-sizing: border-box;
 }
 
-.chart-overlay[data-state='error'] {
-  background: color-mix(in srgb, var(--content) 80%, transparent);
+.property-group-inner .mx-card,
+.pod-metrics-wrapper .mx-card,
+.node-metrics-wrapper .mx-card {
+  background: transparent;
+  border-radius: 0;
+  box-shadow: none;
 }
 
-.chart-overlay-error {
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-  color: var(--text2);
-  text-align: center;
-  max-width: 80%;
-  line-height: 1.4;
-}
+/* ---- Toolbar: segmented controls ---------------------------------------- */
 
-.chart-wrapper canvas {
-  flex: 1;
-  min-height: 0;
-}
-
-/* Chart controls */
-.chart-controls {
+.mx-toolbar {
   display: flex;
-  gap: 6px;
-  position: absolute;
-  top: -24px;
-  right: 60px;
-  z-index: 10;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  margin-bottom: 10px;
+  min-width: 0;
 }
 
-.chart-control-btn {
+.mx-seg {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 2px;
+  background: var(--ctrl);
+  border-radius: 7px;
+  flex: none;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.mx-seg-metrics {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.mx-seg-time {
+  position: relative;
+  margin-left: auto;
+}
+
+.mx-seg-btn {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 8px;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text2);
-  background: var(--ctrl);
+  justify-content: center;
+  gap: 5px;
+  min-height: 22px;
+  padding: 0 9px;
   border: 0;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text2);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
+  cursor: pointer;
+  min-width: 0;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
-.chart-control-btn:hover {
-  background: var(--ctrl2);
+.mx-seg-btn:hover {
   color: var(--text);
-  border-color: transparent;
 }
 
-.chart-control-btn.active {
+.mx-seg-btn[aria-selected='true'] {
   background: var(--card);
   color: var(--text);
-  border-color: transparent;
   box-shadow: var(--shadow-pill);
 }
 
-.chart-control-btn svg {
-  flex-shrink: 0;
-}
-
-.reset-zoom-btn {
-  background: var(--blue-soft);
-  color: var(--blue);
-  border-color: transparent;
-}
-
-.reset-zoom-btn:hover {
-  background: var(--blue);
-  color: #fff;
-}
-
-/* Custom range icon in time selector */
-.custom-range-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 0 6px !important;
-  min-width: auto !important;
-}
-
-.custom-range-icon svg {
-  opacity: 0.8;
-}
-
-.custom-range-icon:hover svg,
-.custom-range-icon.active svg {
-  opacity: 1;
-}
-
-/* Custom time range popover (same recipe as .ap-popover) */
-.custom-time-dropdown {
-  position: absolute;
-  top: 100%;
-  right: 0;
-  margin-top: 6px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px;
-  background: var(--card);
-  border: 0;
-  border-radius: 10px;
-  box-shadow: var(--shadow-pop);
-  z-index: 100;
-  min-width: 200px;
-  animation: ap-pop var(--duration-base) var(--ease-snap);
-}
-
-.time-input-row {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.time-input-row label {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text2);
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.time-input {
-  height: 24px;
-  padding: 0 8px;
-  font-family: var(--font-sans);
-  font-size: 11.5px;
-  color: var(--text);
-  background: var(--ctrl);
-  border: 0;
-  width: 100%;
-  border-radius: 6px;
+.mx-seg-btn:focus-visible {
   outline: none;
-  transition: box-shadow var(--duration-fast) var(--ease-quiet);
-}
-
-.time-input:focus {
-  border-color: transparent;
   box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
-.time-input::-webkit-calendar-picker-indicator {
-  filter: invert(0.5);
+.mx-seg-btn-range {
+  min-width: 30px;
+  padding: 0 7px;
+  font-variant-numeric: tabular-nums;
+}
+
+.mx-seg-btn-custom {
+  min-width: 26px;
+  padding: 0 6px;
+}
+
+.mx-seg-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  flex: none;
+}
+
+.mx-seg-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.mx-seg-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mx-seg-custom-value {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Narrow card: icons only for the metric control, tighter range segments. */
+@container metrics (max-width: 480px) {
+  .mx-seg-label {
+    display: none;
+  }
+
+  .mx-seg-metrics .mx-seg-btn {
+    padding: 0 7px;
+  }
+}
+
+@container metrics (max-width: 340px) {
+  .mx-toolbar {
+    gap: 6px;
+  }
+
+  .mx-seg-metrics,
+  .mx-seg-time {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .mx-seg-metrics .mx-seg-btn,
+  .mx-seg-time .mx-seg-btn {
+    flex: 1 1 0;
+  }
+}
+
+/* ---- Custom range popover ------------------------------------------------ */
+
+.mx-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 232px;
+  padding: 10px;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  animation: ap-pop var(--duration-base) var(--ease-snap);
+  box-sizing: border-box;
+}
+
+.mx-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.mx-field-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.mx-input {
+  width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ctrl);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  outline: none;
+  box-sizing: border-box;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.mx-input:focus {
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+}
+
+.mx-input::-webkit-calendar-picker-indicator {
+  opacity: 0.55;
   cursor: pointer;
 }
 
-.time-input-actions {
+.mx-popover-actions {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -439,310 +234,267 @@
   margin-top: 2px;
 }
 
-/* Primary button (same recipe as .ap-btn--primary, small) */
-.apply-time-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 24px;
-  padding: 0 10px;
-  font-family: var(--font-sans);
-  font-size: 11.5px;
-  font-weight: 500;
-  line-height: 1;
-  color: #fff;
-  background: var(--blue);
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
-  transition: background var(--duration-fast) var(--ease-quiet);
-}
-
-.apply-time-btn:hover {
-  background: var(--blue-hover);
-  opacity: 1;
-}
-
-.apply-time-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.custom-time-hint {
-  font-family: var(--font-sans);
-  font-size: 11px;
-  color: var(--text3);
-  font-style: normal;
-}
-
-.custom-time-preview {
-  display: inline-flex;
-  align-items: center;
-  height: 18px;
+.mx-popover-actions .ap-badge {
   margin-right: auto;
-  font-family: var(--font-sans);
-  font-size: 11px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--blue);
-  padding: 0 7px;
-  background: var(--blue-soft);
-  border-radius: 5px;
 }
 
-.custom-time-preview.custom-time-error {
-  color: var(--danger-fg);
-  background: var(--danger-bg);
-}
+/* ---- Headline ------------------------------------------------------------ */
 
-/* Chart hint - hidden */
-.chart-hint {
-  display: none;
-}
-
-/* Zoom selection box styling override */
-.chartjs-zoom-drag-box {
-  border: 1px dashed var(--blue) !important;
-  background: rgba(var(--blue-rgb), 0.08) !important;
-}
-
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.metrics-loading,
-.pod-metrics-loading,
-.metrics-no-data {
-  /* FIXED LOADING/NO-DATA STATES */
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  height: 100% !important;
-  width: 100% !important;
-  color: var(--text2) !important;
-  font-family: var(--font-sans) !important;
-  font-size: 12.5px !important;
-  font-weight: 400 !important;
-  letter-spacing: 0 !important;
-  overflow: hidden !important;
-  box-sizing: border-box !important;
-}
-
-.metrics-loading::before {
-  content: '';
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  border: 2px solid var(--ctrl2);
-  border-top-color: var(--blue);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-  margin-right: 8px;
-}
-
-/* Clean loading state for metrics */
-.metrics-loading-state {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-
-.metrics-loading-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--ctrl2);
-  border-top-color: var(--blue);
-  border-radius: 50%;
-  animation: spin 0.8s linear infinite;
-}
-
-.metrics-loading-text {
-  font-family: var(--font-sans);
-  font-size: 12px;
-  color: var(--text2);
-  letter-spacing: 0;
-}
-
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.metrics-error {
-  /* FIXED ERROR DISPLAY - NEVER BREAKS LAYOUT */
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  height: 100% !important;
-  width: 100% !important;
-  color: var(--danger-fg) !important;
-  font-family: var(--font-sans) !important;
-  font-size: 12.5px !important;
-  background: var(--danger-bg) !important;
-  border: 0 !important;
-  border-radius: 8px !important;
-  padding: 16px !important;
-  backdrop-filter: none !important;
-  overflow: hidden !important;
-  word-break: break-word !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  box-sizing: border-box !important;
-}
-
-.pod-metrics-no-provider {
-  padding: 20px 14px;
-  text-align: center;
-  background: var(--card);
-  border-radius: 10px;
-  margin-top: 8px;
-  border: 0;
-  box-shadow: var(--shadow-card);
-}
-
-.no-provider-message {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 12px;
-  color: var(--text2);
-  font-family: var(--font-sans);
-  font-size: 12.5px;
-}
-
-.no-provider-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-}
-
-/* Button (same recipe as .ap-btn) */
-.install-provider-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  padding: 0 12px;
-  background-color: var(--card);
-  color: var(--text);
-  border: 0;
-  border-radius: 7px;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 1;
-  white-space: nowrap;
-  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-.install-provider-btn:hover {
-  background-image: linear-gradient(var(--hover), var(--hover));
-  border-color: transparent;
-  color: var(--text);
-}
-
-.install-provider-btn:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  transform: none;
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-/* Smooth transitions for metric changes */
-.pod-metrics * {
-  transition:
-    color var(--duration-fast) var(--ease-quiet),
-    background-color var(--duration-fast) var(--ease-quiet),
-    box-shadow var(--duration-fast) var(--ease-quiet),
-    opacity var(--duration-base) var(--ease-quiet);
-}
-
-/* Custom scrollbar for chart container if needed */
-.metrics-chart-container::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-
-.metrics-chart-container::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.metrics-chart-container::-webkit-scrollbar-thumb {
-  background: var(--ctrl2);
-  border-radius: 3px;
-}
-
-.metrics-chart-container::-webkit-scrollbar-thumb:hover {
-  background: var(--scrollbar-thumb-hover);
-}
-
-/* Light theme: the tokens already flip; these only restate the same recipe. */
-[data-theme='light'] .metric-btn.active {
-  background: var(--card);
-  color: var(--text);
-}
-
-[data-theme='light'] .install-provider-btn {
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-[data-theme='light'] .install-provider-btn:hover {
-  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
-}
-
-/* Headline: current value · context · delta (above the chart) */
-.metrics-headline {
+.mx-headline {
   display: flex;
   align-items: baseline;
-  gap: 6px;
-  margin: 2px 0 6px;
+  gap: 5px;
+  min-height: 28px;
+  margin: 0 0 6px;
   min-width: 0;
 }
 
-.metrics-headline-value {
-  font-size: 28px;
+.mx-headline-value {
+  font-size: 26px;
   font-weight: 600;
-  letter-spacing: -0.8px;
+  letter-spacing: -0.6px;
   line-height: 1;
   color: var(--text);
   font-variant-numeric: tabular-nums;
 }
 
-.metrics-headline-context {
+.mx-headline-unit {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.mx-headline-context {
+  margin-left: 3px;
   font-size: 12px;
   color: var(--text2);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
-.metrics-headline-delta {
+.mx-headline-delta {
   margin-left: auto;
+  padding-left: 8px;
   font-size: 11.5px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  flex: none;
 }
 
-.metrics-headline-delta.down {
+.mx-headline-delta.is-down {
   color: var(--success-fg);
 }
 
-.metrics-headline-delta.up {
+.mx-headline-delta.is-up {
   color: var(--warning-fg);
+}
+
+/* ---- Chart frame --------------------------------------------------------- */
+
+.mx-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.mx-frame-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 22px;
+}
+
+.mx-frame-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+
+.mx-frame-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.mx-provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 17px;
+  padding: 0 7px 0 6px;
+  border-radius: 5px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mx-provider-chip .ap-dot {
+  width: 6px;
+  height: 6px;
+}
+
+.mx-frame-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.mx-refresh.is-spinning svg {
+  animation: ap-spin 1s linear infinite;
+}
+
+.mx-plot {
+  position: relative;
+  height: 164px;
+  min-width: 0;
+  border-radius: 8px;
+}
+
+.mx-canvas {
+  position: absolute;
+  inset: 0;
+  transition: opacity var(--duration-base) var(--ease-quiet);
+}
+
+.mx-canvas canvas {
+  width: 100%;
+  height: 100%;
+}
+
+.mx-plot[data-stale='true'] .mx-canvas,
+.mx-plot[data-state='loading'] .mx-canvas,
+.mx-plot[data-state='error'] .mx-canvas {
+  opacity: 0.35;
+}
+
+.mx-plot[data-state='empty'] .mx-canvas {
+  opacity: 0;
+}
+
+.mx-plot-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 8px;
+  pointer-events: none;
+  box-sizing: border-box;
+  text-align: center;
+}
+
+.mx-plot-overlay-text {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--text2);
+  max-width: 92%;
+  overflow-wrap: anywhere;
+}
+
+.mx-plot-overlay-error {
+  color: var(--text2);
+}
+
+/* ---- Provider states ------------------------------------------------------ */
+
+.mx-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 228px;
+  padding: 16px 12px;
+  text-align: center;
+  box-sizing: border-box;
+}
+
+.mx-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  background: var(--ctrl);
+  color: var(--text2);
+}
+
+.mx-state-icon.is-warning {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.mx-state-icon.is-danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.mx-state-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.mx-state-body {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text2);
+  max-width: 320px;
+  overflow-wrap: anywhere;
+}
+
+.mx-state-error {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--danger-fg);
+  max-width: 320px;
+}
+
+.mx-state-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ---- Card-level messages (workload pod list) ------------------------------ */
+
+.mx-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: 120px;
+  font-size: 12.5px;
+  color: var(--text2);
+  text-align: center;
+}
+
+.mx-message.is-error {
+  color: var(--danger-fg);
 }

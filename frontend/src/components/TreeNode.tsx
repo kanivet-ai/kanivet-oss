@@ -225,6 +225,7 @@ const TreeNode = ({
         onContextMenu={handleContextMenu}
         tabIndex={-1}
         aria-disabled={disabled}
+        title={disabled ? node.disabledReason || `${node.label} is not installed in this cluster` : undefined}
         draggable={node.type === 'resource' && !disabled}
         onDragStart={(e) => {
           if (node.type === 'resource') {

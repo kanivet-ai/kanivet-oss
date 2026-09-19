@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import './CommandPalette.css';
 import api from '../services/api';
 import { useStore } from '../store';
@@ -29,6 +29,31 @@ const getShortClusterName = (cluster: string): string => {
   return cluster;
 };
 
+/**
+ * One row the arrow keys can land on, in the order the rows are painted.
+ * Results are grouped by category on screen, so the flat `results` array is
+ * not a valid keyboard order — walking it made the highlight jump between
+ * sections.
+ */
+type NavItem =
+  | { kind: 'recent'; recent: RecentResource }
+  | { kind: 'result'; result: SearchResult };
+
+const CATEGORY_ORDER = [
+  'Workloads',
+  'Networking',
+  'Configuration',
+  'Storage',
+  'Security',
+  'Autoscaling',
+  'Policy',
+  'Cluster',
+  'Other',
+];
+
+/** Pointer travel (px) before mouse hover is allowed to move the selection again. */
+const POINTER_WAKE_DISTANCE = 4;
+
 const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -55,6 +80,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  // While the keyboard drives the selection, a row sliding under a resting
+  // cursor must not steal it. Hover takes over again once the pointer moves.
+  const [pointerNav, setPointerNav] = useState(true);
+  const pointerNavRef = useRef(true);
+  const pointerRestRef = useRef<{ x: number; y: number } | null>(null);
 
   const {
     currentTab,
@@ -268,41 +298,162 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  // Separate kind definition results from regular resource results
+  const kindDefinitionResults = useMemo(
+    () => results.filter((r) => r.resource.kind === 'KindDefinition'),
+    [results],
+  );
+  const resourceResults = useMemo(
+    () => results.filter((r) => r.resource.kind !== 'KindDefinition'),
+    [results],
+  );
+
+  // Apply category filter, then group by category in the painted order
+  const groupedResults = useMemo(() => {
+    const display =
+      categoryFilter === 'All'
+        ? resourceResults
+        : resourceResults.filter((r) => r.resource.category === categoryFilter);
+    return display.reduce<Record<string, SearchResult[]>>((acc, result) => {
+      const groupKey = result.resource.category || 'Other';
+      (acc[groupKey] ||= []).push(result);
+      return acc;
+    }, {});
+  }, [resourceResults, categoryFilter]);
+
+  const sortedCategories = useMemo(
+    () =>
+      Object.keys(groupedResults).sort((a, b) => {
+        const aIndex = CATEGORY_ORDER.indexOf(a);
+        const bIndex = CATEGORY_ORDER.indexOf(b);
+        return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
+      }),
+    [groupedResults],
+  );
+
+  const availableCategories = useMemo(
+    () =>
+      Array.from(new Set(resourceResults.map((r) => r.resource.category || 'Other'))).sort(
+        (a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b),
+      ),
+    [resourceResults],
+  );
+
+  // The rows in the exact order they are rendered: Recent while idle,
+  // otherwise kinds first and then each category section.
+  const navItems = useMemo<NavItem[]>(() => {
+    if (showRecent) return recentSearches.map((recent) => ({ kind: 'recent', recent }));
+    const ordered: NavItem[] = kindDefinitionResults.map((result) => ({ kind: 'result', result }));
+    for (const category of sortedCategories) {
+      for (const result of groupedResults[category]) ordered.push({ kind: 'result', result });
+    }
+    return ordered;
+  }, [showRecent, recentSearches, kindDefinitionResults, sortedCategories, groupedResults]);
+
+  const navIndexByResult = useMemo(() => {
+    const map = new Map<SearchResult, number>();
+    navItems.forEach((item, index) => {
+      if (item.kind === 'result') map.set(item.result, index);
+    });
+    return map;
+  }, [navItems]);
+
+  // Keep the highlight on a real row when the list shrinks or is re-filtered.
+  useEffect(() => {
+    setSelectedIndex((prev) => Math.min(prev, Math.max(navItems.length - 1, 0)));
+  }, [navItems.length]);
+
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [categoryFilter]);
+
+  // Scroll after the highlight has actually moved (the previous version
+  // queried `.selected` before React re-rendered, so it followed the old row).
+  useEffect(() => {
+    const row = resultsRef.current?.querySelector<HTMLElement>(`[data-nav-index="${selectedIndex}"]`);
+    row?.scrollIntoView({ block: 'nearest' });
+  }, [selectedIndex, navItems]);
+
+  const setKeyboardNav = () => {
+    pointerNavRef.current = false;
+    pointerRestRef.current = null;
+    setPointerNav(false);
+  };
+
+  const handleRowMouseEnter = (index: number) => {
+    if (pointerNavRef.current) setSelectedIndex(index);
+  };
+
+  const handleResultsMouseMove = (e: React.MouseEvent) => {
+    if (pointerNavRef.current) return;
+    const rest = pointerRestRef.current;
+    if (!rest) {
+      pointerRestRef.current = { x: e.clientX, y: e.clientY };
+      return;
+    }
+    if (Math.abs(e.clientX - rest.x) < POINTER_WAKE_DISTANCE && Math.abs(e.clientY - rest.y) < POINTER_WAKE_DISTANCE) return;
+    pointerNavRef.current = true;
+    pointerRestRef.current = null;
+    setPointerNav(true);
+    // The cursor is already resting inside a row, so no mouseenter will fire
+    // for it — pick it up here.
+    const row = (e.target as HTMLElement).closest<HTMLElement>('[data-nav-index]');
+    const index = row ? Number(row.dataset.navIndex) : NaN;
+    if (Number.isInteger(index)) setSelectedIndex(index);
+  };
+
+  const activateNavItem = (item: NavItem) => {
+    if (item.kind === 'recent') {
+      handleRecentResourceSelect(item.recent);
+      return;
+    }
+    const sel = item.result as any;
+    if (sel?.resource?.kind === 'Cluster' && sel?.resource?.name) {
+      const { openTab, setCurrentTab } = useStore.getState();
+      openTab(sel.resource.name);
+      setCurrentTab(sel.resource.name);
+      onClose();
+      return;
+    }
+    if (sel?.resource?.kind === 'Command') {
+      const id = String(sel.resource.id || '').replace(/^cmd:/, '');
+      if (id === 'switch-cluster') {
+        primeClusterSwitch();
+        return;
+      }
+    }
+    handleResultSelect(item.result);
+  };
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setSelectedIndex((prev) => Math.min(prev + 1, results.length - 1));
-        scrollToSelected();
+        setKeyboardNav();
+        setSelectedIndex((prev) => Math.min(prev + 1, Math.max(navItems.length - 1, 0)));
         break;
 
       case 'ArrowUp':
         e.preventDefault();
+        setKeyboardNav();
         setSelectedIndex((prev) => Math.max(prev - 1, 0));
-        scrollToSelected();
         break;
 
-      case 'Enter':
+      case 'Home':
+      case 'End': {
+        if (navItems.length === 0) break;
         e.preventDefault();
-        if (results.length > 0 && selectedIndex >= 0) {
-          const sel = results[selectedIndex] as any;
-          if (sel?.resource?.kind === 'Cluster' && sel?.resource?.name) {
-            const { openTab, setCurrentTab } = useStore.getState();
-            openTab(sel.resource.name);
-            setCurrentTab(sel.resource.name);
-            onClose();
-            return;
-          }
-          if (sel?.resource?.kind === 'Command') {
-            const id = String(sel.resource.id || '').replace(/^cmd:/, '');
-            if (id === 'switch-cluster') {
-              primeClusterSwitch();
-              return;
-            }
-          }
-          handleResultSelect(results[selectedIndex]);
-        }
+        setKeyboardNav();
+        setSelectedIndex(e.key === 'Home' ? 0 : navItems.length - 1);
         break;
+      }
+
+      case 'Enter': {
+        e.preventDefault();
+        const item = navItems[selectedIndex];
+        if (item) activateNavItem(item);
+        break;
+      }
 
       case 'Escape':
         e.preventDefault();
@@ -336,19 +487,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   // Category tab click
   const handleCategoryTabClick = (category: string) => {
     setCategoryFilter(category);
-  };
-
-  // Scroll to selected item
-  const scrollToSelected = () => {
-    if (resultsRef.current) {
-      const selectedElement = resultsRef.current.querySelector('.selected');
-      if (selectedElement) {
-        selectedElement.scrollIntoView({
-          block: 'nearest',
-          behavior: 'smooth',
-        });
-      }
-    }
   };
 
   // Handle kind definition selection
@@ -598,56 +736,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     handleResultSelect(searchResult);
   };
 
-  // Separate kind definition results from regular resource results
-  const kindDefinitionResults = results.filter(
-    (r) => r.resource.kind === 'KindDefinition',
-  );
-  const resourceResults = results.filter(
-    (r) => r.resource.kind !== 'KindDefinition',
-  );
-
-  // Apply category filter
-  let displayResults = resourceResults;
-  if (categoryFilter !== 'All') {
-    displayResults = displayResults.filter(
-      (r) => r.resource.category === categoryFilter,
-    );
-  }
-
-  // Group regular results by category
-  const groupedResults = displayResults.reduce<Record<string, SearchResult[]>>(
-    (acc, result) => {
-      const groupKey = result.resource.category || 'Other';
-      if (!acc[groupKey]) {
-        acc[groupKey] = [];
-      }
-      acc[groupKey].push(result);
-      return acc;
-    },
-    {},
-  );
-
-  const categoryOrder = [
-    'Workloads',
-    'Networking',
-    'Configuration',
-    'Storage',
-    'Security',
-    'Autoscaling',
-    'Policy',
-    'Cluster',
-    'Other',
-  ];
-  const sortedCategories = Object.keys(groupedResults).sort((a, b) => {
-    const aIndex = categoryOrder.indexOf(a);
-    const bIndex = categoryOrder.indexOf(b);
-    return (aIndex === -1 ? 999 : aIndex) - (bIndex === -1 ? 999 : bIndex);
-  });
-
-  const availableCategories = Array.from(
-    new Set(resourceResults.map((r) => r.resource.category || 'Other')),
-  ).sort((a, b) => categoryOrder.indexOf(a) - categoryOrder.indexOf(b));
-
   if (!isOpen) return null;
 
   return (
@@ -764,7 +852,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
           </div>
         )}
 
-        <div className="command-palette-results" ref={resultsRef}>
+        <div
+          className={`command-palette-results${pointerNav ? '' : ' keyboard-nav'}`}
+          ref={resultsRef}
+          onMouseMove={handleResultsMouseMove}
+        >
           {showRecent && recentSearches.length > 0 && (
             <div className="command-palette-section">
               <div className="command-palette-section-header">
@@ -773,7 +865,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
               {recentSearches.map((resource, index) => (
                 <div
                   key={index}
-                  className="command-palette-recent-item"
+                  className={`command-palette-recent-item ${index === selectedIndex ? 'selected' : ''}`}
+                  data-nav-index={index}
+                  onMouseEnter={() => handleRowMouseEnter(index)}
                   onClick={() => handleRecentResourceSelect(resource)}
                 >
                   <span className="command-palette-icon">{getResourceIcon(resource.kind)}</span>
@@ -811,8 +905,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     Resource Kinds
                   </div>
                   {kindDefinitionResults.map((result: SearchResult) => {
-                    const globalIndex = results.indexOf(result);
-                    const isSelected = globalIndex === selectedIndex;
+                    const navIndex = navIndexByResult.get(result) ?? -1;
+                    const isSelected = navIndex === selectedIndex;
                     const resource = result.resource;
                     const actualKind = resource.name; // The actual kind name is stored in name field
 
@@ -822,7 +916,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                         className={`command-palette-result ${
                           isSelected ? 'selected' : ''
                         }`}
-                        onMouseEnter={() => setSelectedIndex(globalIndex)}
+                        data-nav-index={navIndex}
+                        onMouseEnter={() => handleRowMouseEnter(navIndex)}
                         onClick={() => handleResultSelect(result)}
                       >
                         <span className="command-palette-icon">
@@ -854,8 +949,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     {category}
                   </div>
                   {groupedResults[category].map((result: SearchResult) => {
-                    const globalIndex = results.indexOf(result);
-                    const isSelected = globalIndex === selectedIndex;
+                    const navIndex = navIndexByResult.get(result) ?? -1;
+                    const isSelected = navIndex === selectedIndex;
 
                     const resource = result.resource;
                     // Quick actions are keyed by plural resource name, which
@@ -1010,7 +1105,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                         className={`command-palette-result ${
                           isSelected ? 'selected' : ''
                         }`}
-                        onMouseEnter={() => setSelectedIndex(globalIndex)}
+                        data-nav-index={navIndex}
+                        onMouseEnter={() => handleRowMouseEnter(navIndex)}
                       >
                         <span className="command-palette-icon">
                           {getResourceIcon(resource.kind)}

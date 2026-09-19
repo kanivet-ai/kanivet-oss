@@ -76,7 +76,7 @@ const ArgoOverviewWidget = ({ cluster }: Props) => {
       <div className="argo-widget-left">
         <div className="argo-widget-header">
           <h3 className="argo-widget-title">Argo CD</h3>
-          <button className="argo-widget-link" onClick={open}>Open Apps Overview →</button>
+          <button className="argo-widget-link" onClick={open}>Open apps overview</button>
         </div>
 
         <div className="argo-widget-tiles">
@@ -90,7 +90,7 @@ const ArgoOverviewWidget = ({ cluster }: Props) => {
           </div>
           <div className="argo-widget-tile">
             <span className="argo-widget-tile-value">{stats.recentSync24h}</span>
-            <span className="argo-widget-tile-label">Synced (24h)</span>
+            <span className="argo-widget-tile-label">Synced in 24h</span>
           </div>
         </div>
 
@@ -102,7 +102,7 @@ const ArgoOverviewWidget = ({ cluster }: Props) => {
             <Bar
               segments={[
                 { label: 'Synced', value: synced, className: 'arg-seg-good' },
-                { label: 'OutOfSync', value: outOfSync, className: 'arg-seg-warn' },
+                { label: 'Out of sync', value: outOfSync, className: 'arg-seg-warn' },
                 { label: 'Unknown', value: unknown, className: 'arg-seg-neutral' },
               ]}
             />
@@ -114,9 +114,9 @@ const ArgoOverviewWidget = ({ cluster }: Props) => {
             <Bar
               segments={[
                 { label: 'Healthy', value: healthy, className: 'arg-seg-good' },
-                { label: 'Progressing', value: progressing, className: 'arg-seg-warn' },
+                { label: 'Progressing', value: progressing, className: 'arg-seg-info' },
                 { label: 'Degraded', value: degraded, className: 'arg-seg-bad' },
-                { label: 'Missing', value: missing, className: 'arg-seg-bad' },
+                { label: 'Missing', value: missing, className: 'arg-seg-warn' },
                 { label: 'Suspended', value: suspended, className: 'arg-seg-neutral' },
               ]}
             />

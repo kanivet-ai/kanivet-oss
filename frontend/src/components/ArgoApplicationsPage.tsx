@@ -414,25 +414,32 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
     <div className={`argo-apps-page density-${persisted.density}`}>
       <div className="argo-apps-pivots">
         <Pivot value={totalCount} label="Total" active={filterSync.size === 0 && filterHealth.size === 0} onClick={() => updateState({ filterSync: [], filterHealth: [] })} />
-        <Pivot value={synced} label="Synced" tone="good" active={isPivotActive('sync', 'Synced')} onClick={() => togglePivot('sync', 'Synced')} />
-        <Pivot value={outOfSync} label="OutOfSync" tone="warn" active={isPivotActive('sync', 'OutOfSync')} onClick={() => togglePivot('sync', 'OutOfSync')} />
+        <Pivot value={synced} label="Synced" tone={syncTone('Synced')} active={isPivotActive('sync', 'Synced')} onClick={() => togglePivot('sync', 'Synced')} />
+        <Pivot value={outOfSync} label={statusLabel('OutOfSync')} tone={syncTone('OutOfSync')} active={isPivotActive('sync', 'OutOfSync')} onClick={() => togglePivot('sync', 'OutOfSync')} />
         <span className="argo-apps-pivot-sep" />
-        <Pivot value={healthy} label="Healthy" tone="good" active={isPivotActive('health', 'Healthy')} onClick={() => togglePivot('health', 'Healthy')} />
-        <Pivot value={degraded} label="Degraded" tone="bad" active={isPivotActive('health', 'Degraded')} onClick={() => togglePivot('health', 'Degraded')} />
-        <Pivot value={progressing} label="Progressing" tone="warn" active={isPivotActive('health', 'Progressing')} onClick={() => togglePivot('health', 'Progressing')} />
-        <Pivot value={missing} label="Missing" tone="bad" active={isPivotActive('health', 'Missing')} onClick={() => togglePivot('health', 'Missing')} />
+        <Pivot value={healthy} label="Healthy" tone={healthTone('Healthy')} active={isPivotActive('health', 'Healthy')} onClick={() => togglePivot('health', 'Healthy')} />
+        <Pivot value={degraded} label="Degraded" tone={healthTone('Degraded')} active={isPivotActive('health', 'Degraded')} onClick={() => togglePivot('health', 'Degraded')} />
+        <Pivot value={progressing} label="Progressing" tone={healthTone('Progressing')} active={isPivotActive('health', 'Progressing')} onClick={() => togglePivot('health', 'Progressing')} />
+        <Pivot value={missing} label="Missing" tone={healthTone('Missing')} active={isPivotActive('health', 'Missing')} onClick={() => togglePivot('health', 'Missing')} />
         <span className="argo-apps-pivot-sep" />
-        <Pivot value={syncingNow} label="Syncing now" tone="warn" active={false} />
+        <Pivot value={syncingNow} label="Syncing" tone="info" active={false} />
       </div>
 
       <div className="argo-apps-toolbar">
-        <input
-          ref={searchRef}
-          className="argo-apps-search ap-input"
-          placeholder="/ to search by name, namespace, project, repo…"
-          value={persisted.search}
-          onChange={(e) => updateState({ search: e.target.value })}
-        />
+        <label className="ap-search argo-apps-search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" />
+            <path d="M10.5 10.5L14 14" />
+          </svg>
+          <input
+            ref={searchRef}
+            placeholder="Search by name, namespace, project or repo"
+            value={persisted.search}
+            onChange={(e) => updateState({ search: e.target.value })}
+            aria-label="Search applications"
+          />
+          <kbd aria-hidden="true">/</kbd>
+        </label>
         {showProjectColumn && (
           <FilterChips label="Project" values={projects} active={filterProject} onToggle={(v) => {
             const next = new Set(filterProject);
@@ -447,20 +454,20 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
             <option value="health">Health</option>
             <option value="sync">Sync</option>
             <option value="project">Project</option>
-            <option value="destNamespace">Target NS</option>
+            <option value="destNamespace">Target namespace</option>
             <option value="name">Name</option>
             <option value="none">None</option>
           </select>
         </div>
-        <div className="argo-apps-control argo-apps-density ap-segmented ap-segmented--sm">
-          <button className={persisted.density === 'compact' ? 'active' : ''} onClick={() => updateState({ density: 'compact' })} title="Compact rows">Compact</button>
-          <button className={persisted.density === 'cozy' ? 'active' : ''} onClick={() => updateState({ density: 'cozy' })} title="Cozy rows">Cozy</button>
+        <div className="argo-apps-control argo-apps-density ap-segmented ap-segmented--sm" role="group" aria-label="Row density">
+          <button type="button" aria-pressed={persisted.density === 'compact'} onClick={() => updateState({ density: 'compact' })} title="Compact rows">Compact</button>
+          <button type="button" aria-pressed={persisted.density === 'cozy'} onClick={() => updateState({ density: 'cozy' })} title="Cozy rows">Cozy</button>
         </div>
         {selected.size > 0 && (
           <div className="argo-apps-bulk">
             <span className="argo-apps-bulk-count">{selected.size} selected</span>
             <button disabled={busy} onClick={() => runSync(selectedEntries)}>Sync</button>
-            <button disabled={busy} onClick={() => runSync(selectedEntries, { prune: true })}>Sync + Prune</button>
+            <button disabled={busy} onClick={() => runSync(selectedEntries, { prune: true })}>Sync and prune</button>
             <button disabled={busy} onClick={() => runRefresh(selectedEntries)}>Refresh</button>
             <button className="argo-apps-bulk-clear" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
@@ -483,14 +490,14 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
               <th className="argo-apps-checkbox-col">
                 <input type="checkbox" checked={allVisibleSelected} onChange={toggleAll} />
               </th>
-              <th onClick={() => toggleSort('name')}>Name <span className="sort-arrow">{sortArrow('name')}</span></th>
-              <th>Destination</th>
-              {showProjectColumn && <th onClick={() => toggleSort('project')}>Project <span className="sort-arrow">{sortArrow('project')}</span></th>}
-              <th onClick={() => toggleSort('syncStatus')}>Sync <span className="sort-arrow">{sortArrow('syncStatus')}</span></th>
-              <th onClick={() => toggleSort('health')}>Health <span className="sort-arrow">{sortArrow('health')}</span></th>
-              <th>Revision</th>
-              <th onClick={() => toggleSort('lastSyncedAt')}>Last Sync <span className="sort-arrow">{sortArrow('lastSyncedAt')}</span></th>
-              <th onClick={() => toggleSort('createdAt')}>Age <span className="sort-arrow">{sortArrow('createdAt')}</span></th>
+              <th onClick={() => toggleSort('name')}>Name<span className="sort-arrow" aria-hidden="true">{sortArrow('name')}</span></th>
+              <th className="is-static">Destination</th>
+              {showProjectColumn && <th onClick={() => toggleSort('project')}>Project<span className="sort-arrow" aria-hidden="true">{sortArrow('project')}</span></th>}
+              <th className="argo-apps-col-status" onClick={() => toggleSort('syncStatus')}>Sync<span className="sort-arrow" aria-hidden="true">{sortArrow('syncStatus')}</span></th>
+              <th className="argo-apps-col-status" onClick={() => toggleSort('health')}>Health<span className="sort-arrow" aria-hidden="true">{sortArrow('health')}</span></th>
+              <th className="argo-apps-col-rev is-static">Revision</th>
+              <th className="argo-apps-col-time" onClick={() => toggleSort('lastSyncedAt')}>Last sync<span className="sort-arrow" aria-hidden="true">{sortArrow('lastSyncedAt')}</span></th>
+              <th className="argo-apps-col-time" onClick={() => toggleSort('createdAt')}>Age<span className="sort-arrow" aria-hidden="true">{sortArrow('createdAt')}</span></th>
             </tr>
           </thead>
           <tbody>
@@ -507,12 +514,18 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
                 const rows: JSX.Element[] = [];
                 if (persisted.groupBy !== 'none') {
                   const isCollapsed = collapsedGroups.has(g.key);
+                  const tone = groupTone(persisted.groupBy, g.key);
                   rows.push(
-                    <tr key={`group-${g.key}`} className="argo-apps-group-row" onClick={() => toggleGroupCollapsed(g.key)}>
+                    <tr key={`group-${g.key}`} className="argo-apps-group-row" onClick={() => toggleGroupCollapsed(g.key)} aria-expanded={!isCollapsed}>
                       <td colSpan={showProjectColumn ? 9 : 8}>
-                        <span className="argo-apps-group-chevron">{isCollapsed ? '▸' : '▾'}</span>
-                        <span className={`argo-apps-group-pill ${groupPillClass(persisted.groupBy, g.key)}`}>{g.label || '—'}</span>
-                        <span className="argo-apps-group-count">{g.entries.length}</span>
+                        <span className="argo-apps-group-inner">
+                          <svg className={`argo-apps-group-chevron${isCollapsed ? '' : ' open'}`} viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                            <path d="M3.5 2l3 3-3 3" />
+                          </svg>
+                          {tone && <span className={`ap-dot ap-dot--${tone === 'neutral' ? 'muted' : tone}`} aria-hidden="true" />}
+                          <span className="argo-apps-group-label">{persisted.groupBy === 'health' || persisted.groupBy === 'sync' ? statusLabel(g.label) : g.label || '–'}</span>
+                          <span className="argo-apps-group-count">{g.entries.length}</span>
+                        </span>
                       </td>
                     </tr>
                   );
@@ -549,7 +562,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
         <div className="argo-apps-ctx-menu ap-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
           <button onClick={() => { openApp(contextMenu.entry); setContextMenu(null); }}>Open</button>
           <button onClick={() => { runSync([contextMenu.entry]); setContextMenu(null); }}>Sync</button>
-          <button onClick={() => { runSync([contextMenu.entry], { prune: true }); setContextMenu(null); }}>Sync + Prune</button>
+          <button onClick={() => { runSync([contextMenu.entry], { prune: true }); setContextMenu(null); }}>Sync and prune</button>
           <button onClick={() => { runRefresh([contextMenu.entry]); setContextMenu(null); }}>Refresh</button>
         </div>
       )}
@@ -655,17 +668,24 @@ const AppRow = memo(({
           </button>
         </span>
       </td>
-      <td className="argo-apps-mono argo-apps-dest">
-        <span className="argo-apps-ns">{e.namespace}</span>
-        <span className="argo-apps-arrow">▸</span>
-        <span className="argo-apps-dest-ns">{showSingleDestNs ? '' : e.destNamespace || '—'}</span>
+      <td className="argo-apps-mono argo-apps-dest" title={destinationTitle(e)}>
+        {showSingleDestNs ? (
+          <span className="argo-apps-ns">{e.namespace}</span>
+        ) : (
+          <>
+            <span className="argo-apps-ns">{e.namespace}</span>
+            <span className="argo-apps-arrow" aria-hidden="true">→</span>
+            {e.destNamespace ? <span className="argo-apps-dest-ns">{e.destNamespace}</span> : <EmptyValue />}
+          </>
+        )}
+        {destinationTarget(e) && <span className="argo-apps-dest-target">{destinationTarget(e)}</span>}
       </td>
-      {showProjectColumn && <td>{e.project || '—'}</td>}
-      <td><span className={`argo-apps-pill sync-${(e.syncStatus || 'unknown').toLowerCase()}`}>{e.syncStatus || 'Unknown'}</span></td>
-      <td><span className={`argo-apps-pill health-${(e.health || 'unknown').toLowerCase()}`}>{e.health || 'Unknown'}</span></td>
-      <td className="argo-apps-mono argo-apps-rev" title={e.revision || ''}>{e.revision ? e.revision.slice(0, 10) : '—'}</td>
-      <td className="argo-apps-time">{e.lastSyncedAt ? formatAge(e.lastSyncedAt) : '—'}</td>
-      <td className="argo-apps-time">{e.createdAt ? formatAge(e.createdAt) : '—'}</td>
+      {showProjectColumn && <td>{e.project || <EmptyValue />}</td>}
+      <td><StatusBadge tone={syncTone(e.syncStatus)} label={statusLabel(e.syncStatus)} /></td>
+      <td><StatusBadge tone={healthTone(e.health)} label={statusLabel(e.health)} /></td>
+      <td className="argo-apps-mono argo-apps-rev" title={e.revision || ''}>{e.revision ? e.revision.slice(0, 8) : <EmptyValue />}</td>
+      <td className="argo-apps-time">{e.lastSyncedAt ? formatAge(e.lastSyncedAt) : <EmptyValue />}</td>
+      <td className="argo-apps-time">{e.createdAt ? formatAge(e.createdAt) : <EmptyValue />}</td>
     </tr>
   );
 }, (prev, next) => {
@@ -685,31 +705,73 @@ const AppRow = memo(({
   );
 });
 
-const groupPillClass = (groupBy: GroupBy, key: string): string => {
-  if (groupBy === 'health') {
-    const k = key.toLowerCase();
-    if (k === 'healthy') return 'health-healthy';
-    if (k === 'degraded' || k === 'missing') return 'health-degraded';
-    if (k === 'progressing') return 'health-progressing';
-    return 'health-unknown';
+/* Status semantics — one mapping for tiles, badges and group headers.
+   Missing is amber rather than red: Argo itself shows it as a warning, and a
+   missing app is usually a pending sync, not an outage. */
+type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
+
+const syncTone = (status?: string): Tone => {
+  switch ((status || '').toLowerCase()) {
+    case 'synced': return 'success';
+    case 'outofsync': return 'warning';
+    default: return 'neutral';
   }
-  if (groupBy === 'sync') {
-    const k = key.toLowerCase();
-    if (k === 'synced') return 'sync-synced';
-    if (k === 'outofsync') return 'sync-outofsync';
-    return 'sync-unknown';
-  }
-  return '';
 };
 
-const Pivot = ({ value, label, tone, active, onClick }: { value: number; label: string; tone?: 'good' | 'warn' | 'bad'; active: boolean; onClick?: () => void }) => (
+const healthTone = (health?: string): Tone => {
+  switch ((health || '').toLowerCase()) {
+    case 'healthy': return 'success';
+    case 'degraded': return 'danger';
+    case 'progressing': return 'info';
+    case 'missing': return 'warning';
+    default: return 'neutral';
+  }
+};
+
+/** Argo's status identifiers in sentence case ("OutOfSync" → "Out of sync"). */
+const statusLabel = (status?: string): string => {
+  if (!status) return 'Unknown';
+  if (status === 'OutOfSync') return 'Out of sync';
+  return status;
+};
+
+const groupTone = (groupBy: GroupBy, key: string): Tone | null => {
+  if (groupBy === 'health') return healthTone(key);
+  if (groupBy === 'sync') return syncTone(key);
+  return null;
+};
+
+/** In-cluster destinations are the default and stay quiet; anything else is named. */
+const destinationTarget = (e: ArgoAppListEntry): string => {
+  if (e.destName && e.destName !== 'in-cluster') return e.destName;
+  const server = e.destServer || '';
+  if (!server || server.includes('kubernetes.default.svc')) return '';
+  return server.replace(/^https?:\/\//, '');
+};
+
+const destinationTitle = (e: ArgoAppListEntry): string => {
+  const parts = [`Application namespace: ${e.namespace}`];
+  if (e.destNamespace) parts.push(`Target namespace: ${e.destNamespace}`);
+  if (e.destName) parts.push(`Cluster: ${e.destName}`);
+  if (e.destServer) parts.push(`Server: ${e.destServer}`);
+  return parts.join('\n');
+};
+
+const EmptyValue = () => <span className="argo-apps-empty-value">–</span>;
+
+const StatusBadge = ({ tone, label }: { tone: Tone; label: string }) => (
+  <span className={`ap-badge argo-apps-pill${tone === 'neutral' ? '' : ` ap-badge--${tone}`}`}>{label}</span>
+);
+
+const Pivot = ({ value, label, tone, active, onClick }: { value: number; label: string; tone?: Tone; active: boolean; onClick?: () => void }) => (
   <button
     type="button"
     className={`argo-apps-pivot${tone ? ` pivot-${tone}` : ''}${active ? ' active' : ''}${onClick ? '' : ' static'}`}
     onClick={onClick}
     disabled={!onClick}
+    aria-pressed={onClick ? active : undefined}
   >
-    <span className="argo-apps-pivot-value">{value}</span>
+    <span className="argo-apps-pivot-value" data-zero={value === 0 ? 'true' : undefined}>{value}</span>
     <span className="argo-apps-pivot-label">{label}</span>
   </button>
 );
