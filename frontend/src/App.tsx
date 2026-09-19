@@ -47,14 +47,14 @@ const AppInner = () => {
 
   if (isLoading) {
     return (
-      <Theme appearance={appearance} accentColor="iris" grayColor="slate" radius="medium" panelBackground="translucent">
+      <Theme appearance={appearance} accentColor="blue" grayColor="gray" radius="medium" panelBackground="solid">
         <SplashScreen />
       </Theme>
     );
   }
 
   return (
-    <Theme appearance={appearance} accentColor="iris" grayColor="slate" radius="medium" panelBackground="translucent">
+    <Theme appearance={appearance} accentColor="blue" grayColor="gray" radius="medium" panelBackground="solid">
       <Layout />
     </Theme>
   );

@@ -1,3 +1,4 @@
+/* Radix scroll area: overlay-style bars, --ctrl2 thumb. */
 .scroll-area {
   width: 100%;
   height: 100%;
@@ -19,12 +20,12 @@
   user-select: none;
   touch-action: none;
   padding: 2px;
-  background: var(--bg-secondary);
-  transition: background 160ms ease-out;
+  background: transparent;
+  transition: background var(--duration-base) var(--ease-quiet);
 }
 
 .scrollbar:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .scrollbar[data-orientation='vertical'] {
@@ -38,9 +39,14 @@
 
 .thumb {
   flex: 1;
-  background: var(--border);
+  background: var(--ctrl2);
   border-radius: 10px;
   position: relative;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.thumb:hover {
+  background: var(--scrollbar-thumb-hover);
 }
 
 .thumb::before {

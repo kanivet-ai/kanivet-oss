@@ -1,0 +1,884 @@
+/*
+  Kanivet primitives — the reusable macOS-native recipes.
+
+  These are the building blocks the design comps are made of. Prefer these
+  classes for new surfaces; existing components should reproduce the same
+  values in their own stylesheets when adding a class is not practical.
+  Documented in src/styles/DESIGN.md.
+*/
+
+/* ---- Text utilities ---------------------------------------------------- */
+.ap-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ap-group-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 0.01em;
+  padding: 0 14px 6px;
+}
+
+.ap-hair {
+  height: 1px;
+  background: var(--hair);
+  flex: none;
+}
+
+.ap-vibrancy {
+  backdrop-filter: blur(30px) saturate(1.4);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
+}
+
+/* ---- Card (grouped list) ----------------------------------------------- */
+.ap-card {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.ap-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 12.5px;
+  color: var(--text);
+  min-height: 34px;
+}
+
+.ap-card-row:last-child {
+  border-bottom: 0;
+}
+
+.ap-card-row-value {
+  color: var(--text2);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ap-card-row.is-clickable {
+  cursor: pointer;
+}
+
+.ap-card-row.is-clickable:hover {
+  background: var(--hover);
+}
+
+.ap-inset {
+  background: var(--inset);
+}
+
+/* ---- Segmented control ------------------------------------------------- */
+.ap-segmented {
+  display: inline-flex;
+  align-items: stretch;
+  gap: 1px;
+  padding: 2px;
+  background: var(--ctrl);
+  border-radius: 7px;
+  flex: none;
+}
+
+.ap-segmented > * {
+  flex: 1 1 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 22px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-segmented > *:hover {
+  color: var(--text);
+}
+
+.ap-segmented > .is-active,
+.ap-segmented > [data-state='active'],
+.ap-segmented > [aria-selected='true'],
+.ap-segmented > [aria-pressed='true'],
+.ap-segmented > [data-active='true'] {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-pill);
+}
+
+.ap-segmented--sm > * {
+  min-height: 18px;
+  padding: 0 8px;
+  font-size: 10.5px;
+}
+
+/* ---- Pill tab (Safari-style open tabs) --------------------------------- */
+.ap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  font-size: 12.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-pill:hover {
+  background: var(--hover);
+}
+
+.ap-pill.is-active,
+.ap-pill[data-state='active'],
+.ap-pill[aria-selected='true'] {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-pill);
+}
+
+.ap-pill-count {
+  font-size: 11px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Buttons ----------------------------------------------------------- */
+.ap-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet), transform var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-btn:hover:not(:disabled) {
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
+
+.ap-btn:active:not(:disabled) {
+  background-image: linear-gradient(var(--bg-active), var(--bg-active));
+}
+
+.ap-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ap-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.ap-btn--sm {
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  border-radius: 6px;
+}
+
+.ap-btn--primary {
+  background-color: var(--blue);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.ap-btn--primary:hover:not(:disabled) {
+  background-color: var(--blue-hover);
+  background-image: none;
+}
+
+.ap-btn--danger {
+  background-color: var(--red);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.ap-btn--danger:hover:not(:disabled) {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08));
+}
+
+.ap-btn--ctrl {
+  background-color: var(--ctrl);
+  box-shadow: none;
+}
+
+.ap-btn--ghost {
+  background-color: transparent;
+  box-shadow: none;
+  color: var(--text2);
+}
+
+.ap-btn--ghost:hover:not(:disabled) {
+  background-color: var(--hover);
+  background-image: none;
+  color: var(--text);
+}
+
+.ap-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  flex: none;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-icon-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.ap-icon-btn:active:not(:disabled) {
+  background: var(--bg-active);
+}
+
+.ap-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ap-icon-btn.is-active,
+.ap-icon-btn[aria-pressed='true'] {
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-pill);
+}
+
+.ap-icon-btn svg {
+  width: 15px;
+  height: 15px;
+}
+
+.ap-icon-btn--sm {
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+}
+
+.ap-icon-btn--sm svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Round labelled action (Logs · Shell · Edit · Restart · Delete) */
+.ap-action {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 52px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+}
+
+.ap-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.ap-action-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--blue-soft);
+  color: var(--blue);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform var(--duration-fast) var(--ease-quiet), background var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-action-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.ap-action:hover:not(:disabled) .ap-action-icon {
+  transform: scale(1.06);
+}
+
+.ap-action-label {
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: -0.05px;
+}
+
+.ap-action--warn .ap-action-icon {
+  background: var(--warning-bg);
+  color: var(--orange);
+}
+
+.ap-action--danger .ap-action-icon {
+  background: var(--danger-bg);
+  color: var(--red);
+}
+
+.ap-action--neutral .ap-action-icon {
+  background: var(--ctrl);
+  color: var(--text);
+}
+
+/* ---- Inputs ------------------------------------------------------------ */
+.ap-input {
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--ctrl);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet), background var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-input::placeholder {
+  color: var(--text3);
+}
+
+.ap-input:focus {
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+}
+
+.ap-input--sm {
+  height: 22px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  border-radius: 6px;
+}
+
+.ap-search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 7px;
+  background: var(--ctrl);
+  color: var(--text3);
+  min-width: 0;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-search:focus-within {
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+}
+
+.ap-search svg {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+
+.ap-search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font-size: 13px;
+  padding: 0;
+  box-shadow: none !important;
+}
+
+.ap-search input::placeholder {
+  color: var(--text3);
+}
+
+.ap-search--sm {
+  height: 22px;
+  border-radius: 6px;
+}
+
+.ap-search--sm input {
+  font-size: 11.5px;
+}
+
+.ap-select {
+  height: 28px;
+  padding: 0 26px 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%23007aff'/><path d='M5 6.5l3-3 3 3M5 9.5l3 3 3-3' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  background-size: 16px 16px;
+}
+
+/* ---- Toggle ------------------------------------------------------------ */
+.ap-toggle {
+  position: relative;
+  display: inline-block;
+  width: 26px;
+  height: 15px;
+  border-radius: 8px;
+  background: var(--ctrl2);
+  box-shadow: inset 0 0 0 0.5px rgba(0, 0, 0, 0.1);
+  flex: none;
+  cursor: pointer;
+  transition: background var(--duration-base) var(--ease-quiet);
+}
+
+.ap-toggle::after {
+  content: '';
+  position: absolute;
+  top: 1.5px;
+  left: 1.5px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform var(--duration-base) var(--ease-quiet);
+}
+
+.ap-toggle.is-on,
+.ap-toggle[aria-checked='true'],
+.ap-toggle[data-state='checked'] {
+  background: var(--green);
+}
+
+.ap-toggle.is-on::after,
+.ap-toggle[aria-checked='true']::after,
+.ap-toggle[data-state='checked']::after {
+  transform: translateX(11px);
+}
+
+.ap-toggle-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text2);
+  cursor: pointer;
+  user-select: none;
+}
+
+/* ---- Checkbox ---------------------------------------------------------- */
+.ap-checkbox {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border-radius: 4px;
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--sep), inset 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.ap-checkbox:checked {
+  background: var(--blue);
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.12);
+}
+
+.ap-checkbox:checked::after {
+  content: '';
+  width: 3.5px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: translateY(-1px) rotate(45deg);
+}
+
+/* ---- Badges & dots ----------------------------------------------------- */
+.ap-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.ap-badge--sm {
+  height: 16px;
+  padding: 0 6px;
+  font-size: 10px;
+}
+
+.ap-badge--success {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.ap-badge--warning {
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+}
+
+.ap-badge--danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.ap-badge--info {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.ap-badge--purple {
+  background: color-mix(in srgb, var(--purple) 16%, transparent);
+  color: var(--purple);
+}
+
+.ap-badge--solid {
+  background: var(--blue);
+  color: #fff;
+}
+
+.ap-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gray);
+  flex: none;
+}
+
+.ap-dot--success { background: var(--green); }
+.ap-dot--warning { background: var(--orange); }
+.ap-dot--danger { background: var(--red); }
+.ap-dot--info { background: var(--blue); }
+.ap-dot--purple { background: var(--purple); }
+.ap-dot--muted { background: var(--text4); }
+
+.ap-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--blue);
+  flex: none;
+}
+
+.ap-glyph--success { background: var(--green); }
+.ap-glyph--warning { background: var(--orange); }
+.ap-glyph--danger { background: var(--red); }
+
+/* App icon tile (gradient square) */
+.ap-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(160deg, color-mix(in srgb, var(--blue) 65%, #fff), var(--blue));
+  box-shadow: inset 0 0 0 0.5px rgba(255, 255, 255, 0.4), 0 1px 2px rgba(0, 0, 0, 0.2);
+  flex: none;
+}
+
+.ap-tile--green { background: linear-gradient(160deg, color-mix(in srgb, var(--green) 72%, #fff), var(--green)); }
+.ap-tile--orange { background: linear-gradient(160deg, color-mix(in srgb, var(--orange) 72%, #fff), var(--orange)); }
+.ap-tile--red { background: linear-gradient(160deg, color-mix(in srgb, var(--red) 72%, #fff), var(--red)); }
+.ap-tile--purple { background: linear-gradient(160deg, color-mix(in srgb, var(--purple) 72%, #fff), var(--purple)); }
+.ap-tile--gray { background: linear-gradient(160deg, color-mix(in srgb, var(--gray) 72%, #fff), var(--gray)); }
+
+/* ---- Menus, popovers, tooltips ----------------------------------------- */
+.ap-menu {
+  min-width: 180px;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: var(--shadow-pop);
+  animation: ap-pop var(--duration-base) var(--ease-snap);
+}
+
+.ap-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.ap-menu-item:hover,
+.ap-menu-item[data-highlighted],
+.ap-menu-item.is-highlighted {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.ap-menu-item:hover .ap-menu-shortcut,
+.ap-menu-item[data-highlighted] .ap-menu-shortcut {
+  color: var(--on-sel2);
+}
+
+.ap-menu-item.is-destructive {
+  color: var(--red);
+}
+
+.ap-menu-item.is-destructive:hover {
+  background: var(--red);
+  color: #fff;
+}
+
+.ap-menu-shortcut {
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.ap-menu-sep {
+  height: 1px;
+  background: var(--hair);
+  margin: 5px 8px;
+}
+
+.ap-popover {
+  background: var(--card);
+  border-radius: 12px;
+  box-shadow: var(--shadow-pop);
+  animation: ap-pop var(--duration-base) var(--ease-snap);
+}
+
+.ap-tooltip {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--toolbar);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  color: var(--text);
+  font-size: 11.5px;
+  line-height: 1.35;
+  box-shadow: var(--shadow-pop);
+  max-width: 360px;
+}
+
+.ap-kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-size: 10.5px;
+  font-family: var(--font-sans);
+  line-height: 16px;
+}
+
+/* ---- Sheets / dialogs -------------------------------------------------- */
+.ap-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+  animation: ap-fade var(--duration-base) ease;
+}
+
+.ap-sheet {
+  background: var(--win);
+  border-radius: 12px;
+  box-shadow: var(--shadow-window);
+  overflow: hidden;
+  animation: ap-pop var(--duration-base) var(--ease-snap);
+}
+
+.ap-sheet-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.ap-sheet-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  background: var(--win);
+  border-top: 1px solid var(--hair);
+}
+
+/* ---- Status bar -------------------------------------------------------- */
+.ap-statusbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 24px;
+  font-size: 11px;
+  color: var(--text2);
+  background: var(--win);
+  border-top: 1px solid var(--hair);
+  flex: none;
+  user-select: none;
+}
+
+.ap-statusbar .ap-sep {
+  color: var(--text4);
+}
+
+/* ---- Selection rows ---------------------------------------------------- */
+.ap-list-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 28px;
+  padding: 0 8px 0 10px;
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.ap-list-row:hover {
+  background: var(--hover);
+}
+
+.ap-list-row.is-selected,
+.ap-list-row[aria-selected='true'],
+.ap-list-row[data-selected='true'] {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.ap-list-row.is-selected .ap-muted,
+.ap-list-row[aria-selected='true'] .ap-muted {
+  color: var(--on-sel2);
+}
+
+.ap-muted {
+  color: var(--text2);
+}
+
+/* ---- Skeleton ---------------------------------------------------------- */
+.ap-skeleton {
+  display: inline-block;
+  height: 12px;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--ctrl) 0%, var(--ctrl2) 50%, var(--ctrl) 100%);
+  background-size: 200% 100%;
+  animation: ap-shimmer 1.4s ease-in-out infinite;
+}
+
+/* ---- Animations -------------------------------------------------------- */
+@keyframes ap-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes ap-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ap-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes ap-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+@keyframes ap-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+@keyframes ap-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ap-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--ctrl2);
+  border-top-color: var(--blue);
+  animation: ap-spin 0.8s linear infinite;
+  flex: none;
+}

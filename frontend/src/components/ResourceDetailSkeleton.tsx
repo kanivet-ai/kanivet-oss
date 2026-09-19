@@ -1,6 +1,7 @@
 import React from 'react';
 import PropertyGroup from './detailView/shared/PropertyGroup';
 import PropertyRow from './common/PropertyRow';
+import { getResourceIcon } from '../utils/resourceIcons';
 import './ResourceDetailSkeleton.css';
 
 interface ResourceDetailSkeletonProps {
@@ -35,12 +36,27 @@ const ResourceDetailSkeleton = ({
       <div className="resource-header">
         <div className="resource-header-top">
           <div className="resource-identity">
-            <span className="resource-kind-badge">{kind}</span>
-            <h2 className="resource-name">
-              {hasBasicInfo ? <span>{name}</span> : <SkeletonLine width="180px" className="skeleton-line-lg" />}
-            </h2>
+            <span className="resource-header-tile resource-header-tile--neutral" aria-hidden="true">
+              {getResourceIcon(kind)}
+            </span>
+            <div className="resource-identity-text">
+              <h2 className="resource-name">
+                {hasBasicInfo ? <span>{name}</span> : <SkeletonLine width="180px" className="skeleton-line-lg" />}
+              </h2>
+              <div className="resource-kind-row">
+                <span className="resource-kind-badge">{kind}</span>
+                {namespace && (
+                  <>
+                    <span className="resource-subtitle-sep">·</span>
+                    <span className="resource-namespace">{namespace}</span>
+                  </>
+                )}
+                <span className="resource-subtitle-sep">·</span>
+                <SkeletonLine width="56px" className="skeleton-line-sm" />
+              </div>
+            </div>
           </div>
-          <div className="resource-right-column">
+          <div className="resource-right-column resource-actions-row">
             {actions}
           </div>
         </div>

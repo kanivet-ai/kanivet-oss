@@ -1,14 +1,15 @@
+/* Helm page — list pane beside the detail pane. */
 .helm-page {
   display: flex;
   height: 100%;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
 .helm-page-list {
   width: 50%;
   min-width: 400px;
   max-width: 700px;
-  border-right: 1px solid var(--border);
+  border-right: 1px solid var(--sep);
   overflow: hidden;
 }
 
@@ -23,8 +24,6 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  color: var(--text-tertiary);
-  font-size: 14px;
+  color: var(--text2);
+  font-size: 13px;
 }
-
-

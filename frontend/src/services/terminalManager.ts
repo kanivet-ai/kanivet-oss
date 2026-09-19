@@ -14,11 +14,83 @@ interface TerminalSession {
   disposables: IDisposable[];
 }
 
+/**
+ * Terminal theme from the app's CSS tokens (see src/index.css), re-applied to
+ * every live session whenever the document theme flips.
+ */
+const TOKEN_FALLBACKS: Record<string, string> = {
+  '--content': '#1e1e20',
+  '--inset': '#1c1c1e',
+  '--text': '#f5f5f7',
+  '--text2': 'rgba(235, 235, 245, 0.62)',
+  '--text3': 'rgba(235, 235, 245, 0.34)',
+  '--blue': '#0a84ff',
+  '--green': '#30d158',
+  '--yellow': '#ffd60a',
+  '--red': '#ff453a',
+  '--purple': '#bf5af2',
+  '--teal': '#40c8e0',
+  '--blue-rgb': '10, 132, 255',
+};
+
+function readToken(name: string): string {
+  if (typeof document === 'undefined') return TOKEN_FALLBACKS[name] || '';
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || TOKEN_FALLBACKS[name] || '';
+}
+
+export function buildXtermTheme() {
+  const text = readToken('--text');
+  return {
+    background: readToken('--content'),
+    foreground: text,
+    cursor: readToken('--blue'),
+    cursorAccent: readToken('--content'),
+    selectionBackground: `rgba(${readToken('--blue-rgb')}, 0.3)`,
+    black: readToken('--inset'),
+    red: readToken('--red'),
+    green: readToken('--green'),
+    // Pure yellow is illegible on the light surface; the bright slot keeps it.
+    yellow: readToken('--orange'),
+    blue: readToken('--blue'),
+    magenta: readToken('--purple'),
+    cyan: readToken('--teal'),
+    white: text,
+    brightBlack: readToken('--text3'),
+    brightRed: readToken('--red'),
+    brightGreen: readToken('--green'),
+    brightYellow: readToken('--yellow'),
+    brightBlue: readToken('--blue'),
+    brightMagenta: readToken('--purple'),
+    brightCyan: readToken('--teal'),
+    brightWhite: text,
+  };
+}
+
+export const TERMINAL_FONT_FAMILY =
+  '"JetBrainsMono Nerd Font", "MesloLGS NF", "CaskaydiaMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font", ui-monospace, "SF Mono", Menlo, Monaco, "Cascadia Code", monospace';
+
 class TerminalManager {
   private sessions: Map<string, TerminalSession> = new Map();
   private static instance: TerminalManager;
+  private themeObserver: MutationObserver | null = null;
 
-  private constructor() {}
+  private constructor() {
+    if (typeof document !== 'undefined' && typeof MutationObserver !== 'undefined') {
+      this.themeObserver = new MutationObserver(() => this.applyThemeToAll());
+      this.themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['data-theme', 'style'],
+      });
+    }
+  }
+
+  private applyThemeToAll(): void {
+    const theme = buildXtermTheme();
+    this.sessions.forEach((session) => {
+      session.terminal.options.theme = theme;
+    });
+  }
 
   static getInstance(): TerminalManager {
     if (!TerminalManager.instance) {
@@ -34,9 +106,9 @@ class TerminalManager {
       // Create new terminal
       const terminal = new XTerm({
         cursorBlink: true,
-        fontSize: 14,
-        fontFamily:
-          '"JetBrainsMono Nerd Font", "JetBrains Mono Nerd Font", "MesloLGS NF", "CaskaydiaMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font", "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", "Monaco", "Menlo", "Courier New", monospace',
+        fontSize: 13,
+        lineHeight: 1.2,
+        fontFamily: TERMINAL_FONT_FAMILY,
         scrollback: 10000, // Increased scrollback for better history
         fastScrollModifier: 'shift', // Use shift for fast scrolling
         smoothScrollDuration: 0, // Disable smooth scrolling for better performance
@@ -46,27 +118,7 @@ class TerminalManager {
         allowProposedApi: true, // Enable proposed APIs for better performance
         // Performance optimizations for vim and other full-screen apps
         convertEol: true,
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
-          black: '#000000',
-          red: '#cd3131',
-          green: '#0dbc79',
-          yellow: '#e5e510',
-          blue: '#2472c8',
-          magenta: '#bc3fbc',
-          cyan: '#11a8cd',
-          white: '#e5e5e5',
-          brightBlack: '#666666',
-          brightRed: '#f14c4c',
-          brightGreen: '#23d18b',
-          brightYellow: '#f5f543',
-          brightBlue: '#3b8eea',
-          brightMagenta: '#d670d6',
-          brightCyan: '#29b8db',
-          brightWhite: '#e5e5e5',
-        },
+        theme: buildXtermTheme(),
       });
 
       const fitAddon = new FitAddon();

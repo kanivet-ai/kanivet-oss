@@ -6,7 +6,7 @@
 
 .namespace-selector label {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .ns-dropdown {
@@ -20,81 +20,103 @@
   align-items: center;
 }
 
+/* Pop-up button */
 .ns-trigger-input {
   width: 100%;
-  height: 24px;
-  padding: 3px 24px 3px 6px;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-primary);
-  font-size: 12px;
+  height: 28px;
+  padding: 0 30px 0 11px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
   outline: none;
-  transition: background-color 0.2s;
   cursor: pointer;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .ns-trigger-input:hover {
-  background-color: var(--bg-hover);
+  background-color: var(--card);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .ns-trigger-input:focus {
-  background-color: var(--bg-hover);
+  background-color: var(--card);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .ns-trigger-wrapper .caret {
   position: absolute;
-  right: 8px;
+  right: 5px;
   top: 50%;
   transform: translateY(-50%);
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
   pointer-events: none;
-  color: var(--text-secondary);
-  font-size: 10px;
+  color: transparent;
+  font-size: 0;
+  background-color: var(--blue);
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.12);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'><path d='M7 9l5-5 5 5M7 15l5 5 5-5'/></svg>");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 10px 10px;
 }
 
 .ns-menu {
   position: absolute;
-  top: calc(100% + 2px);
+  top: calc(100% + 4px);
   left: 0;
   right: 0;
-  background: var(--bg-secondary);
-  border-radius: 6px;
-  box-shadow: 0 10px 38px -10px rgba(0, 0, 0, 0.35), 0 10px 20px -15px rgba(0, 0, 0, 0.2);
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
   z-index: 1000;
   max-height: 300px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-width: 160px;
+  min-width: 180px;
+  padding: 5px;
 }
 
 .ns-option {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 10px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-primary);
-  transition: background-color 0.1s;
-  border-radius: 3px;
-  margin: 2px 4px;
+  padding: 5px 10px;
+  cursor: default;
+  font-size: 13px;
+  color: var(--text);
+  transition: none;
+  border-radius: 6px;
+  margin: 0;
 }
 
 .ns-option:hover,
 .ns-option.highlighted {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
+  background-color: var(--sel);
+  color: var(--on-sel);
 }
 
 .ns-option.selected {
   font-weight: 500;
-  color: var(--text-primary);
-  background-color: var(--bg-active);
+  color: var(--text);
+  background-color: transparent;
+}
+
+.ns-option.selected:hover {
+  background-color: var(--sel);
+  color: var(--on-sel);
 }
 
 .ns-option.all {
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .ns-option-text {
@@ -105,14 +127,14 @@
 }
 
 .ns-option-check {
-  color: var(--primary);
+  color: inherit;
   margin-left: 8px;
 }
 
 .ns-divider {
   height: 1px;
-  background: var(--border);
-  margin: 4px 8px;
+  background: var(--hair);
+  margin: 5px 8px;
 }
 
 .ns-options-scroll {

@@ -6,30 +6,31 @@
 }
 
 .status-count {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 500;
+  font-size: 12.5px;
+  color: var(--text2);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
 }
 
 .status-indicator-wrapper {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   align-items: center;
 }
 
 .status-indicator-separator {
   width: 1px;
   height: 10px;
-  background: var(--border);
+  background: var(--sep);
   margin: 0 2px;
 }
 
 .status-indicator {
   width: 8px;
   height: 8px;
-  border-radius: 2px;
-  transition: all 0.2s;
-  cursor: pointer;
+  border-radius: 50%;
+  transition: transform var(--duration-fast) var(--ease-quiet);
+  cursor: default;
 }
 
 .status-indicator:hover {
@@ -37,50 +38,48 @@
 }
 
 .status-indicator.running {
-  background: var(--success);
+  background: var(--green);
 }
 
 .status-indicator.waiting,
 .status-indicator.not-ready {
-  background: var(--warning);
+  background: var(--orange);
 }
 
 .status-indicator.failed,
 .status-indicator.terminated {
-  background: var(--danger);
+  background: var(--red);
 }
 
 .status-indicator.completed {
-  background: #9ca3af;
+  background: var(--gray);
 }
 
 .status-indicator.terminating {
-  background: var(--warning);
+  background: var(--orange);
   animation: pulse 1s infinite;
 }
 
 .status-indicator.unknown {
-  background: var(--text-secondary);
+  background: var(--text4);
 }
 
 @keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
 
 .status-indicator-tooltip {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-size: 12px;
+  background: var(--toolbar);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  color: var(--text);
+  border: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11.5px;
   white-space: nowrap;
   z-index: 10000;
   pointer-events: none;
+  box-shadow: var(--shadow-pop);
 }

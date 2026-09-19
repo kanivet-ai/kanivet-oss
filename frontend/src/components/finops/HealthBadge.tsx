@@ -36,9 +36,9 @@ export const HealthBadge: React.FC<HealthBadgeProps> = ({
   const getTooltipContent = () => {
     if (badge.isSpecialCase) {
       return (
-        <div style={{ maxWidth: '200px' }}>
+        <div className="health-tooltip">
           <strong>No Resource Requests</strong>
-          <p style={{ margin: '4px 0 0 0', fontSize: '11px' }}>
+          <p>
             This workload has no CPU/memory requests defined. Set requests for proper scheduling and cost allocation.
           </p>
         </div>
@@ -46,10 +46,10 @@ export const HealthBadge: React.FC<HealthBadgeProps> = ({
     }
     if (efficiency >= 85) {
       return (
-        <div style={{ maxWidth: '220px' }}>
+        <div className="health-tooltip">
           <strong>Overcommitted ({efficiency.toFixed(0)}%)</strong>
-          <p style={{ margin: '4px 0 0 0', fontSize: '11px' }}>
-            Pods are requesting MORE than available capacity. This works due to overcommitment, but leaves no headroom for traffic spikes.
+          <p>
+            Pods are requesting more than available capacity. This works due to overcommitment, but leaves no headroom for traffic spikes.
           </p>
         </div>
       );

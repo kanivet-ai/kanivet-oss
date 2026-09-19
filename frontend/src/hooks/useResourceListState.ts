@@ -202,6 +202,9 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
       if (item.kind?.toLowerCase().includes(query)) return true;
       if (item.message?.toLowerCase().includes(query)) return true;
       if (item.reason?.toLowerCase().includes(query)) return true;
+      // Where the pod is scheduled, so a node name narrows the list to its pods.
+      const nodeName = item.nodeName || item.spec?.nodeName;
+      if (typeof nodeName === 'string' && nodeName.toLowerCase().includes(query)) return true;
       if (formatStatus(item).toLowerCase().includes(query)) return true;
       const labels = item.labels || {};
       for (const key in labels) {

@@ -121,7 +121,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
   return (
     <div className="finops-filters">
       <div className="filters-header">
-        <div className="search-box">
+        <div className="search-box ap-search">
           <MagnifyingGlassIcon className="search-icon" />
           <input
             type="text"
@@ -190,7 +190,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
               <div className="namespace-selector">
                 <button 
                   ref={buttonRef}
-                  className="namespace-dropdown-btn"
+                  className="namespace-dropdown-btn ap-select"
                   onClick={() => setShowNsDropdown(!showNsDropdown)}
                 >
                   {filters.selectedNamespaces.length === 0 
@@ -270,6 +270,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
                 <label className="filter-checkbox">
                   <input
                     type="checkbox"
+                    className="ap-checkbox"
                     checked={filters.showNoRequests}
                     onChange={(e) => onFiltersChange({ ...filters, showNoRequests: e.target.checked })}
                   />
@@ -278,6 +279,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
                 <label className="filter-checkbox">
                   <input
                     type="checkbox"
+                    className="ap-checkbox"
                     checked={filters.showOverprovisioned}
                     onChange={(e) => onFiltersChange({ ...filters, showOverprovisioned: e.target.checked })}
                   />
@@ -286,6 +288,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
                 <label className="filter-checkbox">
                   <input
                     type="checkbox"
+                    className="ap-checkbox"
                     checked={filters.showOvercommitted}
                     onChange={(e) => onFiltersChange({ ...filters, showOvercommitted: e.target.checked })}
                   />
@@ -319,6 +322,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
                 <label key={ns} className="namespace-item" onClick={(e) => e.stopPropagation()}>
                   <input
                     type="checkbox"
+                    className="ap-checkbox"
                     checked={filters.selectedNamespaces.includes(ns)}
                     onChange={() => toggleNamespace(ns)}
                   />

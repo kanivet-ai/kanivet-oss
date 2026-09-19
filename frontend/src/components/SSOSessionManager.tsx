@@ -359,7 +359,7 @@ const SSOSessionManager = () => {
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="sso-manager-content" sideOffset={5} align="end">
+        <DropdownMenu.Content className="sso-manager-content ap-menu" sideOffset={5} align="end">
           <div className="sso-manager-header">
             <AWSIcon />
             <span>SSO Accounts</span>

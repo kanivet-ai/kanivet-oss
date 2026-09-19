@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -277,6 +278,12 @@ func (h *MetricsStreamHandler) buildMetricsResponse(req MetricsStreamRequest, to
 		}
 
 		log.Printf("[MetricsStream] Attempt %d/%d failed for %s: %v", attempt, maxRetries, topic, err)
+
+		// "No provider" is a verified, cached answer — retrying it only delays
+		// the empty state the UI is about to show.
+		if strings.Contains(err.Error(), "no metrics provider") || strings.Contains(err.Error(), "not found in cluster") {
+			break
+		}
 
 		if attempt < maxRetries {
 			time.Sleep(retryDelay)

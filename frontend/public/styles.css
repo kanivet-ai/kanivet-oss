@@ -1,12 +1,16 @@
+/*
+  Legacy static stylesheet (kept for the pre-React shell). The real design
+  tokens live in src/index.css; these fall back to the same macOS palette.
+*/
 :root {
-  --bg-primary: #1e1e1e;
-  --bg-secondary: #252526;
-  --bg-hover: #2a2d2e;
-  --bg-active: #094771;
-  --text-primary: #cccccc;
-  --text-secondary: #969696;
-  --border: #3c3c3c;
-  --accent: #007acc;
+  --bg-primary: #1e1e20;
+  --bg-secondary: #28282b;
+  --bg-hover: rgba(255, 255, 255, 0.055);
+  --bg-active: #0a84ff;
+  --text-primary: #f5f5f7;
+  --text-secondary: rgba(235, 235, 245, 0.62);
+  --border: rgba(255, 255, 255, 0.075);
+  --accent: #0a84ff;
 }
 
 * {
@@ -16,10 +20,12 @@
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', 'Segoe UI', system-ui, sans-serif;
+  font-size: 13px;
   background: var(--bg-primary);
   color: var(--text-primary);
   overflow: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app {
@@ -31,21 +37,26 @@ body {
 .header {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
-  height: 40px;
+  height: 44px;
 }
 
 .tabs {
   display: flex;
   height: 100%;
-  align-items: end;
+  align-items: center;
+  gap: 4px;
+  padding: 0 10px;
 }
 
 .tab {
-  padding: 8px 16px;
-  cursor: pointer;
-  border-right: 1px solid var(--border);
-  background: var(--bg-primary);
-  transition: background 0.2s;
+  height: 28px;
+  padding: 0 12px;
+  display: inline-flex;
+  align-items: center;
+  cursor: default;
+  border-radius: 7px;
+  color: var(--text-secondary);
+  transition: background 0.12s;
 }
 
 .tab:hover {
@@ -53,8 +64,9 @@ body {
 }
 
 .tab.active {
-  background: var(--bg-secondary);
-  border-bottom: 2px solid var(--accent);
+  background: #2c2c2e;
+  color: var(--text-primary);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(255, 255, 255, 0.08);
 }
 
 .main-content {
@@ -64,7 +76,7 @@ body {
 }
 
 .sidebar {
-  width: 300px;
+  width: 232px;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border);
   display: flex;
@@ -72,33 +84,38 @@ body {
 }
 
 .search-box {
-  padding: 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px 10px;
 }
 
 .search-box input {
   width: 100%;
-  padding: 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
+  height: 28px;
+  padding: 0 9px;
+  background: rgba(120, 120, 128, 0.26);
+  border: 0;
+  border-radius: 7px;
   color: var(--text-primary);
   outline: none;
 }
 
 .search-box input:focus {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.35);
 }
 
 .tree-view {
   flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px 8px;
 }
 
 .tree-node {
   user-select: none;
-  cursor: pointer;
-  padding: 4px 8px;
+  cursor: default;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  border-radius: 6px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -110,14 +127,15 @@ body {
 
 .tree-node.selected {
   background: var(--bg-active);
+  color: #fff;
 }
 
 .tree-node.match {
-  background: #4a3c28;
+  background: rgba(10, 132, 255, 0.18);
 }
 
 .tree-children {
-  padding-left: 16px;
+  padding-left: 12px;
 }
 
 .content-area {
@@ -133,9 +151,15 @@ body {
 }
 
 .list-item {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  cursor: default;
+}
+
+.list-item:nth-child(even) {
+  background: rgba(255, 255, 255, 0.028);
 }
 
 .list-item:hover {
@@ -144,6 +168,7 @@ body {
 
 .list-item.selected {
   background: var(--bg-active);
+  color: #fff;
 }
 
 .detail-view {
@@ -153,10 +178,12 @@ body {
 }
 
 .detail-view pre {
-  background: var(--bg-secondary);
+  background: #1c1c1e;
   padding: 12px;
-  border-radius: 4px;
+  border-radius: 8px;
   overflow-x: auto;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11.5px;
 }
 
 .hidden {

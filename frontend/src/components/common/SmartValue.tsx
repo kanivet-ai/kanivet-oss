@@ -238,7 +238,7 @@ const SmartValue: React.FC<SmartValueProps> = ({
               )}
               {secretKey && <span className="secret-key" title={secretKey}>{secretKey}</span>}
               {detectedFormat !== 'text' && isRevealed && (
-                <span className={`format-badge format-${detectedFormat}`}>{detectedFormat.toUpperCase()}</span>
+                <span className={`format-badge format-${detectedFormat}`}>{detectedFormat === 'json' ? 'JSON' : 'Certificate'}</span>
               )}
             </div>
             <div className="secret-meta">
@@ -369,8 +369,9 @@ const SmartValue: React.FC<SmartValueProps> = ({
         return <span className="smart-value-empty" title="No value">—</span>;
       }
 
+      const isChipMap = format === 'labels' || format === 'annotations';
       return (
-        <div className="smart-value-map">
+        <div className={`smart-value-map${isChipMap ? ' smart-value-map--chips' : ''}`}>
           {entries.map(([key, val]) => {
             const isEmptyArray = Array.isArray(val) && val.length === 0;
             if (val !== null && typeof val === 'object' && !isEmptyArray) {

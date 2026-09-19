@@ -1,80 +1,105 @@
+/* Argo topology — summary row, then card tiles on the inset surface joined by hairline edges. */
 .topo-root {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .topo-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 2px 2px;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  gap: 8px;
+  padding: 7px 14px;
+  min-height: 34px;
+  font-size: 12px;
+  color: var(--text2);
+  border-bottom: 1px solid var(--hair);
 }
 
 .topo-count {
   font-weight: 500;
+  font-variant-numeric: tabular-nums;
 }
 
 .topo-refresh {
-  padding: 3px 8px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 9px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 500;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .topo-refresh:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  color: var(--text);
 }
 
 .topo-graph {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
+  padding: 12px 14px 14px;
+  background: var(--inset);
 }
 
 .topo-row {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
+/* Node tile */
 .topo-card {
   display: flex;
   align-items: stretch;
-  gap: 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 6px 8px;
+  gap: 10px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 8px 10px;
   min-height: 44px;
-  transition: border-color 0.12s;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
   min-width: 0;
   position: relative;
 }
 
 .topo-card:hover {
-  border-color: var(--text-secondary);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
+/* Active tile (menu open / focused control) → 2px blue ring */
+.topo-card:focus-within {
+  box-shadow: var(--shadow-card), 0 0 0 2px var(--blue);
+}
+
+/* Health indicator → 7px dot */
 .topo-card-ring {
-  width: 4px;
-  border-radius: 2px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  align-self: center;
   flex-shrink: 0;
+  background: var(--text4);
 }
 
 .topo-card-body {
   flex: 1 1 auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
   min-width: 0;
   overflow: hidden;
 }
@@ -83,25 +108,35 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .topo-card-kind {
-  background: var(--bg-tertiary, var(--bg-primary));
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 1px 5px;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 5px;
+  color: var(--text2);
 }
 
 .topo-card-sync {
-  padding: 1px 5px;
-  border-radius: 3px;
-  font-size: var(--font-xxxs);
-  border: 1px solid;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 0;
+  background: var(--ctrl);
+  color: var(--text2);
 }
 
 .topo-card-name {
@@ -110,21 +145,22 @@
   padding: 0;
   text-align: left;
   cursor: pointer;
-  color: var(--text-primary);
+  color: var(--text);
   font-family: var(--font-mono);
-  font-size: var(--font-sm);
+  font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
 .topo-card-name:hover:not(:disabled) {
-  color: var(--accent, var(--text-primary));
+  color: var(--blue);
   text-decoration: underline;
 }
 
 .topo-card-name:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: progress;
 }
 
@@ -132,30 +168,49 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  color: var(--text2);
+  min-width: 0;
 }
 
 .topo-card-ns {
   font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .topo-card-ready {
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
+/* Collapse / expand children → small icon button */
 .topo-card-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   background: transparent;
   border: none;
+  border-radius: 5px;
   cursor: pointer;
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
-  padding: 0 4px;
+  color: var(--text2);
+  font-size: 12px;
+  padding: 0;
   align-self: center;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .topo-card-toggle:hover {
-  color: var(--text-primary);
+  color: var(--text);
+  background: var(--hover);
+}
+
+.topo-card-toggle svg {
+  width: 12px;
+  height: 12px;
 }
 
 .topo-card-actions {
@@ -165,21 +220,28 @@
   flex: 0 0 auto;
 }
 
+/* "More" → small icon button */
 .topo-card-menu-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  padding: 2px 8px;
-  color: var(--text-secondary);
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  color: var(--text2);
   cursor: pointer;
-  font-size: var(--font-md);
+  font-size: 14px;
   line-height: 1;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .topo-card-menu-btn:hover:not(:disabled) {
-  color: var(--text-primary);
-  border-color: var(--border);
-  background: var(--bg-hover);
+  color: var(--text);
+  border-color: transparent;
+  background: var(--hover);
 }
 
 .topo-card-menu-btn:disabled {
@@ -187,34 +249,45 @@
   cursor: progress;
 }
 
+.topo-card-menu-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+/* Context menu → vibrancy popover */
 .topo-card-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
   z-index: 20;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0;
+  border-radius: 10px;
+  padding: 5px;
   display: flex;
   flex-direction: column;
   min-width: 200px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-pop);
+  animation: ap-pop var(--duration-base) var(--ease-snap);
 }
 
 .topo-card-menu button {
   background: transparent;
   border: none;
-  padding: 6px 10px;
+  padding: 5px 10px;
   text-align: left;
   cursor: pointer;
-  color: var(--text-primary);
-  font-size: var(--font-sm);
-  border-radius: 3px;
+  color: var(--text);
+  font-size: 13px;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 .topo-card-menu button:hover {
-  background: var(--bg-hover);
+  background: var(--sel);
+  color: var(--on-sel);
 }
 
 @keyframes topo-spin {
@@ -223,20 +296,21 @@
 
 .topo-card-spinner {
   display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 1.5px solid var(--text-secondary);
-  border-top-color: transparent;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--ctrl2);
+  border-top-color: var(--blue);
   border-radius: 50%;
   animation: topo-spin 0.8s linear infinite;
 }
 
+/* Edges */
 .topo-children {
   display: flex;
   margin-left: 18px;
-  border-left: 1px dashed var(--border);
+  border-left: 1px solid var(--sep);
   padding-left: 12px;
-  padding-top: 4px;
+  padding-top: 6px;
   min-width: 0;
 }
 
@@ -248,77 +322,90 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
 }
 
-/* Status palette */
+/* Health palette: healthy green · progressing blue · degraded red · missing orange · suspended gray */
 .topo-card.topo-healthy .topo-card-ring,
 .topo-card-ring.topo-healthy {
-  background: var(--success);
+  background: var(--green);
 }
 
 .topo-card.topo-degraded .topo-card-ring,
 .topo-card-ring.topo-degraded {
-  background: var(--danger);
+  background: var(--red);
+}
+
+.topo-card.topo-missing .topo-card-ring,
+.topo-card-ring.topo-missing {
+  background: var(--orange);
 }
 
 .topo-card.topo-progressing .topo-card-ring,
 .topo-card-ring.topo-progressing {
-  background: var(--warning);
+  background: var(--blue);
 }
 
 .topo-card.topo-suspended .topo-card-ring,
 .topo-card-ring.topo-suspended {
-  background: var(--text-secondary);
+  background: var(--gray);
 }
 
 .topo-card.topo-unknown .topo-card-ring,
 .topo-card-ring.topo-unknown {
-  background: var(--border);
+  background: var(--text4);
 }
 
 .topo-card-sync.topo-sync-synced {
-  color: var(--success);
-  border-color: var(--success);
-  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success-fg);
+  border-color: transparent;
+  background: var(--success-bg);
 }
 
 .topo-card-sync.topo-sync-out {
-  color: var(--warning);
-  border-color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--warning-fg);
+  border-color: transparent;
+  background: var(--warning-bg);
 }
 
 .topo-card-sync.topo-sync-unknown {
-  color: var(--text-secondary);
-  border-color: var(--border);
+  color: var(--text2);
+  border-color: transparent;
+  background: var(--ctrl);
 }
 
 .topo-empty {
   padding: 16px;
-  font-size: var(--font-base);
-  color: var(--text-secondary);
+  font-size: 12.5px;
+  color: var(--text2);
   text-align: center;
 }
 
 .topo-error {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
 
 .topo-retry {
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 7px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .topo-retry:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }

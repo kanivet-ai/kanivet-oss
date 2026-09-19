@@ -1,108 +1,136 @@
+/* Bulk actions: selection count + a pop-up button opening an .ap-menu. */
 .bulk-actions-container {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .selected-count {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text2);
   font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .clear-selection-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   background: transparent;
   border: none;
-  border-radius: 2px;
-  color: var(--text-secondary);
-  font-size: 16px;
+  border-radius: 4px;
+  color: var(--text3);
+  font-size: 12px;
   line-height: 1;
   cursor: pointer;
-  transition: all 0.15s;
-  opacity: 0.6;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+  opacity: 1;
+}
+
+.clear-selection-button svg {
+  width: 11px;
+  height: 11px;
 }
 
 .clear-selection-button:hover {
   opacity: 1;
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .bulk-actions-dropdown {
   position: relative;
 }
 
+/* Pop-up button */
 .bulk-actions-button {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
   outline: none;
+  white-space: nowrap;
 }
 
 .bulk-actions-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--border-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  border-color: transparent;
 }
 
 .bulk-actions-button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .bulk-actions-button .caret {
-  font-size: 10px;
-  color: var(--text-secondary);
+  width: 12px;
+  height: 12px;
+  color: var(--text3);
+  flex: none;
 }
 
+/* Menu */
 .bulk-actions-menu {
   position: absolute;
   top: calc(100% + 4px);
   right: 0;
   min-width: 180px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0;
+  box-shadow: var(--shadow-pop);
   z-index: 1000;
-  padding: 4px;
+  animation: ap-pop var(--duration-base) var(--ease-snap);
 }
 
 .bulk-action-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  border-radius: 3px;
-  cursor: pointer;
-  font-size: 12px;
-  color: var(--text-primary);
-  transition: background-color 0.1s;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: default;
+  font-size: 13px;
+  color: var(--text);
+  white-space: nowrap;
+  user-select: none;
+  transition: none;
 }
 
 .bulk-action-item:hover {
-  background-color: var(--bg-hover);
+  background-color: var(--sel);
+  color: var(--on-sel);
 }
 
 .bulk-action-icon {
   width: 14px;
   height: 14px;
-  opacity: 0.8;
+  opacity: 1;
   flex-shrink: 0;
+  color: var(--text2);
+}
+
+.bulk-action-item:hover .bulk-action-icon {
+  color: var(--on-sel);
 }

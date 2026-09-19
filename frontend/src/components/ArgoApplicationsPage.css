@@ -1,22 +1,23 @@
+/* Argo CD applications page — stat tiles that filter, a toolbar, a Finder-style table. */
 .argo-apps-page {
   display: flex;
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
-/* Pivots */
+/* ---- Tiles — ring-shadow cards that double as filters ------------------ */
 .argo-apps-pivots {
   position: sticky;
   top: 0;
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 10px 16px;
-  background: var(--bg-primary);
-  border-bottom: 1px solid var(--border);
+  gap: 8px;
+  padding: 10px 14px;
+  background: var(--win);
+  border-bottom: 1px solid var(--hair);
   flex-wrap: wrap;
 }
 
@@ -24,18 +25,21 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  gap: 4px;
+  min-width: 96px;
+  padding: 8px 12px 7px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 8px;
+  box-shadow: var(--shadow-card);
   cursor: pointer;
-  min-width: 72px;
   text-align: left;
-  transition: border-color 0.12s, background 0.12s;
+  font-family: var(--font-sans);
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-apps-pivot:hover:not(:disabled) {
-  border-color: var(--text-secondary);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .argo-apps-pivot.static {
@@ -43,61 +47,85 @@
 }
 
 .argo-apps-pivot.active {
-  border-color: var(--accent, var(--text-primary));
-  background: color-mix(in srgb, var(--accent, var(--text-primary)) 12%, var(--bg-secondary));
+  background-color: var(--blue-soft);
+  background-image: none;
+  box-shadow: 0 0 0 0.5px var(--blue), 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+.argo-apps-pivot.active .argo-apps-pivot-label {
+  color: var(--blue);
 }
 
 .argo-apps-pivot-value {
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 600;
+  letter-spacing: -0.4px;
   line-height: 1;
-  color: var(--text-primary);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
 }
 
-.argo-apps-pivot.pivot-good .argo-apps-pivot-value { color: var(--status-running, #2ea043); }
-.argo-apps-pivot.pivot-warn .argo-apps-pivot-value { color: var(--status-pending, #d29922); }
-.argo-apps-pivot.pivot-bad .argo-apps-pivot-value { color: var(--status-failed, #d73a49); }
+/* Only a non-zero count carries its status colour; zero is quiet. */
+.argo-apps-pivot.pivot-success .argo-apps-pivot-value { color: var(--success-fg); }
+.argo-apps-pivot.pivot-warning .argo-apps-pivot-value { color: var(--warning-fg); }
+.argo-apps-pivot.pivot-danger .argo-apps-pivot-value { color: var(--danger-fg); }
+.argo-apps-pivot.pivot-info .argo-apps-pivot-value { color: var(--blue); }
+.argo-apps-pivot .argo-apps-pivot-value[data-zero='true'] { color: var(--text3); }
 
 .argo-apps-pivot-label {
-  margin-top: 2px;
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text2);
+  white-space: nowrap;
 }
 
 .argo-apps-pivot-sep {
   width: 1px;
   height: 28px;
-  background: var(--border);
-  margin: 0 6px;
+  background: var(--sep);
+  margin: 0 4px;
+  flex: none;
 }
 
-/* Toolbar */
+/* ---- Toolbar — search, chips, group pop-up, density, bulk actions ------- */
 .argo-apps-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-primary);
+  padding: 6px 14px;
+  min-height: 40px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--content);
 }
 
 .argo-apps-search {
-  flex: 1;
-  min-width: 220px;
-  padding: 6px 10px;
-  font-size: 13px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  color: var(--text-primary);
+  flex: 1 1 220px;
+  min-width: 200px;
+  max-width: 380px;
 }
 
-.argo-apps-search:focus {
-  outline: none;
-  border-color: var(--accent, var(--text-primary));
+.argo-apps-search kbd {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--sep);
+  color: var(--text3);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.argo-apps-search:focus-within kbd {
+  display: none;
 }
 
 .argo-apps-chip-group {
@@ -108,29 +136,29 @@
 }
 
 .argo-apps-chip-label {
-  font-size: 10px;
-  color: var(--text-secondary);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  font-size: 12px;
+  color: var(--text2);
   margin-right: 2px;
 }
 
 .argo-apps-chip {
-  padding: 3px 8px;
-  font-size: 11px;
-  border: 1px solid var(--border);
-  background: transparent;
-  border-radius: 12px;
+  height: 22px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 0;
+  background: var(--ctrl);
+  border-radius: 6px;
   cursor: pointer;
-  color: var(--text-secondary);
+  color: var(--text2);
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
-.argo-apps-chip:hover { color: var(--text-primary); }
+.argo-apps-chip:hover { color: var(--text); }
+
 .argo-apps-chip.active {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
-  border-color: var(--accent, var(--text-primary));
+  background: var(--blue);
+  color: #fff;
 }
 
 .argo-apps-control {
@@ -140,271 +168,386 @@
 }
 
 .argo-apps-control label {
-  font-size: 10px;
-  color: var(--text-secondary);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.argo-apps-control select {
-  padding: 4px 8px;
   font-size: 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-}
-
-.argo-apps-density {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.argo-apps-density button {
-  padding: 4px 10px;
-  font-size: 11px;
-  background: transparent;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.argo-apps-density button.active {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  color: var(--text2);
 }
 
 .argo-apps-bulk {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--accent, var(--text-primary));
-  border-radius: 6px;
+  height: 28px;
+  padding: 0 4px 0 10px;
+  background: var(--blue-soft);
+  border-radius: 7px;
   margin-left: auto;
 }
 
 .argo-apps-bulk-count {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--accent, var(--text-primary));
+  color: var(--blue);
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
 }
 
 .argo-apps-bulk button {
-  padding: 3px 8px;
-  font-size: 11px;
-  border: 1px solid var(--border);
-  background: transparent;
-  border-radius: 4px;
+  height: 22px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  border: 0;
+  background-color: var(--card);
+  border-radius: 6px;
   cursor: pointer;
-  color: var(--text-primary);
+  color: var(--text);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
-.argo-apps-bulk button:disabled { opacity: 0.5; cursor: not-allowed; }
+.argo-apps-bulk button:hover:not(:disabled) {
+  background-image: linear-gradient(var(--hover), var(--hover));
+}
 
-.argo-apps-bulk-clear { color: var(--text-secondary) !important; }
+.argo-apps-bulk button:disabled { opacity: 0.45; cursor: not-allowed; }
 
+.argo-apps-bulk button.argo-apps-bulk-clear {
+  color: var(--text2);
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.argo-apps-bulk button.argo-apps-bulk-clear:hover {
+  color: var(--text);
+  background-image: none;
+}
+
+/* ---- Banners ----------------------------------------------------------- */
 .argo-apps-stale-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin: 8px 16px 0;
-  padding: 6px 10px;
-  background: color-mix(in srgb, var(--status-pending, #d29922) 8%, transparent);
-  border: 1px solid var(--status-pending, #d29922);
-  color: var(--text-primary);
-  border-radius: 6px;
-  font-size: 12px;
+  margin: 10px 14px 0;
+  padding: 7px 10px;
+  background: var(--warning-bg);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 12.5px;
 }
 
 .argo-apps-stale-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
-  background: var(--status-pending, #d29922);
-  animation: argo-apps-pulse 1.4s ease-in-out infinite;
+  background: var(--orange);
   flex-shrink: 0;
-}
-
-@keyframes argo-apps-pulse {
-  0%, 100% { opacity: 0.4; }
-  50% { opacity: 1; }
 }
 
 .argo-apps-stale-banner button {
   margin-left: auto;
-  padding: 3px 10px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  height: 24px;
+  padding: 0 9px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
   cursor: pointer;
-  color: var(--text-primary);
-  font-size: 11px;
+  color: var(--text);
+  font-size: 11.5px;
+  font-weight: 500;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .argo-apps-stale-banner button:hover {
-  background: var(--bg-secondary);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .argo-apps-error {
-  margin: 10px 16px;
-  padding: 10px;
-  background: color-mix(in srgb, var(--status-failed, #d73a49) 8%, transparent);
-  border: 1px solid var(--status-failed, #d73a49);
-  color: var(--status-failed, #d73a49);
-  border-radius: 6px;
-  font-size: 12px;
+  margin: 10px 14px;
+  padding: 8px 10px;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border-radius: 8px;
+  font-size: 12.5px;
 }
 
-/* Table */
+/* ---- Table — same recipe as .resource-table ---------------------------- */
 .argo-apps-table-wrap {
   flex: 1;
   overflow: auto;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
 .argo-apps-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
   table-layout: auto;
-}
-
-.argo-apps-table tbody td:last-child,
-.argo-apps-table thead th:last-child {
-  width: 60px;
-  white-space: nowrap;
 }
 
 .argo-apps-table thead th {
   position: sticky;
   top: 0;
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 10px;
-  font-weight: 600;
+  z-index: 1;
+  height: 26px;
+  padding: 0 10px 0 6px;
+  background: var(--content);
+  color: var(--text2);
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 26px;
   text-align: left;
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hair);
+  border-left: 1px solid var(--hair);
   cursor: pointer;
   user-select: none;
   white-space: nowrap;
+  transition: color var(--duration-fast) var(--ease-quiet);
+}
+
+.argo-apps-table thead th:first-child,
+.argo-apps-table thead th.argo-apps-checkbox-col + th {
+  border-left: 0;
+}
+
+.argo-apps-table thead th.is-static {
+  cursor: default;
+}
+
+.argo-apps-table thead th:hover:not(.is-static) {
+  color: var(--text);
 }
 
 .argo-apps-table thead th .sort-arrow {
   display: inline-block;
   min-width: 10px;
   font-size: 8px;
-  color: var(--accent, var(--text-primary));
-}
-
-/* Density */
-.density-compact .argo-apps-table tbody td { padding: 4px 12px; }
-.density-cozy .argo-apps-table tbody td { padding: 8px 12px; }
-
-.argo-apps-table tbody td {
-  border-bottom: 1px solid var(--border);
+  color: var(--blue);
+  margin-left: 3px;
   vertical-align: middle;
 }
 
-.argo-apps-table tbody tr:hover {
-  background: var(--hover-bg, var(--bg-tertiary, var(--bg-primary)));
+.argo-apps-table tbody td {
+  padding: 0 10px 0 6px;
+  border: 0;
+  vertical-align: middle;
+  line-height: 18px;
+  color: var(--text2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 
-.argo-apps-table tbody tr.selected {
-  background: color-mix(in srgb, var(--accent, var(--text-primary)) 8%, transparent);
+.density-compact .argo-apps-table tbody td { height: 28px; }
+.density-cozy .argo-apps-table tbody td { height: 34px; }
+
+.argo-apps-table tbody td:last-child,
+.argo-apps-table thead th:last-child {
+  width: 64px;
 }
 
-.argo-apps-table tbody tr.focused {
-  outline: 1px solid var(--accent, var(--text-primary));
-  outline-offset: -1px;
+.argo-apps-col-status { width: 110px; }
+.argo-apps-col-rev { width: 104px; }
+.argo-apps-col-time { width: 84px; }
+
+/* Stripe lives on the row; hover and selection paint the cells above it. */
+.argo-apps-table tbody tr:nth-child(even):not(.argo-apps-group-row) {
+  background: var(--stripe);
 }
 
-/* Group rows */
+.argo-apps-table tbody tr:hover:not(.argo-apps-group-row) td {
+  background: var(--hover);
+}
+
+.argo-apps-table tbody tr.selected td {
+  background: var(--sel-soft);
+}
+
+/* Keyboard cursor row = the selected row: solid blue, white text */
+.argo-apps-table tbody tr.focused td,
+.argo-apps-table tbody tr.focused:hover td {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.argo-apps-table tbody tr.focused td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.argo-apps-table tbody tr.focused td:last-child {
+  border-radius: 0 6px 6px 0;
+}
+
+.argo-apps-table tbody tr.focused .argo-apps-name-link,
+.argo-apps-table tbody tr.focused .argo-apps-dest-ns,
+.argo-apps-table tbody tr.focused .argo-apps-pill,
+.argo-apps-table tbody tr.focused .argo-apps-row-spinner-label {
+  color: var(--on-sel);
+}
+
+.argo-apps-table tbody tr.focused .argo-apps-ns,
+.argo-apps-table tbody tr.focused .argo-apps-arrow,
+.argo-apps-table tbody tr.focused .argo-apps-dest-target,
+.argo-apps-table tbody tr.focused .argo-apps-rev,
+.argo-apps-table tbody tr.focused .argo-apps-time,
+.argo-apps-table tbody tr.focused .argo-apps-empty-value {
+  color: var(--on-sel2);
+}
+
+.argo-apps-table tbody tr.focused .argo-apps-pill,
+.argo-apps-table tbody tr.focused .argo-apps-row-spinner-wrap {
+  background: color-mix(in srgb, var(--on-sel) 18%, transparent);
+}
+
+/* ---- Group rows — section headers, not pills --------------------------- */
 .argo-apps-group-row td {
-  background: var(--bg-secondary);
-  cursor: pointer;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 6px 12px !important;
+  height: 26px;
+  padding: 0 10px;
+  background: var(--content);
+  border-bottom: 1px solid var(--hair);
+  cursor: default;
+  user-select: none;
+}
+
+.argo-apps-table tbody tr.argo-apps-group-row + tr td {
+  border-top: 0;
+}
+
+.argo-apps-group-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
 }
 
 .argo-apps-group-chevron {
-  display: inline-block;
-  width: 14px;
-  color: var(--text-secondary);
-  font-size: 10px;
+  width: 10px;
+  height: 10px;
+  color: var(--text3);
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease-quiet);
 }
 
-.argo-apps-group-pill {
-  display: inline-block;
-  padding: 1px 8px;
-  border-radius: 3px;
-  margin-right: 8px;
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  border: 1px solid;
+.argo-apps-group-chevron.open {
+  transform: rotate(90deg);
 }
 
-.argo-apps-group-pill.health-healthy { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
-.argo-apps-group-pill.health-degraded { color: var(--status-failed, #d73a49); border-color: var(--status-failed, #d73a49); background: color-mix(in srgb, var(--status-failed, #d73a49) 10%, transparent); }
-.argo-apps-group-pill.health-progressing { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
-.argo-apps-group-pill.health-unknown { color: var(--text-secondary); border-color: var(--border); }
-.argo-apps-group-pill.sync-synced { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
-.argo-apps-group-pill.sync-outofsync { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
-.argo-apps-group-pill.sync-unknown { color: var(--text-secondary); border-color: var(--border); }
+.argo-apps-group-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  letter-spacing: 0;
+}
+
+.argo-apps-group-row:hover .argo-apps-group-label {
+  color: var(--text);
+}
 
 .argo-apps-group-count {
-  font-size: 10px;
-  color: var(--text-secondary);
+  font-size: 11.5px;
   font-weight: 500;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
 }
 
-/* Cells */
+/* ---- Cells ------------------------------------------------------------- */
 .argo-apps-checkbox-col {
-  width: 32px;
-  text-align: center;
+  width: 28px;
+  padding: 0 0 0 8px;
+  text-align: left;
+}
+
+.argo-apps-table tbody td.argo-apps-checkbox-col,
+.argo-apps-table thead th.argo-apps-checkbox-col {
+  padding: 0 0 0 8px;
+}
+
+.argo-apps-checkbox-col input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--card);
+  box-shadow: 0 0 0 0.5px var(--sep), inset 0 0.5px 1px rgba(0, 0, 0, 0.06);
+  cursor: pointer;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.argo-apps-checkbox-col input[type='checkbox']:checked {
+  background: var(--blue);
+  box-shadow: 0 0.5px 1px rgba(0, 0, 0, 0.12);
+}
+
+.argo-apps-checkbox-col input[type='checkbox']:checked::after {
+  content: '';
+  position: absolute;
+  width: 3.5px;
+  height: 7px;
+  border: solid #fff;
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+  top: 1.5px;
+  left: 4.5px;
+}
+
+.argo-apps-table tbody tr.focused .argo-apps-checkbox-col input[type='checkbox'] {
+  background: color-mix(in srgb, var(--on-sel) 25%, transparent);
+  box-shadow: 0 0 0 0.5px color-mix(in srgb, var(--on-sel) 40%, transparent);
+}
+
+.argo-apps-table tbody tr.focused .argo-apps-checkbox-col input[type='checkbox']:checked {
+  background: #fff;
+}
+
+.argo-apps-table tbody tr.focused .argo-apps-checkbox-col input[type='checkbox']:checked::after {
+  border-color: var(--blue);
 }
 
 .argo-apps-name-cell {
   position: relative;
   white-space: nowrap;
-  min-width: 240px;
+  min-width: 220px;
 }
 
 .argo-apps-name-link {
   background: transparent;
   border: none;
   padding: 0;
-  color: var(--accent, var(--text-primary));
+  color: var(--text);
   cursor: pointer;
-  font-family: var(--font-monospace, monospace);
-  font-size: 12px;
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: -0.1px;
+  line-height: 18px;
 }
 
-.argo-apps-name-link:hover { text-decoration: underline; }
+.argo-apps-name-link:hover {
+  text-decoration: underline;
+  color: var(--blue);
+}
 
+/* Row actions — a small floating pill group revealed on hover */
 .argo-apps-row-actions {
   position: absolute;
   top: 50%;
   right: 8px;
   transform: translateY(-50%);
   display: none;
-  gap: 4px;
-  background: linear-gradient(
-    to right,
-    transparent 0,
-    var(--hover-bg, var(--bg-tertiary, var(--bg-primary))) 14px,
-    var(--hover-bg, var(--bg-tertiary, var(--bg-primary))) 100%
-  );
-  padding-left: 16px;
+  gap: 2px;
+  background: var(--card);
+  border-radius: 7px;
+  box-shadow: var(--shadow-pill);
+  padding: 2px;
 }
 
 .argo-apps-table tbody tr:hover .argo-apps-row-actions,
@@ -413,21 +556,25 @@
 }
 
 .argo-apps-row-actions button {
-  font-size: 10px;
-  padding: 1px 6px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
   cursor: pointer;
+  line-height: 1;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-apps-row-actions button:hover {
-  border-color: var(--accent, var(--text-primary));
+  background: var(--hover);
 }
 
 .argo-apps-row-actions button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -439,116 +586,112 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 1px 8px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--status-pending, #d29922) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--status-pending, #d29922) 35%, transparent);
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--blue-soft);
 }
 
 .argo-apps-row-spinner {
   display: inline-block;
   width: 10px;
   height: 10px;
-  border: 1.5px solid var(--status-pending, #d29922);
-  border-top-color: transparent;
+  border: 1.5px solid var(--ctrl2);
+  border-top-color: var(--blue);
   border-radius: 50%;
   animation: argo-apps-spin 0.8s linear infinite;
   flex-shrink: 0;
 }
 
 .argo-apps-row-spinner-label {
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--status-pending, #d29922);
+  color: var(--blue);
 }
 
 @keyframes argo-apps-spin {
   to { transform: rotate(360deg); }
 }
 
-.argo-apps-table tbody tr.row-busy {
-  background: color-mix(in srgb, var(--status-pending, #d29922) 4%, transparent);
+.argo-apps-table tbody tr.row-busy td {
+  background: color-mix(in srgb, var(--blue) 6%, transparent);
 }
 
 @keyframes argo-apps-flash-good {
-  0%   { background: color-mix(in srgb, var(--status-running, #2ea043) 35%, transparent); }
+  0%   { background: color-mix(in srgb, var(--green) 30%, transparent); }
   100% { background: transparent; }
 }
 
 @keyframes argo-apps-flash-warn {
-  0%   { background: color-mix(in srgb, var(--status-pending, #d29922) 35%, transparent); }
+  0%   { background: color-mix(in srgb, var(--orange) 30%, transparent); }
   100% { background: transparent; }
 }
 
-.argo-apps-table tbody tr.row-flash {
+.argo-apps-table tbody tr.row-flash td {
   animation-duration: 1.6s;
-  animation-timing-function: ease-out;
+  animation-timing-function: var(--ease-quiet);
   animation-fill-mode: forwards;
 }
 
-.argo-apps-table tbody tr.row-flash-sync {
+.argo-apps-table tbody tr.row-flash-sync td {
   animation-name: argo-apps-flash-good;
 }
 
-.argo-apps-table tbody tr.row-flash-refresh {
+.argo-apps-table tbody tr.row-flash-refresh td {
   animation-name: argo-apps-flash-warn;
 }
 
-.argo-apps-mono { font-family: var(--font-monospace, monospace); }
+.argo-apps-mono {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
 
 .argo-apps-dest {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
+  color: var(--text);
 }
 
 .argo-apps-ns {
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .argo-apps-arrow {
-  color: var(--text-secondary);
-  font-size: 9px;
+  color: var(--text4);
+  margin: 0 5px;
 }
 
 .argo-apps-dest-ns {
-  color: var(--text-primary);
+  color: var(--text);
+}
+
+.argo-apps-dest-target {
+  color: var(--text3);
+  margin-left: 6px;
 }
 
 .argo-apps-rev {
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .argo-apps-time {
-  white-space: nowrap;
-  color: var(--text-secondary);
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
 }
 
+.argo-apps-empty-value {
+  color: var(--text3);
+}
+
+/* Status badges use the .ap-badge recipe; this class only exists so the
+   selected-row override can reach them. */
 .argo-apps-pill {
-  display: inline-block;
-  font-size: 10px;
-  text-transform: uppercase;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  border: 1px solid;
+  vertical-align: middle;
 }
-
-.argo-apps-pill.sync-synced { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
-.argo-apps-pill.sync-outofsync { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
-.argo-apps-pill.sync-unknown { color: var(--text-secondary); border-color: var(--border); }
-
-.argo-apps-pill.health-healthy { color: var(--status-running, #2ea043); border-color: var(--status-running, #2ea043); background: color-mix(in srgb, var(--status-running, #2ea043) 10%, transparent); }
-.argo-apps-pill.health-degraded, .argo-apps-pill.health-missing { color: var(--status-failed, #d73a49); border-color: var(--status-failed, #d73a49); background: color-mix(in srgb, var(--status-failed, #d73a49) 10%, transparent); }
-.argo-apps-pill.health-progressing { color: var(--status-pending, #d29922); border-color: var(--status-pending, #d29922); background: color-mix(in srgb, var(--status-pending, #d29922) 10%, transparent); }
-.argo-apps-pill.health-suspended, .argo-apps-pill.health-unknown { color: var(--text-secondary); border-color: var(--border); }
 
 .argo-apps-empty {
   text-align: center;
-  color: var(--text-secondary);
-  padding: 24px;
+  color: var(--text2);
+  padding: 48px 20px;
+  font-size: 13px;
 }
 
 /* Skeleton */
@@ -558,42 +701,52 @@
 
 .argo-apps-skeleton {
   display: block;
-  height: 14px;
-  background: var(--bg-secondary);
-  border-radius: 3px;
-  animation: argo-skel 1.2s ease-in-out infinite alternate;
+  height: 12px;
+  background: linear-gradient(90deg, var(--ctrl) 0%, var(--ctrl2) 50%, var(--ctrl) 100%);
+  background-size: 200% 100%;
+  border-radius: 4px;
+  animation: argo-skel 1.4s ease-in-out infinite;
 }
 
 @keyframes argo-skel {
-  from { opacity: 0.45; }
-  to { opacity: 0.85; }
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-/* Context menu */
+/* Context menu — macOS menu on the toolbar material */
 .argo-apps-ctx-menu {
   position: fixed;
   z-index: 1000;
   display: flex;
   flex-direction: column;
   min-width: 180px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border-radius: 10px;
+  padding: 5px;
+  box-shadow: var(--shadow-pop);
+  animation: argo-apps-menu-pop var(--duration-base) var(--ease-snap);
+}
+
+@keyframes argo-apps-menu-pop {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: none; }
 }
 
 .argo-apps-ctx-menu button {
   background: transparent;
   border: none;
-  padding: 6px 10px;
+  padding: 5px 10px;
   text-align: left;
-  font-size: 12px;
-  cursor: pointer;
-  color: var(--text-primary);
-  border-radius: 3px;
+  font-size: 13px;
+  cursor: default;
+  color: var(--text);
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 .argo-apps-ctx-menu button:hover {
-  background: var(--hover-bg, var(--bg-tertiary, var(--bg-primary)));
+  background: var(--sel);
+  color: var(--on-sel);
 }

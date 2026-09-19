@@ -653,8 +653,16 @@ function createWindow() {
   const preloadPath = path.join(__dirname, 'preload.js');
 
   mainWindow = new BrowserWindow({
-    width: 1400,
+    width: 1440,
     height: 900,
+    minWidth: 900,
+    minHeight: 560,
+    // macOS: hide the native title bar and let the renderer's tab bar sit
+    // behind the traffic lights (the renderer reserves room via data-chrome).
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset', trafficLightPosition: { x: 14, y: 13 } }
+      : {}),
+    backgroundColor: '#1e1e20',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,

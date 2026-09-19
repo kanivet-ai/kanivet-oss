@@ -1,48 +1,64 @@
+/* Argo Application — status card with an actions row, operation / resources / history as card rows. */
 .argo-status-row-value {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .argo-status-meta {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
 }
 
 .argo-status-phase-tag {
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  border: 1px solid;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 0;
+  background: var(--ctrl);
+  color: var(--text2);
 }
 
 .argo-status-phase-tag.failed,
 .argo-status-phase-tag.error {
-  color: var(--danger);
-  border-color: var(--danger);
+  color: var(--danger-fg);
+  border-color: transparent;
+  background: var(--danger-bg);
 }
 
 .argo-status-phase-tag.running,
 .argo-status-phase-tag.terminating {
-  color: var(--warning);
-  border-color: var(--warning);
+  color: var(--warning-fg);
+  border-color: transparent;
+  background: var(--warning-bg);
 }
 
 .argo-status-pending-tag {
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  color: var(--warning);
-  border: 1px solid var(--warning);
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  padding: 0 7px;
+  border-radius: 5px;
+  color: var(--warning-fg);
+  border: 0;
+  background: var(--warning-bg);
 }
 
 @keyframes argo-spin {
@@ -51,8 +67,8 @@
 
 .argo-action-spinner {
   display: inline-block;
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
   margin-right: 6px;
   border: 1.5px solid currentColor;
   border-top-color: transparent;
@@ -61,23 +77,26 @@
   vertical-align: -1px;
 }
 
+/* Waiting-for-controller banner → its own card between groups */
 .argo-pending-banner {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  background: color-mix(in srgb, var(--warning) 8%, var(--bg-secondary));
-  border: 1px solid var(--warning);
-  border-radius: 6px;
-  font-size: var(--font-base);
+  margin: 0 14px 14px;
+  padding: 10px 14px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  font-size: 12.5px;
 }
 
 .argo-pending-spinner {
   display: inline-block;
   width: 14px;
   height: 14px;
-  border: 2px solid var(--warning);
-  border-top-color: transparent;
+  border: 2px solid var(--ctrl2);
+  border-top-color: var(--orange);
   border-radius: 50%;
   animation: argo-spin 0.8s linear infinite;
   flex-shrink: 0;
@@ -85,91 +104,114 @@
 
 .argo-pending-label {
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .argo-pending-detail {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text2);
 }
 
+/* Actions row = last row of the Status card */
 .argo-actions-row {
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--border);
+  margin-top: 0;
+  padding: 8px 14px;
+  border-top: 0;
 }
 
 .argo-action {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  padding: 4px 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  height: 24px;
+  padding: 0 9px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  color: var(--text);
+  font-size: 11.5px;
   font-weight: 500;
-  transition: background 0.12s, border-color 0.12s;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-action:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--text-secondary);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  border-color: transparent;
 }
 
 .argo-action:disabled {
-  opacity: 0.6;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .argo-action.argo-primary {
-  background: color-mix(in srgb, var(--success) 15%, var(--bg-secondary));
-  border-color: var(--success);
-  color: var(--success);
+  background-color: var(--blue);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .argo-action.argo-primary:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--success) 25%, var(--bg-secondary));
+  background-color: var(--blue-hover);
+  background-image: none;
 }
 
+/* Topology / List / Diff → segmented control */
 .argo-view-toggle {
   display: inline-flex;
-  background: var(--bg-tertiary, var(--bg-primary));
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  overflow: hidden;
+  align-items: stretch;
+  gap: 1px;
+  padding: 2px;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 7px;
+  overflow: visible;
 }
 
 .argo-view-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 18px;
   background: transparent;
   border: none;
-  padding: 2px 8px;
-  font-size: var(--font-xs);
+  border-radius: 5px;
+  padding: 0 8px;
+  font-size: 10.5px;
   font-weight: 500;
-  color: var(--text-secondary);
+  line-height: 1;
+  color: var(--text2);
   cursor: pointer;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
+  white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-view-toggle-btn.active {
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  background: var(--card);
+  color: var(--text);
+  box-shadow: var(--shadow-pill);
 }
 
 .argo-view-toggle-btn:hover:not(.active) {
-  color: var(--text-primary);
+  color: var(--text);
 }
 
+/* Operation resources — card rows below the phase rows */
 .argo-op-resources {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 6px;
+  gap: 0;
+  margin-top: 0;
   max-height: 240px;
   overflow-y: auto;
 }
@@ -179,9 +221,10 @@
   grid-template-columns: 130px 1fr auto;
   gap: 12px;
   align-items: center;
-  padding: 4px 0;
-  font-size: var(--font-sm);
-  border-bottom: 1px dashed var(--border);
+  padding: 7px 14px;
+  min-height: 30px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--hair);
 }
 
 .argo-op-row:last-child {
@@ -189,74 +232,94 @@
 }
 
 .argo-op-kind {
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
-  font-weight: 600;
-  color: var(--text-secondary);
-  letter-spacing: 0.04em;
+  font-size: 11.5px;
+  text-transform: none;
+  font-weight: 500;
+  color: var(--text2);
+  letter-spacing: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .argo-op-name {
   font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .argo-op-status {
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  border: 1px solid;
+  padding: 0 7px;
+  border-radius: 5px;
+  border: 0;
+  background: var(--ctrl);
+  color: var(--text2);
+  white-space: nowrap;
 }
 
 .argo-op-status-success {
-  color: var(--success);
-  border-color: var(--success);
-  background: color-mix(in srgb, var(--success) 10%, transparent);
+  color: var(--success-fg);
+  border-color: transparent;
+  background: var(--success-bg);
 }
 
 .argo-op-status-failed {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  color: var(--danger-fg);
+  border-color: transparent;
+  background: var(--danger-bg);
 }
 
 .argo-op-status-running {
-  color: var(--warning);
-  border-color: var(--warning);
-  background: color-mix(in srgb, var(--warning) 10%, transparent);
+  color: var(--warning-fg);
+  border-color: transparent;
+  background: var(--warning-bg);
 }
 
 .argo-op-status-unknown {
-  color: var(--text-secondary);
-  border-color: var(--border);
+  color: var(--text2);
+  border-color: transparent;
+  background: var(--ctrl);
 }
 
+/* Sync history — card rows */
 .argo-history {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .argo-history-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 6px 4px;
-  border-bottom: 1px dashed var(--border);
-  font-size: var(--font-sm);
+  gap: 12px;
+  padding: 7px 14px;
+  min-height: 34px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 12.5px;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-history-row:last-child {
   border-bottom: none;
 }
 
+.argo-history-row:hover {
+  background: var(--hover);
+}
+
 .argo-history-row.is-current {
-  background: color-mix(in srgb, var(--success) 6%, transparent);
+  background: color-mix(in srgb, var(--green) 6%, transparent);
 }
 
 .argo-history-info {
@@ -264,57 +327,74 @@
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
 }
 
 .argo-history-id {
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text);
   min-width: 32px;
+  font-variant-numeric: tabular-nums;
 }
 
 .argo-history-revision {
   font-family: var(--font-mono);
-  color: var(--text-primary);
+  font-size: 11.5px;
+  color: var(--text);
 }
 
 .argo-history-time {
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
+  color: var(--text3);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .argo-history-by {
-  color: var(--text-secondary);
-  font-size: var(--font-xs);
+  color: var(--text3);
+  font-size: 11.5px;
 }
 
 .argo-history-current {
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
   font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--success) 15%, transparent);
-  color: var(--success);
-  border: 1px solid var(--success);
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--success-bg);
+  color: var(--success-fg);
+  border: 0;
 }
 
 .argo-history-rollback {
-  padding: 3px 10px;
-  font-size: var(--font-xs);
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 24px;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  color: var(--text-primary);
+  color: var(--text);
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-history-rollback:hover:not(:disabled) {
-  border-color: var(--text-secondary);
-  background: var(--bg-hover);
+  border-color: transparent;
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .argo-history-rollback:disabled {
-  opacity: 0.4;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -327,15 +407,16 @@
 
 .argo-rollback-dialog p {
   margin: 0;
-  font-size: var(--font-base);
+  font-size: 13px;
   line-height: 1.5;
 }
 
 .argo-rollback-prune {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--font-sm);
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text2);
   cursor: pointer;
 }
 
@@ -345,14 +426,15 @@
   height: 6px;
   margin-left: 5px;
   border-radius: 50%;
-  background: var(--warning);
+  background: var(--orange);
   vertical-align: middle;
 }
 
+/* Managed resources (list view) — card rows */
 .argo-resources {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 
 .argo-resource-row {
@@ -360,29 +442,39 @@
   grid-template-columns: 130px 1fr auto;
   gap: 12px;
   align-items: center;
-  padding: 5px 0;
-  font-size: var(--font-sm);
-  border-bottom: 1px solid var(--border);
+  padding: 7px 14px;
+  min-height: 30px;
+  font-size: 12.5px;
+  border-bottom: 1px solid var(--hair);
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-resource-row:last-child {
   border-bottom: none;
 }
 
+.argo-resource-row:hover {
+  background: var(--hover);
+}
+
 .argo-resource-row.is-missing {
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .argo-resource-kind {
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: var(--font-xxs);
-  font-weight: 600;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .argo-resource-name {
   font-family: var(--font-mono);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -394,9 +486,10 @@
   padding: 0;
   text-align: left;
   cursor: pointer;
-  color: var(--accent, var(--text-primary));
+  color: var(--blue);
   font: inherit;
   font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .argo-resource-link:hover:not(:disabled) {
@@ -404,12 +497,12 @@
 }
 
 .argo-resource-link:disabled {
-  opacity: 0.7;
+  opacity: 0.6;
   cursor: progress;
 }
 
 .argo-resource-name-static {
-  color: var(--text-secondary);
+  color: var(--text2);
   cursor: default;
 }
 
@@ -419,33 +512,40 @@
 }
 
 .argo-app-empty {
-  padding: 12px;
-  font-size: var(--font-base);
-  color: var(--text-secondary);
+  padding: 14px;
+  font-size: 12.5px;
+  color: var(--text2);
   text-align: center;
 }
 
 .argo-app-empty-inline {
-  padding: 8px 0;
+  padding: 10px 14px;
 }
 
 .argo-error {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   align-items: center;
 }
 
 .argo-retry {
-  padding: 4px 10px;
-  background: transparent;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 7px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
   cursor: pointer;
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .argo-retry:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }

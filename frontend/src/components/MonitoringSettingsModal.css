@@ -1,199 +1,254 @@
-.monitoring-settings-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+/* Monitoring — a System Settings-style sheet: grouped cards of rows with the
+   label on the left and the control on the right. Built on .ap-overlay,
+   .ap-sheet, .ap-card, .ap-select, .ap-input, .ap-toggle, .ap-btn. */
+
+.ms-overlay {
   z-index: 10000;
 }
 
-.monitoring-settings-modal {
-  background: var(--bg-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  width: 400px;
-  max-width: 90vw;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+.ms-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 480px;
+  max-width: 92vw;
+  max-height: min(84vh, 760px);
 }
 
-.monitoring-settings-header {
+.ms-header {
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: 12px 16px;
-  border-bottom: 1px solid var(--border-color);
+  height: 52px;
+  padding: 0 14px 0 20px;
+  border-bottom: 1px solid var(--hair);
+  flex: none;
 }
 
-.monitoring-settings-header h3 {
+.ms-header h3 {
   margin: 0;
-  font-size: 14px;
+}
+
+.ms-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 16px 20px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.ms-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ms-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.ms-section-title {
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text2);
 }
 
-.monitoring-settings-header .close-btn {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  font-size: 18px;
-  cursor: pointer;
-  padding: 0;
-  line-height: 1;
-}
-
-.monitoring-settings-header .close-btn:hover {
-  color: var(--text-primary);
-}
-
-.monitoring-settings-content {
-  padding: 16px;
-}
-
-.setting-group {
-  margin-bottom: 16px;
-}
-
-.setting-group:last-child {
-  margin-bottom: 0;
-}
-
-.setting-group label {
-  display: block;
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
-  margin-bottom: 6px;
-}
-
-.setting-group select {
-  width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.setting-group select:focus {
-  outline: none;
-  border-color: var(--accent-color);
-}
-
-.setting-hint {
-  display: block;
+.ms-section-meta {
   font-size: 11px;
-  color: var(--text-secondary);
-  margin-top: 4px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
 }
 
-.checkbox-group label {
+.ms-card {
+  overflow: visible;
+}
+
+/* Provider list */
+.ms-provider-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  cursor: pointer;
+  gap: 10px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hair);
 }
 
-.checkbox-group input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
-  cursor: pointer;
+.ms-provider-dot {
+  flex: none;
 }
 
-.monitoring-settings-footer {
+.ms-provider-text {
   display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border-color);
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
-.monitoring-settings-footer button {
-  padding: 6px 14px;
-  border-radius: 4px;
-  font-size: 12px;
+.ms-provider-name {
+  font-size: 12.5px;
   font-weight: 500;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  color: var(--text);
 }
 
-.monitoring-settings-footer .cancel-btn {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  color: var(--text-primary);
+.ms-provider-status {
+  font-size: 11.5px;
+  line-height: 1.35;
+  color: var(--text2);
+  overflow-wrap: anywhere;
 }
 
-.monitoring-settings-footer .cancel-btn:hover {
-  background: var(--bg-hover);
+.ms-provider-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px 10px;
 }
 
-.monitoring-settings-footer .save-btn {
-  background: var(--accent-color);
-  border: 1px solid var(--accent-color);
-  color: white;
+.ms-provider-footnote {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text3);
+  min-width: 0;
 }
 
-.monitoring-settings-footer .save-btn:hover {
-  opacity: 0.9;
+/* Settings rows */
+.ms-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hair);
 }
 
-.setting-input {
+.ms-row:last-child,
+.ms-provider-footer:last-child {
+  border-bottom: 0;
+}
+
+.ms-row-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.ms-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.ms-row-label {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.ms-row-hint {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--text2);
+}
+
+.ms-select {
+  flex: 0 1 240px;
+  min-width: 0;
+  max-width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ms-row-stacked .ms-select,
+.ms-row-stacked .ms-input {
+  max-width: none;
+  flex: none;
   width: 100%;
-  padding: 8px 10px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 12px;
+}
+
+.ms-select-narrow {
+  flex: 0 0 auto;
+  width: 170px;
+}
+
+.ms-input {
+  width: 100%;
+  min-width: 0;
   box-sizing: border-box;
 }
 
-.setting-input:focus {
+.ms-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ms-inline .ms-input {
+  flex: 1 1 auto;
+}
+
+.ms-error {
+  font-size: 11.5px;
+  line-height: 1.4;
+  color: var(--danger-fg);
+}
+
+/* Discovered tenant chips */
+.ms-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.ms-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+}
+
+.ms-chip:hover {
+  color: var(--text);
+}
+
+.ms-chip[aria-pressed='true'] {
+  background: var(--blue);
+  color: #fff;
+}
+
+/* The .ap-toggle recipe on a real button */
+.ms-switch {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  flex: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.ms-switch:focus-visible {
   outline: none;
-  border-color: var(--accent-color);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
-.setting-input::placeholder {
-  color: var(--text-secondary);
-  opacity: 0.7;
-}
-
-.setting-loading {
-  padding: 8px 10px;
-  font-size: 12px;
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-}
-
-.warning-group {
-  padding: 10px 12px;
-  background: rgba(251, 191, 36, 0.1);
-  border: 1px solid rgba(251, 191, 36, 0.3);
-  border-radius: 4px;
-}
-
-.warning-text {
-  font-size: 11px;
-  color: #fbbf24;
-  line-height: 1.4;
-}
-
-.setting-error {
-  display: block;
-  margin-top: 6px;
-  font-size: 11px;
-  line-height: 1.4;
-  color: var(--error-color, #f87171);
-}
-
-.setting-group select option:disabled {
-  color: var(--text-secondary);
-  opacity: 0.6;
+.ap-select option:disabled {
+  color: var(--text3);
 }

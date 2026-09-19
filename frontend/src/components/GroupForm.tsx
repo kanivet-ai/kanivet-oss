@@ -30,10 +30,10 @@ export const GroupForm: React.FC<GroupFormProps> = ({
         autoFocus
       />
       <div className="form-actions">
-        <button onClick={onSave} className="save-btn" title="Save group">
+        <button onClick={onSave} className="save-btn ap-btn ap-btn--sm ap-btn--primary" title="Save group">
           <CheckIcon />
         </button>
-        <button onClick={onCancel} className="cancel-btn" title="Cancel">
+        <button onClick={onCancel} className="cancel-btn ap-btn ap-btn--sm" title="Cancel">
           <CloseIcon />
         </button>
       </div>

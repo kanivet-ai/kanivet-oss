@@ -3,7 +3,7 @@ import { DiffEditor } from '@monaco-editor/react';
 import yaml from 'js-yaml';
 import api from '../../../services/api';
 import { ArgoManagedResource } from '../../../services/api/resources';
-import { useTheme } from '../../ThemeProvider';
+import { installKanivetMonacoTheme, KANIVET_MONACO_THEME } from '../../../utils/monacoTheme';
 import './ApplicationDiff.css';
 
 interface Props {
@@ -50,7 +50,6 @@ const ApplicationDiff = ({ cluster, namespace, name }: Props) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  const { theme } = useTheme();
   const activeKeyRef = useRef('');
 
   useEffect(() => {
@@ -104,7 +103,7 @@ const ApplicationDiff = ({ cluster, namespace, name }: Props) => {
     return (
       <div className="argo-diff-empty argo-diff-error">
         {error}
-        <button className="argo-diff-retry" onClick={load}>Retry</button>
+        <button className="argo-diff-retry ap-btn" onClick={load}>Retry</button>
       </div>
     );
   }
@@ -147,7 +146,8 @@ const ApplicationDiff = ({ cluster, namespace, name }: Props) => {
             original={live}
             modified={target}
             language="yaml"
-            theme={theme === 'dark' ? 'vs-dark' : 'vs-light'}
+            theme={KANIVET_MONACO_THEME}
+            beforeMount={installKanivetMonacoTheme}
             options={{
               renderSideBySide: true,
               readOnly: true,
@@ -155,6 +155,7 @@ const ApplicationDiff = ({ cluster, namespace, name }: Props) => {
               scrollBeyondLastLine: false,
               automaticLayout: true,
               fontSize: 12,
+              fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', Consolas, 'Liberation Mono', monospace",
               renderOverviewRuler: false,
             }}
           />

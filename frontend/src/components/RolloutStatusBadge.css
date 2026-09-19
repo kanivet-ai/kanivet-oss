@@ -1,31 +1,37 @@
+/* Rollout status badge: 18px tinted pill, 11px/600, tokens only. */
 .rollout-badge {
   display: inline-flex;
   flex-direction: column;
+  justify-content: center;
   margin-left: 8px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 0 7px;
+  min-height: 18px;
+  border-radius: 5px;
   font-size: 11px;
-  background: rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  font-weight: 600;
+  line-height: 1;
+  background: var(--ctrl);
+  color: var(--text2);
+  border: 0;
   gap: 3px;
 }
 
 .rollout-badge.complete {
-  background: rgba(0, 255, 0, 0.1);
-  border-color: rgba(0, 255, 0, 0.3);
-  color: #4ade80;
+  background: var(--success-bg);
+  border-color: transparent;
+  color: var(--success-fg);
 }
 
 .rollout-badge.progressing {
-  background: rgba(0, 123, 255, 0.1);
-  border-color: rgba(0, 123, 255, 0.3);
-  color: #60a5fa;
+  background: var(--blue-soft);
+  border-color: transparent;
+  color: var(--blue);
 }
 
 .rollout-badge.unknown {
-  background: rgba(255, 193, 7, 0.1);
-  border-color: rgba(255, 193, 7, 0.3);
-  color: #fbbf24;
+  background: var(--warning-bg);
+  border-color: transparent;
+  color: var(--warning-fg);
 }
 
 .rollout-badge-content {
@@ -56,7 +62,7 @@
 .rollout-badge-bar {
   flex: 1;
   height: 3px;
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--ctrl2);
   border-radius: 2px;
   overflow: hidden;
   min-width: 40px;
@@ -65,7 +71,7 @@
 .rollout-badge-fill {
   height: 100%;
   background: currentColor;
-  transition: width 0.3s ease;
+  transition: width var(--duration-slow) var(--ease-quiet);
 }
 
 .rollout-badge-percent {
@@ -73,6 +79,7 @@
   opacity: 0.8;
   min-width: 25px;
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 @keyframes rotate {

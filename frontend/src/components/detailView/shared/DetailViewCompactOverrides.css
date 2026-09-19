@@ -1,21 +1,26 @@
+/*
+  Inspector density + card composition for the resource-type views.
+  Everything here is scoped to .resource-detail-view so the same components
+  keep their own look when rendered elsewhere.
+*/
 .resource-detail-view {
-  --detail-font-label: var(--font-xxxs);
-  --detail-font-value: var(--font-xxs);
-  --detail-font-meta: var(--font-xxxs);
-  --detail-row-height: 22px;
-  --detail-radius: 6px;
-  --detail-surface: color-mix(in srgb, var(--bg-tertiary) 28%, transparent);
-  --detail-surface-hover: color-mix(in srgb, var(--bg-tertiary) 44%, transparent);
-  --detail-border: color-mix(in srgb, var(--border) 74%, transparent);
+  --detail-font-label: 12.5px;
+  --detail-font-value: 12.5px;
+  --detail-font-meta: 11.5px;
+  --detail-row-height: 30px;
+  --detail-radius: 10px;
+  --detail-surface: var(--card);
+  --detail-surface-hover: var(--hover);
+  --detail-border: var(--hair);
 }
 
 .resource-detail-view .info-sections {
-  padding-top: 12px;
-  padding-bottom: 12px;
+  padding-top: 6px;
+  padding-bottom: 14px;
 }
 
 .resource-detail-view .info-sections > :first-child {
-  margin-top: 6px;
+  margin-top: 0;
 }
 
 .resource-detail-view .section-divider {
@@ -23,124 +28,130 @@
 }
 
 .resource-detail-view .property-group {
-  margin: 0 12px 8px 12px;
-  border-radius: var(--detail-radius);
-  border: 1px solid var(--detail-border);
-  background: var(--detail-surface);
-  overflow: hidden;
+  margin: 0 14px 14px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 .resource-detail-view .property-group-trigger {
-  min-height: 24px;
-  padding: 0 10px;
-  gap: 6px;
-  color: var(--text-secondary);
+  min-height: 22px;
+  padding: 0 0 6px 2px;
+  gap: 5px;
+  color: var(--text2);
 }
 
 .resource-detail-view .property-group[data-state='open'] .property-group-trigger {
-  background: color-mix(in srgb, var(--bg-tertiary) 58%, transparent);
-  border-bottom: 1px solid var(--detail-border);
+  background: transparent;
+  border-bottom: 0;
 }
 
 .resource-detail-view .property-group-title {
-  font-size: var(--detail-font-label);
-  letter-spacing: var(--letter-spacing-wide);
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: inherit;
 }
 
 .resource-detail-view .property-group-count {
-  font-size: var(--detail-font-meta);
+  font-size: 11px;
 }
 
 .resource-detail-view .property-group-inner {
-  padding: 4px 0;
+  padding: 0;
 }
 
 .resource-detail-view .property-group .property-group {
-  margin: 4px 8px;
-  border-color: color-mix(in srgb, var(--border) 56%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  margin: 0;
+  border-color: transparent;
+  background: transparent;
 }
 
 .resource-detail-view .property-group .property-group .property-group-trigger {
-  min-height: 22px;
-  padding: 0 8px;
+  min-height: 34px;
+  padding: 0 14px;
 }
 
 .resource-detail-view .property-row {
   min-height: var(--detail-row-height);
-  padding: 2px 10px;
-  align-items: flex-start;
-  gap: 10px;
-  border-radius: 4px;
+  padding: 6px 14px;
+  align-items: center;
+  gap: 12px;
+  border-radius: 0;
 }
 
 .resource-detail-view .property-label {
-  min-width: 84px;
-  max-width: 84px;
-  font-size: var(--detail-font-meta);
-  letter-spacing: var(--letter-spacing-wide);
-  text-transform: uppercase;
-  color: var(--text-muted);
-  padding-top: 2px;
+  min-width: 96px;
+  max-width: 45%;
+  font-size: var(--detail-font-label);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
+  padding-top: 0;
 }
 
 .resource-detail-view .property-label-icon svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 .resource-detail-view .property-value {
-  justify-content: flex-start;
-  align-items: flex-start;
+  justify-content: flex-end;
+  align-items: center;
   gap: 6px;
   font-size: var(--detail-font-value);
   line-height: 1.35;
 }
 
 .resource-detail-view .property-value-text {
-  text-align: left;
+  text-align: right;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .resource-detail-view .property-value .link-button {
-  text-align: left;
+  text-align: right;
 }
 
 .resource-detail-view .property-value.mono {
-  font-size: calc(var(--detail-font-value) - 1px);
+  font-size: 11.5px;
 }
 
 .resource-detail-view .map-item {
   min-height: var(--detail-row-height);
-  padding: 2px 10px;
-  gap: 10px;
-  border-radius: 4px;
+  padding: 6px 14px;
+  gap: 12px;
+  border-radius: 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.resource-detail-view .map-item:last-child {
+  border-bottom: 0;
 }
 
 .resource-detail-view .map-key {
-  min-width: 84px;
-  max-width: 128px;
-  font-size: var(--detail-font-meta);
-  color: var(--text-muted);
+  min-width: 96px;
+  max-width: 45%;
+  font-size: var(--detail-font-label);
+  color: var(--text);
   text-transform: none;
-  letter-spacing: var(--letter-spacing-normal);
+  letter-spacing: 0;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
 }
 
 .resource-detail-view .map-value {
-  justify-content: flex-start;
-  align-items: flex-start;
+  justify-content: flex-end;
+  align-items: center;
   font-size: var(--detail-font-value);
   line-height: 1.35;
+  color: var(--text2);
 }
 
 .resource-detail-view .map-value .smart-value-wrapper {
-  justify-content: flex-start;
+  justify-content: flex-end;
 }
 
 .resource-detail-view .smart-value-string,
@@ -154,6 +165,7 @@
   line-height: 1.35;
 }
 
+/* Lists rendered inside a card: no extra side padding, rows carry it */
 .resource-detail-view .smart-value-map,
 .resource-detail-view .spec-content,
 .resource-detail-view .conditions-list,
@@ -166,20 +178,25 @@
 .resource-detail-view .sa-secrets-list,
 .resource-detail-view .sa-associated,
 .resource-detail-view .cr-refs {
-  padding-left: 10px;
-  padding-right: 10px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .resource-detail-view .conditions-list,
 .resource-detail-view .events-list {
-  gap: 5px;
+  gap: 0;
 }
 
 .resource-detail-view .condition-item {
-  border-radius: 5px;
-  border-left-width: 2px;
-  padding: 4px 8px;
-  background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+  border-radius: 0;
+  border-left-width: 0;
+  padding: 8px 14px;
+  background: transparent;
+  border-bottom: 1px solid var(--hair);
+}
+
+.resource-detail-view .condition-item:last-child {
+  border-bottom: 0;
 }
 
 .resource-detail-view .condition-type,
@@ -195,10 +212,15 @@
 }
 
 .resource-detail-view .event-item {
-  border-left-width: 2px;
-  border-radius: 5px;
-  padding: 5px 8px;
-  background: color-mix(in srgb, var(--bg-secondary) 65%, transparent);
+  border-left-width: 0;
+  border-radius: 0;
+  padding: 10px 14px;
+  background: transparent;
+  border-bottom: 1px solid var(--hair);
+}
+
+.resource-detail-view .event-item:last-child {
+  border-bottom: 0;
 }
 
 .resource-detail-view .event-header {
@@ -237,25 +259,25 @@
 }
 
 .resource-detail-view .complex-value-content {
-  padding-left: 6px;
+  padding-left: 0;
   margin-left: 0;
 }
 
 .resource-detail-view .complex-value-content .complex-value-content {
-  padding-left: 4px;
-  border-left-color: color-mix(in srgb, var(--border) 36%, transparent);
+  padding-left: 12px;
+  border-left-color: var(--hair);
 }
 
 .resource-detail-view .complex-value-content .complex-value-content .complex-value-content {
-  padding-left: 2px;
-  border-left-color: transparent;
+  padding-left: 10px;
+  border-left-color: var(--hair);
 }
 
 .resource-detail-view .complex-value-content .map-item {
   display: grid;
   grid-template-columns: minmax(72px, 38%) minmax(0, 1fr);
   align-items: start;
-  column-gap: 8px;
+  column-gap: 12px;
 }
 
 .resource-detail-view .complex-value-content .complex-value-content .map-item,
@@ -301,23 +323,27 @@
   word-break: break-word;
 }
 
+/* Search rows inside cards */
 .resource-detail-view .configmap-search,
 .resource-detail-view .secret-search,
 .resource-detail-view .role-search {
-  padding: 4px 10px;
-  gap: 6px;
-  margin-bottom: 4px;
+  padding: 8px 14px;
+  gap: 8px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .resource-detail-view .configmap-search input,
 .resource-detail-view .secret-search input,
 .resource-detail-view .role-search input {
   height: 24px;
-  border-radius: 5px;
-  font-size: var(--detail-font-value);
-  background: color-mix(in srgb, var(--bg-secondary) 75%, transparent);
+  border-radius: 6px;
+  border: 0;
+  font-size: var(--detail-font-meta);
+  background: var(--ctrl);
 }
 
+/* Item rows inside cards */
 .resource-detail-view .configmap-entry,
 .resource-detail-view .secret-entry,
 .resource-detail-view .permission-item,
@@ -331,16 +357,33 @@
 .resource-detail-view .endpoints-addresses .address-item,
 .resource-detail-view .resources-row,
 .resource-detail-view .node-taints .taint-item {
-  min-height: 22px;
-  border-radius: 5px;
-  border: 1px solid color-mix(in srgb, var(--border) 62%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 75%, transparent);
+  min-height: 30px;
+  border-radius: 0;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  background: transparent;
+}
+
+.resource-detail-view .configmap-entry:last-child,
+.resource-detail-view .secret-entry:last-child,
+.resource-detail-view .permission-item:last-child,
+.resource-detail-view .rule-item:last-child,
+.resource-detail-view .subject-item:last-child,
+.resource-detail-view .sa-secret-item:last-child,
+.resource-detail-view .sa-binding-item:last-child,
+.resource-detail-view .sa-pod-item:last-child,
+.resource-detail-view .cr-ref-item:last-child,
+.resource-detail-view .node-addresses .address-item:last-child,
+.resource-detail-view .endpoints-addresses .address-item:last-child,
+.resource-detail-view .resources-row:last-child,
+.resource-detail-view .node-taints .taint-item:last-child {
+  border-bottom: 0;
 }
 
 .resource-detail-view .configmap-entry-header,
 .resource-detail-view .secret-entry-header {
-  min-height: 24px;
-  padding: 3px 8px;
+  min-height: 34px;
+  padding: 6px 14px;
 }
 
 .resource-detail-view .configmap-entry-key .key-name,
@@ -372,9 +415,9 @@
 .resource-detail-view .reveal-btn,
 .resource-detail-view .secret-control-btn,
 .resource-detail-view .role-view-toggle {
-  height: 20px;
-  min-width: 20px;
-  border-radius: 4px;
+  height: 22px;
+  min-width: 22px;
+  border-radius: 5px;
 }
 
 .resource-detail-view .service-ports-wrapper,
@@ -385,25 +428,34 @@
 .resource-detail-view .node-resources,
 .resource-detail-view .node-taints,
 .resource-detail-view .aggregation-selectors {
-  padding-left: 10px;
-  padding-right: 10px;
+  padding-left: 0;
+  padding-right: 0;
 }
 
 .resource-detail-view .service-selector {
-  gap: 4px;
+  gap: 6px;
+  padding: 8px 14px;
 }
 
 .resource-detail-view .selector-tag {
-  border: 1px solid color-mix(in srgb, var(--border) 66%, transparent);
-  border-radius: 4px;
+  border: 0;
+  box-shadow: 0 0 0 0.5px var(--sep);
+  border-radius: 6px;
+  background: var(--card);
 }
 
 .resource-detail-view .selector-key {
-  background: color-mix(in srgb, var(--bg-tertiary) 60%, transparent);
+  background: transparent;
+  color: var(--text2);
+}
+
+.resource-detail-view .selector-value {
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .resource-detail-view .resources-header {
-  padding: 2px 8px;
+  padding: 6px 14px;
 }
 
 .resource-detail-view .resources-col {
@@ -423,57 +475,68 @@
   font-size: var(--detail-font-meta);
 }
 
-.resource-detail-view .status-badge,
 .resource-detail-view .node-role-badge,
 .resource-detail-view .service-type-badge,
 .resource-detail-view .secret-type-badge,
 .resource-detail-view .endpoint-count,
 .resource-detail-view .subject-kind,
 .resource-detail-view .verb-badge {
-  border-radius: 999px;
-  min-height: 16px;
+  border-radius: 5px;
+  min-height: 18px;
   display: inline-flex;
   align-items: center;
-  padding: 0 6px;
+  padding: 0 7px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .resource-detail-view .event-message-box {
-  margin: 0 10px;
-  border-radius: 5px;
+  margin: 8px 14px;
+  border-radius: 8px;
+  background: var(--inset);
 }
 
 .resource-detail-view .event-message-box pre {
-  font-size: var(--detail-font-value);
-  line-height: 1.4;
+  font-size: var(--detail-font-meta);
+  line-height: 1.45;
 }
 
 .resource-detail-view .secret-entry-value,
 .resource-detail-view .configmap-entry-value.monaco-wrapper,
 .resource-detail-view .helm-monaco-wrapper {
-  border-radius: 5px;
-  border-color: color-mix(in srgb, var(--border) 72%, transparent);
+  border-radius: 0;
+  border-color: var(--hair);
 }
 
 .resource-detail-view .helm-code-entry,
 .resource-detail-view .helm-history-item,
 .resource-detail-view .managed-resource-item {
-  border: 1px solid color-mix(in srgb, var(--border) 64%, transparent);
-  border-radius: 5px;
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  border-radius: 0;
+  background: transparent;
+}
+
+.resource-detail-view .helm-code-entry:last-child,
+.resource-detail-view .helm-history-item:last-child,
+.resource-detail-view .managed-resource-item:last-child {
+  border-bottom: 0;
 }
 
 .resource-detail-view .no-results,
 .resource-detail-view .sa-empty {
-  margin: 2px 10px 6px;
-  padding: 8px;
-  border-radius: 5px;
-  border: 1px dashed color-mix(in srgb, var(--border) 70%, transparent);
-  background: color-mix(in srgb, var(--bg-secondary) 72%, transparent);
+  margin: 0;
+  padding: 14px;
+  border-radius: 0;
+  border: 0;
+  background: transparent;
   font-size: var(--detail-font-value);
-  color: var(--text-muted);
+  color: var(--text2);
+  text-align: center;
 }
 
-/* Right detail panel: responsive behavior for narrow widths */
+/* Header responsiveness */
 .detail-view .resource-header .resource-kind-row > .resource-actions-row {
   width: auto;
   max-width: 100%;
@@ -494,132 +557,8 @@
   max-width: 100%;
 }
 
-.resource-detail-view .pod-metrics {
-  margin-top: 2px !important;
-}
-
-.resource-detail-view .pod-metrics .metrics-controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-wrap: nowrap;
-  margin-bottom: 8px;
-  gap: 8px;
-  padding: 4px 6px;
-  border: 1px solid color-mix(in srgb, var(--border) 74%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--bg-tertiary) 48%, transparent);
-}
-
-.resource-detail-view .pod-metrics .metric-selector,
-.resource-detail-view .pod-metrics .time-range-selector {
-  margin-left: 0 !important;
-  align-self: center;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  border-radius: 0;
-}
-
-.resource-detail-view .pod-metrics .metric-selector {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.resource-detail-view .pod-metrics .time-range-selector {
-  flex: 0 0 auto;
-  margin-left: auto !important;
-  max-width: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-
-.resource-detail-view .pod-metrics .metric-selector::-webkit-scrollbar,
-.resource-detail-view .pod-metrics .time-range-selector::-webkit-scrollbar {
-  display: none;
-}
-
-.resource-detail-view .pod-metrics .metric-btn,
-.resource-detail-view .pod-metrics .time-range-btn {
-  flex: 0 0 auto;
-  white-space: nowrap;
-}
-
-.resource-detail-view .pod-metrics .metric-btn.active,
-.resource-detail-view .pod-metrics .time-range-btn.active {
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
-  color: var(--text-primary);
-  border-radius: 5px;
-}
-
-.resource-detail-view .pod-metrics .time-range-selector {
-  flex-wrap: nowrap;
-}
-
-.resource-detail-view .pod-metrics .metrics-chart-title {
-  text-transform: none;
-  letter-spacing: 0.02em;
-}
-
-.resource-detail-view .pod-metrics .custom-time-dropdown {
-  right: 0;
-  top: calc(100% + 6px);
-  z-index: 12;
-}
-
-.resource-detail-view .pod-metrics .time-range-selector {
-  position: relative;
-}
-
-.resource-detail-view .pod-metrics .metric-selector,
-.resource-detail-view .pod-metrics .time-range-selector {
-  max-width: 100%;
-}
-
-.resource-detail-view .pod-metrics .metrics-chart-container {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: 224px !important;
-  padding: 8px !important;
-  overflow: hidden !important;
-}
-
-.resource-detail-view .pod-metrics .metrics-chart-header {
-  position: relative !important;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 2;
-  margin: 0;
-  flex-wrap: wrap;
-  row-gap: 6px;
-}
-
-.resource-detail-view .pod-metrics .metrics-title-section {
-  min-width: 0;
-}
-
-.resource-detail-view .pod-metrics .metrics-chart-title {
-  overflow-wrap: anywhere;
-}
-
-.resource-detail-view .pod-metrics .metrics-header-actions {
-  margin-left: auto;
-}
-
-.resource-detail-view .pod-metrics .chart-wrapper,
-.resource-detail-view .pod-metrics .metrics-loading-state,
-.resource-detail-view .pod-metrics .metrics-error,
-.resource-detail-view .pod-metrics .metrics-no-data {
-  flex: 1;
-  min-height: 140px;
-  min-width: 0;
-}
+/* Metrics inside a card: the card itself lives in PodMetrics.css and adapts
+   to the pane width with container queries, so nothing to override here. */
 
 .detail-view .resource-detail-view .rule-resources,
 .detail-view .resource-detail-view .permission-resource,
@@ -632,22 +571,23 @@
   word-break: break-word;
 }
 
+/* Narrow panel adjustments */
 .detail-view.detail-compact .resource-header,
 .detail-view.detail-ultra-compact .resource-header {
-  padding: 6px 8px 4px 8px !important;
+  padding: 12px 12px 4px 12px !important;
 }
 
 .detail-view.detail-compact .resource-kind-row,
 .detail-view.detail-ultra-compact .resource-kind-row {
   flex-wrap: wrap;
-  align-items: flex-start;
+  align-items: center;
   gap: 6px;
 }
 
 .detail-view.detail-compact .resource-status-row,
 .detail-view.detail-ultra-compact .resource-status-row {
   order: 2;
-  width: 100%;
+  width: auto;
   gap: 4px !important;
 }
 
@@ -660,42 +600,56 @@
 
 .detail-view.detail-compact .resource-name,
 .detail-view.detail-ultra-compact .resource-name {
-  margin-top: 2px !important;
+  margin-top: 0 !important;
   max-height: none !important;
-  -webkit-line-clamp: 3 !important;
-  line-height: 1.3 !important;
+  line-height: 1.25 !important;
 }
 
 .detail-view.detail-compact .resource-detail-view {
-  --detail-row-height: 21px;
+  --detail-row-height: 28px;
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view {
-  --detail-row-height: 20px;
+  --detail-row-height: 26px;
 }
 
+.detail-view.detail-ultra-compact .resource-header-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+}
+
+.detail-view.detail-ultra-compact .resource-header-tile svg {
+  width: 18px;
+  height: 18px;
+}
+
+/* Narrow panel: icon-only toolbar buttons */
 .detail-view.detail-ultra-compact .tab-content-action-btn,
 .detail-view.detail-ultra-compact .pin-detail-btn,
 .detail-view.detail-ultra-compact .resource-actions-row .quick-action-btn {
-  width: 24px !important;
-  height: 24px !important;
-  min-width: 24px !important;
-  min-height: 24px !important;
+  padding: 0 7px !important;
+}
+
+.detail-view.detail-ultra-compact .tab-content-action-btn .ap-action-label,
+.detail-view.detail-ultra-compact .pin-detail-btn .ap-action-label,
+.detail-view.detail-ultra-compact .resource-actions-row .quick-action-btn .ap-action-label {
+  display: none;
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .property-group {
-  margin-left: 8px;
-  margin-right: 8px;
+  margin-left: 10px;
+  margin-right: 10px;
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .property-row {
   gap: 8px;
-  padding: 2px 8px;
+  padding: 5px 12px;
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .property-label {
   min-width: 70px;
-  max-width: 70px;
+  max-width: 45%;
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .map-item {
@@ -720,12 +674,12 @@
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .complex-value-content {
-  padding-left: 4px;
+  padding-left: 0;
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .complex-value-content .complex-value-content {
-  padding-left: 1px;
-  border-left-color: transparent;
+  padding-left: 8px;
+  border-left-color: var(--hair);
 }
 
 .detail-view.detail-ultra-compact .resource-detail-view .complex-value-content .map-item {
@@ -736,46 +690,8 @@
 .detail-view.detail-ultra-compact .resource-detail-view .configmap-search,
 .detail-view.detail-ultra-compact .resource-detail-view .secret-search,
 .detail-view.detail-ultra-compact .resource-detail-view .role-search {
-  padding-left: 8px;
-  padding-right: 8px;
+  padding-left: 12px;
+  padding-right: 12px;
 }
 
-.detail-view.detail-compact .resource-detail-view .pod-metrics .metrics-chart-container,
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .metrics-chart-container {
-  height: 208px !important;
-}
-
-.detail-view.detail-compact .resource-detail-view .pod-metrics .metrics-controls {
-  flex-wrap: wrap;
-  align-items: flex-start;
-}
-
-.detail-view.detail-compact .resource-detail-view .pod-metrics .time-range-selector {
-  width: 100%;
-  justify-content: flex-end;
-}
-
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .metrics-header-actions {
-  margin-left: 0;
-}
-
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .metrics-controls {
-  flex-wrap: wrap;
-  padding: 4px;
-  gap: 6px;
-}
-
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .metric-selector,
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .time-range-selector {
-  width: 100%;
-}
-
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .time-range-selector {
-  justify-content: flex-start;
-}
-
-.detail-view.detail-ultra-compact .resource-detail-view .pod-metrics .time-range-btn {
-  font-size: var(--font-xxxs);
-  min-width: 24px;
-  padding: 2px 5px;
-}
+/* Compact/ultra-compact metrics: handled by the card's own container queries. */

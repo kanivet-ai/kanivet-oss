@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, useRef, useCallback } from 'react';
+import { ChevronDownIcon, ChevronRightIcon, DotsHorizontalIcon } from '@radix-ui/react-icons';
 import api from '../../../services/api';
 import { useStore } from '../../../store';
 import { useShallow } from 'zustand/react/shallow';
@@ -41,8 +42,9 @@ const healthClass = (h?: string): string => {
     case 'healthy':
       return 'topo-healthy';
     case 'degraded':
-    case 'missing':
       return 'topo-degraded';
+    case 'missing':
+      return 'topo-missing';
     case 'progressing':
       return 'topo-progressing';
     case 'suspended':
@@ -244,7 +246,7 @@ const ApplicationTopology = ({ cluster, namespace, name, destinations }: Props) 
     return (
       <div className="topo-empty topo-error">
         {error}
-        <button className="topo-retry" onClick={() => load()}>Retry</button>
+        <button className="topo-retry ap-btn" onClick={() => load()}>Retry</button>
       </div>
     );
   }
@@ -288,7 +290,7 @@ const ApplicationTopology = ({ cluster, namespace, name, destinations }: Props) 
           </div>
           <div className="topo-card-actions">
             <button
-              className="topo-card-menu-btn"
+              className="topo-card-menu-btn ap-icon-btn ap-icon-btn--sm"
               onClick={(e) => {
                 e.stopPropagation();
                 setMenuOpen(menuOpen === id ? null : id);
@@ -296,22 +298,22 @@ const ApplicationTopology = ({ cluster, namespace, name, destinations }: Props) 
               title="Resource actions"
               disabled={syncingNode === id}
             >
-              {syncingNode === id ? <span className="topo-card-spinner" /> : '⋯'}
+              {syncingNode === id ? <span className="topo-card-spinner" /> : <DotsHorizontalIcon />}
             </button>
             {menuOpen === id && (
-              <div className="topo-card-menu">
-                <button onClick={() => syncResource(n, false)}>Sync this resource</button>
-                <button onClick={() => syncResource(n, true)}>Sync + Prune this resource</button>
-                <button onClick={() => { setMenuOpen(null); navigateTo(n); }}>Open in cluster view</button>
+              <div className="topo-card-menu ap-menu">
+                <button className="ap-menu-item" onClick={() => syncResource(n, false)}>Sync this resource</button>
+                <button className="ap-menu-item" onClick={() => syncResource(n, true)}>Sync + Prune this resource</button>
+                <button className="ap-menu-item" onClick={() => { setMenuOpen(null); navigateTo(n); }}>Open in cluster view</button>
               </div>
             )}
             {hasChildren && (
               <button
-                className="topo-card-toggle"
+                className="topo-card-toggle ap-icon-btn ap-icon-btn--sm"
                 onClick={() => toggleCollapse(id)}
                 title={isCollapsed ? 'Expand' : 'Collapse'}
               >
-                {isCollapsed ? '▸' : '▾'}
+                {isCollapsed ? <ChevronRightIcon /> : <ChevronDownIcon />}
               </button>
             )}
           </div>
@@ -333,7 +335,7 @@ const ApplicationTopology = ({ cluster, namespace, name, destinations }: Props) 
     <div className="topo-root" ref={rootRef}>
       <div className="topo-summary">
         <span className="topo-count">{allNodes} resources</span>
-        <button className="topo-refresh" onClick={() => load(true)} title="Refresh">
+        <button className="topo-refresh ap-btn ap-btn--sm" onClick={() => load(true)} title="Refresh">
           Refresh
         </button>
       </div>
