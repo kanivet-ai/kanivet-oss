@@ -441,7 +441,13 @@ const ResourceTable = memo(
                         if (loadError) {
                           return (
                             <div className="error-state">
-                              <span className="error-icon">⚠️</span>
+                              <span className="error-icon" aria-hidden="true">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                                  <path d="M10.3 3.9 1.8 18.1a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+                                  <line x1="12" y1="9" x2="12" y2="13" />
+                                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                                </svg>
+                              </span>
                               <span className="error-message">{loadError}</span>
                               <button className="retry-button" onClick={onRetry}>Retry</button>
                             </div>

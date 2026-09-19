@@ -1,18 +1,21 @@
+/* Helm release list — controls bar and a Finder-style table (mirrors ResourceList.css). */
 .helm-release-list {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--bg-primary);
+  background: var(--content);
   overflow: hidden;
 }
 
+/* Controls bar */
 .helm-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  height: 40px;
+  padding: 0 10px;
+  background: var(--content);
+  border-bottom: 1px solid var(--hair);
   flex-shrink: 0;
 }
 
@@ -20,62 +23,79 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .helm-title svg {
-  color: var(--accent);
+  width: 15px;
+  height: 15px;
+  color: var(--blue);
 }
 
 .helm-count {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  padding: 2px 8px;
-  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  background: var(--ctrl);
+  color: var(--text2);
+  padding: 0 7px;
+  border-radius: 5px;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .helm-search {
   flex: 1;
   max-width: 300px;
+  margin-left: auto;
 }
 
 .helm-search input {
   width: 100%;
-  padding: 6px 10px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: 12px;
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--ctrl);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.helm-search input::placeholder {
+  color: var(--text3);
 }
 
 .helm-search input:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .helm-refresh-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 28px;
   height: 28px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-primary);
-  color: var(--text-secondary);
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-refresh-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--accent);
+  background: var(--hover);
+  color: var(--text);
+  border-color: transparent;
 }
 
 .helm-list-scroll {
@@ -83,106 +103,183 @@
   overflow: auto;
 }
 
+/* Table */
 .helm-table {
   width: 100%;
-  border-collapse: collapse;
-  font-size: 12px;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12.5px;
 }
 
 .helm-table th {
   position: sticky;
   top: 0;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  padding: 8px 12px;
+  height: 26px;
+  background: var(--content);
+  border-bottom: 1px solid var(--hair);
+  border-left: 1px solid var(--hair);
+  padding: 0 10px 0 6px;
   text-align: left;
-  font-weight: 600;
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text2);
   white-space: nowrap;
   z-index: 1;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.helm-table th:first-child {
+  border-left: 0;
 }
 
 .helm-table th.sortable {
   cursor: pointer;
   user-select: none;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-table th.sortable:hover {
-  color: var(--text-primary);
-  background: var(--bg-hover);
+  color: var(--text);
+  background: var(--content);
 }
 
 .helm-table td {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--border-subtle);
-  color: var(--text-primary);
+  height: 30px;
+  line-height: 18px;
+  padding: 0 10px 0 6px;
+  border-bottom: 0;
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 200px;
+  font-size: 12.5px;
 }
 
 .helm-table tbody tr {
-  cursor: pointer;
-  transition: background 0.1s ease;
+  cursor: default;
+  transition: none;
+}
+
+.helm-table tbody tr:nth-child(even) td {
+  background: var(--stripe);
 }
 
 .helm-table tbody tr:hover {
-  background: var(--bg-hover);
+  background: transparent;
+}
+
+.helm-table tbody tr:hover td {
+  background: var(--hover);
 }
 
 .helm-table tbody tr.selected {
-  background: var(--bg-selected);
+  background: transparent;
 }
 
 .helm-table tbody tr.selected td {
-  color: var(--text-primary);
+  background: var(--sel);
+}
+
+.helm-table tbody tr.selected td,
+.helm-table tbody tr.selected td .helm-name,
+.helm-table tbody tr.selected td .helm-namespace,
+.helm-table tbody tr.selected td .helm-chart,
+.helm-table tbody tr.selected td .helm-version,
+.helm-table tbody tr.selected td .helm-updated,
+.helm-table tbody tr.selected td .helm-revision,
+.helm-table tbody tr.selected td .helm-status-badge {
+  color: var(--on-sel);
+}
+
+.helm-table tbody tr.selected td:first-child {
+  border-radius: 6px 0 0 6px;
+}
+
+.helm-table tbody tr.selected td:last-child {
+  border-radius: 0 6px 6px 0;
 }
 
 .helm-name {
-  font-weight: 500;
+  font-weight: 400;
+  font-size: 13px;
+  color: var(--text);
+  letter-spacing: -0.1px;
 }
 
 .helm-namespace {
-  color: var(--text-secondary);
+  color: var(--text2);
 }
 
 .helm-chart {
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .helm-version {
   font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  color: var(--text2);
 }
 
+/* Status = 7px dot + plain text */
 .helm-status-badge {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--bg-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--text);
+  background: transparent;
   text-transform: capitalize;
 }
 
+.helm-status-badge::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gray);
+  flex: none;
+}
+
+.helm-status-badge.deployed::before,
+.helm-status-badge.status-deployed::before {
+  background: var(--green);
+}
+
+.helm-status-badge.pending::before,
+.helm-status-badge.status-pending::before,
+.helm-status-badge.superseded::before {
+  background: var(--orange);
+}
+
+.helm-status-badge.failed::before,
+.helm-status-badge.status-failed::before {
+  background: var(--red);
+}
+
 .helm-updated {
-  color: var(--text-secondary);
-  font-size: 11px;
+  color: var(--text2);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .helm-revision {
-  text-align: center;
-  font-family: var(--font-mono);
-  font-size: 11px;
+  text-align: left;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
 }
 
 .helm-empty {
   text-align: center;
-  color: var(--text-tertiary);
-  padding: 40px !important;
+  color: var(--text2);
+  font-size: 13px;
+  padding: 48px 20px !important;
 }
 
 .helm-loading,
@@ -191,9 +288,10 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   height: 100%;
-  color: var(--text-secondary);
+  color: var(--text2);
+  font-size: 13px;
 }
 
 .helm-loading .spin {
@@ -206,20 +304,23 @@
 }
 
 .helm-error {
-  color: var(--error);
+  color: var(--danger-fg);
 }
 
 .helm-error button {
-  padding: 6px 16px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg-secondary);
-  color: var(--text-primary);
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
   cursor: pointer;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .helm-error button:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
-
-

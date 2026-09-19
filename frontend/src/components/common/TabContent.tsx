@@ -182,8 +182,10 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
             className="tab-content-action-btn priority-low"
             onClick={() => handleActionClick('logs')}
             disabled={!isFullyLoaded}
+            aria-label="View logs"
           >
-            <ReaderIcon />
+            <span className="ap-action-icon"><ReaderIcon /></span>
+            <span className="ap-action-label">Logs</span>
           </button>
         </Tooltip>
       )}
@@ -192,8 +194,10 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
           className="tab-content-action-btn priority-low"
           onClick={() => handleActionClick('edit')}
           disabled={!isFullyLoaded}
+          aria-label="Edit YAML"
         >
-          <Pencil2Icon />
+          <span className="ap-action-icon"><Pencil2Icon /></span>
+          <span className="ap-action-label">Edit</span>
         </button>
       </Tooltip>
       {canShowShell && (
@@ -203,22 +207,36 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
             className="tab-content-action-btn priority-low"
             onClick={() => handleActionClick('shell')}
             disabled={!isFullyLoaded}
+            aria-label="Open shell"
           >
-            <span style={{ fontSize: '16px', fontWeight: 'bold' }}>$</span>
+            <span className="ap-action-icon"><span className="shell-glyph">$</span></span>
+            <span className="ap-action-label">Shell</span>
           </button>
         </Tooltip>
       )}
       {canShowTrace && (
         <Tooltip content="Trace Crossplane resource">
-          <button className="tab-content-action-btn priority-low" onClick={() => handleActionClick('trace')} disabled={!isFullyLoaded}>
-            <CrossplaneIcon width={14} height={14} />
+          <button
+            className="tab-content-action-btn priority-low"
+            onClick={() => handleActionClick('trace')}
+            disabled={!isFullyLoaded}
+            aria-label="Trace Crossplane resource"
+          >
+            <span className="ap-action-icon"><CrossplaneIcon width={18} height={18} /></span>
+            <span className="ap-action-label">Trace</span>
           </button>
         </Tooltip>
       )}
       {onPinClick && (
         <Tooltip content="Pin this resource">
-          <button className="pin-detail-btn priority-high" onClick={onPinClick} disabled={!isFullyLoaded}>
-            <DrawingPinIcon />
+          <button
+            className="pin-detail-btn priority-high"
+            onClick={onPinClick}
+            disabled={!isFullyLoaded}
+            aria-label="Pin this resource"
+          >
+            <span className="ap-action-icon"><DrawingPinIcon /></span>
+            <span className="ap-action-label">Pin</span>
           </button>
         </Tooltip>
       )}

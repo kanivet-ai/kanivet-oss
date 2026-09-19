@@ -1,36 +1,49 @@
+/* Tab context menu — the .ap-menu recipe. */
 .tab-context-menu {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  padding: 4px;
   min-width: 200px;
-  font-size: 12px;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0;
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+  animation: ap-pop var(--duration-base) var(--ease-snap);
 }
 
 .context-menu-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: background-color 0.1s;
-  color: var(--text-primary);
+  gap: 16px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  cursor: default;
+  color: var(--text);
+  white-space: nowrap;
+  user-select: none;
+  transition: none;
 }
 
 .context-menu-item:hover {
-  background-color: var(--bg-hover);
+  background-color: var(--sel);
+  color: var(--on-sel);
 }
 
 .context-menu-shortcut {
-  font-size: 11px;
-  color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text3);
   margin-left: 16px;
+  font-variant-numeric: tabular-nums;
+}
+
+.context-menu-item:hover .context-menu-shortcut {
+  color: var(--on-sel2);
 }
 
 .context-menu-separator {
   height: 1px;
-  background: var(--border);
-  margin: 4px 0;
+  background: var(--hair);
+  margin: 5px 8px;
 }

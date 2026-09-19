@@ -1,17 +1,18 @@
+/* Resource link: primary text with a quiet dotted underline, blue on hover. */
 .resource-link {
   cursor: pointer;
-  color: var(--text-primary) !important;
+  color: var(--text) !important;
   text-decoration: underline;
   text-decoration-style: dotted;
   text-underline-offset: 2px;
-  text-decoration-color: var(--text-muted);
+  text-decoration-color: var(--text4);
   transition:
-    color 0.2s,
-    text-decoration-color 0.2s;
+    color var(--duration-fast) var(--ease-quiet),
+    text-decoration-color var(--duration-fast) var(--ease-quiet);
 }
 
 .resource-link:hover {
-  color: var(--accent) !important;
+  color: var(--blue) !important;
   text-decoration-style: solid;
-  text-decoration-color: var(--accent);
+  text-decoration-color: var(--blue);
 }

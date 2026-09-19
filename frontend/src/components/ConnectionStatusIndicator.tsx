@@ -10,17 +10,17 @@ const ConnectionStatusIndicator = () => {
 
   const getStatusInfo = () => {
     if (backendState === 'disconnected') {
-      return { icon: '●', label: 'Backend offline', className: 'disconnected' };
+      return { label: 'Backend offline', className: 'disconnected' };
     }
     if (websocketState === 'disconnected') {
-      return { icon: '●', label: 'Disconnected', className: 'disconnected' };
+      return { label: 'Disconnected', className: 'disconnected' };
     }
     if (overallState === 'reconnecting') {
       const countdownText = reconnectCountdown ? ` (${reconnectCountdown}s)` : '';
-      return { icon: '↻', label: `Reconnecting${countdownText}`, className: 'reconnecting' };
+      return { label: `Reconnecting${countdownText}`, className: 'reconnecting' };
     }
     if (overallState === 'connecting') {
-      return { icon: '◐', label: 'Connecting', className: 'connecting' };
+      return { label: 'Connecting', className: 'connecting' };
     }
     return null;
   };
@@ -29,8 +29,9 @@ const ConnectionStatusIndicator = () => {
   if (!info) return null;
 
   return (
-    <div className={`connection-status-indicator ${info.className}`} title={`Backend: ${backendState}, WebSocket: ${websocketState}`}>
-      <span className="connection-status-icon">{info.icon}</span>
+    <div className={`connection-status-indicator ap-badge ${info.className}`} title={`Backend: ${backendState}, WebSocket: ${websocketState}`}>
+      {/* The dot / spinner ring is drawn in CSS */}
+      <span className="connection-status-icon" aria-hidden="true" />
       <span className="connection-status-label">{info.label}</span>
     </div>
   );

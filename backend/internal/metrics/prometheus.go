@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -34,6 +35,10 @@ type PortForwardInfo struct {
 	HTTPClient  *http.Client
 	LastUsed    time.Time
 	Mutex       sync.Mutex
+	// BasePath is the URL prefix the Prometheus API lives under: "" for
+	// Prometheus/Thanos, "/prometheus" for Mimir, "/select/0/prometheus" for
+	// VictoriaMetrics vmselect.
+	BasePath string
 }
 
 // recreateTracker debounces port-forward recreation per cluster. Without it a
@@ -152,9 +157,22 @@ func (p *PrometheusProvider) maybeInvalidateProvider(cluster string) {
 	}
 }
 
-// Get or create a port forward for the cluster
+// prometheusPoolKey identifies a port-forward by the Service it reaches, so a
+// provider change (another namespace/service after re-detection) never reuses
+// a tunnel into the old pod.
+func prometheusPoolKey(cluster string, info *ProviderInfo) string {
+	return cluster + "|" + info.Namespace + "/" + info.Service
+}
+
+// forgetDetection drops the cached provider so the next query re-detects.
+func (p *PrometheusProvider) forgetDetection(cluster string) {
+	p.cache.Delete(p.cache.BuildKey("prometheus-info", cluster))
+}
+
+// Get or create a port forward for the detected provider
 func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *ProviderInfo) (*PortForwardInfo, error) {
-	if pfi, ok := p.portForwardPool.Load(cluster); ok {
+	key := prometheusPoolKey(cluster, promInfo)
+	if pfi, ok := p.portForwardPool.Load(key); ok {
 		pfInfo := pfi.(*PortForwardInfo)
 		pfInfo.Mutex.Lock()
 		pfInfo.LastUsed = time.Now()
@@ -162,13 +180,22 @@ func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *Pr
 		return pfInfo, nil
 	}
 
-	// Create new port forward - use detected port or default to 9090
+	podName := p.findPrometheusPod(cluster, promInfo)
+	if podName == "" {
+		// The Service we detected has nothing ready behind it any more. Forget
+		// the detection so the next query re-detects instead of failing on an
+		// empty pod name until the cache expires.
+		p.forgetDetection(cluster)
+		return nil, fmt.Errorf("no ready pod behind %s/%s", promInfo.Namespace, promInfo.Service)
+	}
+
 	targetPort := promInfo.Port
 	if targetPort == 0 {
 		targetPort = 9090
 	}
-	pf, err := p.k8s.CreatePortForward(cluster, promInfo.Namespace, p.findPrometheusPod(cluster, promInfo.Namespace), int(targetPort))
+	pf, err := p.k8s.CreatePortForward(cluster, promInfo.Namespace, podName, int(targetPort))
 	if err != nil {
+		p.forgetDetection(cluster)
 		return nil, fmt.Errorf("failed to create port forward: %w", err)
 	}
 
@@ -193,9 +220,10 @@ func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *Pr
 		PortForward: pf,
 		HTTPClient:  httpClient,
 		LastUsed:    time.Now(),
+		BasePath:    promInfo.Path,
 	}
 
-	p.portForwardPool.Store(cluster, pfInfo)
+	p.portForwardPool.Store(key, pfInfo)
 
 	// Give port forward a moment to be ready
 	time.Sleep(100 * time.Millisecond) // Reduced from 500ms
@@ -241,7 +269,7 @@ func (p *PrometheusProvider) keepAlivePortForwards() {
 			// Only send keepalive if the port forward was used recently (within last 5 minutes)
 			if time.Since(pfInfo.LastUsed) < 5*time.Minute {
 				// Send a lightweight health check to keep the connection alive
-				healthURL := fmt.Sprintf("http://localhost:%d/-/ready", pfInfo.PortForward.LocalPort)
+				healthURL := fmt.Sprintf("http://localhost:%d%s/api/v1/status/buildinfo", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
 				healthClient := &http.Client{Timeout: 2 * time.Second}
 				resp, err := healthClient.Get(healthURL)
 				if err == nil {
@@ -269,236 +297,221 @@ func (p *PrometheusProvider) GetName() string {
 }
 
 func (p *PrometheusProvider) Detect(cluster string) (*ProviderInfo, error) {
-	cacheKey := p.cache.BuildKey("prometheus-info", cluster)
-
-	data, err := p.cache.GetOrSet(cacheKey, 30*time.Minute, func() (interface{}, error) {
+	return detectCached(p.cache, p.cache.BuildKey("prometheus-info", cluster), func() (*ProviderInfo, error) {
 		return p.detectInternal(cluster)
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return data.(*ProviderInfo), nil
 }
 
+// detectInternal lists every Service in the cluster, keeps the ones that look
+// like a Prometheus-compatible store (Prometheus, Thanos Query,
+// VictoriaMetrics) and verifies them best-first: ready pods behind the
+// Service, then a probe of the API through a port-forward. The first one that
+// answers is the provider. If none does, the reasons travel back so the UI can
+// say why instead of just "not detected".
 func (p *PrometheusProvider) detectInternal(cluster string) (*ProviderInfo, error) {
 	clientset, err := p.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster client: %w", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 	defer cancel()
 
-	// Single API call to get ALL services across all namespaces
-	services, err := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
+	// One call for every Service, served from the apiserver watch cache.
+	services, err := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{ResourceVersion: "0"})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services: %w", err)
 	}
 
-	type scored struct {
-		info  *ProviderInfo
-		score int
-	}
-	var candidates []scored
-	for _, svc := range services.Items {
-		score, ok := scorePrometheusService(svc)
-		if !ok {
-			continue
-		}
-		port := pickPrometheusTargetPort(svc.Spec.Ports)
-		candidates = append(candidates, scored{
-			info: &ProviderInfo{
-				Type:      "prometheus",
-				Found:     true,
-				Namespace: svc.Namespace,
-				Service:   svc.Name,
-				URL:       fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace, port),
-				Port:      port,
-			},
-			score: score,
-		})
-	}
-
+	candidates := prometheusCandidates(services.Items)
 	if len(candidates) == 0 {
-		return &ProviderInfo{Type: "prometheus", Found: false}, nil
-	}
-
-	best := candidates[0]
-	for _, c := range candidates[1:] {
-		if c.score > best.score {
-			best = c
-		}
+		return &ProviderInfo{Type: "prometheus", Found: false, Reason: "no Prometheus, Thanos or VictoriaMetrics service in this cluster"}, nil
 	}
 	if len(candidates) > 1 {
-		log.Printf("[Prometheus] Detected %d candidates in cluster %s, picked %s/%s (score=%d)",
-			len(candidates), cluster, best.info.Namespace, best.info.Service, best.score)
+		names := make([]string, 0, len(candidates))
+		for _, c := range candidates {
+			names = append(names, fmt.Sprintf("%s/%s(%d)", c.svc.Namespace, c.svc.Name, c.score))
+		}
+		log.Printf("[Prometheus] %d candidates in cluster %s: %s", len(candidates), cluster, strings.Join(names, ", "))
 	}
-	return best.info, nil
+
+	var reasons []string
+	for i := range candidates {
+		if i >= maxVerifiedCandidates {
+			break
+		}
+		c := &candidates[i]
+		where := c.svc.Namespace + "/" + c.svc.Name
+
+		backends := listServiceBackends(ctx, clientset, &c.svc)
+		if backends.ReadyPod == "" {
+			reasons = append(reasons, where+": "+backends.describe())
+			continue
+		}
+
+		port := resolvePodPort(ctx, clientset, c.svc.Namespace, backends.ReadyPod, c.svcPort, c.defaultPort)
+		outcome := probePrometheusAPI(p.k8s, cluster, c.svc.Namespace, backends.ReadyPod, port, c.path, nil)
+		if !outcome.OK {
+			reasons = append(reasons, where+": "+outcome.Detail)
+			continue
+		}
+
+		info := &ProviderInfo{
+			Type:      "prometheus",
+			Found:     true,
+			Verified:  true,
+			Flavor:    c.flavor,
+			Namespace: c.svc.Namespace,
+			Service:   c.svc.Name,
+			Port:      port,
+			Path:      c.path,
+			Version:   outcome.Version,
+			URL:       fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", c.svc.Name, c.svc.Namespace, c.svcPort.Port, c.path),
+		}
+		log.Printf("[Prometheus] Using %s %s (pod %s:%d, version %q) in cluster %s", c.flavor, where, backends.ReadyPod, port, outcome.Version, cluster)
+		return info, nil
+	}
+
+	reason := joinReasons(reasons, "no Prometheus-compatible service could be verified")
+	log.Printf("[Prometheus] No usable provider in cluster %s: %s", cluster, reason)
+	return &ProviderInfo{Type: "prometheus", Found: false, Reason: reason}, nil
 }
 
-// scorePrometheusService classifies a Service as a viable cluster-wide
-// prometheus and returns a relative score (higher is better). Returns ok=false
-// if the service should be skipped entirely.
+// promCandidate is a Service that looks like it serves the Prometheus HTTP API.
+type promCandidate struct {
+	svc         v1.Service
+	svcPort     v1.ServicePort
+	defaultPort int32
+	flavor      string // prometheus | thanos | victoriametrics
+	path        string // URL prefix the API lives under
+	score       int
+}
+
+// prometheusCandidates classifies and ranks Services, best first. Ranking is
+// only an order of verification: a candidate still has to have ready pods and
+// answer the API before it is reported as found.
+func prometheusCandidates(services []v1.Service) []promCandidate {
+	var out []promCandidate
+	for _, svc := range services {
+		if c, ok := classifyPrometheusService(svc); ok {
+			out = append(out, c)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].score != out[j].score {
+			return out[i].score > out[j].score
+		}
+		if out[i].svc.Namespace != out[j].svc.Namespace {
+			return out[i].svc.Namespace < out[j].svc.Namespace
+		}
+		return out[i].svc.Name < out[j].svc.Name
+	})
+	return out
+}
+
+// promExcludedFragments mark Services that carry "prometheus"/"thanos" in
+// their name or labels but are not a queryable TSDB: alerting, exporters,
+// shippers, operators, sidecars and the storage-side Thanos components.
+var promExcludedFragments = []string{
+	"alertmanager", "pushgateway", "operator", "exporter", "adapter", "karma",
+	"blackbox", "snmp", "statsd", "msteams", "config-reloader", "webhook",
+	"grafana-agent", "alloy", "otel", "collector", "kube-state-metrics",
+	"metrics-server", "sidecar", "compact", "thanos-store", "store-gateway",
+	"storegateway", "receive", "thanos-rule", "ruler", "bucket", "-agent", "agent-",
+}
+
+// classifyPrometheusService decides whether a Service is worth verifying as a
+// Prometheus-compatible store, which flavour it is, which of its ports to talk
+// to and under which URL prefix, and how it ranks against other candidates.
 //
-// We deliberately exclude bundled prometheus instances that are scoped to a
-// single tool (opencost, prometheus-adapter, thanos sidecars, karma) — those
-// have limited retention and limited metric coverage and are not safe defaults
-// for general dashboard queries. We also rank by namespace because the
-// well-known monitoring namespaces nearly always host the canonical instance.
-func scorePrometheusService(svc v1.Service) (int, bool) {
+// Names and labels are matched together because helm charts and operators
+// disagree about where the identifying word ends up. Well-known monitoring
+// namespaces dominate the score so a same-name candidate in one of them always
+// beats a stray copy elsewhere; stores bundled with another tool (opencost,
+// kubecost, …) stay eligible but rank last.
+func classifyPrometheusService(svc v1.Service) (promCandidate, bool) {
 	name := strings.ToLower(svc.Name)
 	ns := strings.ToLower(svc.Namespace)
+	labels := lowerLabels(svc.Labels)
+	haystack := strings.Join([]string{
+		name,
+		labels["app.kubernetes.io/name"],
+		labels["app.kubernetes.io/component"],
+		labels["app"],
+		labels["component"],
+	}, " ")
 
-	if !strings.Contains(name, "prometheus") {
-		return 0, false
-	}
-
-	// Hard exclusions: services that contain "prometheus" in their name but are
-	// not a queryable cluster-wide TSDB.
-	excludedNameFragments := []string{
-		"alertmanager", "pushgateway", "operator", "node-exporter",
-		"adapter",  // prometheus-adapter is an HPA metrics shim, not a TSDB
-		"thanos",   // thanos-prometheus is for cross-cluster federation queries
-		"karma",    // karma is an alertmanager UI
-		"blackbox", // prometheus-blackbox-exporter
-		"snmp",     // prometheus-snmp-exporter
-		"statsd",   // prometheus-statsd-exporter
-		"msteams",  // prometheus-msteams notifier
-	}
-	for _, frag := range excludedNameFragments {
-		if strings.Contains(name, frag) {
-			return 0, false
+	for _, frag := range promExcludedFragments {
+		if strings.Contains(haystack, frag) {
+			return promCandidate{}, false
 		}
 	}
 
-	// Bundled prometheus instances live under another tool's namespace and
-	// usually have curtailed retention. Skip them — the user's real prometheus
-	// (if any) lives in a monitoring namespace.
-	bundledNamespaces := []string{"opencost", "kubecost", "loki", "tempo", "grafana-cloud"}
-	for _, bn := range bundledNamespaces {
-		if ns == bn || strings.HasPrefix(ns, bn+"-") {
-			return 0, false
-		}
-	}
-
-	score := 0
-
-	// Namespace ranking. Conventional monitoring namespaces dominate. Without
-	// this, name-based ranking alone picks any service called
-	// "*-prometheus-server" first — including bundled ones when the canonical
-	// monitoring namespace doesn't exist.
+	c := promCandidate{svc: svc}
+	ports := svc.Spec.Ports
 	switch {
-	case ns == "monitoring":
-		score += 100
-	case ns == "prometheus":
-		score += 95
-	case ns == "kube-prometheus-stack":
-		score += 95
-	case ns == "observability":
-		score += 90
-	case strings.Contains(ns, "monitor"):
-		score += 60
-	case strings.Contains(ns, "prom"):
-		score += 50
-	case strings.Contains(ns, "observ"):
-		score += 50
+	case strings.Contains(haystack, "thanos"):
+		// Only Thanos Query / Query Frontend speak the Prometheus read API.
+		if !strings.Contains(haystack, "quer") {
+			return promCandidate{}, false
+		}
+		c.flavor = "thanos"
+		c.defaultPort = 10902
+		c.svcPort, _ = pickServicePort(ports, []int32{9090, 10902}, []string{"http", "web"})
+		c.score += 10
+		if strings.Contains(haystack, "frontend") {
+			c.score += 5
+		}
+	case strings.Contains(haystack, "vmselect"):
+		c.flavor = "victoriametrics"
+		c.path = "/select/0/prometheus"
+		c.defaultPort = 8481
+		c.svcPort, _ = pickServicePort(ports, []int32{8481}, []string{"http"})
+		c.score += 20
+	case containsAny(haystack, "vminsert", "vmstorage", "vmagent", "vmalert", "vmauth", "vmbackup", "vmrestore"):
+		return promCandidate{}, false
+	case containsAny(haystack, "vmsingle", "victoria-metrics", "victoriametrics"):
+		c.flavor = "victoriametrics"
+		c.defaultPort = 8428
+		c.svcPort, _ = pickServicePort(ports, []int32{8428}, []string{"http"})
+		c.score += 20
+	case strings.Contains(haystack, "prometheus") || labels["operated-prometheus"] == "true":
+		c.flavor = "prometheus"
+		c.defaultPort = 9090
+		c.svcPort, _ = pickServicePort(ports, []int32{9090}, []string{"web", "http-web", "http"})
 	default:
-		// Penalize unknown namespaces slightly so a same-name candidate in a
-		// well-known namespace always wins.
-		score -= 10
+		return promCandidate{}, false
 	}
 
-	// Name ranking. Prefer the canonical service names produced by the
-	// upstream helm charts and operators.
+	c.score += rankMonitoringNamespace(ns) + rankPrometheusName(name)
+	if isBundledNamespace(ns) {
+		c.score -= 100
+	}
+	// prometheus-operated is headless and canonical; for the other flavours a
+	// headless twin of the ClusterIP service ranks just behind it.
+	if svc.Spec.ClusterIP == v1.ClusterIPNone && c.flavor != "prometheus" {
+		c.score -= 5
+	}
+	return c, true
+}
+
+// rankPrometheusName prefers the canonical service names produced by the
+// upstream helm charts and operators.
+func rankPrometheusName(name string) int {
 	switch {
 	case name == "prometheus-operated":
-		score += 50 // prometheus-operator's headless service for Prometheus CRD
+		return 50 // prometheus-operator's headless service for the Prometheus CRD
 	case strings.Contains(name, "kube-prometheus-stack-prometheus"):
-		score += 45
-	case strings.Contains(name, "kube-prometheus-prometheus"):
-		score += 40
+		return 45
+	case strings.Contains(name, "kube-prometheus-prometheus"), name == "prometheus-k8s":
+		return 40
 	case strings.Contains(name, "prometheus-server"):
-		score += 30
+		return 30
 	case name == "prometheus":
-		score += 25
+		return 25
 	default:
-		score += 10
+		return 10
 	}
-
-	return score, true
-}
-
-// pickPrometheusTargetPort returns the pod-side port to use when port-forwarding
-// to a prometheus service. It prefers the canonical 9090 over any other exposed
-// port, falls back to the named "http"/"web" port, then to the first non-zero
-// TargetPort, and finally to 9090 as a last-ditch default. We always return the
-// container TargetPort (what the pod listens on); the service Port is irrelevant
-// for port-forwarding because that talks to the pod directly.
-func pickPrometheusTargetPort(svcPorts []v1.ServicePort) int32 {
-	resolveTarget := func(sp v1.ServicePort) int32 {
-		if sp.TargetPort.IntVal > 0 {
-			return sp.TargetPort.IntVal
-		}
-		return sp.Port
-	}
-
-	// 1. Service entry with Port==9090 wins outright (the canonical prom port).
-	for _, sp := range svcPorts {
-		if sp.Port == 9090 || sp.TargetPort.IntVal == 9090 {
-			return resolveTarget(sp)
-		}
-	}
-	// 2. Named "http"/"web" entry — typical for prom-helm-chart services.
-	for _, sp := range svcPorts {
-		if sp.Name == "http" || sp.Name == "web" {
-			return resolveTarget(sp)
-		}
-	}
-	// 3. Fall back to the first entry with a usable TargetPort.
-	for _, sp := range svcPorts {
-		if sp.TargetPort.IntVal > 0 {
-			return sp.TargetPort.IntVal
-		}
-	}
-	// 4. Last resort: prometheus default.
-	return 9090
-}
-
-func (p *PrometheusProvider) verifyConnectivity(cluster string, info *ProviderInfo) bool {
-	podName := p.findPrometheusPod(cluster, info.Namespace)
-	if podName == "" {
-		return false
-	}
-
-	targetPort := info.Port
-	if targetPort == 0 {
-		targetPort = 9090
-	}
-
-	pf, err := p.k8s.CreatePortForward(cluster, info.Namespace, podName, int(targetPort))
-	if err != nil {
-		log.Printf("Failed to create port forward for connectivity check: %v", err)
-		return false
-	}
-	defer func() {
-		_ = p.k8s.StopPortForward(pf.ID)
-	}()
-
-	time.Sleep(200 * time.Millisecond)
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%d/-/ready", pf.LocalPort))
-	if err != nil {
-		resp, err = client.Get(fmt.Sprintf("http://localhost:%d/api/v1/status/config", pf.LocalPort))
-		if err != nil {
-			return false
-		}
-	}
-	defer resp.Body.Close()
-
-	return resp.StatusCode == 200
 }
 
 func (p *PrometheusProvider) IsInstalled(cluster string) bool {
@@ -588,7 +601,7 @@ func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*M
 		log.Printf("[Prometheus] Query params - timeRange: %v, start: %s, end: %s, step: %s",
 			timeRange, startTime.Format("15:04:05"), endTime.Format("15:04:05"), step)
 
-		queryURL := fmt.Sprintf("http://localhost:%d/api/v1/query_range", pfInfo.PortForward.LocalPort)
+		queryURL := fmt.Sprintf("http://localhost:%d%s/api/v1/query_range", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
 		params := url.Values{}
 		params.Set("query", promQL)
 		params.Set("start", fmt.Sprintf("%d", startTime.Unix()))
@@ -610,7 +623,7 @@ func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*M
 		if attempt == 0 && isPortForwardLikelyDead(queryErr) {
 			if p.shouldRecreate(cluster) {
 				log.Printf("[Prometheus] Recreating port forward for cluster %s (err: %v)", cluster, queryErr)
-				p.portForwardPool.Delete(cluster)
+				p.portForwardPool.Delete(prometheusPoolKey(cluster, promInfo))
 				_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
 				p.maybeInvalidateProvider(cluster)
 				continue
@@ -743,7 +756,7 @@ func (p *PrometheusProvider) QueryWorkloadMetrics(cluster string, query Workload
 	endTime := time.Now()
 	startTime := endTime.Add(-timeRange)
 
-	queryURL := fmt.Sprintf("http://localhost:%d/api/v1/query_range", pfInfo.PortForward.LocalPort)
+	queryURL := fmt.Sprintf("http://localhost:%d%s/api/v1/query_range", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
 	params := url.Values{}
 	params.Set("query", promQL)
 	params.Set("start", startTime.Format(time.RFC3339))
@@ -866,37 +879,44 @@ func (p *PrometheusProvider) buildWorkloadPromQL(namespace, podRegex, metricType
 	}
 }
 
-func (p *PrometheusProvider) findPrometheusPod(cluster string, namespace string) string {
+// findPrometheusPod returns a ready pod behind the detected Service. When the
+// Service has no selector (manual endpoints) it falls back to any ready pod in
+// the namespace that runs a Prometheus-like image.
+func (p *PrometheusProvider) findPrometheusPod(cluster string, info *ProviderInfo) string {
 	clientset, err := p.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return ""
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
-	// Look for any pod with "prometheus" in its name
-	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
-	if err == nil {
-		for _, pod := range pods.Items {
-			if pod.Status.Phase != v1.PodRunning {
-				continue
+	if info.Service != "" {
+		if svc, err := clientset.CoreV1().Services(info.Namespace).Get(ctx, info.Service, metav1.GetOptions{}); err == nil {
+			if backends := listServiceBackends(ctx, clientset, svc); backends.ReadyPod != "" {
+				return backends.ReadyPod
 			}
-
-			podNameLower := strings.ToLower(pod.Name)
-			if strings.Contains(podNameLower, "prometheus") {
-				// Verify it has a prometheus container
-				for _, container := range pod.Spec.Containers {
-					imageLower := strings.ToLower(container.Image)
-					if strings.Contains(imageLower, "prometheus") {
-						log.Printf("Using Prometheus pod: %s", pod.Name)
-						return pod.Name
-					}
-				}
+			if len(svc.Spec.Selector) > 0 {
+				return "" // the Service knows its pods and none of them is ready
 			}
 		}
 	}
 
+	pods, err := clientset.CoreV1().Pods(info.Namespace).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return ""
+	}
+	for i := range pods.Items {
+		pod := &pods.Items[i]
+		if pod.Status.Phase != v1.PodRunning || !isPodReady(pod) {
+			continue
+		}
+		for _, container := range pod.Spec.Containers {
+			if containsAny(strings.ToLower(container.Image), "prometheus", "thanos", "victoria") {
+				return pod.Name
+			}
+		}
+	}
 	return ""
 }
 

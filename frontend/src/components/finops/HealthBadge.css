@@ -1,16 +1,22 @@
+/* Efficiency health badge — 18px tinted pill, icon and/or label. */
 .health-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .health-badge-sm {
-  font-size: var(--font-xxs);
-  padding: 3px 7px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 11px;
 }
 
 .health-badge-sm .health-icon svg {
@@ -19,7 +25,9 @@
 }
 
 .health-badge-md {
-  font-size: var(--font-xs);
+  height: 20px;
+  padding: 0 7px;
+  font-size: 11.5px;
 }
 
 .health-badge-md .health-icon svg {
@@ -28,13 +36,14 @@
 }
 
 .health-badge-lg {
-  font-size: var(--font-sm);
-  padding: 6px 10px;
+  height: 22px;
+  padding: 0 8px;
+  font-size: 12px;
 }
 
 .health-badge-lg .health-icon svg {
-  width: 15px;
-  height: 15px;
+  width: 14px;
+  height: 14px;
 }
 
 .health-icon {
@@ -44,33 +53,49 @@
 }
 
 .health-badge.efficiency-excellent {
-  background: var(--cost-bg-positive);
+  background: color-mix(in srgb, var(--efficiency-excellent) 16%, transparent);
   color: var(--efficiency-excellent);
 }
 
 .health-badge.efficiency-good {
-  background: color-mix(in srgb, var(--efficiency-good) 15%, transparent);
+  background: color-mix(in srgb, var(--efficiency-good) 16%, transparent);
   color: var(--efficiency-good);
 }
 
 .health-badge.efficiency-fair {
-  background: var(--cost-bg-warning);
+  background: color-mix(in srgb, var(--efficiency-fair) 18%, transparent);
   color: var(--efficiency-fair);
 }
 
 .health-badge.efficiency-critical {
-  background: var(--cost-bg-negative);
+  background: color-mix(in srgb, var(--efficiency-critical) 16%, transparent);
   color: var(--efficiency-critical);
 }
 
 .health-badge.efficiency-risk {
-  background: color-mix(in srgb, var(--efficiency-risk) 15%, transparent);
+  background: color-mix(in srgb, var(--efficiency-risk) 16%, transparent);
   color: var(--efficiency-risk);
 }
 
 .health-badge.efficiency-none {
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
-  border: 1px dashed var(--border);
+  background: var(--ctrl);
+  color: var(--text3);
+  border: 0;
 }
 
+/* Tooltip body */
+.health-tooltip {
+  max-width: 220px;
+}
+
+.health-tooltip strong {
+  font-weight: 600;
+  color: var(--text);
+}
+
+.health-tooltip p {
+  margin: 4px 0 0;
+  font-size: 11px;
+  color: var(--text2);
+  line-height: 1.4;
+}

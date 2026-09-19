@@ -1,3 +1,4 @@
+/* Container picker: pop-up button + .ap-menu list; hover = solid selection, current = blue check. */
 .container-selector-wrapper {
   position: relative;
   display: inline-block;
@@ -9,26 +10,28 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 8px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: var(--font-xs);
-  cursor: pointer;
-  transition: all 0.15s;
-  min-width: 200px;
   height: 24px;
+  padding: 0 9px;
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: default;
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
+  min-width: 200px;
 }
 
 .container-selector-button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  border-color: var(--accent);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  border-color: transparent;
 }
 
 .container-selector-button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
@@ -38,13 +41,16 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-xs);
+  font-size: 11.5px;
 }
 
 .container-selector-caret {
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  transition: transform 0.2s;
+  width: 12px;
+  height: 12px;
+  font-size: 10px;
+  color: var(--text3);
+  flex: none;
+  transition: transform var(--duration-fast) var(--ease-quiet);
 }
 
 .container-selector-caret.open {
@@ -54,12 +60,16 @@
 .container-selector-dropdown {
   min-width: 300px;
   max-width: 500px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  padding: 5px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
   z-index: 999999;
   overflow: hidden;
+  animation: ap-pop var(--duration-base) var(--ease-snap);
 }
 
 .container-selector-dropdown.above {
@@ -76,11 +86,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--border);
-  cursor: pointer;
-  transition: background-color 0.1s;
+  gap: 10px;
+  padding: 6px 10px;
+  border-bottom: 0;
+  border-radius: 6px;
+  cursor: default;
+  transition: none;
   min-height: 40px;
+  color: var(--text);
 }
 
 .container-selector-row:last-child {
@@ -88,11 +101,12 @@
 }
 
 .container-selector-row:hover:not(.disabled) {
-  background: var(--bg-hover);
+  background: var(--sel);
+  color: var(--on-sel);
 }
 
 .container-selector-row.selected {
-  background: var(--bg-active);
+  background: transparent;
 }
 
 .container-selector-row.disabled {
@@ -114,45 +128,77 @@
   gap: 6px;
 }
 
+/* `.container-name` / `.container-image` are shared names (DetailView owns the
+   inspector header), so the picker's styling is scoped to its own rows. */
 .container-name {
   font-family: var(--font-sans);
-  font-weight: var(--font-weight-medium);
-  color: var(--text-secondary);
-  font-size: var(--font-xxs);
+}
+
+.container-selector-row .container-name {
+  font-weight: 500;
+  color: var(--text);
+  font-size: 12.5px;
 }
 
 .container-badge {
-  padding: 1px 4px;
-  border-radius: 2px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  border-radius: 4px;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
-  font-weight: var(--font-weight-semibold);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .container-badge.init {
-  background: var(--info-bg);
-  color: var(--accent);
-  border: 1px solid var(--accent);
+  background: var(--blue-soft);
+  color: var(--blue);
+  border: 0;
 }
 
 .container-image {
   font-family: var(--font-mono);
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  opacity: 0.8;
+}
+
+.container-selector-row .container-image {
+  font-size: 11px;
+  color: var(--text2);
+  opacity: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .container-state-details {
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  font-style: italic;
+  font-size: 11.5px;
+  color: var(--text2);
+  font-style: normal;
 }
 
 .container-check {
-  color: var(--success);
-  font-size: var(--font-sm);
-  font-weight: var(--font-weight-bold);
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 700;
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+/* Everything inside a highlighted row reads on the selection fill */
+.container-selector-row:hover:not(.disabled) .container-name,
+.container-selector-row:hover:not(.disabled) .container-state-details,
+.container-selector-row:hover:not(.disabled) .container-check,
+.container-selector-row:hover:not(.disabled) .status-badge {
+  color: var(--on-sel);
+}
+
+.container-selector-row:hover:not(.disabled) .container-image {
+  color: var(--on-sel2);
+}
+
+.container-selector-row:hover:not(.disabled) .container-badge.init {
+  background: color-mix(in srgb, var(--on-sel) 22%, transparent);
+  color: var(--on-sel);
 }

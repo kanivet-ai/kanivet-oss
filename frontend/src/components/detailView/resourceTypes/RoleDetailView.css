@@ -1,10 +1,15 @@
+/* Role / ClusterRole — permissions as card rows, verbs as info chips, filter row inside the card. */
 .role-type-badge {
-  font-size: var(--font-xxxs);
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
-  background: var(--info-bg);
-  padding: 0 4px;
-  border-radius: 3px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  white-space: nowrap;
 }
 
 .role-controls {
@@ -12,73 +17,83 @@
   gap: 2px;
 }
 
+/* Grouped / rules view toggle → small icon button */
 .role-view-toggle {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  color: var(--text-secondary);
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.08s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .role-view-toggle:hover,
 .role-view-toggle.active {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--hover);
+  color: var(--text);
+}
+
+.role-view-toggle.active {
+  background: var(--card);
+  box-shadow: var(--shadow-pill);
 }
 
 .role-view-toggle svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
+/* Filter row (first row of the Permissions card) */
 .role-search {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px var(--property-padding-x);
-  margin-bottom: 2px;
+  gap: 8px;
+  padding: 8px 14px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .role-search svg {
-  width: 10px;
-  height: 10px;
-  color: var(--text-muted);
+  width: 12px;
+  height: 12px;
+  color: var(--text3);
   flex-shrink: 0;
 }
 
 .role-search input {
   flex: 1;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  padding: 2px 6px;
-  font-size: var(--font-xxs);
-  color: var(--text-primary);
+  min-width: 0;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text);
   outline: none;
-  transition: border-color 0.1s;
-  height: 22px;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+  height: 24px;
 }
 
 .role-search input:focus {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .role-search input::placeholder {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .permissions-list,
 .rules-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
-  padding: 0 var(--property-padding-x);
+  gap: 0;
+  padding: 0;
 }
 
 .permission-item,
@@ -86,23 +101,36 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 2px 6px;
-  min-height: 22px;
-  background: var(--bg-subtle);
-  border-radius: 2px;
-  transition: background 0.08s;
+  gap: 12px;
+  padding: 7px 14px;
+  min-height: 30px;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--hair);
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.permission-item:last-child,
+.rule-item:last-child {
+  border-bottom: 0;
+}
+
+.rule-item {
+  flex-wrap: wrap;
+  row-gap: 2px;
 }
 
 .permission-item:hover,
 .rule-item:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .permission-resource {
   font-family: var(--font-mono);
-  font-size: var(--font-xxs);
+  font-size: 12px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -111,56 +139,69 @@
 .permission-verbs,
 .rule-verbs {
   display: flex;
-  gap: 2px;
+  gap: 4px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  flex-shrink: 0;
 }
 
 .rule-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   flex: 1;
+  min-width: 0;
 }
 
 .rule-number {
-  font-size: var(--font-xxxs);
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-muted);
-  min-width: 14px;
+  color: var(--text3);
+  min-width: 16px;
+  font-variant-numeric: tabular-nums;
 }
 
 .rule-resources {
   font-family: var(--font-mono);
-  font-size: var(--font-xxs);
-  color: var(--text-primary);
+  font-size: 12px;
+  color: var(--text);
   flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .rule-api-group {
-  font-size: var(--font-xxxs);
-  color: var(--text-muted);
-  padding: 1px 6px 2px 24px;
+  flex-basis: 100%;
+  font-size: 11.5px;
+  color: var(--text3);
+  padding: 0 0 0 24px;
 }
 
+/* Verb chips — tinted by what the verb can do: read blue, write green,
+   delete red, wildcard orange, anything else neutral. */
 .verb-badge {
-  padding: 0 3px;
-  border-radius: 2px;
-  font-size: var(--font-xxxs);
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  text-transform: none;
+  letter-spacing: 0;
   white-space: nowrap;
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .verb-read {
-  background: var(--success-bg);
-  color: var(--success-fg);
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .verb-write {
-  background: var(--info-bg);
-  color: var(--info-fg);
+  background: var(--success-bg);
+  color: var(--success-fg);
 }
 
 .verb-delete {
@@ -174,35 +215,42 @@
 }
 
 .verb-other {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--ctrl);
+  color: var(--text2);
 }
 
 .aggregation-selectors {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 0 var(--property-padding-x);
+  gap: 6px;
+  padding: 8px 14px;
 }
 
 .aggregation-selector {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 4px;
 }
 
 .selector-label {
-  font-size: var(--font-xxxs);
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  font-size: 11px;
   font-family: var(--font-mono);
-  padding: 1px 4px;
-  background: var(--bg-subtle);
-  border-radius: 2px;
-  color: var(--text-secondary);
+  padding: 0 7px;
+  background: var(--ctrl);
+  border-radius: 5px;
+  color: var(--text2);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .permissions-list .no-results {
-  padding: 8px;
+  padding: 14px;
   text-align: center;
-  color: var(--text-muted);
-  font-size: var(--font-xxs);
+  color: var(--text2);
+  font-size: 12.5px;
 }

@@ -1,15 +1,20 @@
+/*
+  Idle cost tile — a plain card; the severity colour lives on the icon,
+  the percentage line and the ring chart (via currentColor).
+*/
 .idle-cost-card {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 16px 18px;
-  background: var(--bg-secondary);
-  border: 1px solid;
-  border-radius: var(--radius-md);
+  gap: 14px;
+  padding: 12px 14px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
   position: relative;
   overflow: hidden;
-  flex: 1 1 320px;
-  min-width: 320px;
+  flex: 1 1 300px;
+  min-width: 300px;
 }
 
 .idle-cost-card::before {
@@ -18,11 +23,12 @@
   left: 0;
   top: 0;
   bottom: 0;
-  width: 4px;
+  width: 0;
+  display: none;
 }
 
 .idle-cost-card.severity-critical {
-  border-color: var(--efficiency-critical);
+  border-color: transparent;
   color: var(--efficiency-critical);
 }
 
@@ -31,7 +37,7 @@
 }
 
 .idle-cost-card.severity-high {
-  border-color: var(--efficiency-poor);
+  border-color: transparent;
   color: var(--efficiency-poor);
 }
 
@@ -40,7 +46,7 @@
 }
 
 .idle-cost-card.severity-medium {
-  border-color: var(--efficiency-fair);
+  border-color: transparent;
   color: var(--efficiency-fair);
 }
 
@@ -49,7 +55,7 @@
 }
 
 .idle-cost-card.severity-low {
-  border-color: var(--efficiency-good);
+  border-color: transparent;
   color: var(--efficiency-good);
 }
 
@@ -61,16 +67,16 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 36px;
+  height: 36px;
   border-radius: 50%;
-  background: color-mix(in srgb, currentColor 15%, transparent);
+  background: color-mix(in srgb, currentColor 14%, transparent);
   flex-shrink: 0;
 }
 
 .idle-icon svg {
-  width: 24px;
-  height: 24px;
+  width: 18px;
+  height: 18px;
 }
 
 .idle-content {
@@ -79,36 +85,43 @@
 }
 
 .idle-label {
-  font-size: var(--font-xxs);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  opacity: 0.8;
-  margin-bottom: 4px;
-}
-
-.idle-value {
-  font-size: var(--font-xl);
-  font-weight: 700;
-  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0;
+  opacity: 1;
   margin-bottom: 2px;
 }
 
-.idle-percentage {
-  font-size: var(--font-sm);
+.idle-value {
+  font-family: var(--font-sans);
+  font-size: 24px;
   font-weight: 600;
-  opacity: 0.9;
-  margin-bottom: 6px;
+  letter-spacing: -0.6px;
+  line-height: 1.15;
+  color: var(--text);
+  margin-bottom: 2px;
+  font-variant-numeric: tabular-nums;
+}
+
+.idle-percentage {
+  font-size: 11.5px;
+  font-weight: 600;
+  opacity: 1;
+  margin-bottom: 3px;
+  font-variant-numeric: tabular-nums;
 }
 
 .idle-description {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
-  line-height: 1.4;
+  font-size: 11.5px;
+  color: var(--text2);
+  line-height: 1.35;
 }
 
 .idle-visual {
-  width: 90px;
-  height: 90px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
 }
 
@@ -117,3 +130,8 @@
   height: 100%;
 }
 
+.idle-chart text {
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}

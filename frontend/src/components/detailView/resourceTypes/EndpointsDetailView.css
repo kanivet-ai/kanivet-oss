@@ -1,8 +1,16 @@
+/* Endpoints — ready / not-ready counts as tinted badges, ports as chips, addresses as card rows. */
 .endpoint-count {
-  font-family: var(--font-mono);
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-size: 11px;
   font-weight: 600;
-  padding: 1px 5px;
-  border-radius: 3px;
+  font-variant-numeric: tabular-nums;
+  background: var(--ctrl);
+  color: var(--text2);
 }
 
 .endpoint-count.ready {
@@ -18,61 +26,70 @@
 .endpoints-ports {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 4px var(--property-padding-x);
-  margin-bottom: 4px;
+  gap: 6px;
+  padding: 8px 14px;
+  margin-bottom: 0;
+  border-bottom: 1px solid var(--hair);
 }
 
 .endpoints-ports .port-badge {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-xs);
-  font-size: var(--font-xxs);
+  gap: 5px;
+  height: 20px;
+  padding: 0 7px;
+  background: var(--ctrl);
+  border-radius: 5px;
+  font-size: 11.5px;
 }
 
 .endpoints-ports .port-name {
-  color: var(--text-secondary);
+  color: var(--text2);
   font-weight: 500;
 }
 
 .endpoints-ports .port-number {
   font-family: var(--font-mono);
-  color: var(--text-primary);
+  color: var(--text);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .endpoints-ports .port-protocol {
-  color: var(--text-muted);
-  text-transform: uppercase;
-  font-size: var(--font-xxxs);
+  color: var(--text3);
+  text-transform: none;
+  font-size: 10.5px;
 }
 
 .endpoints-addresses {
-  padding: 0 var(--property-padding-x);
-  margin-bottom: 8px;
+  padding: 0;
+  margin-bottom: 0;
+}
+
+.endpoints-addresses + .endpoints-addresses {
+  border-top: 1px solid var(--hair);
 }
 
 .endpoints-addresses .addresses-header {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-xxs);
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-bottom: 4px;
+  padding: 8px 14px 4px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .endpoints-addresses .addresses-header .ready-icon {
-  color: var(--success);
+  color: var(--green);
   width: 12px;
   height: 12px;
 }
 
 .endpoints-addresses .addresses-header .not-ready-icon {
-  color: var(--danger);
+  color: var(--red);
   width: 12px;
   height: 12px;
 }
@@ -80,34 +97,45 @@
 .endpoints-addresses .addresses-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 .endpoints-addresses .address-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
-  padding: 3px 8px;
-  min-height: 20px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-xs);
+  gap: 12px;
+  padding: 7px 14px;
+  min-height: 30px;
+  background: transparent;
+  border-radius: 0;
+  border-bottom: 1px solid var(--hair);
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.endpoints-addresses .address-item:last-child {
+  border-bottom: 0;
+}
+
+.endpoints-addresses .address-item:hover {
+  background: var(--hover);
 }
 
 .endpoints-addresses .address-ip {
   font-family: var(--font-mono);
-  font-size: var(--font-xxs);
-  color: var(--text-primary);
+  font-size: 11.5px;
+  color: var(--text);
   flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .endpoints-addresses.not-ready .address-ip {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .endpoints-addresses .address-target,
 .endpoints-addresses .address-item .link-button {
-  font-size: var(--font-xxs);
+  font-size: 12.5px;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -116,5 +144,5 @@
 }
 
 .endpoints-addresses .address-target {
-  color: var(--text-muted);
+  color: var(--text2);
 }

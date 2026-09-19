@@ -513,42 +513,19 @@ const Layout = () => {
           <TreeSidebar />
           <div style={{ display: 'flex', flex: 1, overflow: 'hidden', position: 'relative' }}>
             {!currentTab ? (
-              <div
-                style={{
-                  flex: 1,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  flexDirection: 'column',
-                  gap: '24px',
-                  color: 'var(--text-secondary)',
-                  padding: '40px',
-                }}
-              >
-                <div style={{ fontSize: '18px', fontWeight: 500 }}>
-                  No cluster selected
-                </div>
-                <div
-                  style={{
-                    fontSize: '14px',
-                    textAlign: 'center',
-                    maxWidth: '400px',
-                  }}
-                >
-                  Click the + button in the tab bar or press ⌘T to open a new
-                  cluster tab.
+              <div className="layout-empty">
+                <span className="ap-tile layout-empty-tile" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2.5l8 4.5v9l-8 4.5-8-4.5v-9z" />
+                  </svg>
+                </span>
+                <div className="layout-empty-title">No cluster selected</div>
+                <div className="layout-empty-subtitle">
+                  Choose a cluster to browse its resources, or press <kbd>⌘T</kbd> to open the cluster picker.
                 </div>
                 <button
+                  className="ap-btn ap-btn--primary"
                   onClick={() => setShowClusterSelector(true)}
-                  style={{
-                    padding: '8px 16px',
-                    borderRadius: '6px',
-                    backgroundColor: 'var(--button-primary-bg)',
-                    color: 'var(--button-primary-fg)',
-                    border: 'none',
-                    cursor: 'pointer',
-                    fontSize: '14px',
-                  }}
                 >
                   Open Cluster Selector
                 </button>
@@ -598,45 +575,29 @@ const Layout = () => {
             event.stopPropagation();
             setShowThemeSettings(false);
           }}
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0, 0, 0, 0.5)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-          }}
+          className="ap-overlay"
+          style={{ zIndex: 1000 }}
         >
           <div
             onClick={(event) => event.stopPropagation()}
+            className="ap-sheet"
             style={{
-              backgroundColor: 'var(--bg-primary)',
-              borderRadius: '8px',
               padding: '20px',
-              maxWidth: '600px',
+              width: 'min(640px, 92vw)',
               maxHeight: '80vh',
               overflow: 'auto',
               position: 'relative',
             }}
           >
             <button
+              className="ap-icon-btn"
               onClick={() => setShowThemeSettings(false)}
-              style={{
-                position: 'absolute',
-                top: '10px',
-                right: '10px',
-                background: 'none',
-                border: 'none',
-                fontSize: '24px',
-                cursor: 'pointer',
-                color: 'var(--text-secondary)',
-              }}
+              aria-label="Close settings"
+              style={{ position: 'absolute', top: '10px', right: '10px' }}
             >
-              ×
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                <path d="M6 6l12 12M18 6L6 18" />
+              </svg>
             </button>
             <ThemeSettings onOpenComponentLibrary={() => setShowComponentLibrary(true)} />
           </div>

@@ -1,36 +1,39 @@
+/* Cost / efficiency inline badges, sparkline, breakdown bar, pricing source. */
 .cost-badge {
   display: inline-flex;
   align-items: center;
   gap: 2px;
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .cost-badge-sm {
-  font-size: var(--font-xxs);
+  font-size: 11px;
 }
 
 .cost-badge-md {
-  font-size: var(--font-xs);
+  font-size: 12px;
 }
 
 .cost-badge-lg {
-  font-size: var(--font-sm);
+  font-size: 13px;
 }
 
 .cost-badge-compact {
-  padding: 1px 4px;
-  background: var(--cost-bg-neutral);
-  border-radius: var(--radius-xs);
+  height: 18px;
+  padding: 0 6px;
+  background: var(--ctrl);
+  border-radius: 5px;
 }
 
 .cost-value {
-  color: var(--text-primary);
+  color: var(--text);
   font-weight: 500;
 }
 
 .cost-period {
-  color: var(--text-muted);
+  color: var(--text3);
   font-size: 0.9em;
 }
 
@@ -38,8 +41,9 @@
   display: inline-flex;
   align-items: center;
   gap: 1px;
-  margin-left: 2px;
-  font-size: 0.85em;
+  margin-left: 3px;
+  font-size: 0.9em;
+  font-weight: 600;
 }
 
 .cost-trend.trend-up {
@@ -51,47 +55,49 @@
 }
 
 .cost-trend.trend-stable {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .trend-percent {
-  font-size: 0.9em;
+  font-size: 0.95em;
 }
 
 .cost-efficiency {
   margin-left: 4px;
   font-size: 0.9em;
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .efficiency-badge {
   display: inline-flex;
   align-items: center;
-  font-family: var(--font-mono);
+  gap: 4px;
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 
 .efficiency-badge-sm {
-  font-size: var(--font-xs);
+  font-size: 11px;
 }
 
 .efficiency-badge-md {
-  font-size: var(--font-xs);
+  font-size: 12px;
 }
 
 .efficiency-badge-lg {
-  font-size: var(--font-sm);
+  font-size: 13px;
 }
 
 .efficiency-icon {
-  font-size: 0.85em;
+  font-size: 0.9em;
 }
 
 .efficiency-value {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 .efficiency-label {
-  font-size: 0.85em;
+  font-size: 0.9em;
   opacity: 0.8;
   margin-left: 2px;
 }
@@ -101,56 +107,89 @@
   vertical-align: middle;
 }
 
+/* CPU / memory / storage split bar */
 .cost-breakdown-bar {
   display: inline-flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .breakdown-bar {
   display: flex;
-  border-radius: 2px;
+  gap: 1px;
+  border-radius: 3px;
   overflow: hidden;
-  background: var(--bg-tertiary);
+  background: var(--ctrl);
 }
 
 .breakdown-segment {
   height: 100%;
-  transition: width 0.2s ease;
+  transition: width var(--duration-base) var(--ease-quiet);
+}
+
+.breakdown-segment.cpu {
+  background: var(--chart-cpu);
+}
+
+.breakdown-segment.memory {
+  background: var(--chart-memory);
+}
+
+.breakdown-segment.storage {
+  background: var(--chart-storage);
 }
 
 .breakdown-labels {
   display: flex;
   justify-content: space-between;
-  font-size: var(--font-xxs);
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
+  font-size: 10.5px;
+  font-weight: 500;
 }
 
+.breakdown-labels .cpu {
+  color: var(--chart-cpu);
+}
+
+.breakdown-labels .memory {
+  color: var(--chart-memory);
+}
+
+.breakdown-labels .storage {
+  color: var(--chart-storage);
+}
+
+/* Pricing source badge (header) */
 .pricing-source-badge {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
-  font-family: var(--font-mono);
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
-  cursor: help;
+  cursor: default;
+  font-variant-numeric: tabular-nums;
 }
 
 .pricing-source-badge.pricing-ok {
-  background: color-mix(in srgb, var(--efficiency-excellent) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--efficiency-excellent) 30%, transparent);
+  background: var(--success-bg);
+  color: var(--success-fg);
 }
 
 .pricing-source-badge.pricing-warning {
-  background: color-mix(in srgb, var(--cost-medium) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--cost-medium) 30%, transparent);
+  background: var(--warning-bg);
+  color: var(--warning-fg);
 }
 
 .pricing-source-badge.pricing-error {
-  background: color-mix(in srgb, var(--cost-high) 15%, transparent);
-  border: 1px solid color-mix(in srgb, var(--cost-high) 30%, transparent);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
 }
 
 .pricing-source-badge .pricing-icon {
@@ -158,41 +197,48 @@
   align-items: center;
 }
 
+.pricing-source-badge .pricing-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
 .pricing-source-badge.pricing-ok .pricing-icon {
-  color: var(--efficiency-excellent);
+  color: var(--success-fg);
 }
 
 .pricing-source-badge.pricing-warning .pricing-icon {
-  color: var(--cost-medium);
+  color: var(--warning-fg);
 }
 
 .pricing-source-badge.pricing-error .pricing-icon {
-  color: var(--cost-high);
+  color: var(--danger-fg);
 }
 
 .pricing-source-badge .pricing-source {
-  color: var(--text-primary);
-  font-weight: 500;
+  color: inherit;
+  font-weight: 600;
 }
 
 .pricing-source-badge .pricing-updated {
-  color: var(--text-muted);
-  font-size: 0.9em;
+  color: inherit;
+  opacity: 0.8;
+  font-size: 11px;
 }
 
 .pricing-source-badge .pricing-updated::before {
-  content: '•';
-  margin-right: 6px;
-  opacity: 0.5;
+  content: '·';
+  margin-right: 5px;
+  opacity: 0.6;
 }
 
 .pricing-source-badge .pricing-missing {
-  color: var(--cost-medium);
-  font-size: 0.9em;
+  color: inherit;
+  opacity: 0.9;
+  font-size: 11px;
 }
 
 .pricing-source-badge .pricing-missing::before {
-  content: '•';
-  margin-right: 6px;
-  opacity: 0.5;
+  content: '·';
+  margin-right: 5px;
+  opacity: 0.6;
 }

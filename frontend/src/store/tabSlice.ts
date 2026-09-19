@@ -12,8 +12,11 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     const { activeTabs } = get();
     const existingTab = activeTabs.find((t: Tab) => t.id === cluster);
     if (!existingTab) {
+      // A fresh tab has nothing in the list yet — the next thing the user does
+      // is pick a resource in the sidebar, so keyboard focus starts there.
+      // (Starting in 'list' made every tree shortcut a no-op until the sidebar
+      // was clicked; focusArea is transient, so a reload masked it.)
       const newTabState = createInitialTabState();
-      newTabState.focusArea = 'list';
 
       const newTabs = [...activeTabs, { id: cluster, name: cluster, state: newTabState }];
       set({ activeTabs: newTabs, tabIndexMap: rebuildTabIndex(newTabs), currentTab: cluster });

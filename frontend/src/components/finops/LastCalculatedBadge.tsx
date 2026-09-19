@@ -23,15 +23,15 @@ export const LastCalculatedBadge: React.FC<LastCalculatedBadgeProps> = ({
   };
 
   const tooltipContent = (
-    <div>
+    <div className="calc-tooltip">
       <div><strong>Cost Calculation</strong></div>
-      <div style={{ fontSize: '11px', marginTop: '4px' }}>
+      <div className="calc-tooltip-row">
         Last calculated: {timeAgo}
       </div>
-      <div style={{ fontSize: '11px', marginTop: '4px' }}>
+      <div className="calc-tooltip-row">
         Cache duration: {cacheDuration}s
       </div>
-      <div style={{ fontSize: '11px', marginTop: '4px', color: 'var(--text-muted)' }}>
+      <div className="calc-tooltip-row calc-tooltip-muted">
         Costs refresh automatically every {cacheDuration} seconds
       </div>
     </div>

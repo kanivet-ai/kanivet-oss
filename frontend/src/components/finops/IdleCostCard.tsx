@@ -38,7 +38,7 @@ export const IdleCostCard: React.FC<IdleCostCardProps> = ({ idleCost, idlePercen
             cy="50"
             r="40"
             fill="none"
-            stroke="var(--bg-tertiary)"
+            stroke="var(--ctrl)"
             strokeWidth="8"
           />
           <circle
@@ -59,9 +59,7 @@ export const IdleCostCard: React.FC<IdleCostCardProps> = ({ idleCost, idlePercen
             textAnchor="middle"
             dominantBaseline="middle"
             fontSize="20"
-            fontWeight="700"
             fill="currentColor"
-            fontFamily="var(--font-mono)"
           >
             {idlePercentage.toFixed(0)}%
           </text>

@@ -1,3 +1,4 @@
+/* Cluster error pane — a card with a tinted header strip on the content surface. */
 .cluster-error-pane {
   position: absolute;
   inset: 0;
@@ -7,92 +8,108 @@
   justify-content: center;
   padding: 32px;
   overflow: auto;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
 .cluster-error-pane-card {
   width: 100%;
   max-width: 640px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--error-border, rgba(239, 68, 68, 0.4));
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg);
-  padding: 24px;
+  background: var(--card);
+  border: 0;
+  border-radius: 12px;
+  box-shadow: var(--shadow-card);
+  padding: 0 0 18px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  animation: clusterErrorFadeIn 0.2s ease-out;
+  gap: 14px;
+  overflow: hidden;
+  animation: clusterErrorFadeIn var(--duration-base) var(--ease-quiet);
 }
 
 @keyframes clusterErrorFadeIn {
-  from { opacity: 0; transform: translateY(8px); }
+  from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Tinted strip */
 .cluster-error-pane-header {
   display: flex;
   align-items: flex-start;
-  gap: 14px;
+  gap: 12px;
+  padding: 14px 20px;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--hair);
+}
+
+.cluster-error-pane-card.vcluster-transient .cluster-error-pane-header {
+  background: var(--blue-soft);
 }
 
 .cluster-error-pane-icon {
-  color: var(--error, #ef4444);
+  color: var(--red);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: 1px;
+}
+
+.cluster-error-pane-card.vcluster-transient .cluster-error-pane-icon {
+  color: var(--blue);
 }
 
 .cluster-error-pane-titles {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   min-width: 0;
 }
 
 .cluster-error-pane-title {
-  font-size: var(--font-lg);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+  color: var(--text);
+  letter-spacing: -0.2px;
 }
 
 .cluster-error-pane-cluster {
-  font-size: var(--font-xs);
-  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
-  color: var(--text-muted);
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  color: var(--text2);
   word-break: break-all;
 }
 
 .cluster-error-pane-message {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  line-height: var(--line-height-base);
+  padding: 0 20px;
+  font-size: 13px;
+  color: var(--text2);
+  line-height: 1.45;
 }
 
 .cluster-error-pane-section {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 0 20px;
 }
 
 .cluster-error-pane-section-label {
-  font-size: var(--font-xs);
+  font-size: 11.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-muted);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: var(--text2);
 }
 
 .cluster-error-pane-command {
-  padding: 10px 12px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  padding: 8px 10px;
+  background: var(--inset);
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 0 0 0.5px var(--hair);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
   user-select: all;
   cursor: text;
   word-break: break-all;
@@ -100,13 +117,15 @@
 
 .cluster-error-pane-details {
   margin: 0;
-  padding: 12px 14px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-family: 'JetBrains Mono', 'SF Mono', Monaco, monospace;
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
+  padding: 10px 12px;
+  background: var(--inset);
+  border: 0;
+  border-radius: 8px;
+  box-shadow: 0 0 0 0.5px var(--hair);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text2);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 240px;
@@ -117,41 +136,47 @@
 .cluster-error-pane-actions {
   display: flex;
   gap: 8px;
-  margin-top: 4px;
+  padding: 0 20px;
+  margin-top: 2px;
 }
 
+/* .ap-btn values */
 .cluster-error-pane-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 16px;
-  height: 34px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
+  padding: 0 12px;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
   border: none;
   outline: none;
   line-height: 1;
+  background-color: var(--card);
+  color: var(--text);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .cluster-error-pane-btn-primary {
-  background: var(--accent);
-  color: white;
-  box-shadow: var(--shadow-sm);
+  background-color: var(--blue);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .cluster-error-pane-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  background-color: var(--blue-hover);
+  filter: none;
+  transform: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .cluster-error-pane-btn:disabled {
   cursor: progress;
-  opacity: 0.7;
+  opacity: 0.6;
 }
 
 .cluster-error-spinning {

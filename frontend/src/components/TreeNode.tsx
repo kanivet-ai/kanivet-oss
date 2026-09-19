@@ -20,7 +20,6 @@ interface TreeNodeProps {
   isLast?: boolean;
   parentPath?: boolean[];
   ancestorLabels?: string[];
-  siblingsHaveChevron?: boolean;
 }
 
 export const nodeHasChevron = (n: any): boolean =>
@@ -62,7 +61,6 @@ const TreeNode = ({
   isLast = false,
   parentPath = [],
   ancestorLabels = [],
-  siblingsHaveChevron = true,
 }: TreeNodeProps) => {
   const currentTab = useStore((state) => state.currentTab);
   const nodeRef = useRef<HTMLDivElement>(null);
@@ -89,11 +87,6 @@ const TreeNode = ({
       nodeMatchesSearch(child, searchQuery, [...ancestorLabels, node.label])
     );
   }, [node.children, expanded, searchQuery, ancestorLabels, node.label]);
-
-  const childrenHaveChevron = useMemo(
-    () => filteredChildren.some((c: any) => nodeHasChevron(c)),
-    [filteredChildren],
-  );
 
   const childMaxCountDigits = useMemo(() => {
     let m = 0;
@@ -225,6 +218,7 @@ const TreeNode = ({
         onContextMenu={handleContextMenu}
         tabIndex={-1}
         aria-disabled={disabled}
+        title={disabled ? node.disabledReason || `${node.label} is not installed in this cluster` : undefined}
         draggable={node.type === 'resource' && !disabled}
         onDragStart={(e) => {
           if (node.type === 'resource') {
@@ -238,16 +232,17 @@ const TreeNode = ({
               align-items: center;
               gap: 8px;
               padding: 6px 12px;
-              background: var(--bg-secondary, #1e1e1e);
-              border: 1px solid var(--border-color, #333);
-              border-radius: 4px;
-              color: var(--text-primary, #fff);
+              background: var(--card);
+              border: 0;
+              border-radius: 7px;
+              color: var(--text);
+              font-family: var(--font-sans);
               font-size: 13px;
               position: absolute;
               top: -1000px;
               left: -1000px;
               pointer-events: none;
-              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+              box-shadow: 0 0 0 0.5px var(--sep), var(--shadow-pop);
             `;
             
             const iconElement = e.currentTarget.querySelector('.tree-node-icon');
@@ -292,13 +287,15 @@ const TreeNode = ({
           })}
         </div>
         <div className="tree-node-content">
+          {/* The chevron column is always reserved, as in an outline view: a
+              group of leaves would otherwise sit left of its own parent. */}
           {nodeHasChevron(node) ? (
             <span className="tree-node-arrow">
               <ExpandIcon expanded={expanded} />
             </span>
-          ) : siblingsHaveChevron ? (
+          ) : (
             <span className="tree-node-arrow tree-node-arrow-placeholder" aria-hidden="true" />
-          ) : null}
+          )}
           {(node.type === 'resource' || node.type === 'apiVersion') && !node.hideCount && (
             <span className="tree-node-count">
               {node.count === undefined || node.count === null ? '-' : `${node.count}`}
@@ -350,7 +347,6 @@ const TreeNode = ({
               isLast={index === filteredChildren.length - 1}
               parentPath={[...parentPath, isLast]}
               ancestorLabels={[...ancestorLabels, node.label]}
-              siblingsHaveChevron={childrenHaveChevron}
             />
           ))}
         </div>

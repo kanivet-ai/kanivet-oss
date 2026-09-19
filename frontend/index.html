@@ -4,11 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>kanivet - Kubernetes Navigator</title>
-  <!-- Preload Inter font to prevent FOUT (Flash of Unstyled Text) -->
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" as="style" />
-  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" />
   <script>
     (function() {
       try {
@@ -20,13 +15,19 @@
         if (mode === 'custom') mode = 'dark';
         document.documentElement.setAttribute('data-theme', mode);
         document.documentElement.style.colorScheme = mode;
-        document.documentElement.style.backgroundColor = mode === 'dark' ? '#0a0b0f' : '#fbfaf7';
+        document.documentElement.style.backgroundColor = mode === 'dark' ? '#1e1e20' : '#ffffff';
         window.__KANIVET_THEME__ = mode;
       } catch (e) {
         document.documentElement.setAttribute('data-theme', 'dark');
-        document.documentElement.style.backgroundColor = '#0a0b0f';
+        document.documentElement.style.backgroundColor = '#1e1e20';
         window.__KANIVET_THEME__ = 'dark';
       }
+      try {
+        var ua = navigator.userAgent || '';
+        if (/Electron/.test(ua) && /Macintosh/.test(ua)) {
+          document.documentElement.setAttribute('data-chrome', 'inset');
+        }
+      } catch (e) {}
     })();
     window.addEventListener('error', function(e) {
       if (e.message && e.message.includes('ResizeObserver loop completed with undelivered notifications')) {
@@ -37,26 +38,26 @@
     }, true);
   </script>
   <style>
-    #native-splash{position:fixed;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;z-index:999999;transition:opacity .3s ease}
-    #native-splash.dark{background:#0a0b0f}
-    #native-splash.light{background:#fbfaf7}
-    #native-splash .content{display:flex;flex-direction:column;align-items:center;gap:24px;animation:fadeIn .5s ease-out}
-    #native-splash .k{display:block;width:88px;height:88px;filter:drop-shadow(0 10px 24px rgba(64,57,168,0.35));animation:float 3s ease-in-out infinite}
-    #native-splash .title{font-size:42px;font-weight:700;margin:0;letter-spacing:-0.02em;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-    #native-splash.dark .title{color:#ecedf0}
-    #native-splash.light .title{color:#14131a}
-    #native-splash .loader{width:200px;height:3px;border-radius:2px;overflow:hidden}
-    #native-splash.dark .loader{background:#161922}
-    #native-splash.light .loader{background:#ede9e1}
+    #native-splash{position:fixed;top:0;left:0;width:100vw;height:100vh;display:flex;align-items:center;justify-content:center;z-index:999999;transition:opacity .3s ease;font-family:-apple-system,BlinkMacSystemFont,'SF Pro Text','Helvetica Neue','Segoe UI',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+    #native-splash.dark{background:#1e1e20}
+    #native-splash.light{background:#ffffff}
+    #native-splash .content{display:flex;flex-direction:column;align-items:center;gap:22px;animation:fadeIn .5s ease-out}
+    #native-splash .k{display:block;width:84px;height:84px;border-radius:20px;filter:drop-shadow(0 12px 28px rgba(77,68,196,0.35));animation:float 3s ease-in-out infinite}
+    #native-splash .title{font-size:26px;font-weight:600;margin:0;letter-spacing:-0.4px}
+    #native-splash.dark .title{color:#f5f5f7}
+    #native-splash.light .title{color:#1d1d1f}
+    #native-splash .loader{width:180px;height:4px;border-radius:2px;overflow:hidden}
+    #native-splash.dark .loader{background:rgba(120,120,128,0.26)}
+    #native-splash.light .loader{background:rgba(120,120,128,0.12)}
     #native-splash .bar{width:40%;height:100%;border-radius:2px;animation:loading 1.2s ease-in-out infinite}
-    #native-splash.dark .bar{background:linear-gradient(90deg,#8a8cff,#a5a7ff)}
-    #native-splash.light .bar{background:linear-gradient(90deg,#4039a8,#5b54c4)}
-    #native-splash .msg{font-size:14px;margin:0;min-height:20px;animation:pulse 2.5s ease-in-out infinite;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif}
-    #native-splash.dark .msg{color:#767889}
-    #native-splash.light .msg{color:#7a7589}
+    #native-splash.dark .bar{background:#0a84ff}
+    #native-splash.light .bar{background:#007aff}
+    #native-splash .msg{font-size:12.5px;margin:0;min-height:18px;animation:pulse 2.5s ease-in-out infinite}
+    #native-splash.dark .msg{color:rgba(235,235,245,0.62)}
+    #native-splash.light .msg{color:rgba(60,60,67,0.62)}
     @media (prefers-reduced-motion:reduce){#native-splash .k,#native-splash .msg{animation:none}}
-    @keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
-    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
+    @keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+    @keyframes float{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
     @keyframes loading{0%{transform:translateX(-100%)}100%{transform:translateX(350%)}}
     @keyframes pulse{0%,100%{opacity:.6}50%{opacity:1}}
     #native-splash.hiding{opacity:0;pointer-events:none}

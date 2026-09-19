@@ -1,9 +1,17 @@
+/* Event — tinted type badge in the summary card, message on an inset block. */
 .event-type-badge {
-  font-size: var(--font-xxxs);
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  text-transform: uppercase;
-  padding: 1px 5px;
-  border-radius: 3px;
+  text-transform: none;
+  letter-spacing: 0;
+  background: var(--ctrl);
+  color: var(--text2);
+  white-space: nowrap;
 }
 
 .event-type-badge.event-type-warning {
@@ -12,25 +20,25 @@
 }
 
 .event-type-badge.event-type-normal {
-  background: var(--success-bg);
-  color: var(--success-fg);
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .event-message-box {
   position: relative;
-  margin: 0 var(--property-padding-x);
-  padding: 6px 26px 6px 8px;
-  background: var(--bg-subtle);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xs);
+  margin: 8px 14px;
+  padding: 10px 36px 10px 12px;
+  background: var(--inset);
+  border: 0;
+  border-radius: 8px;
 }
 
 .event-message-box pre {
   margin: 0;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
-  line-height: 1.4;
-  color: var(--text-primary);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
@@ -38,6 +46,6 @@
 
 .event-message-box .clipboard-copy-btn {
   position: absolute;
-  top: 4px;
-  right: 4px;
+  top: 6px;
+  right: 6px;
 }

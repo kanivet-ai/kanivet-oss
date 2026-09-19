@@ -28,7 +28,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
   };
   return (
     <div className="incident-toolbar">
-      <div className="toolbar-group">
+      <div className="toolbar-group ap-segmented">
         {SEVERITIES.map((s) => (
           <button
             key={s}
@@ -40,7 +40,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
           </button>
         ))}
       </div>
-      <div className="toolbar-group">
+      <div className="toolbar-group ap-segmented">
         {RANGES.map((r) => (
           <button
             key={r.label}
@@ -53,6 +53,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
         ))}
       </div>
       <select
+        className="ap-select"
         value={(filters.namespaces || [])[0] || ''}
         onChange={(e) => onChange({ namespaces: e.target.value ? [e.target.value] : [] })}
       >
@@ -62,6 +63,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
         ))}
       </select>
       <select
+        className="ap-select"
         value={(filters.kinds || [])[0] || ''}
         onChange={(e) => onChange({ kinds: e.target.value ? [e.target.value] : [] })}
       >
@@ -72,6 +74,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
       </select>
       <input
         type="text"
+        className="ap-input"
         placeholder="Search..."
         value={filters.search || ''}
         onChange={(e) => onChange({ search: e.target.value })}
@@ -84,7 +87,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
         />
         Include routine
       </label>
-      <button className="refresh-btn" onClick={onRefresh} type="button">Refresh</button>
+      <button className="refresh-btn ap-btn" onClick={onRefresh} type="button">Refresh</button>
     </div>
   );
 };

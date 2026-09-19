@@ -9,9 +9,11 @@ import (
 	"io"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -210,8 +212,18 @@ func (p *MimirProvider) doMimirRequest(cluster string, pfInfo *PortForwardInfo, 
 	return pfInfo.HTTPClient.Do(req)
 }
 
+// mimirPoolKey identifies a port-forward by the Service it reaches.
+func mimirPoolKey(cluster string, info *ProviderInfo) string {
+	return "mimir|" + cluster + "|" + info.Namespace + "/" + info.Service
+}
+
+// forgetDetection drops the cached provider so the next query re-detects.
+func (p *MimirProvider) forgetDetection(cluster string) {
+	p.cache.Delete(p.cache.BuildKey("mimir-info", cluster))
+}
+
 func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInfo) (*PortForwardInfo, error) {
-	cacheKey := "mimir-" + cluster + "-" + info.Namespace + "-" + info.Service
+	cacheKey := mimirPoolKey(cluster, info)
 	if pfi, ok := p.portForwardPool.Load(cacheKey); ok {
 		pfInfo := pfi.(*PortForwardInfo)
 		pfInfo.Mutex.Lock()
@@ -226,10 +238,14 @@ func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInf
 	}
 	podName := p.findMimirPod(cluster, info.Namespace, info.Service)
 	if podName == "" {
-		return nil, fmt.Errorf("no mimir pod found")
+		// Nothing ready behind the Service any more: forget the detection so
+		// the next query re-detects instead of failing until the cache expires.
+		p.forgetDetection(cluster)
+		return nil, fmt.Errorf("no ready pod behind %s/%s", info.Namespace, info.Service)
 	}
 	pf, err := p.k8s.CreatePortForward(cluster, info.Namespace, podName, int(targetPort))
 	if err != nil {
+		p.forgetDetection(cluster)
 		return nil, fmt.Errorf("failed to create port forward: %w", err)
 	}
 
@@ -252,46 +268,27 @@ func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInf
 		PortForward: pf,
 		HTTPClient:  httpClient,
 		LastUsed:    time.Now(),
+		BasePath:    "/prometheus",
 	}
 	p.portForwardPool.Store(cacheKey, pfInfo)
 	time.Sleep(100 * time.Millisecond)
 	return pfInfo, nil
 }
 
+// findMimirPod returns a ready pod behind the Service, or "" when none is.
 func (p *MimirProvider) findMimirPod(cluster, namespace, serviceName string) string {
 	clientset, err := p.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	svc, err := clientset.CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
 	if err != nil {
 		return ""
 	}
-
-	var labelSelector string
-	for k, v := range svc.Spec.Selector {
-		if labelSelector != "" {
-			labelSelector += ","
-		}
-		labelSelector += fmt.Sprintf("%s=%s", k, v)
-	}
-
-	pods, err := clientset.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: labelSelector,
-		Limit:         5,
-	})
-	if err != nil || len(pods.Items) == 0 {
-		return ""
-	}
-	for _, pod := range pods.Items {
-		if pod.Status.Phase == v1.PodRunning {
-			return pod.Name
-		}
-	}
-	return ""
+	return listServiceBackends(ctx, clientset, svc).ReadyPod
 }
 
 func (p *MimirProvider) cleanupUnusedPortForwards() {
@@ -333,61 +330,125 @@ func (p *MimirProvider) GetName() string {
 }
 
 func (p *MimirProvider) Detect(cluster string) (*ProviderInfo, error) {
-	cacheKey := p.cache.BuildKey("mimir-info", cluster)
-	data, err := p.cache.GetOrSet(cacheKey, 30*time.Minute, func() (interface{}, error) {
+	return detectCached(p.cache, p.cache.BuildKey("mimir-info", cluster), func() (*ProviderInfo, error) {
 		return p.detectInternal(cluster)
 	})
+}
+
+// DetectAllMimirServices returns every Mimir/Cortex gateway-like Service in
+// the cluster, best first, so the UI can let the operator pick which one to
+// query. This is discovery only — nothing here has been probed.
+func (p *MimirProvider) DetectAllMimirServices(cluster string) ([]*ProviderInfo, error) {
+	discovered, err := p.mimirCandidates(cluster)
 	if err != nil {
 		return nil, err
 	}
-	info := data.(*ProviderInfo)
-	// A user-chosen Mimir service overrides auto-discovery: clusters can expose
-	// several Mimir gateways (e.g. a host-level one and vcluster-mapped copies)
-	// and only one holds the container metrics we query, so the operator's pick
-	// wins. We match the choice against the live candidate list to recover its
-	// port/URL; if it's no longer present we fall back to auto-discovery.
+	infos := make([]*ProviderInfo, 0, len(discovered))
+	for _, d := range discovered {
+		info := *d.info
+		infos = append(infos, &info)
+	}
+	return infos, nil
+}
+
+// detectInternal verifies the discovered gateways best-first: ready pods behind
+// the Service, then a probe of /prometheus/api/v1 through a port-forward with
+// the configured tenant header. A 401 still counts as found — the gateway is
+// there, it just needs a tenant — and is flagged so the UI can ask for one.
+//
+// A user-chosen service overrides auto-discovery: clusters can expose several
+// Mimir gateways (a host-level one plus vcluster-mapped copies) and only one
+// holds the container metrics we query. When the operator picked one it is the
+// only one tried; silently falling back to another would query the wrong data.
+func (p *MimirProvider) detectInternal(cluster string) (*ProviderInfo, error) {
+	discovered, err := p.mimirCandidates(cluster)
+	if err != nil {
+		return nil, err
+	}
+	if len(discovered) == 0 {
+		return &ProviderInfo{Type: "mimir", Found: false, Reason: "no Mimir or Cortex gateway service in this cluster"}, nil
+	}
+
+	toTry := discovered
 	if p.serviceLookup != nil {
 		if ns, svc := p.serviceLookup(cluster); svc != "" {
-			if chosen := p.findCandidate(cluster, ns, svc); chosen != nil {
-				return chosen, nil
+			toTry = nil
+			for _, d := range discovered {
+				if d.info.Service == svc && (ns == "" || d.info.Namespace == ns) {
+					toTry = append(toTry, d)
+				}
+			}
+			if len(toTry) == 0 {
+				return &ProviderInfo{Type: "mimir", Found: false, Reason: fmt.Sprintf("the chosen Mimir service %s/%s no longer exists", ns, svc)}, nil
 			}
 		}
 	}
-	return info, nil
-}
 
-// DetectAllMimirServices returns every Mimir gateway service found in the
-// cluster, highest-priority first, so the UI can let the operator pick which
-// one to query.
-func (p *MimirProvider) DetectAllMimirServices(cluster string) ([]*ProviderInfo, error) {
-	return p.mimirCandidates(cluster)
-}
-
-func (p *MimirProvider) findCandidate(cluster, namespace, service string) *ProviderInfo {
-	candidates, err := p.mimirCandidates(cluster)
+	clientset, err := p.k8s.GetClientForCluster(cluster)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("failed to get cluster client: %w", err)
 	}
-	for _, c := range candidates {
-		if c.Service == service && (namespace == "" || c.Namespace == namespace) {
-			return c
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	var headers map[string]string
+	if p.tenantLookup != nil {
+		if tenant := p.tenantLookup(cluster); tenant != "" {
+			headers = map[string]string{"X-Scope-OrgID": tenant}
 		}
 	}
-	return nil
+
+	var reasons []string
+	for i, d := range toTry {
+		if i >= maxVerifiedCandidates {
+			break
+		}
+		where := d.info.Namespace + "/" + d.info.Service
+
+		backends := listServiceBackends(ctx, clientset, &d.svc)
+		if backends.ReadyPod == "" {
+			reasons = append(reasons, where+": "+backends.describe())
+			continue
+		}
+
+		port := resolvePodPort(ctx, clientset, d.info.Namespace, backends.ReadyPod, d.svcPort, 8080)
+		outcome := probePrometheusAPI(p.k8s, cluster, d.info.Namespace, backends.ReadyPod, port, "/prometheus", headers)
+
+		info := *d.info
+		info.Port = port
+		switch {
+		case outcome.OK:
+			info.Found = true
+			info.Verified = true
+			info.Version = outcome.Version
+			log.Printf("[Mimir] Using %s %s (pod %s:%d, version %q) in cluster %s", info.Flavor, where, backends.ReadyPod, port, outcome.Version, cluster)
+			return &info, nil
+		case outcome.NeedsTenant:
+			info.Found = true
+			info.NeedsTenant = true
+			info.Reason = "reachable, but it needs a tenant (X-Scope-OrgID) before it will answer"
+			log.Printf("[Mimir] %s in cluster %s answers 401 — tenant required", where, cluster)
+			return &info, nil
+		default:
+			reasons = append(reasons, where+": "+outcome.Detail)
+		}
+	}
+
+	reason := joinReasons(reasons, "no Mimir gateway could be verified")
+	log.Printf("[Mimir] No usable provider in cluster %s: %s", cluster, reason)
+	return &ProviderInfo{Type: "mimir", Found: false, Reason: reason}, nil
 }
 
-func (p *MimirProvider) detectInternal(cluster string) (*ProviderInfo, error) {
-	candidates, err := p.mimirCandidates(cluster)
-	if err != nil {
-		return nil, err
-	}
-	if len(candidates) > 0 {
-		return candidates[0], nil
-	}
-	return &ProviderInfo{Type: "mimir", Found: false}, nil
+// mimirDiscovered is a Service that looks like a Mimir/Cortex query gateway,
+// before verification.
+type mimirDiscovered struct {
+	info    *ProviderInfo
+	svc     v1.Service
+	svcPort v1.ServicePort
+	score   int
 }
 
-func (p *MimirProvider) mimirCandidates(cluster string) ([]*ProviderInfo, error) {
+func (p *MimirProvider) mimirCandidates(cluster string) ([]mimirDiscovered, error) {
 	cacheKey := p.cache.BuildKey("mimir-candidates", cluster)
 	cached, err := p.cache.GetOrSet(cacheKey, 60*time.Second, func() (any, error) {
 		return p.mimirCandidatesUncached(cluster)
@@ -395,10 +456,10 @@ func (p *MimirProvider) mimirCandidates(cluster string) ([]*ProviderInfo, error)
 	if err != nil {
 		return nil, err
 	}
-	return cached.([]*ProviderInfo), nil
+	return cached.([]mimirDiscovered), nil
 }
 
-func (p *MimirProvider) mimirCandidatesUncached(cluster string) ([]*ProviderInfo, error) {
+func (p *MimirProvider) mimirCandidatesUncached(cluster string) ([]mimirDiscovered, error) {
 	clientset, err := p.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get cluster client: %w", err)
@@ -407,130 +468,123 @@ func (p *MimirProvider) mimirCandidatesUncached(cluster string) ([]*ProviderInfo
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	// Single API call to get ALL services across all namespaces, served from
-	// the apiserver watch cache instead of a quorum etcd read.
+	// One call for every Service, served from the apiserver watch cache
+	// instead of a quorum etcd read.
 	services, err := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{ResourceVersion: "0"})
 	if err != nil {
 		return nil, fmt.Errorf("failed to list services: %w", err)
 	}
 
-	// Priority order: mimir-nginx > mimir-gateway > mimir-query-frontend > any mimir service
-	mimirServicePatterns := []string{"mimir-nginx", "mimir-gateway", "mimir-query-frontend"}
-	var candidates []*ProviderInfo
-
-	for _, svc := range services.Items {
-		svcNameLower := strings.ToLower(svc.Name)
-		priority := -1
-		for i, pattern := range mimirServicePatterns {
-			if svcNameLower == pattern || strings.HasPrefix(svcNameLower, pattern) {
-				priority = len(mimirServicePatterns) - i
-				break
-			}
-		}
-		if priority < 0 && strings.Contains(svcNameLower, "mimir") {
-			priority = 0
-		}
-		if priority < 0 {
-			continue
-		}
-
-		// Get the target port (container port) for port-forwarding
-		var port int32
-		for _, sp := range svc.Spec.Ports {
-			if sp.Name == "http" || sp.Name == "http-metric" || sp.Port == 80 || sp.Port == 8080 {
-				// Use TargetPort if it's a number, otherwise default to common ports
-				if sp.TargetPort.IntVal > 0 {
-					port = sp.TargetPort.IntVal
-				} else {
-					// Named port - use common defaults
-					port = 8080
-				}
-				break
-			}
-		}
-		if port == 0 && len(svc.Spec.Ports) > 0 {
-			if svc.Spec.Ports[0].TargetPort.IntVal > 0 {
-				port = svc.Spec.Ports[0].TargetPort.IntVal
-			} else {
-				port = 8080 // Default for mimir components
-			}
-		}
-
-		candidate := &ProviderInfo{
-			Type:      "mimir",
-			Found:     true,
-			Namespace: svc.Namespace,
-			Service:   svc.Name,
-			URL:       fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/prometheus", svc.Name, svc.Namespace, port),
-			Port:      port,
-		}
-		// Insert by priority (higher priority first)
-		inserted := false
-		for i, c := range candidates {
-			existingPriority := 0
-			for j, pattern := range mimirServicePatterns {
-				if strings.HasPrefix(strings.ToLower(c.Service), pattern) {
-					existingPriority = len(mimirServicePatterns) - j
-					break
-				}
-			}
-			if priority > existingPriority {
-				candidates = append(candidates[:i], append([]*ProviderInfo{candidate}, candidates[i:]...)...)
-				inserted = true
-				break
-			}
-		}
-		if !inserted {
-			candidates = append(candidates, candidate)
-		}
-	}
-
-	// Candidates are returned highest-priority first without a connectivity
-	// check (we trust k8s service discovery); connectivity is verified on the
-	// first actual query.
-	return candidates, nil
+	return mimirCandidatesFromServices(services.Items), nil
 }
 
-func (p *MimirProvider) verifyConnectivity(cluster string, info *ProviderInfo) bool {
-	podName := p.findMimirPod(cluster, info.Namespace, info.Service)
-	if podName == "" {
-		return false
-	}
-
-	targetPort := info.Port
-	if targetPort == 0 {
-		targetPort = 8080
-	}
-
-	pf, err := p.k8s.CreatePortForward(cluster, info.Namespace, podName, int(targetPort))
-	if err != nil {
-		return false
-	}
-	defer func() {
-		_ = p.k8s.StopPortForward(pf.ID)
-	}()
-
-	time.Sleep(200 * time.Millisecond)
-
-	client := &http.Client{Timeout: 3 * time.Second}
-	endpoints := []string{
-		fmt.Sprintf("http://localhost:%d/prometheus/api/v1/status/buildinfo", pf.LocalPort),
-		fmt.Sprintf("http://localhost:%d/prometheus/api/v1/query?query=up", pf.LocalPort),
-		fmt.Sprintf("http://localhost:%d/api/v1/status/buildinfo", pf.LocalPort),
-		fmt.Sprintf("http://localhost:%d/ready", pf.LocalPort),
-	}
-
-	for _, endpoint := range endpoints {
-		resp, err := client.Get(endpoint)
-		if err != nil {
-			continue
-		}
-		resp.Body.Close()
-		if resp.StatusCode == 200 {
-			return true
+// mimirCandidatesFromServices classifies and ranks Services, best first.
+func mimirCandidatesFromServices(services []v1.Service) []mimirDiscovered {
+	var out []mimirDiscovered
+	for _, svc := range services {
+		if d, ok := classifyMimirService(svc); ok {
+			out = append(out, d)
 		}
 	}
-	return false
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].score != out[j].score {
+			return out[i].score > out[j].score
+		}
+		if out[i].svc.Namespace != out[j].svc.Namespace {
+			return out[i].svc.Namespace < out[j].svc.Namespace
+		}
+		return out[i].svc.Name < out[j].svc.Name
+	})
+	return out
+}
+
+// mimirExcludedFragments mark Mimir/Cortex components (and neighbours in the
+// same chart) that do not serve the query API.
+var mimirExcludedFragments = []string{
+	"ingester", "distributor", "compactor", "store-gateway", "storegateway",
+	"alertmanager", "ruler", "exporter", "memcached", "cache", "rollout-operator",
+	"gossip", "admin-api", "tokengen", "continuous-test", "smoke-test", "graphite",
+	"operator", "meta-monitoring", "minio", "grafana", "loki", "tempo", "pyroscope",
+	"alloy", "agent", "scheduler",
+}
+
+// classifyMimirService decides whether a Service is a Mimir or Cortex
+// endpoint we can query (nginx/gateway, query-frontend, querier, the "read"
+// half of the simple-scalable layout, or a monolithic single service), picks
+// the port to talk to, and ranks it: gateways first, then well-known
+// namespaces; vcluster-synced copies ("-x-" in the name) rank behind the host
+// service they mirror.
+func classifyMimirService(svc v1.Service) (mimirDiscovered, bool) {
+	name := strings.ToLower(svc.Name)
+	ns := strings.ToLower(svc.Namespace)
+	labels := lowerLabels(svc.Labels)
+	appName := labels["app.kubernetes.io/name"]
+	component := labels["app.kubernetes.io/component"]
+	haystack := strings.Join([]string{name, appName, component, labels["app"], labels["component"], labels["name"]}, " ")
+
+	flavor := ""
+	switch {
+	case containsAny(haystack, "mimir", "enterprise-metrics", "gem-gateway"):
+		flavor = "mimir"
+	case strings.Contains(haystack, "cortex"):
+		flavor = "cortex"
+	default:
+		return mimirDiscovered{}, false
+	}
+	for _, frag := range mimirExcludedFragments {
+		if strings.Contains(haystack, frag) {
+			return mimirDiscovered{}, false
+		}
+	}
+	if strings.HasSuffix(name, "-write") || strings.HasSuffix(name, "-backend") {
+		return mimirDiscovered{}, false
+	}
+
+	role := 0
+	switch {
+	case containsAny(haystack, "nginx", "gateway"):
+		role = 3
+	case containsAny(haystack, "query-frontend", "queryfrontend", "query_frontend"), strings.HasSuffix(name, "-read"):
+		role = 2
+	case strings.Contains(haystack, "querier"):
+		role = 1
+	default:
+		// Only a monolithic single service qualifies here. Anything else that
+		// carries the name is a component we do not know how to query.
+		monolith := name == flavor || component == "" || component == flavor ||
+			containsAny(component, "monolith", "single-binary", "all")
+		if !monolith || (name != flavor && appName != flavor) {
+			return mimirDiscovered{}, false
+		}
+	}
+
+	score := role*100 + rankMonitoringNamespace(ns)
+	if strings.Contains(name, "-x-") {
+		score -= 30
+	}
+	if svc.Spec.ClusterIP == v1.ClusterIPNone {
+		score -= 5
+	}
+	if isBundledNamespace(ns) {
+		score -= 100
+	}
+
+	svcPort, _ := pickServicePort(svc.Spec.Ports, []int32{80, 8080}, []string{"http-metric", "http-metrics", "http"})
+	port := svcPort.TargetPort.IntVal
+	if port == 0 {
+		port = 8080 // component default; resolved against the pod at verification time
+	}
+	info := &ProviderInfo{
+		Type:      "mimir",
+		Found:     true,
+		Flavor:    flavor,
+		Namespace: svc.Namespace,
+		Service:   svc.Name,
+		Port:      port,
+		Path:      "/prometheus",
+		URL:       fmt.Sprintf("http://%s.%s.svc.cluster.local:%d/prometheus", svc.Name, svc.Namespace, svcPort.Port),
+	}
+	return mimirDiscovered{info: info, svc: svc, svcPort: svcPort, score: score}, true
 }
 
 func (p *MimirProvider) IsInstalled(cluster string) bool {
@@ -576,7 +630,7 @@ func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*Metric
 	fullURL := queryURL + "?" + params.Encode()
 	resp, err := p.doMimirRequest(cluster, pfInfo, fullURL)
 	if err != nil {
-		p.portForwardPool.Delete("mimir-" + cluster)
+		p.portForwardPool.Delete(mimirPoolKey(cluster, info))
 		return nil, fmt.Errorf("failed to query mimir: %w", err)
 	}
 	defer resp.Body.Close()
@@ -706,7 +760,7 @@ func (p *MimirProvider) QueryWorkloadMetrics(cluster string, query WorkloadMetri
 	fullURL := queryURL + "?" + params.Encode()
 	resp, err := p.doMimirRequest(cluster, pfInfo, fullURL)
 	if err != nil {
-		p.portForwardPool.Delete("mimir-" + cluster)
+		p.portForwardPool.Delete(mimirPoolKey(cluster, info))
 		return nil, fmt.Errorf("failed to query mimir: %w", err)
 	}
 	defer resp.Body.Close()

@@ -165,27 +165,27 @@ export const CostBreakdownBar: React.FC<CostBreakdownBarProps> = ({
       <div className="breakdown-bar" style={{ height }}>
         <div
           className="breakdown-segment cpu"
-          style={{ width: `${cpuPercent}%`, backgroundColor: 'var(--chart-cpu)' }}
+          style={{ width: `${cpuPercent}%` }}
           title={`CPU: ${formatCost(cpuCost)}`}
         />
         <div
           className="breakdown-segment memory"
-          style={{ width: `${memPercent}%`, backgroundColor: 'var(--chart-memory)' }}
+          style={{ width: `${memPercent}%` }}
           title={`Memory: ${formatCost(memoryCost)}`}
         />
         {storageCost > 0 && (
           <div
             className="breakdown-segment storage"
-            style={{ width: `${storagePercent}%`, backgroundColor: 'var(--chart-storage)' }}
+            style={{ width: `${storagePercent}%` }}
             title={`Storage: ${formatCost(storageCost)}`}
           />
         )}
       </div>
       {showLabels && (
         <div className="breakdown-labels">
-          <span style={{ color: 'var(--chart-cpu)' }}>CPU</span>
-          <span style={{ color: 'var(--chart-memory)' }}>Mem</span>
-          {storageCost > 0 && <span style={{ color: 'var(--chart-storage)' }}>Stor</span>}
+          <span className="cpu">CPU</span>
+          <span className="memory">Mem</span>
+          {storageCost > 0 && <span className="storage">Stor</span>}
         </div>
       )}
     </div>

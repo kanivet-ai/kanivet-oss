@@ -1,5 +1,11 @@
+/*
+  Property group = a settings-style card group:
+  an 11.5px/600 label above a card of hairline-separated rows.
+  Nested groups (Labels, Annotations…) become rows of the parent card that
+  reveal an inset area.
+*/
 .property-group {
-  margin-bottom: 1px;
+  margin: 0 14px 14px;
 }
 
 .property-group-muted {
@@ -9,21 +15,21 @@
 .property-group-trigger {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
   width: 100%;
-  min-height: var(--property-group-header-height);
-  padding: 0 var(--property-padding-x);
+  min-height: 22px;
+  padding: 0 0 6px 2px;
   background: transparent;
   border: none;
-  cursor: pointer;
-  font-size: var(--font-xxs);
-  color: var(--text-muted);
+  cursor: default;
+  font-size: 11.5px;
+  color: var(--text2);
   text-align: left;
-  transition: color 0.1s ease;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
 .property-group-trigger:hover {
-  color: var(--text-secondary);
+  color: var(--text);
 }
 
 .property-group-chevron {
@@ -33,13 +39,13 @@
   width: 12px;
   height: 12px;
   flex-shrink: 0;
-  transition: transform 0.12s ease;
-  color: var(--text-muted);
+  transition: transform var(--duration-fast) var(--ease-quiet);
+  color: var(--text3);
 }
 
 .property-group-chevron svg {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 
 .property-group[data-state='open'] .property-group-chevron {
@@ -49,33 +55,35 @@
 .property-group-icon {
   display: flex;
   align-items: center;
-  color: var(--accent);
+  color: var(--text3);
 }
 
 .property-group-icon svg {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
 }
 
 .property-group-title {
   font-family: var(--font-sans);
-  font-weight: var(--font-weight-semibold);
-  font-size: var(--font-xxs);
-  letter-spacing: var(--letter-spacing-wider);
-  color: var(--text-muted);
+  font-weight: 600;
+  font-size: 11.5px;
+  letter-spacing: 0.01em;
+  color: inherit;
+  text-transform: none;
 }
 
 .property-group-count {
   font-family: var(--font-sans);
-  font-size: var(--font-xxxs);
-  font-weight: var(--font-weight-medium);
-  color: var(--text-muted);
-  background: var(--bg-subtle);
-  padding: 0 4px;
-  border-radius: 6px;
-  margin-left: 3px;
-  min-width: 14px;
-  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text3);
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+  margin-left: 2px;
+  min-width: 0;
+  text-align: left;
+  font-variant-numeric: tabular-nums;
 }
 
 .property-group-actions {
@@ -90,48 +98,86 @@
 }
 
 @keyframes slideDown {
-  from {
-    height: 0;
-    opacity: 0;
-  }
-  to {
-    height: var(--radix-collapsible-content-height);
-    opacity: 1;
-  }
+  from { height: 0; opacity: 0; }
+  to { height: var(--radix-collapsible-content-height); opacity: 1; }
 }
 
 @keyframes slideUp {
-  from {
-    height: var(--radix-collapsible-content-height);
-    opacity: 1;
-  }
-  to {
-    height: 0;
-    opacity: 0;
-  }
+  from { height: var(--radix-collapsible-content-height); opacity: 1; }
+  to { height: 0; opacity: 0; }
 }
 
 .property-group-inner {
-  padding: 2px 0 0px 0;
+  padding: 0;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
 }
 
+/* Nested group → a row of the parent card */
 .property-group .property-group {
-  margin-left: 0;
+  margin: 0;
 }
 
 .property-group .property-group .property-group-trigger {
-  padding-left: var(--property-padding-x);
-  min-height: 20px;
+  min-height: 34px;
+  padding: 0 14px;
+  border-top: 1px solid var(--hair);
+  font-size: 12.5px;
+  color: var(--text);
+  gap: 8px;
+}
+
+.property-group .property-group:first-child .property-group-trigger {
+  border-top: 0;
+}
+
+.property-group .property-group .property-group-trigger:hover {
+  background: var(--hover);
 }
 
 .property-group .property-group .property-group-title {
-  font-size: var(--font-xxxs);
+  font-size: 12.5px;
+  font-weight: 400;
+  letter-spacing: 0;
+  flex: 1;
+}
+
+.property-group .property-group .property-group-chevron {
+  order: 10;
+  margin-left: auto;
+  color: var(--text3);
+}
+
+.property-group .property-group .property-group-count {
+  order: 9;
+  font-size: 12.5px;
+  color: var(--text2);
+  margin-left: auto;
+}
+
+.property-group .property-group .property-group-title + .property-group-count {
+  margin-left: auto;
+}
+
+.property-group .property-group .property-group-count + .property-group-chevron {
+  margin-left: 0;
 }
 
 .property-group .property-group .property-group-icon {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .property-group .property-group .property-group-inner {
-  padding: 2px 0 8px 0;
+  padding: 8px 14px 10px;
+  background: var(--inset);
+  border-radius: 0;
+  box-shadow: none;
+  border-top: 1px solid var(--hair);
+}
+
+.property-group .property-group .property-group-inner .property-row {
+  padding-left: 0;
+  padding-right: 0;
 }

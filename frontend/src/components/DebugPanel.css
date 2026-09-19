@@ -1,8 +1,9 @@
+/* Dev-only debug panel: status-bar chrome on --win, mono stats on --content. */
 .debug-panel {
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
+  background: var(--win);
+  border-top: 1px solid var(--sep);
   font-size: 11px;
-  color: var(--text-secondary);
+  color: var(--text2);
   user-select: none;
   position: relative;
   z-index: 5;
@@ -11,56 +12,58 @@
 }
 
 .debug-header {
-  padding: 6px 12px;
-  cursor: pointer;
+  height: 24px;
+  padding: 0 12px;
+  cursor: default;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: var(--bg-tertiary);
-  border-bottom: 1px solid var(--border);
-  transition: background 0.2s;
+  background: var(--win);
+  border-bottom: 1px solid var(--hair);
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .debug-header:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .debug-title {
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  font-size: 10px;
-  color: var(--text-primary);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  font-size: 11px;
+  color: var(--text2);
 }
 
 .debug-toggle {
   font-size: 10px;
-  color: var(--text-secondary);
+  color: var(--text3);
 }
 
 .debug-content {
   padding: 8px 12px;
   overflow-y: auto;
-  border-bottom: 1px solid var(--border);
-  transition: height 0.1s ease;
+  border-bottom: 1px solid var(--hair);
+  background: var(--content);
+  transition: height var(--duration-fast) var(--ease-quiet);
 }
 
 .debug-section {
-  margin-bottom: 12px;
+  margin-bottom: 10px;
 }
 
 .debug-section:last-child {
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .debug-section-title {
   font-weight: 600;
   margin-bottom: 4px;
-  color: var(--text-primary);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  opacity: 0.8;
+  color: var(--text2);
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  opacity: 1;
 }
 
 .debug-stat {
@@ -68,22 +71,24 @@
   justify-content: space-between;
   align-items: center;
   padding: 2px 0;
-  font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+  font-family: var(--font-mono);
+  font-size: 11px;
 }
 
 .debug-label {
-  color: var(--text-secondary);
-  opacity: 0.8;
+  color: var(--text2);
+  opacity: 1;
+  font-family: var(--font-sans);
 }
 
 .debug-value {
-  color: var(--accent);
+  color: var(--text);
   font-weight: 500;
   font-variant-numeric: tabular-nums;
 }
 
 .debug-footer {
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--hair);
   padding-top: 6px;
   margin-top: 8px;
   display: flex;
@@ -91,27 +96,27 @@
 }
 
 .debug-timestamp {
-  font-size: 10px;
-  color: var(--text-secondary);
-  opacity: 0.6;
+  font-size: 10.5px;
+  color: var(--text3);
+  opacity: 1;
   font-variant-numeric: tabular-nums;
 }
 
 .debug-content::-webkit-scrollbar {
-  width: 6px;
+  width: 8px;
 }
 
 .debug-content::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 .debug-content::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 3px;
+  background: var(--ctrl2);
+  border-radius: 8px;
 }
 
 .debug-content::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .debug-resize-handle {
@@ -123,15 +128,15 @@
   cursor: ns-resize;
   background: transparent;
   z-index: 10;
-  transition: background 0.2s;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .debug-resize-handle:hover {
-  background: var(--accent);
-  opacity: 0.5;
+  background: var(--sep);
+  opacity: 1;
 }
 
 .debug-resize-handle.resizing {
-  background: var(--accent);
-  opacity: 0.7;
+  background: var(--blue);
+  opacity: 1;
 }

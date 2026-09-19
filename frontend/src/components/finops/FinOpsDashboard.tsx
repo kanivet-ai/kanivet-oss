@@ -677,7 +677,7 @@ const FinOpsDashboard: React.FC = () => {
                                                     <span className="metric-value">{cpuUtil}%</span>
                                                   </div>
                                                   <div className="metric-row">
-                                                    <span className="metric-label">MEM</span>
+                                                    <span className="metric-label">Memory</span>
                                                     <div className="metric-bar">
                                                       <div className="metric-fill mem" style={{ width: `${memUtil}%` }} />
                                                     </div>
@@ -695,7 +695,7 @@ const FinOpsDashboard: React.FC = () => {
                                                 </div>
                                                 {nodeInfo.isSpot && (
                                                   <div className="footer-item spot">
-                                                    <span className="footer-label">spot</span>
+                                                    <span className="footer-label">Spot</span>
                                                   </div>
                                                 )}
                                               </div>
@@ -795,7 +795,7 @@ const FinOpsDashboard: React.FC = () => {
                                 <td className="col-expand"></td>
                                 <td className="col-name">
                                   {node.nodeName.split('.')[0]}
-                                  {node.isSpot && <span className="spot-badge-sm">spot</span>}
+                                  {node.isSpot && <span className="spot-badge-sm">Spot</span>}
                                 </td>
                                 <td className="col-count">{node.podCount} pods</td>
                                 <td className="col-util">

@@ -14,10 +14,10 @@ const ICONS: Record<DashboardOverviewMetric['iconKey'], ReactNode> = {
 };
 
 const buildMetrics = (counts: Record<string, number>): DashboardOverviewMetric[] => ([
-  { title: 'Nodes', value: counts[':nodes'] || 0, color: '#10b981', iconKey: 'nodes' },
-  { title: 'Pods', value: counts[':pods'] || 0, color: '#3b82f6', iconKey: 'pods' },
-  { title: 'Services', value: counts[':services'] || 0, color: '#8b5cf6', iconKey: 'services' },
-  { title: 'Namespaces', value: counts[':namespaces'] || 0, color: '#f59e0b', iconKey: 'namespaces' },
+  { title: 'Nodes', value: counts[':nodes'] || 0, color: 'var(--green)', iconKey: 'nodes' },
+  { title: 'Pods', value: counts[':pods'] || 0, color: 'var(--blue)', iconKey: 'pods' },
+  { title: 'Services', value: counts[':services'] || 0, color: 'var(--purple)', iconKey: 'services' },
+  { title: 'Namespaces', value: counts[':namespaces'] || 0, color: 'var(--orange)', iconKey: 'namespaces' },
 ]);
 
 const EMPTY_DASHBOARD = { metrics: [] as DashboardOverviewMetric[], resourceUsage: null, podStatus: null, nodeStatus: null, events: [] as any[], alerts: [] as any[], clusterInfo: null };
@@ -87,9 +87,9 @@ const ClusterOverview: React.FC = () => {
   }, [currentTab]);
 
   const renderMetricCard = (metric: DashboardOverviewMetric) => (
-    <div key={metric.title} className="metric-card" style={{ borderLeftColor: metric.color }}>
+    <div key={metric.title} className="metric-card">
       <div className="metric-header">
-        <span className="metric-icon">{ICONS[metric.iconKey]}</span>
+        <span className="metric-icon" style={{ color: metric.color }}>{ICONS[metric.iconKey]}</span>
         <span className="metric-title">{metric.title}</span>
       </div>
       <div className="metric-value">{metric.value.toLocaleString()}</div>
@@ -144,7 +144,7 @@ const ClusterOverview: React.FC = () => {
             <path
               key={segment.key}
               d={segment.path}
-              fill={segment.color}
+              style={{ fill: segment.color }}
               className="donut-segment"
             />
           ))}
@@ -190,8 +190,8 @@ const ClusterOverview: React.FC = () => {
         <div className="overview-section">
           <h4>Resource Utilization</h4>
           <div className="resource-usage">
-            {renderResourceBar('CPU', clusterData.resourceUsage.cpu, ' cores', '#3b82f6')}
-            {renderResourceBar('Memory', clusterData.resourceUsage.memory, ' GiB', '#10b981')}
+            {renderResourceBar('CPU', clusterData.resourceUsage.cpu, ' cores', 'var(--chart-cpu)')}
+            {renderResourceBar('Memory', clusterData.resourceUsage.memory, ' GiB', 'var(--chart-memory)')}
           </div>
         </div>
       )}
@@ -201,10 +201,10 @@ const ClusterOverview: React.FC = () => {
         <div className="overview-section">
           <h4>Pod Status Distribution</h4>
           {renderDonutChart(clusterData.podStatus as unknown as Record<string, number>, {
-            running: '#10b981',
-            pending: '#f59e0b',
-            failed: '#ef4444',
-            succeeded: '#8b5cf6'
+            running: 'var(--green)',
+            pending: 'var(--orange)',
+            failed: 'var(--red)',
+            succeeded: 'var(--purple)'
           })}
         </div>
       )}

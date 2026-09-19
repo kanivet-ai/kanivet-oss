@@ -242,7 +242,7 @@ export const formatSuspendStatus = (item: any): React.ReactElement => {
   return (
     <span
       style={{
-        color: suspended ? 'var(--warning)' : 'var(--success)',
+        color: suspended ? 'var(--warning-fg)' : 'var(--success-fg)',
         fontWeight: '500',
       }}
     >
@@ -317,7 +317,7 @@ export const formatNodeTaints = (item: any): React.ReactElement => {
   const taints = item.taints;
 
   if (!taints || !Array.isArray(taints) || taints.length === 0) {
-    return <span style={{ color: 'var(--success)' }}>None</span>;
+    return <span style={{ color: 'var(--success-fg)' }}>None</span>;
   }
 
   const taintCount = taints.length;
@@ -327,7 +327,7 @@ export const formatNodeTaints = (item: any): React.ReactElement => {
     .join(', ');
 
   return (
-    <span style={{ color: 'var(--warning)' }}>
+    <span style={{ color: 'var(--warning-fg)' }}>
       {taintSummary}
       {taintCount > 2 ? ` +${taintCount - 2} more` : ''}
     </span>
@@ -410,7 +410,7 @@ export const formatSecretsCount = (item: any): string => {
 export const formatAutomountToken = (item: any): React.ReactElement => {
   // Backend now extracts automountServiceAccountToken
   const automount = item.automountServiceAccountToken;
-  const color = automount === false ? 'var(--warning)' : 'var(--success)';
+  const color = automount === false ? 'var(--warning-fg)' : 'var(--success-fg)';
 
   return (
     <span style={{ color, fontWeight: '500' }}>

@@ -1,56 +1,61 @@
+/* Update toast — translucent toolbar surface, popover shadow. */
 .update-toast {
   position: relative;
-  width: 280px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-lg), 0 0 0 1px var(--border-subtle) inset;
-  padding: 14px 16px;
-  animation: toastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  width: 300px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.4);
+  -webkit-backdrop-filter: blur(30px) saturate(1.4);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 12px 14px;
+  animation: toastSlideIn var(--duration-base) var(--ease-quiet);
 }
 
 @keyframes toastSlideIn {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.95);
+    transform: translateY(8px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
 .update-toast-close {
   position: absolute;
-  top: 10px;
-  right: 10px;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text3);
   cursor: pointer;
-  padding: 4px;
-  border-radius: var(--radius-xs);
+  padding: 0;
+  border-radius: 5px;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .update-toast-close:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .update-toast-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
+  gap: 8px;
+  margin-bottom: 6px;
   padding-right: 24px;
 }
 
 .update-toast-icon {
-  color: var(--accent);
+  color: var(--blue);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -67,41 +72,42 @@
 }
 
 .update-toast-title {
-  font-size: var(--font-base);
+  font-size: 13px;
   font-weight: 600;
-  color: var(--text-primary);
-  letter-spacing: -0.01em;
+  color: var(--text);
+  letter-spacing: -0.1px;
 }
 
 .update-toast-body {
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
-  margin-bottom: 14px;
+  font-size: 12.5px;
+  color: var(--text2);
+  margin-bottom: 12px;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  line-height: var(--line-height-base);
+  line-height: 1.45;
 }
 
 .update-toast-progress {
   width: 100%;
   height: 4px;
-  background: var(--bg-tertiary);
+  background: var(--ctrl);
   border-radius: 2px;
   overflow: hidden;
 }
 
 .update-toast-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent), var(--success));
+  background: var(--blue);
   border-radius: 2px;
-  transition: width 0.3s ease;
+  transition: width var(--duration-slow) var(--ease-quiet);
 }
 
 .update-toast-percent {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text3);
   text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .update-toast-actions {
@@ -109,37 +115,42 @@
   gap: 8px;
 }
 
+/* .ap-btn values */
 .update-toast-btn {
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 8px 14px;
-  height: 32px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
+  padding: 0 12px;
+  height: 28px;
+  border-radius: 7px;
+  font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
   border: none;
   outline: none;
   line-height: 1;
+  background-color: var(--card);
+  color: var(--text);
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .update-toast-btn-primary {
-  background: var(--accent);
-  color: white;
-  box-shadow: var(--shadow-sm);
+  background-color: var(--blue);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .update-toast-btn-primary:hover {
-  filter: brightness(1.1);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+  background-color: var(--blue-hover);
+  filter: none;
+  transform: none;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .update-toast-btn-primary:active {
-  transform: translateY(0);
-  box-shadow: var(--shadow-sm);
+  transform: none;
+  box-shadow: none;
 }

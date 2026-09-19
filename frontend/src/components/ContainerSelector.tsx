@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useLayoutEffect } from 'react';
 import ReactDOM from 'react-dom';
+import { CheckIcon, ChevronDownIcon } from '@radix-ui/react-icons';
 import './ContainerSelector.css';
 
 interface Container {
@@ -83,9 +84,6 @@ const ContainerSelector: React.FC<ContainerSelectorProps> = ({
       minWidth: `${dropdownMinWidth}px`,
       maxHeight: `${dropdownMaxHeight}px`,
       zIndex: 10000,
-      background: 'var(--bg-primary)',
-      border: '1px solid var(--border)',
-      borderRadius: '4px',
       overflow: 'auto',
     };
 
@@ -207,7 +205,7 @@ const ContainerSelector: React.FC<ContainerSelectorProps> = ({
                   <div className="container-name-line">
                     <span className="container-name">{container.name}</span>
                     {container.type === 'init-container' && (
-                      <span className="container-badge init">INIT</span>
+                      <span className="container-badge init">Init</span>
                     )}
                     <span
                       className={`status-badge ${getStatusBadgeClass(state)}`}
@@ -224,7 +222,7 @@ const ContainerSelector: React.FC<ContainerSelectorProps> = ({
                     </span>
                   )}
                 </div>
-                {isSelected && <span className="container-check">✓</span>}
+                {isSelected && <CheckIcon className="container-check" />}
               </div>
             );
           })}
@@ -253,7 +251,7 @@ const ContainerSelector: React.FC<ContainerSelectorProps> = ({
               <div className="container-name-line">
                 <span className="container-name">{container.name}</span>
                 {container.type === 'init-container' && (
-                  <span className="container-badge init">INIT</span>
+                  <span className="container-badge init">Init</span>
                 )}
                 <span className={`status-badge ${getStatusBadgeClass(state)}`}>{state}</span>
               </div>
@@ -262,7 +260,7 @@ const ContainerSelector: React.FC<ContainerSelectorProps> = ({
                 <span className="container-state-details">{stateDetails}</span>
               )}
             </div>
-            {isSelected && <span className="container-check">✓</span>}
+            {isSelected && <CheckIcon className="container-check" />}
           </div>
         );
       })}
@@ -279,7 +277,7 @@ const ContainerSelector: React.FC<ContainerSelectorProps> = ({
           disabled={disabled}
         >
           <span className="container-selector-text">{displayName}</span>
-          <span className={`container-selector-caret ${isOpen ? 'open' : ''}`}>▼</span>
+          <ChevronDownIcon className={`container-selector-caret ${isOpen ? 'open' : ''}`} />
         </button>
       )}
       {isOpen && !buttonElement && ReactDOM.createPortal(

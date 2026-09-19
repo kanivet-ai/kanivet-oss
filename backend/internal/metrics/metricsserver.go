@@ -29,47 +29,45 @@ func (m *MetricsServerProvider) GetName() string {
 }
 
 func (m *MetricsServerProvider) Detect(cluster string) (*ProviderInfo, error) {
-	cacheKey := m.cache.BuildKey("metrics-server-info", cluster)
-
-	data, err := m.cache.GetOrSet(cacheKey, 30*time.Minute, func() (interface{}, error) {
+	return detectCached(m.cache, m.cache.BuildKey("metrics-server-info", cluster), func() (*ProviderInfo, error) {
 		return m.detectInternal(cluster)
 	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return data.(*ProviderInfo), nil
 }
 
 func (m *MetricsServerProvider) detectInternal(cluster string) (*ProviderInfo, error) {
+	notFound := func(reason string) (*ProviderInfo, error) {
+		return &ProviderInfo{Type: "metrics-server", Found: false, Reason: reason}, nil
+	}
+
 	clientset, err := m.k8s.GetClientForCluster(cluster)
 	if err != nil {
-		return &ProviderInfo{Type: "metrics-server", Found: false}, nil
+		return notFound("cluster client unavailable: " + trimErr(err))
 	}
 
 	apiGroups, err := clientset.Discovery().ServerGroups()
 	if err != nil {
-		return &ProviderInfo{Type: "metrics-server", Found: false}, nil
+		return notFound("could not list API groups: " + trimErr(err))
 	}
 
 	for _, group := range apiGroups.Groups {
 		if group.Name == "metrics.k8s.io" {
 			if err := m.verifyConnectivity(cluster); err != nil {
 				log.Printf("Metrics Server API found but not working: %v", err)
-				return &ProviderInfo{Type: "metrics-server", Found: false}, nil
+				return notFound("metrics.k8s.io is registered but not answering: " + trimErr(err))
 			}
 			return &ProviderInfo{
-				Type:    "metrics-server",
-				Found:   true,
-				Service: "metrics-server",
-				URL:     "metrics.k8s.io/v1beta1",
-				Version: group.PreferredVersion.Version,
+				Type:     "metrics-server",
+				Found:    true,
+				Verified: true,
+				Flavor:   "metrics-server",
+				Service:  "metrics-server",
+				URL:      "metrics.k8s.io/v1beta1",
+				Version:  group.PreferredVersion.Version,
 			}, nil
 		}
 	}
 
-	return &ProviderInfo{Type: "metrics-server", Found: false}, nil
+	return notFound("metrics.k8s.io is not registered in this cluster")
 }
 
 func (m *MetricsServerProvider) verifyConnectivity(cluster string) error {

@@ -1,102 +1,96 @@
+/* Loading skeleton — same layout as the dashboard, .ap-skeleton shimmer. */
 .finops-skeleton {
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 20px;
   padding: 0;
-  animation: fadeIn 0.2s ease;
+  animation: ap-fade var(--duration-base) ease;
 }
 
 @keyframes shimmer {
   0% {
-    background-position: -1000px 0;
+    background-position: 200% 0;
   }
   100% {
-    background-position: 1000px 0;
+    background-position: -200% 0;
   }
+}
+
+.skeleton-search,
+.skeleton-filter-btn,
+.skeleton-card,
+.skeleton-idle-card,
+.skeleton-efficiency-meter,
+.skeleton-title,
+.skeleton-count,
+.skeleton-cell {
+  background: linear-gradient(90deg, var(--ctrl) 0%, var(--ctrl2) 50%, var(--ctrl) 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
 }
 
 .skeleton-filters {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  gap: 10px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 .skeleton-search {
   flex: 1;
-  height: 40px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
-  background-size: 1000px 100%;
-  border-radius: var(--radius-sm);
-  animation: shimmer 2s infinite linear;
-  max-width: 500px;
+  height: 28px;
+  max-width: 360px;
+  border-radius: 7px;
 }
 
 .skeleton-filter-btn {
-  width: 90px;
-  height: 34px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
-  background-size: 1000px 100%;
-  border-radius: var(--radius-sm);
-  animation: shimmer 2s infinite linear;
+  width: 84px;
+  height: 28px;
+  margin-left: auto;
+  border-radius: 7px;
 }
 
 .skeleton-summary {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 14px;
   align-items: stretch;
 }
 
 .skeleton-cards {
   display: flex;
-  gap: 12px;
+  gap: 14px;
   flex: 0 0 auto;
 }
 
 .skeleton-card {
   width: 150px;
-  height: 80px;
-  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
-  background-size: 1000px 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  animation: shimmer 2s infinite linear;
+  height: 84px;
+  border: 0;
+  border-radius: 10px;
 }
 
 .skeleton-card.primary {
-  background: linear-gradient(90deg, 
-    color-mix(in srgb, var(--accent) 10%, var(--bg-secondary)) 25%, 
-    color-mix(in srgb, var(--accent) 15%, var(--bg-tertiary)) 50%, 
-    color-mix(in srgb, var(--accent) 10%, var(--bg-secondary)) 75%
-  );
-  background-size: 1000px 100%;
-  border-color: color-mix(in srgb, var(--accent) 20%, var(--border));
+  border-color: transparent;
 }
 
 .skeleton-idle-card {
-  flex: 1 1 320px;
-  min-width: 320px;
-  height: 120px;
-  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
-  background-size: 1000px 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  animation: shimmer 2s infinite linear;
+  flex: 1 1 300px;
+  min-width: 300px;
+  height: 92px;
+  border: 0;
+  border-radius: 10px;
 }
 
 .skeleton-efficiency-meter {
   flex: 1 1 380px;
   min-width: 380px;
-  height: 180px;
-  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
-  background-size: 1000px 100%;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  animation: shimmer 2s infinite linear;
+  height: 150px;
+  border: 0;
+  border-radius: 10px;
 }
 
 .skeleton-section {
@@ -108,52 +102,54 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 0 12px 0;
-  border-bottom: 1px solid var(--border);
+  padding: 0 2px 8px;
+  border-bottom: 0;
 }
 
 .skeleton-title {
-  width: 180px;
-  height: 20px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
-  background-size: 1000px 100%;
-  border-radius: var(--radius-sm);
-  animation: shimmer 2s infinite linear;
+  width: 140px;
+  height: 14px;
+  border-radius: 4px;
 }
 
 .skeleton-count {
-  width: 100px;
-  height: 16px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
-  background-size: 1000px 100%;
-  border-radius: var(--radius-sm);
-  animation: shimmer 2s infinite linear;
+  width: 90px;
+  height: 12px;
+  border-radius: 4px;
 }
 
 .skeleton-table {
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  margin-top: 12px;
-  padding: 12px 16px;
+  margin-top: 0;
+  padding: 0 12px 6px;
+  background: var(--card);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
 }
 
 .skeleton-table-header {
-  height: 36px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
-  background-size: 1000px 100%;
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-  animation: shimmer 2s infinite linear;
-  opacity: 0.6;
+  height: 26px;
+  margin-bottom: 4px;
+  background: transparent;
+  border-bottom: 1px solid var(--hair);
+  border-radius: 0;
+  animation: none;
+  opacity: 1;
 }
 
 .skeleton-table-row {
   display: grid;
   grid-template-columns: 2fr 1fr 1fr 1fr 1fr;
   gap: 16px;
-  padding: 10px 0;
-  border-bottom: 1px solid var(--border);
+  align-items: center;
+  height: 30px;
+  padding: 0 4px;
+  border-bottom: 0;
+  border-radius: 4px;
+}
+
+.skeleton-table-row:nth-child(even) {
+  background: var(--stripe);
 }
 
 .skeleton-table-row:last-child {
@@ -161,15 +157,13 @@
 }
 
 .skeleton-cell {
-  height: 16px;
-  background: linear-gradient(90deg, var(--bg-tertiary) 25%, var(--bg-hover) 50%, var(--bg-tertiary) 75%);
-  background-size: 1000px 100%;
+  height: 12px;
   border-radius: 4px;
-  animation: shimmer 2s infinite linear;
 }
 
 .skeleton-cell.wide {
-  height: 18px;
+  height: 12px;
+  width: 70%;
 }
 
 .skeleton-cell:nth-child(2n) {
@@ -179,4 +173,3 @@
 .skeleton-cell:nth-child(3n) {
   animation-delay: 0.2s;
 }
-

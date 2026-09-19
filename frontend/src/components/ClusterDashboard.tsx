@@ -235,7 +235,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         title: 'Nodes',
         value: resourceCounts[':nodes'] || resourceCounts['nodes'] || 0,
         trend: 0,
-        color: '#10b981',
+        color: 'var(--green)',
         icon: <LayersIcon />,
         subtitle: nodeStatus ? `${nodeStatus.ready} ready` : ''
       },
@@ -243,7 +243,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         title: 'Namespaces',
         value: resourceCounts[':namespaces'] || resourceCounts['namespaces'] || 0,
         trend: 0,
-        color: '#f59e0b',
+        color: 'var(--orange)',
         icon: <StackIcon />,
         subtitle: 'Active namespaces'
       },
@@ -251,7 +251,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         title: 'Pods',
         value: resourceCounts[':pods'] || resourceCounts['pods'] || 0,
         trend: 0,
-        color: '#3b82f6',
+        color: 'var(--blue)',
         icon: <MixIcon />,
         subtitle: podStatus ? `${podStatus.running} running, ${podStatus.pending} pending${podStatus.failed > 0 ? `, ${podStatus.failed} failed` : ''}` : ''
       },
@@ -259,7 +259,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         title: 'Services',
         value: resourceCounts[':services'] || resourceCounts['services'] || 0,
         trend: 0,
-        color: '#8b5cf6',
+        color: 'var(--purple)',
         icon: <LightningBoltIcon />,
         subtitle: 'Active services'
       },
@@ -267,7 +267,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         title: 'Deployments',
         value: resourceCounts['apps:deployments'] || resourceCounts['deployments'] || 0,
         trend: 0,
-        color: '#06b6d4',
+        color: 'var(--teal)',
         icon: <RocketIcon />,
         subtitle: workloadStatus?.deployments ? `${workloadStatus.deployments.healthy} healthy` : ''
       },
@@ -275,7 +275,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         title: 'Storage Classes',
         value: resourceCounts['storage.k8s.io:storageclasses'] || resourceCounts[':storageclasses'] || 0,
         trend: 0,
-        color: '#ef4444',
+        color: 'var(--red)',
         icon: <FileIcon />,
         subtitle: 'Available storage'
       },
@@ -286,7 +286,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
   const renderCompactMetricCard = (metric: MetricCard) => (
     <div key={metric.title} className="compact-metric-card">
       <div className="compact-metric-header">
-        <div className="compact-metric-icon" style={{ color: metric.color }}>
+        <div className="compact-metric-icon" data-tone={metric.color}>
           {metric.icon}
         </div>
         <div className="compact-metric-info">
@@ -437,13 +437,13 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           {!metricsAvailable && (
             <div className="metrics-unavailable-badge" title="Metrics server not available">
               <ExclamationTriangleIcon />
-              <span>No Metrics</span>
+              <span>No metrics</span>
             </div>
           )}
-          <button className="compact-action-btn">
+          <button className="compact-action-btn ap-icon-btn" title="Refresh" aria-label="Refresh">
             <ReloadIcon />
           </button>
-          <button className="compact-action-btn">
+          <button className="compact-action-btn ap-icon-btn" title="Metrics" aria-label="Metrics">
             <BarChartIcon />
           </button>
         </div>
@@ -461,7 +461,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         <div className="critical-alerts-section">
           <div className="critical-alerts-header">
             <ExclamationTriangleIcon />
-            <span>Critical Alerts</span>
+            <span>Critical alerts</span>
             <span className="alert-count">{criticalAlerts.length}</span>
           </div>
           <div className="critical-alerts-list">
@@ -490,11 +490,11 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           <div className="compact-section compact-resource-usage">
           <div className="compact-section-header">
               <ActivityLogIcon />
-              <span>Resource Usage (Actual)</span>
+              <span>Resource usage (actual)</span>
           </div>
           <div className="compact-resource-list">
               <div className="compact-resource-item">
-                <div className="compact-resource-icon" style={{ color: '#3b82f6' }}>
+                <div className="compact-resource-icon" style={{ color: 'var(--chart-cpu)' }}>
                   <ComponentInstanceIcon />
                 </div>
                 <div className="compact-resource-content">
@@ -505,7 +505,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
                   <div className="compact-resource-bar">
                     <div
                       className="compact-resource-fill"
-                      style={{ width: `${resourceUsage.cpu.percentage}%`, backgroundColor: '#3b82f6' }}
+                      style={{ width: `${resourceUsage.cpu.percentage}%`, backgroundColor: 'var(--chart-cpu)' }}
                     />
                   </div>
                   <div className="compact-resource-values">
@@ -514,7 +514,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
                 </div>
               </div>
               <div className="compact-resource-item">
-                <div className="compact-resource-icon" style={{ color: '#10b981' }}>
+                <div className="compact-resource-icon" style={{ color: 'var(--chart-memory)' }}>
                   <SizeIcon />
                 </div>
                 <div className="compact-resource-content">
@@ -525,7 +525,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
                   <div className="compact-resource-bar">
                     <div
                       className="compact-resource-fill"
-                      style={{ width: `${resourceUsage.memory.percentage}%`, backgroundColor: '#10b981' }}
+                      style={{ width: `${resourceUsage.memory.percentage}%`, backgroundColor: 'var(--chart-memory)' }}
                     />
                   </div>
                   <div className="compact-resource-values">
@@ -534,7 +534,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
                 </div>
               </div>
               <div className="compact-resource-item">
-                <div className="compact-resource-icon" style={{ color: '#f59e0b' }}>
+                <div className="compact-resource-icon" style={{ color: 'var(--chart-storage)' }}>
                   <FileIcon />
                 </div>
                 <div className="compact-resource-content">
@@ -545,7 +545,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
                   <div className="compact-resource-bar">
                     <div
                       className="compact-resource-fill"
-                      style={{ width: `${resourceUsage.storage.percentage}%`, backgroundColor: '#f59e0b' }}
+                      style={{ width: `${resourceUsage.storage.percentage}%`, backgroundColor: 'var(--chart-storage)' }}
                     />
                   </div>
                   <div className="compact-resource-values">
@@ -561,7 +561,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         <div className="compact-section compact-capacity">
           <div className="compact-section-header">
             <BarChartIcon />
-            <span>Scheduling Capacity</span>
+            <span>Scheduling capacity</span>
             <div className="capacity-explainer" title="Based on pod resource requests, not actual usage">
               <InfoCircledIcon />
               <span>Reservations</span>
@@ -698,14 +698,14 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         </div>
 
         {/* Two column grid for charts */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
         {/* Pod Status Compact */}
         {podStatus && (
           <div className="compact-section compact-pods">
             {renderCompactPieChart(
               podStatus as unknown as Record<string, number>,
               { running: 'var(--success)', pending: 'var(--warning)', failed: 'var(--danger)', succeeded: 'var(--accent-vcluster)', unknown: 'var(--text-tertiary)' },
-              'Pod Status',
+              'Pod status',
               <MixIcon />
             )}
           </div>
@@ -723,7 +723,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
                 jobs: (workloadStatus.jobs?.running || 0) + (workloadStatus.jobs?.succeeded || 0)
               },
               { healthy: 'var(--success)', unhealthy: 'var(--danger)', jobs: 'var(--accent-vcluster)' },
-              'Workload Health',
+              'Workload health',
               <RocketIcon />
             )}
           </div>
@@ -735,7 +735,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           <div className="compact-events-header">
             <div className="compact-section-header">
               <ActivityLogIcon />
-              <span>Recent Events</span>
+              <span>Recent events</span>
             </div>
             <div className="compact-events-filters">
               <button
@@ -804,7 +804,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         <div className="compact-section compact-consumers">
           <div className="compact-section-header">
             <BarChartIcon />
-            <span>Top Resource Consumers</span>
+            <span>Top resource consumers</span>
           </div>
           <div className="compact-consumers-list">
             {topConsumers.slice(0, 4).map((consumer, idx) => (

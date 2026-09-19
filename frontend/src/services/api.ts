@@ -222,7 +222,7 @@ class API {
   }
 
   async getAvailableMetricProviders(): Promise<string[]> { return metrics.getAvailableMetricProviders(); }
-  async detectMetricsProvider(cluster: string): Promise<any> { return metrics.detectMetricsProvider(cluster); }
+  async detectMetricsProvider(cluster: string, options?: metrics.DetectMetricsProviderOptions): Promise<metrics.MetricsProvidersStatus> { return metrics.detectMetricsProvider(cluster, options); }
   async installMetricsProvider(cluster: string, provider: string, namespace?: string): Promise<void> {
     return metrics.installMetricsProvider(cluster, provider, namespace);
   }
@@ -234,7 +234,7 @@ class API {
     return metrics.discoverMimirTenants(cluster, hints);
   }
   async listMimirServices(cluster: string) { return metrics.listMimirServices(cluster); }
-  markMetricsProviderUnavailable(cluster: string, reason?: string): any {
+  markMetricsProviderUnavailable(cluster: string, reason?: string): metrics.MetricsProvidersStatus {
     return metrics.markMetricsProviderUnavailable(cluster, reason);
   }
   clearMetricsProviderAvailabilityCache(cluster?: string): void {
@@ -246,7 +246,7 @@ class API {
   isMetricsProviderUnavailableCached(cluster: string): boolean {
     return metrics.isMetricsProviderUnavailableCached(cluster);
   }
-  getCachedMetricsProviderStatus(cluster: string): any | null {
+  getCachedMetricsProviderStatus(cluster: string): metrics.MetricsProvidersStatus | null {
     return metrics.getCachedMetricsProviderStatus(cluster);
   }
   emitMetricsSettingsChanged(cluster: string): void { metrics.emitMetricsSettingsChanged(cluster); }

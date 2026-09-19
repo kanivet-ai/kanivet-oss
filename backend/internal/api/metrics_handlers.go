@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/metrics"
@@ -10,14 +11,21 @@ import (
 
 // Metrics API endpoints
 
+// DetectMetricsProvider reports which metrics providers answer in a cluster.
+// Results are cached (verified providers for a long time, negatives briefly);
+// `?refresh=1` drops the cache first so the UI's "Detect again" really probes.
 func (h *Handler) DetectMetricsProvider(c *gin.Context) {
 	cluster, ok := h.requireCluster(c)
 	if !ok {
 		return
 	}
 
+	if refresh := c.Query("refresh"); refresh == "1" || refresh == "true" {
+		h.metrics.InvalidateDetection(cluster)
+	}
+
 	providers, err := h.metrics.DetectAllProviders(cluster)
-	h.respond(c, http.StatusOK, gin.H{"providers": providers}, err)
+	h.respond(c, http.StatusOK, gin.H{"providers": providers, "checkedAt": time.Now().Unix()}, err)
 }
 
 // GetMetricsSettings returns the saved per-cluster metrics overrides (currently

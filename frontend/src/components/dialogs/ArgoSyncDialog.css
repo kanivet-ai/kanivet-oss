@@ -1,3 +1,4 @@
+/* Argo sync options — content of a common/Dialog sheet. */
 .argo-sync-dialog {
   display: flex;
   flex-direction: column;
@@ -12,12 +13,13 @@
   gap: 6px;
 }
 
+/* Section label — 11.5px/600 secondary, sentence case */
 .argo-sync-group-title {
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
+  text-transform: none;
+  letter-spacing: 0.01em;
+  color: var(--text2);
 }
 
 .argo-sync-radio-row {
@@ -29,39 +31,52 @@
 .argo-sync-check {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 7px;
   font-size: 13px;
-  cursor: pointer;
+  color: var(--text);
+  cursor: default;
 }
 
 .argo-sync-check {
   padding: 2px 0;
 }
 
+/* .ap-input values, monospace for revisions */
 .argo-sync-input {
-  padding: 5px 8px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  color: var(--text-primary);
-  font-size: 13px;
-  font-family: var(--font-monospace, monospace);
+  height: 28px;
+  padding: 0 9px;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 7px;
+  color: var(--text);
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.argo-sync-input::placeholder {
+  color: var(--text3);
 }
 
 .argo-sync-input:focus {
   outline: none;
-  border-color: var(--accent, var(--text-primary));
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
+/* Resource picker — a card of rows */
 .argo-sync-resource-list {
   max-height: 240px;
   overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 4px 6px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  padding: 4px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .argo-sync-resource-row {
@@ -69,50 +84,64 @@
   grid-template-columns: auto 90px 1fr auto;
   gap: 8px;
   align-items: center;
-  padding: 4px 4px;
-  font-size: 12px;
-  cursor: pointer;
-  border-radius: 3px;
+  padding: 4px 8px;
+  min-height: 26px;
+  font-size: 12.5px;
+  color: var(--text);
+  cursor: default;
+  border-radius: 6px;
 }
 
 .argo-sync-resource-row:hover {
-  background: var(--hover-bg, var(--bg-secondary));
+  background: var(--hover);
 }
 
 .argo-sync-resource-kind {
-  font-size: 10px;
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text2);
 }
 
 .argo-sync-resource-name {
-  font-family: var(--font-monospace, monospace);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* Sync status badge (.ap-badge--sm values) */
 .argo-sync-resource-status {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
   font-size: 10px;
-  text-transform: uppercase;
-  padding: 1px 5px;
-  border-radius: 3px;
-  border: 1px solid;
+  font-weight: 600;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+  border-radius: 5px;
+  border: 0;
+  background: var(--ctrl);
+  color: var(--text2);
 }
 
 .argo-sync-resource-status.synced {
-  color: var(--status-running, #2ea043);
-  border-color: var(--status-running, #2ea043);
+  color: var(--success-fg);
+  background: var(--success-bg);
+  border-color: transparent;
 }
 
 .argo-sync-resource-status.outofsync {
-  color: var(--status-pending, #d29922);
-  border-color: var(--status-pending, #d29922);
+  color: var(--warning-fg);
+  background: var(--warning-bg);
+  border-color: transparent;
 }
 
 .argo-sync-info {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--text2);
 }

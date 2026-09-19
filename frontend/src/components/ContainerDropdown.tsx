@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronRightIcon, ExclamationTriangleIcon, MagnifyingGlassIcon } from '@radix-ui/react-icons';
+import { ChevronRightIcon, Cross2Icon, ExclamationTriangleIcon, MagnifyingGlassIcon } from '@radix-ui/react-icons';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import PropertyRow from './common/PropertyRow';
 import ClipboardCopy from './common/ClipboardCopy';
@@ -43,7 +43,7 @@ const EnvList: React.FC<{ envVars: Record<string, string> }> = ({ envVars }) => 
             onChange={(e) => setFilter(e.target.value)}
           />
           {filter && (
-            <button className="env-filter-clear" onClick={() => setFilter('')} title="Clear filter">×</button>
+            <button className="env-filter-clear" onClick={() => setFilter('')} title="Clear filter"><Cross2Icon /></button>
           )}
         </div>
       )}
@@ -358,13 +358,13 @@ const ContainerDropdown: React.FC<ContainerDropdownProps> = ({
               return (
                 <div key={idx} className="port-row">
                   <span className="port-label">{port.name || 'port'}</span>
-                  <span className="port-value">{port.containerPort}/{port.protocol || 'TCP'}</span>
+                  <span className="port-value ap-badge ap-badge--info">{port.containerPort}/{port.protocol || 'TCP'}</span>
                   <button
-                    className={`port-btn ${isForwarded ? 'active' : ''}`}
+                    className={`port-btn ap-btn ap-btn--sm ${isForwarded ? 'active' : ''}`}
                     onClick={(e) => { e.stopPropagation(); if (!isLoading) onPortForward(container.name, port.containerPort); }}
                     disabled={isLoading}
                   >
-                    {isLoading ? '...' : isForwarded ? `${portForwards[portKey].localPort}` : 'FWD'}
+                    {isLoading ? '...' : isForwarded ? `${portForwards[portKey].localPort}` : 'Forward'}
                   </button>
                 </div>
               );

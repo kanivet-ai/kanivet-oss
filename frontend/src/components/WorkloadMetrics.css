@@ -1,149 +1,83 @@
-/* WorkloadMetrics specific styles */
+/* WorkloadMetrics — the per-pod legend below the shared metrics card. */
 
-.workload-pod-count {
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  background: var(--bg-subtle);
-  padding: 2px 6px;
-  border-radius: var(--radius-sm);
-  margin-left: 8px;
-}
-
-.metrics-error-state {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 32px;
-  color: var(--error);
-  font-size: var(--font-sm);
-}
-
-.metrics-error-state .retry-btn {
-  padding: 6px 12px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-size: var(--font-xs);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.metrics-error-state .retry-btn:hover {
-  background: var(--bg-hover);
-  border-color: var(--accent);
-}
-
-/* Custom legend with checkboxes - outside chart container */
-.workload-legend {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 0 4px 0;
-}
-
-.legend-count {
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  font-weight: 500;
-}
-
-.legend-limit-hint {
-  color: var(--text-muted);
-  font-weight: 400;
-}
-
-.legend-items {
+.mx-legend {
   display: flex;
   flex-wrap: wrap;
-  justify-content: center;
-  gap: 6px 12px;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 10px;
+  min-width: 0;
 }
 
-.legend-more {
-  font-size: var(--font-xxs);
-  color: var(--text-muted);
-  font-style: italic;
-  padding: 0 4px;
+.mx-legend-count {
+  margin-right: 4px;
 }
 
-.legend-item {
-  display: flex;
+.mx-legend-count .mx-legend-limit {
+  font-weight: 400;
+  color: var(--text3);
+}
+
+/* Toggle chip: swatch + short pod name; pressed = series shown */
+.mx-legend-chip {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: var(--font-xs);
-  color: var(--text-primary);
-  cursor: pointer;
-  user-select: none;
-  transition: opacity 0.15s ease;
-}
-
-.legend-item.hidden {
-  opacity: 0.4;
-}
-
-.legend-item.hidden:hover {
-  opacity: 0.7;
-}
-
-.legend-item.disabled {
-  opacity: 0.3;
-  cursor: not-allowed;
-}
-
-.legend-item.disabled input[type="checkbox"] {
-  cursor: not-allowed;
-}
-
-.legend-item input[type="checkbox"] {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  border: 1px solid var(--border);
-  border-radius: 2px;
-  background: var(--bg-primary);
-  cursor: pointer;
-  position: relative;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-}
-
-.legend-item input[type="checkbox"]:checked {
-  background: var(--accent);
-  border-color: var(--accent);
-}
-
-.legend-item input[type="checkbox"]:checked::after {
-  content: '';
-  position: absolute;
-  left: 3px;
-  top: 1px;
-  width: 4px;
-  height: 6px;
-  border: solid white;
-  border-width: 0 1.5px 1.5px 0;
-  transform: rotate(45deg);
-}
-
-.legend-item input[type="checkbox"]:hover {
-  border-color: var(--accent);
-}
-
-.legend-color {
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  flex-shrink: 0;
-}
-
-.legend-label {
+  height: 20px;
+  padding: 0 8px 0 7px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text3);
   font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1;
   white-space: nowrap;
+  cursor: pointer;
+  max-width: 100%;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.mx-legend-chip:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text2);
+}
+
+.mx-legend-chip[aria-pressed='true'] {
+  background: var(--ctrl);
+  color: var(--text);
+}
+
+.mx-legend-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.mx-legend-chip:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+}
+
+.mx-legend-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  transition: opacity var(--duration-fast) var(--ease-quiet);
+}
+
+.mx-legend-chip[aria-pressed='false'] .mx-legend-swatch {
+  opacity: 0.35;
+}
+
+.mx-legend-name {
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 120px;
+  max-width: 140px;
+}
+
+.mx-legend-more {
+  font-size: 11px;
+  color: var(--text3);
+  padding: 0 4px;
 }

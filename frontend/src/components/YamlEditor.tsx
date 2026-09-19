@@ -585,16 +585,16 @@ data:
         <div className="toolbar-actions">
           {isDirty && <span className="unsaved-indicator"><i />Unsaved changes</span>}
           {mode === 'edit' && !isHelmValues && (
-            <button className="yaml-btn" onClick={handleRefresh} disabled={isRefreshing || isSaving} title="Reload from cluster">
+            <button className="yaml-btn ap-btn" onClick={handleRefresh} disabled={isRefreshing || isSaving} title="Reload from cluster">
               <UpdateIcon className={isRefreshing ? 'spin' : undefined} />{isRefreshing ? 'Refreshing…' : 'Refresh'}<Kbd k="R" />
             </button>
           )}
           {isHelmValues && (
-            <button className="yaml-btn" onClick={handleDryRun} disabled={!canSave} title="Test upgrade without applying changes">
+            <button className="yaml-btn ap-btn" onClick={handleDryRun} disabled={!canSave} title="Test upgrade without applying changes">
               <PlayIcon />{isDryRunning ? 'Testing…' : 'Dry run'}
             </button>
           )}
-          <button className="yaml-btn primary" onClick={handleSave} disabled={!canSave} title={yamlError ? 'Fix YAML errors before applying' : undefined}>
+          <button className="yaml-btn primary ap-btn ap-btn--primary" onClick={handleSave} disabled={!canSave} title={yamlError ? 'Fix YAML errors before applying' : undefined}>
             <CheckIcon />{saveLabel}<Kbd k="S" />
           </button>
         </div>
@@ -626,9 +626,9 @@ data:
           loading={<div className="yaml-editor-placeholder">Loading editor…</div>}
           options={{
             minimap: { enabled: false },
-            fontSize: 13,
+            fontSize: 12,
             lineHeight: 20,
-            fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Menlo', monospace",
+            fontFamily: 'ui-monospace, "SF Mono", Menlo, Monaco, monospace',
             fontLigatures: true,
             wordWrap: 'on',
             tabSize: 2,
