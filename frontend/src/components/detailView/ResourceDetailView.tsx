@@ -29,6 +29,7 @@ import NodeDetailView from './resourceTypes/NodeDetailView';
 import EventDetailView from './resourceTypes/EventDetailView';
 import ApplicationDetailView from './resourceTypes/ApplicationDetailView';
 import MetadataSection from './shared/MetadataSection';
+import PropertyRow from '../common/PropertyRow';
 import ScaleDialog from '../dialogs/ScaleDialog';
 import Dialog from '../common/Dialog';
 import { failureMessage } from '../../utils/errorMessage';
@@ -448,7 +449,26 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
 
             {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
               <>
-                <MetadataSection metadata={metadata} handleResourceClick={handleResourceClick} />
+                <MetadataSection metadata={metadata} handleResourceClick={handleResourceClick}>
+                  {resource.kind === 'Pod' && spec.nodeName && (
+                    <PropertyRow
+                      label="Node"
+                      copyText={spec.nodeName}
+                      value={
+                        <button
+                          className="link-button"
+                          onClick={(e) => handleResourceClick('Node', spec.nodeName, undefined, e, 'v1')}
+                          title={`Open node ${spec.nodeName}`}
+                        >
+                          {spec.nodeName}
+                        </button>
+                      }
+                    />
+                  )}
+                  {resource.kind === 'Pod' && status.podIP && (
+                    <PropertyRow label="Pod IP" value={status.podIP} copyText={status.podIP} mono />
+                  )}
+                </MetadataSection>
                 <div className="section-divider" />
 
                 {resource.kind === 'Pod' && (() => {
