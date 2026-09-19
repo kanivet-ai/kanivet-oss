@@ -1,9 +1,10 @@
+/* Log viewer — console dock body. */
 .lv-root {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg-primary);
+  background: var(--content);
   outline: none;
 }
 
@@ -12,9 +13,10 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  padding: 6px 8px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-secondary);
+  padding: 0 10px;
+  min-height: 36px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--win);
 }
 
 .lv-group {
@@ -23,36 +25,42 @@
   gap: 4px;
 }
 
+/* Pop-up buttons */
 .lv-select {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   height: 24px;
-  padding: 0 8px;
-  font-size: var(--font-xs);
-  color: var(--text-primary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  padding: 0 9px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text);
+  background-color: var(--card);
+  border: 0;
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  cursor: default;
   white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .lv-select:hover {
-  background: var(--bg-hover);
+  background-image: linear-gradient(var(--hover), var(--hover));
 }
 
 .lv-select-icon {
-  color: var(--text-secondary);
+  color: var(--text3);
   display: inline-flex;
 }
 
 .lv-select-content {
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-md);
-  padding: 4px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
+  padding: 5px;
   z-index: 1000;
   max-height: 320px;
   overflow-y: auto;
@@ -61,28 +69,39 @@
 .lv-select-item {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 8px;
-  font-size: var(--font-xs);
-  color: var(--text-primary);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  gap: 8px;
+  padding: 5px 10px;
+  font-size: 12.5px;
+  color: var(--text);
+  border-radius: 6px;
+  cursor: default;
   outline: none;
   white-space: nowrap;
 }
 
 .lv-select-item[data-highlighted],
 .lv-select-item:hover {
-  background: var(--bg-hover);
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.lv-select-item[data-highlighted] .lv-pod-restarts,
+.lv-select-item[data-highlighted] .lv-pod-notready,
+.lv-select-item:hover .lv-pod-restarts,
+.lv-select-item:hover .lv-pod-notready {
+  color: var(--on-sel2);
 }
 
 .lv-init-badge {
-  font-size: 9px;
-  font-weight: var(--font-weight-semibold);
+  font-size: 10px;
+  font-weight: 600;
   color: var(--warning-fg);
   background: var(--warning-bg);
-  border-radius: var(--radius-xs);
-  padding: 1px 4px;
+  border-radius: 4px;
+  padding: 0 5px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
   margin-right: 6px;
 }
 
@@ -94,24 +113,25 @@
   display: flex;
   gap: 4px;
   padding: 2px 4px 6px;
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 1px solid var(--hair);
   margin-bottom: 4px;
 }
 
 .lv-pod-menu-actions button {
   flex: 1;
-  height: 20px;
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  height: 22px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 5px;
   cursor: pointer;
 }
 
 .lv-pod-menu-actions button:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--ctrl2);
+  color: var(--text);
 }
 
 .lv-pod-check {
@@ -121,8 +141,8 @@
 }
 
 .lv-pod-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
@@ -131,55 +151,58 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-mono);
+  font-size: 11.5px;
 }
 
 .lv-pod-restarts {
   color: var(--warning-fg);
-  font-size: var(--font-xxs);
+  font-size: 11px;
 }
 
 .lv-pod-notready {
-  color: var(--danger);
-  font-size: var(--font-xxs);
+  color: var(--danger-fg);
+  font-size: 11px;
 }
 
+/* Filter chips */
 .lv-chip {
-  height: 24px;
-  padding: 0 8px;
-  font-size: var(--font-xxs);
-  font-weight: var(--font-weight-medium);
-  color: var(--text-secondary);
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
+  height: 22px;
+  padding: 0 9px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text2);
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 11px;
+  cursor: default;
   display: inline-flex;
   align-items: center;
   gap: 4px;
   white-space: nowrap;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .lv-chip:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--ctrl2);
+  color: var(--text);
 }
 
 .lv-chip.lv-on {
-  color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(var(--accent-rgb), 0.1);
+  color: #fff;
+  border-color: transparent;
+  background: var(--blue);
 }
 
 .lv-chip-error.lv-on {
-  color: var(--danger);
-  border-color: var(--danger);
-  background: var(--danger-bg);
+  color: #fff;
+  border-color: transparent;
+  background: var(--red);
 }
 
 .lv-chip-warn.lv-on {
-  color: var(--warning-fg);
-  border-color: var(--warning-border);
-  background: var(--warning-bg);
+  color: #fff;
+  border-color: transparent;
+  background: var(--orange);
 }
 
 .lv-chip-count {
@@ -190,7 +213,7 @@
 .lv-sep {
   width: 1px;
   height: 16px;
-  background: var(--border);
+  background: var(--sep);
   margin: 0 2px;
 }
 
@@ -200,47 +223,52 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-secondary);
+  color: var(--text2);
   background: transparent;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
+  border: 0;
+  border-radius: 6px;
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .lv-icon:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--hover);
+  color: var(--text);
 }
 
 .lv-icon.lv-on {
-  color: var(--accent);
-  background: rgba(var(--accent-rgb), 0.12);
+  color: var(--text);
+  background: var(--card);
+  box-shadow: var(--shadow-pill);
 }
 
+/* Search field */
 .lv-search {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex: 1;
-  min-width: 220px;
+  min-width: 200px;
   max-width: 480px;
   height: 24px;
-  padding: 0 6px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 0 8px;
+  background: var(--ctrl);
+  border: 0;
+  border-radius: 6px;
+  color: var(--text3);
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .lv-search:focus-within {
-  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .lv-search.lv-invalid {
-  border-color: var(--danger);
+  box-shadow: 0 0 0 1.5px var(--red);
 }
 
 .lv-search-icon {
-  color: var(--text-secondary);
+  color: var(--text3);
   flex-shrink: 0;
 }
 
@@ -250,41 +278,43 @@
   border: none;
   outline: none;
   background: transparent;
-  color: var(--text-primary);
-  font-size: var(--font-xs);
+  color: var(--text);
+  font-size: 11.5px;
   font-family: var(--font-mono);
+  box-shadow: none !important;
 }
 
 .lv-search input::placeholder {
-  color: var(--text-muted);
+  color: var(--text3);
   font-family: var(--font-sans);
 }
 
 .lv-mini {
   height: 18px;
   min-width: 18px;
-  padding: 0 3px;
+  padding: 0 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-secondary);
+  font-size: 10.5px;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  color: var(--text2);
   background: transparent;
   border: none;
-  border-radius: var(--radius-xs);
+  border-radius: 4px;
   cursor: pointer;
   flex-shrink: 0;
 }
 
 .lv-mini:hover {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--ctrl2);
+  color: var(--text);
 }
 
 .lv-mini.lv-on {
-  color: var(--accent);
-  background: rgba(var(--accent-rgb), 0.15);
+  color: #fff;
+  background: var(--blue);
 }
 
 .lv-mini:disabled {
@@ -293,8 +323,8 @@
 }
 
 .lv-search-count {
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
+  font-size: 11px;
+  color: var(--text2);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   padding: 0 2px;
@@ -305,10 +335,10 @@
   align-items: center;
   gap: 8px;
   padding: 6px 12px;
-  font-size: var(--font-xs);
-  color: var(--error-fg);
-  background: var(--error-bg);
-  border-bottom: 1px solid var(--error-border);
+  font-size: 12px;
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--hair);
 }
 
 .lv-body-wrap {
@@ -325,9 +355,9 @@
   min-height: 0;
   overflow: auto;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 20px;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
 .lv-sizer {
@@ -343,10 +373,10 @@
   width: max-content;
   display: flex;
   align-items: flex-start;
-  padding: 0 12px 0 8px;
+  padding: 0 12px;
   white-space: pre;
-  color: var(--text-primary);
-  border-left: 2px solid transparent;
+  color: var(--text);
+  border-left: 0;
 }
 
 .lv-wrapped .lv-line {
@@ -356,36 +386,78 @@
 }
 
 .lv-line:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
+/* Level carries the signal (coloured token); errors keep a faint wash for scanning. */
 .lv-line.lv-error {
-  border-left-color: var(--danger);
-  background: var(--danger-bg);
+  border-left-color: transparent;
+  background: color-mix(in srgb, var(--red) 6%, transparent);
 }
 
 .lv-line.lv-warn {
-  border-left-color: var(--warning-border);
-  background: var(--warning-bg);
+  border-left-color: transparent;
+  background: transparent;
 }
 
 .lv-line.lv-error:hover,
 .lv-line.lv-warn:hover {
-  filter: brightness(0.97);
+  filter: none;
+  background: var(--hover);
+}
+
+.lv-line.lv-error:hover {
+  background: color-mix(in srgb, var(--red) 11%, transparent);
 }
 
 [data-theme='dark'] .lv-line.lv-error:hover,
 [data-theme='dark'] .lv-line.lv-warn:hover {
-  filter: brightness(1.15);
+  filter: none;
+}
+
+/* Level column */
+.lv-level {
+  flex: none;
+  width: 40px;
+  margin-right: 10px;
+  font-weight: 600;
+  color: var(--text3);
+  user-select: none;
+}
+
+.lv-level-error {
+  color: var(--red);
+}
+
+.lv-level-warn {
+  color: var(--orange);
+}
+
+.lv-level-info {
+  color: var(--blue);
+}
+
+.lv-level-debug {
+  color: var(--text3);
+}
+
+.lv-level-none {
+  color: transparent;
+}
+
+/* The wrapped layout keeps the column aligned with the text start */
+.lv-wrapped .lv-level {
+  align-self: flex-start;
 }
 
 .lv-line.lv-hit-active {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
+  outline: 1.5px solid var(--blue);
+  outline-offset: -1.5px;
+  border-radius: 3px;
 }
 
 .lv-ts {
-  color: var(--text-muted);
+  color: var(--text3);
   margin-right: 10px;
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
@@ -395,7 +467,7 @@
 .lv-pod-tag {
   margin-right: 8px;
   flex-shrink: 0;
-  font-weight: var(--font-weight-medium);
+  font-weight: 600;
   user-select: none;
 }
 
@@ -404,42 +476,36 @@
 }
 
 .lv-text mark {
-  background: rgba(var(--accent-rgb), 0.35);
+  background: rgba(var(--blue-rgb), 0.3);
   color: inherit;
   border-radius: 2px;
 }
 
 .lv-hit-active .lv-text mark {
-  background: var(--accent);
-  color: var(--button-foreground);
+  background: var(--blue);
+  color: #fff;
 }
 
-.lv-a30 { color: var(--text-secondary); }
-.lv-a31 { color: #e5484d; }
-.lv-a32 { color: #2f9e6e; }
-.lv-a33 { color: #ad5700; }
-.lv-a34 { color: #0f6fde; }
-.lv-a35 { color: #ab4aba; }
-.lv-a36 { color: #0797ae; }
-.lv-a37 { color: var(--text-primary); }
-.lv-a90 { color: var(--text-muted); }
-.lv-a91 { color: #ff6369; }
-.lv-a92 { color: #3dd68c; }
-.lv-a93 { color: #c99b1c; }
-.lv-a94 { color: #52a9ff; }
-.lv-a95 { color: #d864d8; }
-.lv-a96 { color: #39c0d8; }
-.lv-a97 { color: var(--text-primary); }
-
-[data-theme='dark'] .lv-a31 { color: #ff6369; }
-[data-theme='dark'] .lv-a32 { color: #3dd68c; }
-[data-theme='dark'] .lv-a33 { color: #f0c000; }
-[data-theme='dark'] .lv-a34 { color: #52a9ff; }
-[data-theme='dark'] .lv-a35 { color: #d864d8; }
-[data-theme='dark'] .lv-a36 { color: #39c0d8; }
+/* ANSI palette — system colours */
+.lv-a30 { color: var(--text2); }
+.lv-a31 { color: var(--red); }
+.lv-a32 { color: var(--green); }
+.lv-a33 { color: var(--orange); }
+.lv-a34 { color: var(--blue); }
+.lv-a35 { color: var(--purple); }
+.lv-a36 { color: var(--teal); }
+.lv-a37 { color: var(--text); }
+.lv-a90 { color: var(--text3); }
+.lv-a91 { color: var(--red); }
+.lv-a92 { color: var(--green); }
+.lv-a93 { color: var(--yellow); }
+.lv-a94 { color: var(--blue); }
+.lv-a95 { color: var(--purple); }
+.lv-a96 { color: var(--teal); }
+.lv-a97 { color: var(--text); }
 
 .lv-ab {
-  font-weight: var(--font-weight-bold);
+  font-weight: 600;
 }
 
 .lv-loading,
@@ -449,24 +515,22 @@
   justify-content: center;
   gap: 10px;
   height: 100%;
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  color: var(--text2);
+  font-size: 12.5px;
   font-family: var(--font-sans);
 }
 
 .lv-spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--ctrl2);
+  border-top-color: var(--blue);
   border-radius: 50%;
   animation: lv-spin 0.8s linear infinite;
 }
 
 @keyframes lv-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
 
 .lv-jump {
@@ -477,31 +541,33 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 4px 12px;
-  font-size: var(--font-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--button-foreground);
-  background: var(--accent);
+  height: 26px;
+  padding: 0 12px;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #fff;
+  background: var(--blue);
   border: none;
-  border-radius: 999px;
-  box-shadow: var(--shadow-md);
+  border-radius: 13px;
+  box-shadow: var(--shadow-pop);
   cursor: pointer;
   z-index: 5;
 }
 
 .lv-jump:hover {
-  background: var(--accent-hover);
+  background: var(--blue-hover);
 }
 
 .lv-status {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 3px 10px;
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
+  padding: 0 10px;
+  height: 24px;
+  font-size: 11px;
+  color: var(--text2);
+  background: var(--win);
+  border-top: 1px solid var(--hair);
   user-select: none;
 }
 
@@ -513,27 +579,25 @@
 }
 
 .lv-dot-live {
-  background: var(--success);
+  background: var(--green);
   box-shadow: 0 0 0 2px var(--success-bg);
 }
 
 .lv-dot-connecting {
-  background: var(--warning);
+  background: var(--orange);
   animation: lv-pulse 1s ease-in-out infinite;
 }
 
 .lv-dot-ended {
-  background: var(--text-muted);
+  background: var(--text4);
 }
 
 .lv-dot-error {
-  background: var(--danger);
+  background: var(--red);
 }
 
 @keyframes lv-pulse {
-  50% {
-    opacity: 0.4;
-  }
+  50% { opacity: 0.4; }
 }
 
 .lv-status-lines {
@@ -549,5 +613,5 @@
 }
 
 .lv-status-invalid {
-  color: var(--danger);
+  color: var(--danger-fg);
 }

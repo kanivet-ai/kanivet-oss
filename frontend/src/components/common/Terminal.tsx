@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Terminal, IDisposable } from 'xterm';
+import { Terminal, IDisposable, ITheme } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
-import { useTheme } from '../ThemeProvider';
 import 'xterm/css/xterm.css';
 import './Terminal.css';
 
@@ -18,13 +17,69 @@ interface CleanupDisposables {
   onResizeDisposable?: IDisposable;
 }
 
+/**
+ * The xterm theme is derived from the design tokens on <html> at runtime, so
+ * both appearances (and imported VSIX themes) flow through unchanged. Tokens
+ * may be hex or rgba() strings; xterm accepts either. A missing token yields
+ * `undefined`, which makes xterm fall back to its own default for that slot.
+ */
+const readToken = (style: CSSStyleDeclaration, name: string): string | undefined => {
+  const value = style.getPropertyValue(name).trim();
+  return value || undefined;
+};
+
+export const buildTerminalTheme = (): ITheme => {
+  const style = getComputedStyle(document.documentElement);
+  const token = (name: string) => readToken(style, name);
+  const blueRgb = token('--blue-rgb');
+
+  return {
+    background: token('--content'),
+    foreground: token('--text'),
+    cursor: token('--blue'),
+    cursorAccent: token('--content'),
+    selectionBackground: blueRgb ? `rgba(${blueRgb}, 0.3)` : token('--blue-soft'),
+    black: token('--inset'),
+    red: token('--red'),
+    green: token('--green'),
+    // ANSI yellow is used as a foreground colour by most tools; the pure
+    // yellow token is illegible on a light surface, so (as in LogViewer) the
+    // normal slot uses orange and the bright slot uses yellow.
+    yellow: token('--orange'),
+    blue: token('--blue'),
+    magenta: token('--purple'),
+    cyan: token('--teal'),
+    white: token('--text'),
+    brightBlack: token('--text3'),
+    brightRed: token('--red'),
+    brightGreen: token('--green'),
+    brightYellow: token('--yellow'),
+    brightBlue: token('--blue'),
+    brightMagenta: token('--purple'),
+    brightCyan: token('--teal'),
+    brightWhite: token('--text'),
+  };
+};
+
+/** Nerd Font faces first (prompt glyphs), then the system mono stack. */
+export const buildTerminalFontFamily = (): string => {
+  const style = getComputedStyle(document.documentElement);
+  const mono = readToken(style, '--font-mono');
+  const faces = [
+    '"MesloLGS NF"',
+    '"CaskaydiaMono Nerd Font"',
+    '"CaskaydiaCove Nerd Font"',
+    '"FiraCode Nerd Font"',
+  ];
+  return [...faces, mono || 'ui-monospace, Menlo, monospace'].join(', ');
+};
+
 const TerminalComponent: React.FC<TerminalProps> = ({
   wsUrl,
   connectMessage = 'Connecting...',
   headerInfo = '',
   onConnectionChange,
 }) => {
-  const { theme } = useTheme();
   const terminalRef = useRef<HTMLDivElement>(null);
   const terminalInstance = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -73,6 +128,25 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     }
   }, []);
 
+  // Re-apply the token-derived theme whenever the appearance flips
+  // (data-theme on <html>) or an imported theme rewrites the root style.
+  useEffect(() => {
+    const observer = new MutationObserver(() => {
+      const term = terminalInstance.current;
+      if (!term) return;
+      try {
+        term.options.theme = buildTerminalTheme();
+      } catch {
+        // Terminal may be mid-dispose; ignore.
+      }
+    });
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ['data-theme', 'style', 'class'],
+    });
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!terminalRef.current) return;
 
@@ -80,57 +154,11 @@ const TerminalComponent: React.FC<TerminalProps> = ({
     let fitAddon: FitAddon | null = null;
     let webLinksAddon: WebLinksAddon | null = null;
 
-    const terminalTheme =
-      theme === 'light'
-        ? {
-            background: '#ffffff',
-            foreground: '#383a42',
-            cursor: '#383a42',
-            black: '#383a42',
-            red: '#e45649',
-            green: '#50a14f',
-            yellow: '#c18401',
-            blue: '#0184bc',
-            magenta: '#a626a4',
-            cyan: '#0997b3',
-            white: '#fafafa',
-            brightBlack: '#4f525d',
-            brightRed: '#e45649',
-            brightGreen: '#50a14f',
-            brightYellow: '#c18401',
-            brightBlue: '#0184bc',
-            brightMagenta: '#a626a4',
-            brightCyan: '#0997b3',
-            brightWhite: '#fafafa',
-          }
-        : {
-            background: '#1e1e1e',
-            foreground: '#d4d4d4',
-            cursor: '#d4d4d4',
-            black: '#000000',
-            red: '#cd3131',
-            green: '#0dbc79',
-            yellow: '#e5e510',
-            blue: '#2472c8',
-            magenta: '#bc3fbc',
-            cyan: '#11a8cd',
-            white: '#e5e5e5',
-            brightBlack: '#666666',
-            brightRed: '#f14c4c',
-            brightGreen: '#23d18b',
-            brightYellow: '#f5f543',
-            brightBlue: '#3b8eea',
-            brightMagenta: '#d670d6',
-            brightCyan: '#29b8db',
-            brightWhite: '#e5e5e5',
-          };
-
     try {
       term = new Terminal({
-        fontSize: 14,
-        fontFamily:
-          '"JetBrainsMono Nerd Font", "JetBrains Mono Nerd Font", "MesloLGS NF", "CaskaydiaMono Nerd Font", "CaskaydiaCove Nerd Font", "FiraCode Nerd Font", "JetBrains Mono", "SF Mono", "Cascadia Code", "Fira Code", "Monaco", "Menlo", monospace',
-        theme: terminalTheme,
+        fontSize: 12,
+        fontFamily: buildTerminalFontFamily(),
+        theme: buildTerminalTheme(),
         cursorBlink: true,
         scrollback: 10000,
       });
@@ -407,7 +435,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         }
       }, 50);
     };
-  }, [wsUrl, connectMessage, onConnectionChange, handleResize, theme]);
+  }, [wsUrl, connectMessage, onConnectionChange, handleResize]);
 
   const reconnect = () => {
     window.location.reload();
@@ -422,7 +450,8 @@ const TerminalComponent: React.FC<TerminalProps> = ({
               connected ? 'connected' : 'disconnected'
             }`}
           >
-            {connected ? '● Connected' : '○ Disconnected'}
+            <span className="connection-status-dot" aria-hidden="true" />
+            {connected ? 'Connected' : 'Disconnected'}
           </span>
           {headerInfo && (
             <span className="terminal-header-info">{headerInfo}</span>
@@ -430,7 +459,7 @@ const TerminalComponent: React.FC<TerminalProps> = ({
         </div>
         <div className="terminal-actions">
           {!connected && (
-            <button onClick={reconnect} className="reconnect-btn">
+            <button onClick={reconnect} className="reconnect-btn ap-btn ap-btn--sm ap-btn--primary">
               Reconnect
             </button>
           )}

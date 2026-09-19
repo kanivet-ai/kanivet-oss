@@ -32,6 +32,7 @@ import MetadataSection from './shared/MetadataSection';
 import ScaleDialog from '../dialogs/ScaleDialog';
 import Dialog from '../common/Dialog';
 import { failureMessage } from '../../utils/errorMessage';
+import { getResourceIcon } from '../../utils/resourceIcons';
 
 const getContainerState = (container: any) => {
   if (container.state) {
@@ -101,7 +102,7 @@ const ContainersSection = ({ resource, cluster, onVolumeClick }: { resource: any
                   <span className={`container-status-dot ${statusClass}`} />
                   <span className="container-name">
                     {container.name}
-                    {container.isInit && <span className="container-init-badge">INIT</span>}
+                    {container.isInit && <span className="container-init-badge">Init</span>}
                     <span className={`container-state-badge ${statusClass}`}>{state}</span>
                     {container.restartCount > 0 && <span className="container-restarts">{container.restartCount} restart{container.restartCount > 1 ? 's' : ''}</span>}
                   </span>
@@ -196,9 +197,24 @@ const QuickActions: React.FC<{ resource: any; cluster: string; hideDelete?: bool
   return (
     <>
       <div className="quick-actions">
-        {canScale && <button className="quick-action-btn" onClick={() => setShowScaleDialog(true)} disabled={isScaling} title="Scale"><SizeIcon /></button>}
-        {canRestart && <button className="quick-action-btn" onClick={() => setShowRestartDialog(true)} disabled={isRestarting} title="Restart"><ReloadIcon /></button>}
-        {canTrigger && <button className="quick-action-btn" onClick={() => setShowTriggerDialog(true)} disabled={isTriggering} title="Trigger"><PlayIcon /></button>}
+        {canScale && (
+          <button className="quick-action-btn" onClick={() => setShowScaleDialog(true)} disabled={isScaling} title="Scale" aria-label="Scale">
+            <span className="ap-action-icon"><SizeIcon /></span>
+            <span className="ap-action-label">Scale</span>
+          </button>
+        )}
+        {canRestart && (
+          <button className="quick-action-btn ap-action--warn" onClick={() => setShowRestartDialog(true)} disabled={isRestarting} title="Restart" aria-label="Restart">
+            <span className="ap-action-icon"><ReloadIcon /></span>
+            <span className="ap-action-label">Restart</span>
+          </button>
+        )}
+        {canTrigger && (
+          <button className="quick-action-btn" onClick={() => setShowTriggerDialog(true)} disabled={isTriggering} title="Trigger" aria-label="Trigger">
+            <span className="ap-action-icon"><PlayIcon /></span>
+            <span className="ap-action-label">Trigger</span>
+          </button>
+        )}
       </div>
       <ScaleDialog
         isOpen={showScaleDialog}
@@ -264,7 +280,10 @@ const DeleteAction: React.FC<{ resource: any; cluster: string }> = ({ resource, 
 
   return (
     <>
-      <button className="quick-action-btn quick-action-danger" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting} title="Delete"><TrashIcon /></button>
+      <button className="quick-action-btn quick-action-danger ap-action--danger" onClick={() => setShowDeleteDialog(true)} disabled={isDeleting} title="Delete" aria-label="Delete">
+        <span className="ap-action-icon"><TrashIcon /></span>
+        <span className="ap-action-label">Delete</span>
+      </button>
       <Dialog
         isOpen={showDeleteDialog}
         title={`Delete ${kind}`}
@@ -357,28 +376,56 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
   const apiGroup = (resource.apiVersion || '').includes('/') ? resource.apiVersion.split('/')[0] : '';
   const isArgoApplication = resource.kind === 'Application' && (apiGroup === 'argoproj.io' || apiGroup.endsWith('.argoproj.io'));
 
+  const phaseKey = String(phase || '').toLowerCase();
+  const tileTone = !phase
+    ? 'info'
+    : ['running', 'ready', 'succeeded', 'active', 'bound', 'healthy', 'synced', 'deployed', 'complete', 'completed', 'available', 'true'].includes(phaseKey)
+      ? 'success'
+      : ['pending', 'notready', 'progressing', 'unknown', 'waiting', 'terminating', 'outofsync', 'suspended', 'degraded'].includes(phaseKey)
+        ? 'warning'
+        : ['failed', 'error', 'crashloopbackoff', 'evicted', 'false', 'missing'].includes(phaseKey)
+          ? 'danger'
+          : 'info';
+  const replicas = renderReplicas();
+
   return (
     <div className="resource-detail-view">
       <div className="resource-header">
         <div className="resource-header-top">
-          <div className="resource-kind-row">
-            <span className="resource-kind-badge">{resource.kind}</span>
-            {(phase || renderReplicas()) && (
-              <div className="resource-status-row">
-                {phase && <span className={`status-badge status-${String(phase).toLowerCase()}`}>{phase}</span>}
-                {renderReplicas()}
+          <div className="resource-identity">
+            <span className={`resource-header-tile resource-header-tile--${tileTone}`} aria-hidden="true">
+              {getResourceIcon(resource.kind || 'Unknown')}
+            </span>
+            <div className="resource-identity-text">
+              <h2 className="resource-name">
+                <span>{metadata.name}</span>
+                <ClipboardCopy text={metadata.name} />
+              </h2>
+              <div className="resource-kind-row">
+                <span className="resource-kind-badge">{resource.kind}</span>
+                {metadata.namespace && (
+                  <>
+                    <span className="resource-subtitle-sep">·</span>
+                    <span className="resource-namespace">{metadata.namespace}</span>
+                  </>
+                )}
+                {(phase || replicas) && (
+                  <>
+                    <span className="resource-subtitle-sep">·</span>
+                    <div className="resource-status-row">
+                      {phase && <span className={`status-badge status-${phaseKey}`}>{phase}</span>}
+                      {replicas}
+                    </div>
+                  </>
+                )}
               </div>
-            )}
-            <div className="resource-actions-row">
-              <QuickActions resource={resource} cluster={cluster} />
-              {actions}
-              <DeleteAction resource={resource} cluster={cluster} />
             </div>
           </div>
-          <h2 className="resource-name">
-            <span>{metadata.name}</span>
-            <ClipboardCopy text={metadata.name} />
-          </h2>
+          <div className="resource-actions-row">
+            <QuickActions resource={resource} cluster={cluster} />
+            {actions}
+            <DeleteAction resource={resource} cluster={cluster} />
+          </div>
         </div>
       </div>
 

@@ -20,6 +20,14 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import { Line } from 'react-chartjs-2';
 import api from '../services/api';
 import MonitoringSettingsModal from './MonitoringSettingsModal';
+import {
+  useChartTheme,
+  chartMetricColor,
+  chartAreaGradient,
+  chartTooltipStyle,
+  chartTickStyle,
+  withAlpha,
+} from './PodMetrics';
 import './PodMetrics.css';
 
 ChartJS.register(
@@ -153,21 +161,13 @@ const METRIC_ICONS: Record<MetricType, JSX.Element> = {
   ),
 };
 
-const CHART_COLORS = {
-  cpu: '#3b82f6',
-  memory: '#10b981',
-  network_rx: '#f59e0b',
-  network_tx: '#ef4444',
-  disk_read: '#8b5cf6',
-  disk_write: '#ec4899',
-};
-
 export const NodeMetrics: React.FC<NodeMetricsProps> = ({
   cluster,
   nodeName,
   resourceCapacity,
   resourceAllocatable,
 }) => {
+  const theme = useChartTheme();
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('cpu');
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('15m');
   const [metricsData, setMetricsData] = useState<{
@@ -353,24 +353,25 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
   };
 
   const datasets = useMemo(() => {
+    const color = chartMetricColor(theme, selectedMetric);
     const result: any[] = [
       {
         label: `${METRIC_LABELS[selectedMetric]} ${
           metricsData?.unit ? `(${metricsData.unit})` : ''
         }`,
         data: metricsData?.values || [],
-        borderColor: CHART_COLORS[selectedMetric],
-        backgroundColor: 'transparent',
+        borderColor: color,
+        backgroundColor: chartAreaGradient(color),
         borderWidth: 2,
-        fill: false,
+        fill: true,
         tension: 0.3,
         pointRadius: 0,
         pointHoverRadius: 4,
-        pointBackgroundColor: CHART_COLORS[selectedMetric],
-        pointBorderColor: '#1a1a1a',
+        pointBackgroundColor: color,
+        pointBorderColor: theme.content,
         pointBorderWidth: 2,
-        pointHoverBackgroundColor: CHART_COLORS[selectedMetric],
-        pointHoverBorderColor: '#ffffff',
+        pointHoverBackgroundColor: color,
+        pointHoverBorderColor: theme.content,
         pointHoverBorderWidth: 2,
       },
     ];
@@ -384,9 +385,9 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
       result.push({
         label: 'Capacity',
         data: Array(metricsData?.labels.length || 1).fill(capacityValue),
-        borderColor: 'rgba(239, 68, 68, 0.6)',
-        borderWidth: 1.5,
-        borderDash: [5, 5],
+        borderColor: theme.orange,
+        borderWidth: 1,
+        borderDash: [4, 4],
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
@@ -405,8 +406,8 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
       result.push({
         label: 'Allocatable',
         data: Array(metricsData?.labels.length || 1).fill(allocatableValue),
-        borderColor: 'rgba(251, 191, 36, 0.6)',
-        borderWidth: 1.5,
+        borderColor: theme.text3,
+        borderWidth: 1,
         borderDash: [3, 3],
         fill: false,
         pointRadius: 0,
@@ -416,7 +417,7 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
     }
 
     return result;
-  }, [selectedMetric, metricsData, resourceCapacity, resourceAllocatable]);
+  }, [theme, selectedMetric, metricsData, resourceCapacity, resourceAllocatable]);
 
   const chartData = useMemo(
     () => ({
@@ -442,8 +443,8 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
           zoom: {
             drag: {
               enabled: true,
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              borderColor: 'rgba(59, 130, 246, 0.5)',
+              backgroundColor: withAlpha(theme.blue, 0.1),
+              borderColor: withAlpha(theme.blue, 0.5),
               borderWidth: 1,
             },
             mode: 'x' as const,
@@ -470,30 +471,9 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
           mode: 'index' as const,
           intersect: false,
           position: 'nearest' as const,
-          // Compact styling - matching PodMetrics
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          titleColor: 'rgba(255, 255, 255, 0.7)',
-          bodyColor: '#ffffff',
-          borderColor: 'rgba(255, 255, 255, 0.15)',
-          borderWidth: 1,
-          padding: 6,
+          // Styled like .ap-tooltip - matching PodMetrics
+          ...chartTooltipStyle(theme),
           displayColors: false,
-          cornerRadius: 4,
-          caretSize: 4,
-          caretPadding: 4,
-          // Smaller fonts for compact tooltip
-          titleFont: {
-            size: 9,
-            weight: 'normal' as const,
-            family: "'SF Mono', 'Monaco', monospace",
-          },
-          bodyFont: {
-            size: 10,
-            weight: 'normal' as const,
-            family: "'SF Mono', 'Monaco', monospace",
-          },
-          titleMarginBottom: 2,
-          bodySpacing: 2,
           // Position at top of chart
           yAlign: 'bottom' as const,
           xAlign: 'center' as const,
@@ -552,12 +532,11 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
             display: false,
             drawBorder: false,
           },
+          border: {
+            display: false,
+          },
           ticks: {
-            color: '#8b949e', // Visible gray for both themes
-            font: {
-              size: 10,
-              family: "'Inter', 'SF Pro Text', -apple-system, sans-serif",
-            },
+            ...chartTickStyle(theme),
             maxTicksLimit: 6,
             maxRotation: 0,
             callback: function (this: any, value: any): string {
@@ -587,18 +566,14 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
         },
         y: {
           grid: {
-            color: 'rgba(139, 148, 158, 0.08)', // Very subtle grid lines
+            color: theme.hair, // hairline gridlines
             drawBorder: false,
           },
           border: {
             display: false,
           },
           ticks: {
-            color: '#8b949e', // Visible gray for both themes
-            font: {
-              size: 10,
-              family: "'Inter', 'SF Pro Text', -apple-system, sans-serif",
-            },
+            ...chartTickStyle(theme),
             padding: 8,
             maxTicksLimit: 5,
             callback: function (value: any) {
@@ -633,7 +608,7 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
         },
       },
     }),
-    [selectedMetric, metricsData],
+    [theme, selectedMetric, metricsData],
   );
 
   // Still detecting providers - show loading state

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { TrashIcon, ExclamationTriangleIcon, ReloadIcon, UpdateIcon } from '@radix-ui/react-icons';
+import { TrashIcon, ExclamationTriangleIcon, ReloadIcon, UpdateIcon, ChevronDownIcon, Cross2Icon } from '@radix-ui/react-icons';
 import './BulkActionsDropdown.css';
 
 interface BulkActionsDropdownProps {
@@ -70,7 +70,7 @@ const BulkActionsDropdown = ({
             onClick={onClearSelection}
             title="Clear selection"
           >
-            ×
+            <Cross2Icon />
           </button>
         )}
       </span>
@@ -81,10 +81,10 @@ const BulkActionsDropdown = ({
           disabled={isDisabled}
         >
           Actions
-          <span className="caret">▾</span>
+          <ChevronDownIcon className="caret" />
         </button>
         {isOpen && (
-          <div className="bulk-actions-menu">
+          <div className="bulk-actions-menu ap-menu">
             <div
               className="bulk-action-item"
               onClick={() => handleActionClick('delete')}

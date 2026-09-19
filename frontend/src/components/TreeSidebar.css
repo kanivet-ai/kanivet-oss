@@ -1,6 +1,8 @@
+/* Source list sidebar — vibrancy surface, blue selection, hairline edge. */
 .tree-sidebar {
-  background: var(--bg-secondary);
-  border-right: 1px solid var(--border);
+  background: var(--sidebar);
+  /* No backdrop-filter: the tree's context menus are position: fixed children. */
+  border-right: 1px solid var(--hair);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -9,20 +11,9 @@
 }
 
 .sidebar-header {
-  background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
-  border-bottom: 1px solid var(--border);
-  padding: 8px 4px;
+  padding: 8px 10px 6px;
   position: relative;
-}
-
-.sidebar-header::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--accent) 15%, transparent), transparent);
+  flex: none;
 }
 
 .search-box {
@@ -31,54 +22,53 @@
   align-items: center;
 }
 
-.search-input {
+/* Search field — rounded control with an inline magnifier glyph.
+   Scoped to the sidebar header: other panes define their own .search-input. */
+.tree-sidebar .sidebar-header .search-input {
   width: 100%;
-  padding: 6px 10px;
-  background: var(--bg-primary);
-  border: 1px solid var(--border);
-  color: var(--text-primary);
-  outline: none;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-sm);
   height: 28px;
+  padding: 0 9px 0 27px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--ctrl) url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.5' y2='16.5'/></svg>") no-repeat 9px center;
+  color: var(--text);
+  outline: none;
+  font-size: 13px;
   box-sizing: border-box;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet), background-color var(--duration-fast) var(--ease-quiet);
 }
 
-.search-input::placeholder {
-  color: var(--text-muted);
-  opacity: 0.7;
+.tree-sidebar .sidebar-header .search-input::placeholder {
+  color: var(--text3);
 }
 
-.search-input:hover {
-  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
-  background: color-mix(in srgb, var(--bg-primary) 95%, var(--accent));
+.tree-sidebar .sidebar-header .search-input:hover {
+  background-color: var(--ctrl2);
 }
 
-.search-input:focus {
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 12%, transparent);
-  background: var(--bg-primary);
+.tree-sidebar .sidebar-header .search-input:focus {
+  background-color: var(--ctrl);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .tree-scroll-area {
   flex: 1;
   overflow: hidden;
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 .tree-viewport {
   width: 100%;
   height: 100%;
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 .tree-content {
-  padding: 8px 2px 8px 2px;
+  padding: 2px 8px 14px;
   width: 100%;
   min-height: 100%;
   box-sizing: border-box;
-  background: var(--bg-secondary);
+  background: transparent;
 }
 
 .tree-scrollbar {
@@ -88,28 +78,27 @@
   padding: 2px;
   background: transparent;
   width: 8px;
-  transition: width 0.15s ease, background-color 0.15s ease;
+  transition: width var(--duration-fast) var(--ease-quiet);
 }
 
 .tree-scroll-area:hover .tree-scrollbar {
   width: 10px;
-  background: color-mix(in srgb, var(--bg-tertiary) 50%, transparent);
 }
 
 .tree-thumb {
   flex: 1;
-  background: color-mix(in srgb, var(--text-muted) 25%, transparent);
+  background: var(--ctrl2);
   border-radius: 10px;
   position: relative;
-  transition: background-color 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .tree-thumb:hover {
-  background: color-mix(in srgb, var(--text-muted) 45%, transparent);
+  background: var(--scrollbar-thumb-hover);
 }
 
 .tree-thumb:active {
-  background: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: var(--text4);
 }
 
 .tree-thumb::before {
@@ -128,22 +117,20 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 4px;
+  width: 5px;
   height: 100%;
   cursor: col-resize;
   background: transparent;
   z-index: 10;
-  transition: background 0.15s ease, width 0.15s ease;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .resize-handle:hover {
-  width: 5px;
-  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--accent) 35%, transparent) 20%, color-mix(in srgb, var(--accent) 35%, transparent) 80%, transparent 100%);
+  background: var(--sep);
 }
 
 .resize-handle.resizing {
-  width: 5px;
-  background: linear-gradient(180deg, transparent 0%, var(--accent) 20%, var(--accent) 80%, transparent 100%);
+  background: var(--blue);
 }
 
 .resize-handle.at-minimum {
@@ -151,5 +138,5 @@
 }
 
 .resize-handle.at-minimum:hover {
-  background: linear-gradient(180deg, transparent 0%, color-mix(in srgb, var(--danger) 50%, transparent) 20%, color-mix(in srgb, var(--danger) 50%, transparent) 80%, transparent 100%);
+  background: color-mix(in srgb, var(--red) 55%, transparent);
 }

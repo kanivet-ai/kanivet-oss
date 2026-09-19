@@ -31,12 +31,12 @@ const ServicePorts: React.FC<ServicePortsProps> = ({ ports, portForwards, loadin
               <span className="port-proto">{port.protocol}</span>
             </span>
             <button
-              className={`port-fwd-btn ${isForwarded ? 'active' : ''}`}
+              className={`port-fwd-btn ap-btn ap-btn--sm ${isForwarded ? 'active' : ''}`}
               onClick={(e) => { e.stopPropagation(); if (!isLoading) onPortForward(port.port); }}
               disabled={isLoading}
               title={isForwarded ? `localhost:${portForwards[portKey].localPort}` : 'Forward port'}
             >
-              {isLoading ? '...' : isForwarded ? portForwards[portKey].localPort : 'FWD'}
+              {isLoading ? '...' : isForwarded ? portForwards[portKey].localPort : 'Forward'}
             </button>
           </div>
         );

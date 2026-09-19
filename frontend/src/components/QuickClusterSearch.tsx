@@ -269,7 +269,7 @@ export const QuickClusterSearch: React.FC<QuickClusterSearchProps> = ({
           onKeyDown={handleKeyDown}
         />
         <span className="quick-search-hint">
-          <kbd>↑↓</kbd> navigate <kbd>↵</kbd> select <kbd>esc</kbd> close
+          <kbd className="ap-kbd">↑↓</kbd> navigate <kbd className="ap-kbd">↵</kbd> select <kbd className="ap-kbd">esc</kbd> close
         </span>
       </div>
       <div className={`quick-search-results${mouseEnabled ? '' : ' keyboard-nav'}`} ref={listRef} onMouseMove={handleMouseMove}>

@@ -1,3 +1,4 @@
+/* Sidebar rows — 28px, 6px radius, blue selection with white content. */
 .tree-node-container {
   user-select: none;
   position: relative;
@@ -7,24 +8,24 @@
 .tree-node {
   display: flex;
   align-items: center;
-  min-height: 26px;
-  cursor: pointer;
-  color: var(--text-primary);
+  min-height: 28px;
+  cursor: default;
+  color: var(--text);
   position: relative;
   width: 100%;
   box-sizing: border-box;
   outline: none;
-  border-radius: var(--radius-xs);
-  margin: 1px 0;
-  transition: background-color 0.12s ease, transform 0.1s ease;
+  border-radius: 6px;
+  margin: 0;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .tree-node:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .tree-node-disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: not-allowed;
 }
 
@@ -36,50 +37,33 @@
   transform: none;
 }
 
-.tree-node:active {
-  transform: scale(0.995);
-}
-
 .tree-node:focus,
 .tree-node:focus-visible {
   outline: none;
 }
 
+/* Search match — soft blue tint */
 .tree-node-match {
-  background: rgba(var(--accent-rgb), 0.12);
-  border-left: 2px solid var(--accent);
-  padding-left: 2px;
+  background: var(--sel-soft);
 }
 
 /*
- * Two distinct states, so they never read as two selections:
- * the selected row (whose list is open) gets the tinted background and the
- * accent bar; the keyboard cursor gets a thin ring, and only while the tree
- * has focus.
+ * Selected row: solid system blue with white content.
+ * Keyboard cursor: a thin ring, only while the tree has focus.
  */
-.tree-node-selected {
-  background: rgba(var(--accent-rgb), 0.15);
-  color: var(--text-primary);
-  position: relative;
-}
-
-.tree-node-selected::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  bottom: 0;
-  width: 2px;
-  background: var(--accent);
-  border-radius: 0 2px 2px 0;
-}
-
+.tree-node-selected,
 .tree-node-selected:hover {
-  background: rgba(var(--accent-rgb), 0.2);
+  background: var(--sel);
+  color: var(--on-sel);
 }
 
 .tree-sidebar.focused .tree-node-focused {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent);
+  box-shadow: inset 0 0 0 1.5px rgba(var(--blue-rgb), 0.55);
+}
+
+/* The cursor on the selected row is redundant — the blue fill already says it. */
+.tree-sidebar.focused .tree-node-focused.tree-node-selected {
+  box-shadow: none;
 }
 
 .tree-node-indent {
@@ -89,47 +73,18 @@
   flex-shrink: 0;
 }
 
+/* Indent guides are not drawn in a macOS source list; keep the spacing only. */
 .tree-indent-line {
   position: relative;
   width: 12px;
-  height: 26px;
+  height: 28px;
   display: inline-block;
 }
 
-.tree-indent-line::before {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 0;
-  height: 100%;
-  width: 1px;
-  background: linear-gradient(180deg, color-mix(in srgb, var(--border) 60%, transparent), color-mix(in srgb, var(--border) 40%, transparent));
-  transition: background 0.15s ease;
-}
-
-.tree-node:hover .tree-indent-line::before {
-  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 35%, var(--border)), color-mix(in srgb, var(--accent) 20%, var(--border)));
-}
-
-.tree-indent-line-last::before {
-  height: 50% !important;
-}
-
-.tree-indent-line-last::after {
-  content: '';
-  position: absolute;
-  left: 6px;
-  top: 50%;
-  width: 5px;
-  height: 1px;
-  background: color-mix(in srgb, var(--border) 50%, transparent);
-  transition: background 0.15s ease;
-}
-
-.tree-node:hover .tree-indent-line-last::after {
-  background: color-mix(in srgb, var(--accent) 30%, var(--border));
-}
-
+.tree-indent-line::before,
+.tree-indent-line::after,
+.tree-indent-line-last::before,
+.tree-indent-line-last::after,
 .tree-indent-line-hidden::before,
 .tree-indent-line-hidden::after {
   display: none;
@@ -138,62 +93,74 @@
 .tree-node-content {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 4px;
   flex: 1;
-  padding: 2px 4px 2px 3px;
   min-width: 0;
+  padding: 0 8px 0 6px;
 }
 
 .tree-node-arrow {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
+  width: 14px;
   height: 16px;
   flex: 0 0 auto;
-  color: var(--text-muted);
-  transition: color 0.12s ease, transform 0.12s ease;
-  border-radius: var(--radius-xs);
+  color: var(--text3);
+  border-radius: 4px;
+  transition: color var(--duration-fast) var(--ease-quiet);
 }
 
-.tree-node:hover .tree-node-arrow {
-  color: var(--text-secondary);
+.tree-node-arrow svg {
+  width: 10px;
+  height: 10px;
 }
 
-.tree-node-expanded > .tree-node-content > .tree-node-arrow,
-.tree-node:hover .tree-node-arrow {
-  color: var(--text-primary);
+.tree-node:hover .tree-node-arrow,
+.tree-node-expanded > .tree-node-content > .tree-node-arrow {
+  color: var(--text2);
+}
+
+.tree-node-selected .tree-node-arrow,
+.tree-node-selected:hover .tree-node-arrow {
+  color: var(--on-sel2);
 }
 
 .tree-node-spacer {
-  width: 11px;
+  width: 14px;
   flex: 0 0 auto;
 }
 
 .tree-node-icon {
-  font-size: var(--font-base);
-  margin-right: 2px;
+  font-size: 15px;
+  margin-right: 5px;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
+  width: 17px;
   height: 18px;
-  color: var(--icon-muted);
-  transition: color 0.12s ease, transform 0.12s ease, filter 0.12s ease;
+  color: var(--blue);
 }
 
-.tree-node:hover .tree-node-icon {
-  filter: brightness(1.15);
+.tree-node-icon svg {
+  width: 15px;
+  height: 15px;
 }
 
-/* Subtle color accents: categories at the top level, resources beneath */
-.tree-node-level-0 .tree-node-icon {
-  color: var(--icon-mid, #7da3ff);
+.tree-node-selected .tree-node-icon {
+  color: var(--on-sel);
 }
+
 .tree-node-level-1 .tree-node-icon,
-.tree-node-level-2 .tree-node-icon {
-  color: var(--icon-low, #9bb6ff);
+.tree-node-level-2 .tree-node-icon,
+.tree-node-level-3 .tree-node-icon {
+  color: var(--blue);
+}
+
+.tree-node-selected .tree-node-icon,
+.tree-node-level-0.tree-node-selected .tree-node-icon {
+  color: var(--on-sel);
 }
 
 .tree-node-label-wrapper {
@@ -208,76 +175,126 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: var(--font-base);
-  line-height: var(--line-height-base);
-  transition: color 0.1s ease;
-}
-
-.tree-node:hover .tree-node-label {
-  color: var(--text-primary);
+  font-size: 13px;
+  line-height: 1.3;
+  letter-spacing: -0.1px;
+  color: inherit;
 }
 
 .tree-node-children {
   position: relative;
-  animation: treeChildrenExpand 0.15s ease-out;
+  animation: treeChildrenExpand var(--duration-fast) ease-out;
 }
 
 @keyframes treeChildrenExpand {
-  from { opacity: 0; transform: translateY(-4px); }
+  from { opacity: 0; transform: translateY(-2px); }
   to { opacity: 1; transform: translateY(0); }
 }
 
-.tree-node-level-0 .tree-node-label {
-  font-size: var(--font-sm);
+/*
+ * Section header treatment for the collapsible top-level groups only
+ * (Workloads, Networking…). Top-level *pages* (Overview, FinOps, Helm…)
+ * have no chevron and stay ordinary rows.
+ */
+.tree-node-level-0:has(> .tree-node-content > .tree-node-arrow:not(.tree-node-arrow-placeholder)) {
+  min-height: 24px;
+  margin-top: 10px;
+  color: var(--text3);
+}
+
+.tree-node-container:first-child > .tree-node-level-0:has(> .tree-node-content > .tree-node-arrow:not(.tree-node-arrow-placeholder)) {
+  margin-top: 4px;
+}
+
+.tree-node-level-0:has(> .tree-node-content > .tree-node-arrow:not(.tree-node-arrow-placeholder)) .tree-node-label {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: inherit;
+}
+
+.tree-node-level-0:has(> .tree-node-content > .tree-node-arrow:not(.tree-node-arrow-placeholder)):hover {
+  background: transparent;
+  color: var(--text2);
+}
+
+.tree-node-level-0:has(> .tree-node-content > .tree-node-arrow:not(.tree-node-arrow-placeholder)) .tree-node-icon {
+  color: var(--text3);
+}
+
+/* Top-level pages: normal rows with blue icons */
+.tree-node-level-0:not(:has(> .tree-node-content > .tree-node-arrow:not(.tree-node-arrow-placeholder))) .tree-node-icon {
+  color: var(--blue);
+}
+
+.tree-node-level-0.tree-node-selected,
+.tree-node-level-0.tree-node-selected:hover {
+  background: var(--sel);
+  color: var(--on-sel);
 }
 
 .tree-node-level-1 .tree-node-label,
 .tree-node-level-2 .tree-node-label,
 .tree-node-level-3 .tree-node-label {
-  font-size: var(--font-sm);
-  color: var(--text-secondary, #b3b3b3);
+  font-size: 13px;
+  color: inherit;
 }
 
+/* Deep custom-resource groups read as identifiers */
+.tree-node-level-2 .tree-node-label,
+.tree-node-level-3 .tree-node-label {
+  font-size: 12.5px;
+}
 
+/* Counts sit at the trailing edge (reordered with flex) */
 .tree-node-count {
-  font-size: var(--font-xxs);
-  color: var(--text-secondary);
-  background: var(--bg-subtle-2);
-  padding: 0 3px;
-  border-radius: 8px;
-  font-weight: 600;
+  order: 10;
+  margin-left: auto;
+  margin-right: 0;
+  padding: 0 0 0 8px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--text3);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   flex-shrink: 0;
-  min-width: var(--count-min-width, 18px);
-  margin-right: 4px;
-  text-align: center;
-  border: 1px solid var(--border);
-  transition: all 0.15s ease;
+  min-width: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .tree-node:hover .tree-node-count {
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 30%, transparent);
-  color: var(--accent);
+  color: var(--text2);
 }
 
+.tree-node-selected .tree-node-count,
+.tree-node-selected:hover .tree-node-count {
+  color: var(--on-sel2);
+}
 
 .tree-node[draggable='true']:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
+.tree-node[draggable='true'].tree-node-selected:hover {
+  background: var(--sel);
+}
+
+/* Context menu */
 .tree-node-context-menu {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
-  padding: 6px;
   min-width: 200px;
-  backdrop-filter: blur(8px);
-  animation: contextMenuFadeIn 0.15s ease;
+  padding: 5px;
+  border-radius: 10px;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  box-shadow: var(--shadow-pop);
+  animation: contextMenuFadeIn var(--duration-base) var(--ease-snap);
 }
 
 @keyframes contextMenuFadeIn {
-  from { opacity: 0; transform: scale(0.95); }
+  from { opacity: 0; transform: scale(0.96); }
   to { opacity: 1; transform: scale(1); }
 }
 
@@ -285,24 +302,30 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  cursor: pointer;
-  font-size: var(--font-sm);
-  color: var(--text-primary);
-  border-radius: var(--radius-xs);
-  transition: background-color 0.1s ease;
+  gap: 16px;
+  padding: 5px 10px;
+  cursor: default;
+  font-size: 13px;
+  color: var(--text);
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 .context-menu-item:hover {
-  background: var(--bg-hover);
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.context-menu-item:hover .context-menu-shortcut {
+  color: var(--on-sel2);
 }
 
 .context-menu-item:active {
-  background: var(--bg-active);
+  background: var(--blue-hover);
 }
 
 .context-menu-shortcut {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 12px;
+  color: var(--text3);
   margin-left: 16px;
 }

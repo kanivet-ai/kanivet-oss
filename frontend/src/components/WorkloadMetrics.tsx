@@ -15,6 +15,13 @@ import zoomPlugin from 'chartjs-plugin-zoom';
 import { Line } from 'react-chartjs-2';
 import api from '../services/api';
 import MonitoringSettingsModal from './MonitoringSettingsModal';
+import {
+  type ChartTheme,
+  useChartTheme,
+  chartTooltipStyle,
+  chartTickStyle,
+  withAlpha,
+} from './PodMetrics';
 import './PodMetrics.css';
 import './WorkloadMetrics.css';
 
@@ -117,19 +124,22 @@ const METRIC_ICONS: Record<MetricType, JSX.Element> = {
   ),
 };
 
-// Color palette for multiple pods
-const POD_COLORS = [
-  '#3b82f6', // Blue
-  '#10b981', // Emerald
-  '#f59e0b', // Amber
-  '#ef4444', // Red
-  '#8b5cf6', // Violet
-  '#ec4899', // Pink
-  '#06b6d4', // Cyan
-  '#84cc16', // Lime
-  '#f97316', // Orange
-  '#6366f1', // Indigo
+// Color palette for multiple pods: the system colours, read from the tokens at runtime
+const POD_COLOR_KEYS: (keyof ChartTheme)[] = [
+  'blue',
+  'green',
+  'orange',
+  'red',
+  'purple',
+  'pink',
+  'teal',
+  'yellow',
+  'indigo',
+  'gray',
 ];
+
+const podColor = (theme: ChartTheme, index: number): string =>
+  theme[POD_COLOR_KEYS[index % POD_COLOR_KEYS.length]];
 
 // Maximum pods to show on the chart for performance and readability
 const MAX_PODS_DISPLAYED = 8;
@@ -140,6 +150,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
   namespace,
   name,
 }) => {
+  const theme = useChartTheme();
   const [pods, setPods] = useState<PodInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -355,14 +366,14 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
       if (!visiblePods.has(pod.name)) return;
       
       const data = podMetricsData[pod.name];
-      const color = POD_COLORS[index % POD_COLORS.length];
-      
+      const color = podColor(theme, index);
+
       datasets.push({
         label: getShortPodName(pod.name),
         data: data?.values || [],
         borderColor: color,
-        backgroundColor: `${color}15`,
-        borderWidth: 1.5,
+        backgroundColor: withAlpha(color, 0.08),
+        borderWidth: 2,
         fill: false,
         tension: 0.3,
         pointRadius: 0,
@@ -370,7 +381,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
         pointBackgroundColor: color,
         pointBorderColor: 'transparent',
         pointHoverBackgroundColor: color,
-        pointHoverBorderColor: '#ffffff',
+        pointHoverBorderColor: theme.content,
         pointHoverBorderWidth: 2,
       });
     });
@@ -381,9 +392,9 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
       datasets.push({
         label: 'Limit',
         data: Array(longestLabels.length || 1).fill(limitValue),
-        borderColor: 'rgba(239, 68, 68, 0.6)',
-        borderWidth: 1.5,
-        borderDash: [5, 5],
+        borderColor: theme.orange,
+        borderWidth: 1,
+        borderDash: [4, 4],
         fill: false,
         pointRadius: 0,
         pointHoverRadius: 0,
@@ -397,8 +408,8 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
       datasets.push({
         label: 'Request',
         data: Array(longestLabels.length || 1).fill(requestValue),
-        borderColor: 'rgba(251, 191, 36, 0.6)',
-        borderWidth: 1.5,
+        borderColor: theme.text3,
+        borderWidth: 1,
         borderDash: [3, 3],
         fill: false,
         pointRadius: 0,
@@ -411,7 +422,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
       labels: longestLabels,
       datasets,
     };
-  }, [pods, podMetricsData, visiblePods, selectedMetric, aggregatedResources]);
+  }, [theme, pods, podMetricsData, visiblePods, selectedMetric, aggregatedResources]);
 
   const chartOptions = useMemo<ChartOptions<'line'>>(
     () => ({
@@ -434,8 +445,8 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
           zoom: {
             drag: {
               enabled: true,
-              backgroundColor: 'rgba(59, 130, 246, 0.1)',
-              borderColor: 'rgba(59, 130, 246, 0.5)',
+              backgroundColor: withAlpha(theme.blue, 0.1),
+              borderColor: withAlpha(theme.blue, 0.5),
               borderWidth: 1,
             },
             mode: 'x' as const,
@@ -460,27 +471,12 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
           mode: 'index' as const,
           intersect: false,
           position: 'nearest' as const,
-          backgroundColor: 'rgba(0, 0, 0, 0.8)',
-          titleColor: 'rgba(255, 255, 255, 0.7)',
-          bodyColor: '#ffffff',
-          borderColor: 'rgba(255, 255, 255, 0.15)',
-          borderWidth: 1,
-          padding: 8,
+          ...chartTooltipStyle(theme),
           displayColors: true,
           usePointStyle: true,
           boxWidth: 6,
           boxHeight: 6,
-          cornerRadius: 4,
-          titleFont: {
-            size: 10,
-            weight: 'normal' as const,
-            family: "'SF Mono', 'Monaco', monospace",
-          },
-          bodyFont: {
-            size: 10,
-            weight: 'normal' as const,
-            family: "'SF Mono', 'Monaco', monospace",
-          },
+          boxPadding: 4,
           callbacks: {
             title: (context: any) => context[0]?.label || '',
             label: (context: any) => {
@@ -509,12 +505,9 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
       scales: {
         x: {
           grid: { display: false, drawBorder: false },
+          border: { display: false },
           ticks: {
-            color: '#8b949e',
-            font: {
-              size: 10,
-              family: "'Inter', 'SF Pro Text', -apple-system, sans-serif",
-            },
+            ...chartTickStyle(theme),
             maxTicksLimit: 6,
             maxRotation: 0,
             callback: function (this: any, value: any): string {
@@ -536,16 +529,12 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
         },
         y: {
           grid: {
-            color: 'rgba(139, 148, 158, 0.08)',
+            color: theme.hair,
             drawBorder: false,
           },
           border: { display: false },
           ticks: {
-            color: '#8b949e',
-            font: {
-              size: 10,
-              family: "'Inter', 'SF Pro Text', -apple-system, sans-serif",
-            },
+            ...chartTickStyle(theme),
             padding: 8,
             maxTicksLimit: 5,
             callback: function (value: any) {
@@ -563,7 +552,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
         },
       },
     }),
-    [selectedMetric],
+    [theme, selectedMetric],
   );
 
   // Provider unavailable should win over pod/chart loading states.
@@ -818,7 +807,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({
           </span>
           <div className="legend-items">
             {pods.slice(0, Math.max(MAX_PODS_DISPLAYED, pods.length > 20 ? 20 : pods.length)).map((pod, index) => {
-              const color = POD_COLORS[index % POD_COLORS.length];
+              const color = podColor(theme, index);
               const isVisible = visiblePods.has(pod.name);
               const isDisabled = !isVisible && visiblePods.size >= MAX_PODS_DISPLAYED;
               return (

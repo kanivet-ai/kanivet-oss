@@ -2,52 +2,51 @@
 .clipboard-copy-btn {
   background: transparent;
   border: none;
-  color: var(--text-muted);
+  color: var(--text3);
   cursor: pointer;
-  padding: 1px;
+  padding: 2px;
+  border-radius: 4px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition:
-    opacity 0.1s,
-    color 0.08s;
+  transition: opacity var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), background var(--duration-fast) var(--ease-quiet);
   flex-shrink: 0;
   position: relative;
   z-index: 2;
 }
 
-/* Show copy button on parent hover */
 *:hover > .clipboard-copy,
 *:hover > .clipboard-copy-btn,
 .clipboard-copy:focus,
 .clipboard-copy-btn:focus {
-  opacity: 0.6;
+  opacity: 0.7;
 }
 
 .clipboard-copy-btn.always-visible {
   opacity: 1;
-  color: var(--accent);
+  color: var(--blue);
 }
 
 .clipboard-copy-btn.always-visible:hover {
   opacity: 1;
-  color: var(--accent-hover);
+  color: var(--blue-hover);
 }
 
 .clipboard-copy:hover,
 .clipboard-copy-btn:hover {
-  color: var(--text-primary);
+  color: var(--text);
+  background: var(--hover);
   opacity: 1;
 }
 
 .clipboard-copy svg,
 .clipboard-copy-btn svg {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
 }
 
 .clipboard-copy .check-icon,
 .clipboard-copy-btn .check-icon {
-  color: var(--success);
+  color: var(--green);
 }

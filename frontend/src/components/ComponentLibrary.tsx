@@ -621,27 +621,35 @@ const dummyCustomResourceData = {
 };
 
 const colorGroups = {
-  Backgrounds: [
-    { name: '--bg-primary', label: 'Primary' },
-    { name: '--bg-secondary', label: 'Secondary' },
-    { name: '--bg-tertiary', label: 'Tertiary' },
-    { name: '--bg-hover', label: 'Hover' },
-    { name: '--bg-active', label: 'Active' },
+  Surfaces: [
+    { name: '--win', label: 'Window' },
+    { name: '--content', label: 'Content' },
+    { name: '--card', label: 'Card' },
+    { name: '--inset', label: 'Inset' },
+    { name: '--hover', label: 'Hover' },
+    { name: '--stripe', label: 'Stripe' },
   ],
   Text: [
-    { name: '--text-primary', label: 'Primary' },
-    { name: '--text-secondary', label: 'Secondary' },
-    { name: '--text-muted', label: 'Muted' },
+    { name: '--text', label: 'Primary' },
+    { name: '--text2', label: 'Secondary' },
+    { name: '--text3', label: 'Tertiary' },
+    { name: '--text4', label: 'Disabled' },
   ],
-  Status: [
-    { name: '--success', label: 'Success' },
-    { name: '--warning', label: 'Warning' },
-    { name: '--danger', label: 'Danger' },
-    { name: '--accent', label: 'Accent' },
+  Semantic: [
+    { name: '--blue', label: 'Blue' },
+    { name: '--green', label: 'Green' },
+    { name: '--orange', label: 'Orange' },
+    { name: '--red', label: 'Red' },
+    { name: '--purple', label: 'Purple' },
+    { name: '--teal', label: 'Teal' },
   ],
-  Other: [
-    { name: '--border', label: 'Border' },
-    { name: '--accent-hover', label: 'Accent Hover' },
+  'Lines and fills': [
+    { name: '--hair', label: 'Hairline' },
+    { name: '--sep', label: 'Separator' },
+    { name: '--ctrl', label: 'Control' },
+    { name: '--ctrl2', label: 'Control strong' },
+    { name: '--sel', label: 'Selection' },
+    { name: '--blue-soft', label: 'Blue tint' },
   ],
 };
 
@@ -667,7 +675,7 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
         </div>
 
         <Tabs.Root defaultValue="colors" className="component-library-tabs">
-          <Tabs.List className="component-library-tabs-list">
+          <Tabs.List className="component-library-tabs-list ap-segmented">
             <Tabs.Trigger value="colors" className="component-library-tab">
               Colors
             </Tabs.Trigger>
@@ -709,7 +717,7 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
 
           <Tabs.Content value="typography" className="component-library-content">
             <div className="typography-section">
-              <h3>Font Sizes</h3>
+              <h3>Font sizes</h3>
               {fontSizes.map(({ name, label }) => (
                 <div key={name} className="typography-item">
                   <span className="typography-label">{label}</span>
@@ -721,24 +729,24 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
             </div>
 
             <div className="typography-section">
-              <h3>Line Heights</h3>
+              <h3>Line heights</h3>
               <div className="typography-item">
                 <span className="typography-label">Tight (1.3)</span>
-                <div style={{ lineHeight: 'var(--line-height-tight)', maxWidth: '400px', color: 'var(--text-primary)' }}>
+                <div className="typography-sample" style={{ lineHeight: 'var(--line-height-tight)', maxWidth: '400px' }}>
                   This is sample text with tight line height. It's compact and space-efficient
                   for dense information displays.
                 </div>
               </div>
               <div className="typography-item">
-                <span className="typography-label">Base (1.55)</span>
-                <div style={{ lineHeight: 'var(--line-height-base)', maxWidth: '400px', color: 'var(--text-primary)' }}>
+                <span className="typography-label">Base (1.45)</span>
+                <div className="typography-sample" style={{ lineHeight: 'var(--line-height-base)', maxWidth: '400px' }}>
                   This is sample text with base line height. It's the default spacing used
                   throughout the application.
                 </div>
               </div>
               <div className="typography-item">
-                <span className="typography-label">Relaxed (1.65)</span>
-                <div style={{ lineHeight: 'var(--line-height-relaxed)', maxWidth: '400px', color: 'var(--text-primary)' }}>
+                <span className="typography-label">Relaxed (1.6)</span>
+                <div className="typography-sample" style={{ lineHeight: 'var(--line-height-relaxed)', maxWidth: '400px' }}>
                   This is sample text with relaxed line height. It's more spacious and easier
                   to read for longer content.
                 </div>
@@ -746,9 +754,9 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
             </div>
 
             <div className="typography-section">
-              <h3>Monospace Font</h3>
+              <h3>Monospace font</h3>
               <div className="typography-item">
-                <code style={{ fontFamily: 'var(--font-mono)' }}>
+                <code className="ap-mono">
                   kubectl get pods -n default
                 </code>
               </div>
@@ -757,7 +765,7 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
 
           <Tabs.Content value="components" className="component-library-content">
             <div className="component-section">
-              <h3>Status Indicators</h3>
+              <h3>Status indicators</h3>
               <div className="component-examples">
                 <div className="component-item">
                   <StatusIndicator type="pod" items={[{ name: 'pod-1', ready: true, phase: 'Running' }]} />
@@ -785,16 +793,32 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
             <div className="component-section">
               <h3>Buttons</h3>
               <div className="component-examples">
-                <button className="component-item-btn">Default Button</button>
-                <button className="component-item-btn" style={{ backgroundColor: 'var(--accent)', color: 'white' }}>
-                  Primary Button
+                <button className="component-item-btn ap-btn">Default button</button>
+                <button className="component-item-btn ap-btn ap-btn--primary">
+                  Primary button
                 </button>
-                <button className="component-item-btn" style={{ backgroundColor: 'var(--danger)', color: 'white' }}>
-                  Danger Button
+                <button className="component-item-btn ap-btn ap-btn--danger">
+                  Danger button
                 </button>
-                <button className="component-item-btn" disabled>
-                  Disabled Button
+                <button className="component-item-btn ap-btn ap-btn--ghost">
+                  Ghost button
                 </button>
+                <button className="component-item-btn ap-btn" disabled>
+                  Disabled button
+                </button>
+              </div>
+            </div>
+
+            <div className="component-section">
+              <h3>Segmented control and pills</h3>
+              <div className="component-examples">
+                <div className="ap-segmented" role="group" aria-label="Segmented control example">
+                  <button type="button" className="is-active">Logs</button>
+                  <button type="button">Terminal</button>
+                  <button type="button">Events</button>
+                </div>
+                <button type="button" className="ap-pill is-active">Active pill</button>
+                <button type="button" className="ap-pill">Pill <span className="ap-pill-count">12</span></button>
               </div>
             </div>
 
@@ -805,20 +829,31 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
                 <span className="badge badge-success">Success</span>
                 <span className="badge badge-warning">Warning</span>
                 <span className="badge badge-danger">Danger</span>
+                <span className="ap-badge ap-badge--info">Info</span>
+                <span className="ap-badge ap-badge--solid">Solid</span>
+                <span className="component-item">
+                  <span className="ap-dot ap-dot--success" /> Running
+                </span>
+                <span className="component-item">
+                  <span className="ap-dot ap-dot--warning" /> Pending
+                </span>
+                <span className="component-item">
+                  <span className="ap-dot ap-dot--danger" /> Failed
+                </span>
               </div>
             </div>
 
             <div className="component-section">
               <h3>Shadows</h3>
               <div className="component-examples">
-                <div className="shadow-box" style={{ boxShadow: 'var(--shadow-sm)' }}>
-                  Small Shadow
+                <div className="shadow-box" style={{ boxShadow: 'var(--shadow-card)' }}>
+                  Card ring
                 </div>
-                <div className="shadow-box" style={{ boxShadow: 'var(--shadow-md)' }}>
-                  Medium Shadow
+                <div className="shadow-box" style={{ boxShadow: 'var(--shadow-pop)' }}>
+                  Popover
                 </div>
-                <div className="shadow-box" style={{ boxShadow: 'var(--shadow-lg)' }}>
-                  Large Shadow
+                <div className="shadow-box" style={{ boxShadow: 'var(--shadow-window)' }}>
+                  Window
                 </div>
               </div>
             </div>
@@ -826,15 +861,15 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
 
           <Tabs.Content value="inputs" className="component-library-content">
             <div className="component-section">
-              <h3>Text Inputs</h3>
+              <h3>Text inputs</h3>
               <div className="input-examples">
-                <input type="text" placeholder="Default input" className="input-example" />
-                <input type="text" placeholder="Disabled input" className="input-example" disabled />
+                <input type="text" placeholder="Default input" className="input-example ap-input" />
+                <input type="text" placeholder="Disabled input" className="input-example ap-input" disabled />
               </div>
             </div>
 
             <div className="component-section">
-              <h3>Search Input</h3>
+              <h3>Search input</h3>
               <div className="input-examples">
                 <input
                   type="search"
@@ -845,16 +880,24 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
             </div>
 
             <div className="component-section">
-              <h3>Checkboxes & Radio</h3>
+              <h3>Checkboxes, radios and toggles</h3>
               <div className="input-examples">
                 <label className="checkbox-label">
-                  <input type="checkbox" />
+                  <input type="checkbox" className="ap-checkbox" />
                   <span>Checkbox option</span>
                 </label>
                 <label className="checkbox-label">
-                  <input type="checkbox" checked readOnly />
+                  <input type="checkbox" className="ap-checkbox" checked readOnly />
                   <span>Checked checkbox</span>
                 </label>
+                <span className="checkbox-label ap-toggle-label">
+                  <span className="ap-toggle is-on" aria-hidden="true" />
+                  <span>Toggle on</span>
+                </span>
+                <span className="checkbox-label ap-toggle-label">
+                  <span className="ap-toggle" aria-hidden="true" />
+                  <span>Toggle off</span>
+                </span>
                 <label className="radio-label">
                   <input type="radio" name="example" />
                   <span>Radio option 1</span>
@@ -867,7 +910,7 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
             </div>
 
             <div className="component-section">
-              <h3>Select Dropdown</h3>
+              <h3>Pop-up button</h3>
               <div className="input-examples">
                 <select className="input-example">
                   <option>Select an option</option>
@@ -881,7 +924,7 @@ export const ComponentLibrary = ({ onClose }: ComponentLibraryProps) => {
 
           <Tabs.Content value="sidebar" className="component-library-content">
             <div className="component-section">
-              <h3>Loading States</h3>
+              <h3>Loading states</h3>
               <ResizableContainer className="detail-skeleton-container">
                 <ResourceDetailSkeleton
                   resource={{ kind: 'Pod', apiVersion: 'v1', metadata: { name: 'example-pod', namespace: 'default' } }}

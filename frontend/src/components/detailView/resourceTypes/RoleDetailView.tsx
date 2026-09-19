@@ -94,7 +94,7 @@ const RoleDetailView: React.FC<DetailViewProps> = ({ resource, handleResourceCli
             actions={
               <div className="role-controls">
                 <button
-                  className={`role-view-toggle${showGrouped ? ' active' : ''}`}
+                  className={`role-view-toggle ap-icon-btn ap-icon-btn--sm${showGrouped ? ' active' : ''}`}
                   onClick={() => setShowGrouped(!showGrouped)}
                   title={showGrouped ? 'Show as rules' : 'Group by resource'}
                 >
@@ -125,7 +125,7 @@ const RoleDetailView: React.FC<DetailViewProps> = ({ resource, handleResourceCli
                         <span className="permission-resource">{key}</span>
                         <div className="permission-verbs">
                           {verbs.map((verb, i) => (
-                            <span key={i} className={`verb-badge verb-${VERB_CLASSES[verb] || 'other'}`}>
+                            <span key={i} className={`verb-badge ap-badge ap-badge--info verb-${VERB_CLASSES[verb] || 'other'}`}>
                               {verb === '*' ? 'all' : verb}
                             </span>
                           ))}
@@ -149,7 +149,7 @@ const RoleDetailView: React.FC<DetailViewProps> = ({ resource, handleResourceCli
                         <span className="rule-resources">{resources.join(', ') || 'URLs'}</span>
                         <div className="rule-verbs">
                           {verbs.map((verb: string, j: number) => (
-                            <span key={j} className={`verb-badge verb-${VERB_CLASSES[verb] || 'other'}`}>
+                            <span key={j} className={`verb-badge ap-badge ap-badge--info verb-${VERB_CLASSES[verb] || 'other'}`}>
                               {verb === '*' ? 'all' : verb}
                             </span>
                           ))}

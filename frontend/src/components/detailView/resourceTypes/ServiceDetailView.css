@@ -1,41 +1,49 @@
+/* Service — type badge, ports table wrapper, selector chips (card rows). */
 .service-type-badge {
-  font-size: var(--font-xxxs);
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  color: var(--accent);
-  background: var(--info-bg);
-  padding: 0 4px;
-  border-radius: 3px;
+  color: var(--blue);
+  background: var(--blue-soft);
+  white-space: nowrap;
 }
 
 .service-ports-wrapper {
-  padding: 0 var(--property-padding-x);
+  padding: 0;
 }
 
 .service-selector {
   display: flex;
   flex-wrap: wrap;
-  gap: 3px;
-  padding: 2px var(--property-padding-x);
+  gap: 6px;
+  padding: 8px 14px;
   align-items: center;
 }
 
 .selector-tag {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  background: var(--bg-subtle);
-  border-radius: 2px;
-  font-size: var(--font-xxxs);
+  height: 20px;
+  background: var(--card);
+  border-radius: 6px;
+  box-shadow: 0 0 0 0.5px var(--sep);
+  font-size: 11px;
   font-family: var(--font-mono);
   overflow: hidden;
 }
 
 .selector-key {
-  padding: 1px 3px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
+  padding: 0 6px;
+  color: var(--text2);
+  background: transparent;
 }
 
 .selector-value {
-  padding: 1px 4px;
-  color: var(--text-primary);
+  padding: 0 6px;
+  color: var(--blue);
+  background: var(--blue-soft);
 }

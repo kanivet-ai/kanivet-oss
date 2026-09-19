@@ -1,42 +1,45 @@
+/* Status badge: 18px tinted pill, 11px/600, sentence case. */
 .status-value {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  padding: 0 5px;
-  border-radius: 2px;
-  font-size: var(--font-xxxs);
+  gap: 5px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  height: 16px;
+  height: 18px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .status-value-icon {
-  width: 10px;
-  height: 10px;
+  width: 11px;
+  height: 11px;
   flex-shrink: 0;
 }
 
 .status-value-text {
   white-space: nowrap;
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .status-value-success {
   background: var(--success-bg);
-  color: var(--success);
+  color: var(--success-fg);
 }
 
 .status-value-warning {
   background: var(--warning-bg);
-  color: var(--warning);
+  color: var(--warning-fg);
 }
 
 .status-value-danger {
   background: var(--danger-bg);
-  color: var(--danger);
+  color: var(--danger-fg);
 }
 
 .status-value-neutral {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: var(--ctrl);
+  color: var(--text2);
 }

@@ -128,7 +128,7 @@ const ConfigMapDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, c
                         <div className="configmap-entry-key">
                           {isBinary && <ArchiveIcon className="binary-icon" />}
                           <span className="key-name">{key}</span>
-                          <span className="format-badge format-secondary">{language.toUpperCase()}</span>
+                          <span className="format-badge format-secondary">{language}</span>
                         </div>
                         <div className="configmap-entry-meta">
                           <span className="entry-size">{formatBytes(new Blob([value]).size)}</span>
@@ -164,7 +164,7 @@ const ConfigMapDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, c
                             wordWrap: 'on',
                             scrollBeyondLastLine: false,
                             automaticLayout: true,
-                            fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Menlo', monospace",
+                            fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', Consolas, 'Liberation Mono', monospace",
                             renderWhitespace: 'selection',
                             scrollbar: {
                               vertical: 'visible',

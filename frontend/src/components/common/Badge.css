@@ -1,58 +1,67 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-weight: 500;
-  transition: all 0.2s;
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-weight: 600;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+  background: var(--ctrl);
+  color: var(--text2);
+  transition: none;
 }
 
 .badge-small {
-  font-size: 11px;
-  padding: 1px 6px;
+  font-size: 10px;
+  height: 16px;
+  padding: 0 6px;
 }
 
 .badge-medium {
-  font-size: 12px;
-  padding: 2px 8px;
+  font-size: 11px;
+  height: 18px;
+  padding: 0 7px;
 }
 
 .badge-large {
-  font-size: 13px;
-  padding: 3px 10px;
+  font-size: 12px;
+  height: 22px;
+  padding: 0 9px;
 }
 
 .badge-dot {
   width: 6px;
   height: 6px;
-  border-radius: 2px;
+  border-radius: 50%;
   background: currentColor;
 }
 
 .badge-success {
   background: var(--success-bg);
-  color: var(--success);
-  border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
+  color: var(--success-fg);
+  border: 0;
   font-weight: 600;
 }
 
 .badge-warning {
   background: var(--warning-bg);
-  color: var(--warning);
+  color: var(--warning-fg);
 }
 
 .badge-danger {
   background: var(--danger-bg);
-  color: var(--danger);
+  color: var(--danger-fg);
 }
 
 .badge-info {
-  background: var(--info-bg);
-  color: var(--primary);
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .badge-neutral {
-  background: var(--bg-secondary);
-  color: var(--text-secondary);
+  background: var(--ctrl);
+  color: var(--text2);
 }

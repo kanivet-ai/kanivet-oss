@@ -1,22 +1,27 @@
+/* VPA savings badge + its tooltip body. */
 .vpa-badge {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  padding: 2px 7px;
-  background: color-mix(in srgb, var(--efficiency-excellent) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--efficiency-excellent) 30%, transparent);
-  border-radius: 4px;
-  font-family: var(--font-mono);
-  font-size: var(--font-xxs);
+  height: 18px;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--efficiency-excellent) 16%, transparent);
+  border: 0;
+  border-radius: 5px;
+  font-family: var(--font-sans);
+  font-size: 11px;
   font-weight: 600;
+  line-height: 1;
   color: var(--efficiency-excellent);
-  cursor: help;
-  transition: all 0.15s ease;
+  cursor: default;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .vpa-badge:hover {
-  background: color-mix(in srgb, var(--efficiency-excellent) 18%, transparent);
-  border-color: var(--efficiency-excellent);
+  background: color-mix(in srgb, var(--efficiency-excellent) 24%, transparent);
+  border-color: transparent;
 }
 
 .vpa-badge svg {
@@ -33,50 +38,55 @@
   align-items: center;
   gap: 6px;
   font-weight: 600;
-  color: var(--text-primary);
-  margin-bottom: 8px;
-  font-size: var(--font-sm);
+  color: var(--text);
+  margin-bottom: 6px;
+  font-size: 12.5px;
 }
 
 .vpa-tooltip-title svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   color: var(--efficiency-excellent);
 }
 
 .vpa-insight {
-  font-size: var(--font-xs);
-  color: var(--text-secondary);
-  margin-bottom: 10px;
+  font-size: 11.5px;
+  color: var(--text2);
+  margin-bottom: 8px;
 }
 
 .vpa-savings {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
 }
 
 .savings-row {
   display: flex;
   justify-content: space-between;
-  font-size: var(--font-xs);
+  font-size: 11.5px;
 }
 
 .savings-row span:first-child {
-  color: var(--text-muted);
+  color: var(--text2);
 }
 
 .savings-value {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   color: var(--efficiency-excellent);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.vpa-savings .savings-value {
+  font-size: 11.5px;
 }
 
 .savings-percent {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
   color: var(--efficiency-excellent);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
-

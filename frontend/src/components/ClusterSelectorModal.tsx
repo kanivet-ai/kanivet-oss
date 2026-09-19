@@ -75,9 +75,9 @@ export const ClusterSelectorModal: React.FC<ClusterSelectorModalProps> = ({
 
   return (
     <div className="cluster-selector-overlay" onClick={handleOverlayClick}>
-      <div className={`cluster-selector-modal ${activeTab === 'find' ? 'find-mode' : ''}`}>
+      <div className={`cluster-selector-modal ap-sheet ${activeTab === 'find' ? 'find-mode' : ''}`}>
         <div className="cluster-selector-modal-header">
-          <div className="cluster-selector-modal-tabs">
+          <div className="cluster-selector-modal-tabs ap-segmented">
             <button
               className={`cluster-selector-modal-tab ${activeTab === 'find' ? 'active' : ''}`}
               onClick={() => setActiveTab('find')}

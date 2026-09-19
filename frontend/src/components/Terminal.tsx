@@ -316,16 +316,22 @@ const Terminal = ({
       if (!session || !term) return;
 
       const searchAddon = session.searchAddon;
+      // Highlight colours come from the design tokens so both appearances match.
+      const rootStyle = getComputedStyle(document.documentElement);
+      const readToken = (name: string) => rootStyle.getPropertyValue(name).trim();
+      const blueRgb = readToken('--blue-rgb');
+      const matchColor = blueRgb ? `rgba(${blueRgb}, 0.35)` : readToken('--blue');
+      const activeMatchColor = readToken('--orange');
       const searchOptions = {
         regex: options?.regex || false,
         wholeWord: options?.wholeWord || false,
         caseSensitive: options?.caseSensitive || false,
         incremental: false,
         decorations: {
-          matchBackground: '#515c6a',
-          matchOverviewRuler: '#515c6a',
-          activeMatchBackground: '#ff7b00',
-          activeMatchColorOverviewRuler: '#ff7b00',
+          matchBackground: matchColor,
+          matchOverviewRuler: matchColor,
+          activeMatchBackground: activeMatchColor,
+          activeMatchColorOverviewRuler: activeMatchColor,
         },
       };
 
@@ -499,38 +505,10 @@ const Terminal = ({
           }
         }}
       >
-        {error && (
-          <div
-            style={{
-              position: 'absolute',
-              top: 0,
-              right: 0,
-              background: 'rgba(255, 0, 0, 0.1)',
-              color: '#ff6b6b',
-              padding: '4px 8px',
-              fontSize: '12px',
-              zIndex: 10,
-              pointerEvents: 'none',
-            }}
-          >
-            {error}
-          </div>
-        )}
+        {error && <div className="terminal-error-overlay">{error}</div>}
         <div ref={terminalRef} className="terminal-wrapper" />
         {!isConnected && !error && (
-          <div
-            style={{
-              position: 'absolute',
-              top: '50%',
-              left: '50%',
-              transform: 'translate(-50%, -50%)',
-              color: '#666',
-              fontSize: '14px',
-              pointerEvents: 'none',
-            }}
-          >
-            Connecting...
-          </div>
+          <div className="terminal-connecting">Connecting...</div>
         )}
       </div>
     </div>

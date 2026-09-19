@@ -56,7 +56,7 @@ const TabContextMenu = ({
   return createPortal(
     <div
       ref={menuRef}
-      className="tab-context-menu"
+      className="tab-context-menu ap-menu"
       style={{
         position: 'fixed',
         left: x,

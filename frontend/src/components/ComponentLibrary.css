@@ -1,59 +1,73 @@
+/* Component library (dev gallery) — a sheet that showcases the .ap-* primitives. */
 .component-library-overlay {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.5);
+  background-color: var(--overlay);
   display: flex;
   align-items: center;
   justify-content: center;
   z-index: 1001;
+  animation: ap-fade var(--duration-base) ease;
 }
 
 .component-library-modal {
-  background-color: var(--bg-primary);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-lg);
+  background-color: var(--win);
+  border-radius: 12px;
+  box-shadow: var(--shadow-window);
   width: 90%;
   max-width: 1400px;
   max-height: 85vh;
   display: flex;
   flex-direction: column;
-  border: 1px solid var(--border);
+  border: 0;
+  overflow: hidden;
+  animation: ap-pop var(--duration-base) var(--ease-snap);
 }
 
 .component-library-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 20px 24px;
-  border-bottom: 1px solid var(--border);
+  height: 52px;
+  padding: 0 14px 0 20px;
+  border-bottom: 1px solid var(--hair);
+  flex: none;
 }
 
 .component-library-header h2 {
   margin: 0;
-  font-size: var(--font-lg);
+  font-size: 15px;
   font-weight: 600;
-  color: var(--text-primary);
+  letter-spacing: -0.2px;
+  color: var(--text);
 }
 
 .component-library-close {
   background: none;
   border: none;
-  color: var(--text-secondary);
+  color: var(--text2);
   cursor: pointer;
-  padding: 4px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: var(--radius-sm);
-  transition: all 0.15s;
+  border-radius: 6px;
+  transition: background-color var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .component-library-close:hover {
-  background-color: var(--bg-hover);
-  color: var(--text-primary);
+  background-color: var(--hover);
+  color: var(--text);
+}
+
+.component-library-close svg {
+  width: 15px;
+  height: 15px;
 }
 
 .component-library-tabs {
@@ -63,74 +77,92 @@
   overflow: hidden;
 }
 
+/* Segmented control (.ap-segmented values) */
 .component-library-tabs-list {
-  display: flex;
-  gap: 4px;
-  padding: 0 24px;
-  border-bottom: 1px solid var(--border);
-  background-color: var(--bg-secondary);
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: stretch;
+  gap: 1px;
+  margin: 12px 20px 0;
+  padding: 2px;
+  border-bottom: 0;
+  border-radius: 7px;
+  background-color: var(--ctrl);
 }
 
 .component-library-tab {
-  background: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  background: transparent;
   border: none;
-  padding: 12px 16px;
-  font-size: var(--font-sm);
-  color: var(--text-secondary);
+  border-bottom: 0;
+  border-radius: 5px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text2);
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.15s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .component-library-tab:hover {
-  color: var(--text-primary);
-  background-color: var(--bg-hover);
+  color: var(--text);
+  background-color: transparent;
 }
 
 .component-library-tab[data-state='active'] {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: var(--text);
+  background: var(--card);
+  border-bottom-color: transparent;
+  box-shadow: var(--shadow-pill);
 }
 
 .component-library-content {
-  padding: 24px;
+  padding: 18px 20px 24px;
   overflow-y: auto;
   flex: 1;
 }
 
+/* Section labels — 11.5px/600 secondary, sentence case */
 .color-group {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .color-group h3 {
-  font-size: var(--font-md);
+  font-size: 11.5px;
   font-weight: 600;
-  margin: 0 0 12px 0;
-  color: var(--text-primary);
+  margin: 0 0 8px 14px;
+  color: var(--text2);
+  letter-spacing: 0.01em;
 }
 
 .color-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 10px;
 }
 
 .color-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 8px;
-  border-radius: var(--radius-sm);
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: var(--card);
+  border: 0;
+  box-shadow: var(--shadow-card);
 }
 
 .color-swatch {
   width: 32px;
   height: 32px;
-  border-radius: var(--radius-xs);
-  border: 1px solid var(--border);
+  border-radius: 8px;
+  border: 0;
+  box-shadow: 0 0 0 0.5px var(--sep);
   flex-shrink: 0;
 }
 
@@ -140,166 +172,183 @@
 }
 
 .color-label {
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text);
   margin-bottom: 2px;
 }
 
 .color-var {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text3);
   font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .typography-section {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .typography-section h3 {
-  font-size: var(--font-md);
+  font-size: 11.5px;
   font-weight: 600;
-  margin: 0 0 16px 0;
-  color: var(--text-primary);
+  margin: 0 0 8px 14px;
+  color: var(--text2);
+  letter-spacing: 0.01em;
 }
 
 .typography-item {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px;
+  gap: 6px;
+  padding: 10px 14px;
   margin-bottom: 8px;
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  background-color: var(--card);
+  border-radius: 10px;
+  border: 0;
+  box-shadow: var(--shadow-card);
 }
 
 .typography-label {
-  font-size: var(--font-xs);
+  font-size: 11.5px;
   font-weight: 600;
-  color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+  color: var(--text2);
+  text-transform: none;
+  letter-spacing: 0.01em;
 }
 
 .typography-sample {
-  color: var(--text-primary);
+  color: var(--text);
 }
 
 .component-section {
-  margin-bottom: 32px;
+  margin-bottom: 28px;
 }
 
 .component-section h3 {
-  font-size: var(--font-md);
+  font-size: 11.5px;
   font-weight: 600;
-  margin: 0 0 16px 0;
-  color: var(--text-primary);
+  margin: 0 0 8px 14px;
+  color: var(--text2);
+  letter-spacing: 0.01em;
 }
 
 .component-examples {
   display: flex;
   flex-wrap: wrap;
-  gap: 16px;
-  padding: 16px;
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  background-color: var(--card);
+  border-radius: 10px;
+  border: 0;
+  box-shadow: var(--shadow-card);
 }
 
 .component-item {
   display: flex;
   align-items: center;
   gap: 8px;
-  font-size: var(--font-sm);
-  color: var(--text-primary);
+  font-size: 12.5px;
+  color: var(--text);
 }
 
+/* .ap-btn carries the look */
 .component-item-btn {
-  padding: 8px 16px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background-color: var(--bg-secondary);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
-  cursor: pointer;
-  transition: all 0.15s;
+  font-family: inherit;
 }
 
 .component-item-btn:hover:not(:disabled) {
-  background-color: var(--bg-hover);
-  border-color: var(--accent);
+  border-color: transparent;
 }
 
 .component-item-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* Badges (.ap-badge values) — also the bare `badge` used by CRD views */
 .badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  font-size: var(--font-xs);
+  gap: 5px;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
   font-weight: 600;
-  background-color: var(--bg-tertiary);
-  color: var(--text-primary);
-  border: 1px solid var(--border);
+  line-height: 1;
+  background-color: var(--ctrl);
+  color: var(--text2);
+  border: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 .badge-success {
   background-color: var(--success-bg);
   color: var(--success-fg);
-  border-color: var(--success);
+  border-color: transparent;
 }
 
 .badge-warning {
   background-color: var(--warning-bg);
   color: var(--warning-fg);
-  border-color: var(--warning);
+  border-color: transparent;
 }
 
 .badge-danger {
   background-color: var(--danger-bg);
   color: var(--danger-fg);
-  border-color: var(--danger);
+  border-color: transparent;
 }
 
 .shadow-box {
-  padding: 24px;
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-md);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  padding: 22px 26px;
+  background-color: var(--card);
+  border-radius: 10px;
+  color: var(--text);
+  font-size: 12.5px;
   text-align: center;
 }
 
 .input-examples {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  padding: 16px;
-  background-color: var(--bg-secondary);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
+  align-items: flex-start;
+  gap: 10px;
+  padding: 14px;
+  background-color: var(--card);
+  border-radius: 10px;
+  border: 0;
+  box-shadow: var(--shadow-card);
 }
 
+/* .ap-input values; the select variant follows .ap-select */
 .input-example {
-  padding: 8px 12px;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border);
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 0;
+  background-color: var(--ctrl);
+  color: var(--text);
+  font-size: 13px;
   font-family: inherit;
-  transition: all 0.15s;
+  min-width: 240px;
+  outline: none;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.input-example::placeholder {
+  color: var(--text3);
 }
 
 .input-example:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 3px rgba(var(--accent-rgb), 0.1);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .input-example:disabled {
@@ -307,25 +356,42 @@
   cursor: not-allowed;
 }
 
+select.input-example {
+  padding: 0 26px 0 11px;
+  background-color: var(--card);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  appearance: none;
+  -webkit-appearance: none;
+  cursor: pointer;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16'><rect width='16' height='16' rx='4' fill='%23007aff'/><path d='M5 6.5l3-3 3 3M5 9.5l3 3 3-3' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 5px center;
+  background-size: 16px 16px;
+}
+
 .checkbox-label,
 .radio-label {
   display: flex;
   align-items: center;
   gap: 8px;
-  cursor: pointer;
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  cursor: default;
+  color: var(--text);
+  font-size: 13px;
 }
 
 .checkbox-label input,
 .radio-label input {
   cursor: pointer;
+  accent-color: var(--blue);
 }
 
 .detail-skeleton-container {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  background-color: var(--content);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
   overflow: auto;
   max-height: 500px;
   position: relative;
@@ -333,9 +399,10 @@
 }
 
 .detail-view-container {
-  background-color: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  background-color: var(--content);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
   overflow: auto;
   max-height: 600px;
   position: relative;
@@ -351,11 +418,11 @@
   cursor: ew-resize;
   background-color: transparent;
   z-index: 10;
-  transition: background-color 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .resize-handle-left:hover {
-  background-color: var(--accent);
+  background-color: var(--blue);
 }
 
 .resize-handle-left::before {

@@ -375,8 +375,9 @@ func (h *Handler) parallelResourceCount(ctx context.Context, cluster string, res
 	for i := 0; i < len(resources); i++ {
 		result := <-resultChan
 		if result.err != nil {
-			zero := 0
-			resources[result.index].Count = &zero
+			// Unknown, not zero: the sidebar renders a nil count as "–" and the
+			// watcher publishes the real number once the list stream starts.
+			resources[result.index].Count = nil
 		} else {
 			c := result.count
 			resources[result.index].Count = &c

@@ -110,10 +110,10 @@ const SecretDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, clus
             defaultOpen
             actions={
               <div className="secret-controls">
-                <button className="secret-control-btn" onClick={toggleShowAll} title={allRevealed ? 'Hide All' : 'Reveal All'}>
+                <button className="secret-control-btn ap-icon-btn ap-icon-btn--sm" onClick={toggleShowAll} title={allRevealed ? 'Hide All' : 'Reveal All'}>
                   {allRevealed ? <EyeClosedIcon /> : <EyeOpenIcon />}
                 </button>
-                <button className="secret-control-btn" onClick={toggleExpandAll} title={anyExpanded ? 'Collapse All' : 'Expand All'}>
+                <button className="secret-control-btn ap-icon-btn ap-icon-btn--sm" onClick={toggleExpandAll} title={anyExpanded ? 'Collapse All' : 'Expand All'}>
                   {anyExpanded ? <ChevronUpIcon /> : <ChevronDownIcon />}
                 </button>
               </div>
@@ -151,7 +151,7 @@ const SecretDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, clus
                         <div className="secret-entry-key">
                           <LockClosedIcon className="lock-icon" />
                           <span className="key-name">{key}</span>
-                          <span className="format-badge format-secondary">{language.toUpperCase()}</span>
+                          <span className="format-badge format-secondary">{language}</span>
                         </div>
                         <div className="secret-entry-meta">
                           <span className="entry-size">{formatBytes(new Blob([decodedValue]).size)}</span>
@@ -166,7 +166,7 @@ const SecretDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, clus
                             </button>
                           )}
                           <button
-                            className="reveal-btn"
+                            className="reveal-btn ap-icon-btn ap-icon-btn--sm"
                             onClick={() => setRevealedKeys(prev => ({ ...prev, [key]: !isRevealed }))}
                             title={isRevealed ? 'Hide' : 'Reveal'}
                           >
@@ -195,7 +195,7 @@ const SecretDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, clus
                               wordWrap: 'on',
                               scrollBeyondLastLine: false,
                               automaticLayout: true,
-                              fontFamily: "'JetBrains Mono', 'SF Mono', 'Cascadia Code', 'Fira Code', 'Monaco', 'Menlo', monospace",
+                              fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, 'Cascadia Code', Consolas, 'Liberation Mono', monospace",
                               renderWhitespace: 'selection',
                               scrollbar: {
                                 vertical: 'visible',

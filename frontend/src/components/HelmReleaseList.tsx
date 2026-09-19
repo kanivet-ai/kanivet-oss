@@ -14,6 +14,18 @@ interface HelmReleaseListProps {
 
 const HELM_COLUMNS = ['NAME', 'NAMESPACE', 'CHART', 'VERSION', 'STATUS', 'REVISION', 'UPDATED'];
 
+// Column keys stay upper-case (they drive getColumnValue and the column-* class);
+// headers render in sentence case.
+const HELM_COLUMN_LABELS: Record<string, string> = {
+  NAME: 'Name',
+  NAMESPACE: 'Namespace',
+  CHART: 'Chart',
+  VERSION: 'Version',
+  STATUS: 'Status',
+  REVISION: 'Revision',
+  UPDATED: 'Updated',
+};
+
 const HelmReleaseList = ({ cluster, onSelectRelease }: HelmReleaseListProps) => {
   const { releases, loading, streaming, progress, error, refresh } = useHelmReleasesStream({
     cluster,
@@ -205,7 +217,7 @@ const HelmReleaseList = ({ cluster, onSelectRelease }: HelmReleaseListProps) => 
                     onClick={() => handleSort(column)}
                   >
                     <div className="th-content">
-                      {column}
+                      {HELM_COLUMN_LABELS[column] ?? column}
                       {getSortIndicator(column)}
                     </div>
                   </th>

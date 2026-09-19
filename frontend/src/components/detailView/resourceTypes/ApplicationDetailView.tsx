@@ -408,7 +408,7 @@ const ApplicationDetailView = ({ cluster, resource, handleResourceClick }: Props
     return (
       <div className="argo-app-empty argo-error">
         {error}
-        <button className="argo-retry" onClick={() => load()}>Retry</button>
+        <button className="argo-retry ap-btn" onClick={() => load()}>Retry</button>
       </div>
     );
   }
@@ -457,18 +457,18 @@ const ApplicationDetailView = ({ cluster, resource, handleResourceClick }: Props
         />
         {summary.project && <PropertyRow label="Project" value={summary.project} />}
         <div className="argo-actions-row">
-          <button className="argo-action argo-primary" disabled={!!busy || opRunning} onClick={() => runSync({})} title="Sync (Cmd+S)">
+          <button className="argo-action argo-primary ap-btn ap-btn--sm ap-btn--primary" disabled={!!busy || opRunning} onClick={() => runSync({})} title="Sync (Cmd+S)">
             {(busy === 'sync' || opRunning) && <span className="argo-action-spinner" />}
             {busy === 'sync' ? 'Syncing…' : opRunning ? 'Syncing…' : 'Sync'}
           </button>
-          <button className="argo-action" disabled={!!busy || opRunning} onClick={() => setSyncDialogOpen(true)} title="Sync with options (Cmd+Shift+S)">
+          <button className="argo-action ap-btn ap-btn--sm" disabled={!!busy || opRunning} onClick={() => setSyncDialogOpen(true)} title="Sync with options (Cmd+Shift+S)">
             Sync Options…
           </button>
-          <button className="argo-action" disabled={!!busy} onClick={() => runRefresh(false)} title="Refresh (Cmd+R)">
+          <button className="argo-action ap-btn ap-btn--sm" disabled={!!busy} onClick={() => runRefresh(false)} title="Refresh (Cmd+R)">
             {busy === 'refresh' && <span className="argo-action-spinner" />}
             {busy === 'refresh' ? 'Refreshing…' : 'Refresh'}
           </button>
-          <button className="argo-action" disabled={!!busy} onClick={() => runRefresh(true)} title="Hard refresh (Cmd+Shift+R)">
+          <button className="argo-action ap-btn ap-btn--sm" disabled={!!busy} onClick={() => runRefresh(true)} title="Hard refresh (Cmd+Shift+R)">
             {busy === 'refresh-hard' && <span className="argo-action-spinner" />}
             {busy === 'refresh-hard' ? 'Refreshing…' : 'Hard Refresh'}
           </button>
@@ -582,7 +582,7 @@ const ApplicationDetailView = ({ cluster, resource, handleResourceClick }: Props
         count={summary.resources?.length ?? 0}
         defaultOpen
         actions={
-          <div className="argo-view-toggle">
+          <div className="argo-view-toggle ap-segmented ap-segmented--sm">
             <button
               type="button"
               className={`argo-view-toggle-btn ${resourceView === 'topology' ? 'active' : ''}`}
@@ -699,7 +699,7 @@ const ApplicationDetailView = ({ cluster, resource, handleResourceClick }: Props
                     </div>
                     <button
                       type="button"
-                      className="argo-history-rollback"
+                      className="argo-history-rollback ap-btn ap-btn--sm"
                       disabled={!!busy || !!isCurrent}
                       onClick={() => setRollbackTarget(h)}
                       title={isCurrent ? 'This is the current revision' : 'Roll back to this revision'}

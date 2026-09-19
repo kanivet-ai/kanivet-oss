@@ -2,7 +2,8 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
-  background: var(--bg-primary);
+  background: var(--win);
+  color: var(--text);
   overflow: hidden;
   position: relative;
 }
@@ -11,21 +12,68 @@
   display: flex;
   flex: 1;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--content);
   min-height: 0;
   position: relative;
 }
 
 .header {
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  height: 40px;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--hair);
+  height: var(--titlebar-height);
 }
 
 .main-content {
   display: flex;
   flex: 1;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
+/* "No cluster selected" welcome state */
+.layout-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 40px;
+  color: var(--text2);
+  text-align: center;
+  background: var(--content);
+}
+
+.layout-empty-tile {
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  margin-bottom: 8px;
+}
+
+.layout-empty-tile svg {
+  width: 28px;
+  height: 28px;
+}
+
+.layout-empty-title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.3px;
+  color: var(--text);
+}
+
+.layout-empty-subtitle {
+  font-size: 13px;
+  max-width: 360px;
+  line-height: 1.45;
+}
+
+.layout-empty .ap-btn {
+  margin-top: 12px;
+}
+
+.layout-empty kbd {
+  font-family: inherit;
+  color: var(--text);
+}

@@ -1,32 +1,36 @@
+/* AWS SSO session manager — a toolbar popover (.ap-menu surface) with grouped rows. */
 .sso-manager-trigger.has-sessions {
-  color: var(--accent);
+  color: var(--blue);
 }
 
 .sso-manager-trigger.active {
-  background: rgba(88, 166, 255, 0.15);
-  border-color: rgba(88, 166, 255, 0.35);
+  background: var(--blue-soft);
+  border-color: transparent;
 }
 
 .sso-manager-content {
   min-width: 340px;
   max-width: 420px;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+  padding: 0;
+  background: var(--toolbar);
+  backdrop-filter: blur(30px) saturate(1.5);
+  -webkit-backdrop-filter: blur(30px) saturate(1.5);
+  border: 0;
+  border-radius: 10px;
+  box-shadow: var(--shadow-pop);
   z-index: 10001;
   overflow: hidden;
-  animation: sso-dropdown-in 0.15s ease-out;
+  animation: sso-dropdown-in var(--duration-base) var(--ease-snap);
 }
 
 @keyframes sso-dropdown-in {
   from {
     opacity: 0;
-    transform: translateY(-4px);
+    transform: scale(0.96);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: none;
   }
 }
 
@@ -34,10 +38,11 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 12px 12px 8px;
-  border-bottom: 1px solid var(--border);
-  font-weight: 500;
-  color: var(--text-primary);
+  padding: 10px 10px 8px 12px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
 }
 
 .sso-manager-header svg:first-child {
@@ -53,30 +58,31 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   border: none;
-  border-radius: 4px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-manager-add-btn:hover {
-  background: var(--accent);
-  color: white;
+  background: var(--hover);
+  color: var(--text);
 }
 
+/* Active account strip — blue tint */
 .sso-manager-active-account {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
-  background: rgba(88, 166, 255, 0.1);
-  border-bottom: 1px solid var(--border);
-  color: var(--accent);
-  font-size: var(--font-sm);
+  padding: 8px 10px 8px 12px;
+  background: var(--blue-soft);
+  border-bottom: 1px solid var(--hair);
+  color: var(--blue);
+  font-size: 12.5px;
 }
 
 .sso-manager-active-account > svg:first-child {
@@ -90,7 +96,7 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 3px;
 }
 
 .sso-active-name {
@@ -101,11 +107,12 @@
 }
 
 .sso-active-profile {
-  font-size: var(--font-xs);
+  font-size: 10.5px;
   font-family: var(--font-mono);
-  color: var(--text-secondary);
-  background: var(--bg-tertiary);
-  padding: 2px 6px;
+  color: var(--text2);
+  background: var(--ctrl);
+  padding: 0 5px;
+  line-height: 16px;
   border-radius: 4px;
   width: fit-content;
   cursor: pointer;
@@ -119,93 +126,112 @@
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text3);
   cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-manager-active-account button:hover {
-  background: rgba(88, 166, 255, 0.2);
-  color: var(--accent);
+  background: rgba(var(--blue-rgb), 0.2);
+  color: var(--blue);
 }
 
 .sso-manager-add-form {
-  padding: 12px;
-  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--hair);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
+/* .ap-input values */
 .sso-manager-add-form input,
 .sso-manager-add-form select {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
-  font-size: var(--font-sm);
+  height: 28px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 7px;
+  background: var(--ctrl);
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-manager-add-form input:focus,
 .sso-manager-add-form select:focus {
   outline: none;
-  border-color: var(--accent);
+  border-color: transparent;
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .sso-manager-add-form input::placeholder {
-  color: var(--text-muted);
+  color: var(--text3);
 }
 
 .sso-manager-add-actions {
   display: flex;
   gap: 8px;
-  margin-top: 4px;
+  margin-top: 2px;
 }
 
+/* .ap-btn values */
 .sso-manager-btn {
   flex: 1;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--font-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background-color: var(--card);
+  color: var(--text);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1;
   cursor: pointer;
-  transition: all 0.15s;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-manager-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  color: var(--text);
 }
 
 .sso-manager-btn.primary {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: white;
+  background-color: var(--blue);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
 }
 
 .sso-manager-btn.primary:hover:not(:disabled) {
-  filter: brightness(1.1);
+  background-color: var(--blue-hover);
+  background-image: none;
+  filter: none;
 }
 
 .sso-manager-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* Error strip — red tint */
 .sso-manager-error {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px;
-  background: rgba(255, 107, 107, 0.1);
-  border-bottom: 1px solid var(--border);
-  color: var(--danger);
-  font-size: var(--font-xs);
+  padding: 8px 10px 8px 12px;
+  background: var(--danger-bg);
+  border-bottom: 1px solid var(--hair);
+  color: var(--danger-fg);
+  font-size: 12px;
+  font-weight: 500;
 }
 
 .sso-manager-error button {
@@ -216,14 +242,15 @@
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--danger);
+  color: var(--danger-fg);
   cursor: pointer;
+  flex: none;
 }
 
 .sso-manager-error button:hover {
-  background: rgba(255, 107, 107, 0.2);
+  background: color-mix(in srgb, var(--red) 18%, transparent);
 }
 
 .sso-manager-sessions {
@@ -235,12 +262,13 @@
 .sso-manager-empty {
   padding: 24px 12px;
   text-align: center;
-  color: var(--text-muted);
-  font-size: var(--font-sm);
+  color: var(--text2);
+  font-size: 12.5px;
+  line-height: 1.45;
 }
 
 .sso-manager-session-wrapper {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hair);
 }
 
 .sso-manager-session-wrapper:last-child {
@@ -248,24 +276,25 @@
 }
 
 .sso-manager-session-wrapper.expired {
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .sso-manager-session {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  cursor: pointer;
-  transition: background 0.15s;
+  gap: 6px;
+  padding: 8px 8px 8px 8px;
+  min-height: 44px;
+  cursor: default;
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-manager-session:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .sso-manager-session.expanded {
-  background: var(--bg-tertiary);
+  background: var(--hover);
 }
 
 .sso-session-expand {
@@ -275,17 +304,17 @@
   width: 20px;
   height: 20px;
   border: none;
-  border-radius: 4px;
+  border-radius: 5px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text3);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
   flex-shrink: 0;
 }
 
 .sso-session-expand:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--ctrl);
+  color: var(--text);
 }
 
 .sso-session-expand:disabled {
@@ -298,13 +327,13 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .sso-session-label {
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -314,21 +343,22 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 11px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
 }
 
 .sso-session-time svg {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
 }
 
 .sso-session-time.expiring {
-  color: var(--warning);
+  color: var(--orange);
 }
 
 .sso-session-time.expired {
-  color: var(--danger);
+  color: var(--red);
 }
 
 .sso-session-actions {
@@ -341,34 +371,34 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
-  border-radius: 4px;
+  border-radius: 6px;
   background: transparent;
-  color: var(--text-muted);
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-session-actions button:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
+  background: var(--ctrl);
+  color: var(--text);
 }
 
 .sso-session-actions button.danger:hover:not(:disabled) {
-  background: rgba(255, 107, 107, 0.15);
-  color: var(--danger);
+  background: var(--danger-bg);
+  color: var(--red);
 }
 
 .sso-session-actions button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
 .sso-session-actions button svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .sso-session-actions button svg.spinning {
@@ -380,9 +410,10 @@
   to { transform: rotate(360deg); }
 }
 
+/* Nested account list */
 .sso-manager-accounts {
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border);
+  background: var(--stripe);
+  border-top: 1px solid var(--hair);
 }
 
 .sso-accounts-loading,
@@ -391,16 +422,16 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  padding: 16px 12px;
-  color: var(--text-muted);
-  font-size: var(--font-xs);
+  padding: 14px 12px;
+  color: var(--text3);
+  font-size: 11.5px;
 }
 
 .sso-spinner {
   width: 14px;
   height: 14px;
-  border: 2px solid var(--border);
-  border-top-color: var(--accent);
+  border: 2px solid var(--ctrl2);
+  border-top-color: var(--blue);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
 }
@@ -409,9 +440,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 12px 8px 32px;
-  border-bottom: 1px solid var(--border);
-  transition: background 0.15s;
+  padding: 6px 10px 6px 34px;
+  min-height: 38px;
+  border-bottom: 1px solid var(--hair);
+  transition: background var(--duration-fast) var(--ease-quiet);
 }
 
 .sso-account-item:last-child {
@@ -419,11 +451,11 @@
 }
 
 .sso-account-item:hover {
-  background: var(--bg-hover);
+  background: var(--hover);
 }
 
 .sso-account-item.active {
-  background: rgba(88, 166, 255, 0.08);
+  background: var(--blue-soft);
 }
 
 .sso-account-info {
@@ -435,52 +467,53 @@
 }
 
 .sso-account-name {
-  font-size: var(--font-sm);
+  font-size: 12.5px;
   font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .sso-account-id {
-  font-size: var(--font-xs);
-  color: var(--text-muted);
+  font-size: 10.5px;
+  color: var(--text3);
   font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .sso-account-activate {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   border: none;
   border-radius: 6px;
-  background: var(--bg-tertiary);
-  color: var(--text-muted);
+  background: var(--ctrl);
+  color: var(--text2);
   cursor: pointer;
-  transition: all 0.15s;
+  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
   flex-shrink: 0;
 }
 
 .sso-account-activate:hover {
-  background: var(--accent);
-  color: white;
+  background: var(--blue);
+  color: #fff;
 }
 
 .sso-account-activate.active {
-  background: var(--accent);
-  color: white;
+  background: var(--blue);
+  color: #fff;
 }
 
 .sso-account-activate.active:hover {
-  background: rgba(88, 166, 255, 0.7);
+  background: var(--blue-hover);
 }
 
 .sso-account-activate.loading {
-  background: var(--bg-tertiary);
-  color: var(--accent);
+  background: var(--ctrl);
+  color: var(--blue);
   cursor: wait;
 }
 
@@ -489,8 +522,8 @@
 }
 
 .sso-account-activate svg {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
 }
 
 .sso-account-activate svg.spinning {
@@ -498,5 +531,5 @@
 }
 
 .sso-manager-arrow {
-  fill: var(--bg-secondary);
+  fill: var(--toolbar);
 }

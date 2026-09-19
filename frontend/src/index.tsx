@@ -1,8 +1,9 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '@radix-ui/themes/styles.css';
-import './styles/radix-bridge.css';
 import './index.css';
+import './styles/radix-bridge.css';
+import './styles/primitives.css';
 import App from './App';
 import { setBackendPort } from './services/api/types';
 import { setupResizeObserverErrorHandler } from './utils/resizeObserverPolyfill';

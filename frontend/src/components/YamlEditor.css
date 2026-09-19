@@ -1,20 +1,21 @@
+/* YAML editor — 36px chrome bar, Monaco on the content surface, 24px status footer. */
 .yaml-editor-container {
   height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
 .yaml-editor-toolbar {
-  height: 40px;
-  min-height: 40px;
+  height: 36px;
+  min-height: 36px;
   display: flex;
   align-items: center;
-  padding: 0 12px;
-  background: var(--bg-secondary);
-  border-bottom: 1px solid var(--border);
-  gap: 12px;
+  padding: 0 10px;
+  background: var(--win);
+  border-bottom: 1px solid var(--hair);
+  gap: 10px;
   flex-shrink: 0;
 }
 
@@ -29,32 +30,39 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-size: var(--font-sm);
+  font-size: 12.5px;
 }
 
+/* Kind chip (same recipe as .ap-badge--info) */
 .yaml-editor-kind {
-  padding: 2px 6px;
-  border-radius: var(--radius-xs);
-  background: rgba(var(--accent-rgb), 0.14);
-  color: var(--accent);
-  font-size: var(--font-xxs);
-  font-weight: var(--font-weight-semibold);
-  letter-spacing: var(--letter-spacing-wide);
-  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+  text-transform: none;
   white-space: nowrap;
 }
 
 .yaml-editor-name {
-  color: var(--text-primary);
+  color: var(--text);
   font-family: var(--font-mono);
+  font-size: 11.5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .yaml-editor-namespace {
-  color: var(--text-muted);
+  color: var(--text3);
   font-family: var(--font-mono);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
@@ -66,7 +74,7 @@
 .toolbar-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   margin-left: auto;
 }
 
@@ -75,8 +83,8 @@
   align-items: center;
   gap: 6px;
   margin-right: 4px;
-  color: var(--warning);
-  font-size: var(--font-xs);
+  color: var(--warning-fg);
+  font-size: 11.5px;
   white-space: nowrap;
 }
 
@@ -85,27 +93,32 @@
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-  animation: yaml-pulse 1.6s var(--ease-quiet) infinite;
 }
 
 @keyframes yaml-pulse {
   50% { opacity: 0.35; }
 }
 
+/* Toolbar button (same recipe as .ap-btn; the TSX also carries the .ap-btn class) */
 .yaml-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  height: 28px;
+  height: 26px;
   padding: 0 10px;
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  background-color: var(--card);
+  color: var(--text);
+  border: 0;
+  border-radius: 6px;
   cursor: pointer;
-  font-size: var(--font-sm);
-  font-weight: var(--font-weight-medium);
-  transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), border-color var(--duration-fast) var(--ease-quiet);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  white-space: nowrap;
+  user-select: none;
+  box-shadow: 0 0 0 0.5px var(--sep), 0 1px 2px rgba(0, 0, 0, 0.08);
+  transition: background-color var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
 .yaml-btn svg {
@@ -114,37 +127,39 @@
 }
 
 .yaml-btn kbd {
-  padding: 1px 4px;
-  border-radius: var(--radius-xs);
-  background: var(--bg-subtle-2);
-  border: 1px solid var(--border);
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ctrl);
+  border: 0;
   font-family: var(--font-sans);
-  font-size: var(--font-xxs);
-  color: var(--text-muted);
-  line-height: 1.2;
+  font-size: 10.5px;
+  color: var(--text2);
+  line-height: 16px;
 }
 
 .yaml-btn:hover:not(:disabled) {
-  background: var(--bg-hover);
-  color: var(--text-primary);
-  border-color: var(--text-muted);
-}
-
-.yaml-btn.primary {
-  background: var(--accent);
-  color: var(--button-foreground);
+  background-image: linear-gradient(var(--hover), var(--hover));
+  color: var(--text);
   border-color: transparent;
 }
 
+.yaml-btn.primary {
+  background-color: var(--blue);
+  color: #fff;
+  border-color: transparent;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
 .yaml-btn.primary kbd {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: color-mix(in srgb, #fff 16%, transparent);
+  border-color: transparent;
   color: inherit;
 }
 
 .yaml-btn.primary:hover:not(:disabled) {
-  background: var(--accent-hover);
-  color: var(--button-foreground);
+  background-color: var(--blue-hover);
+  background-image: none;
+  color: #fff;
   border-color: transparent;
 }
 
@@ -161,15 +176,16 @@
   to { transform: rotate(360deg); }
 }
 
+/* Validation / result strip */
 .yaml-editor-banner {
   display: flex;
   align-items: flex-start;
   gap: 10px;
-  padding: 8px 12px;
-  border-bottom: 1px solid;
-  font-size: var(--font-sm);
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 12.5px;
   line-height: 1.5;
-  animation: yaml-slide-down var(--duration-base) var(--ease-snap);
+  animation: yaml-slide-down var(--duration-base) var(--ease-quiet);
   position: relative;
   z-index: 10;
   flex-shrink: 0;
@@ -184,15 +200,15 @@
 
 .yaml-editor-banner.error {
   background: var(--danger-bg);
-  border-color: var(--error-border);
-  color: var(--danger);
+  border-color: var(--hair);
+  color: var(--danger-fg);
 }
 
 .yaml-editor-banner.success {
   background: var(--success-bg);
-  border-color: color-mix(in srgb, var(--success) 35%, transparent);
-  color: var(--success);
-  font-weight: var(--font-weight-medium);
+  border-color: var(--hair);
+  color: var(--success-fg);
+  font-weight: 500;
 }
 
 .banner-message {
@@ -204,7 +220,7 @@
 }
 
 .yaml-editor-banner.error .banner-message {
-  font-family: var(--font-mono);
+  font-family: var(--font-sans);
 }
 
 .error-details {
@@ -213,24 +229,30 @@
 
 .error-line {
   margin: 2px 0;
-  font-size: var(--font-xs);
+  font-size: 12px;
 }
 
+/* Dismiss (same recipe as .ap-icon-btn--sm, inheriting the strip's colour) */
 .banner-dismiss {
   display: inline-flex;
-  padding: 3px;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
   background: none;
   border: none;
-  border-radius: var(--radius-xs);
+  border-radius: 5px;
   color: inherit;
   cursor: pointer;
   opacity: 0.7;
-  transition: opacity var(--duration-fast), background var(--duration-fast);
+  flex: none;
+  transition: opacity var(--duration-fast) var(--ease-quiet), background var(--duration-fast) var(--ease-quiet);
 }
 
 .banner-dismiss:hover {
   opacity: 1;
-  background: rgba(127, 127, 127, 0.15);
+  background: var(--hover);
 }
 
 .banner-dismiss svg {
@@ -239,7 +261,7 @@
 }
 
 @keyframes yaml-slide-down {
-  from { transform: translateY(-6px); opacity: 0; }
+  from { transform: translateY(-4px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
 }
 
@@ -248,7 +270,7 @@
   min-height: 0;
   position: relative;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--content);
 }
 
 .yaml-editor-body::before {
@@ -258,12 +280,12 @@
   left: 0;
   height: 2px;
   width: 40%;
-  background: var(--accent);
+  background: var(--blue);
   border-radius: 2px;
   opacity: 0;
   z-index: 3;
   pointer-events: none;
-  transition: opacity var(--duration-fast);
+  transition: opacity var(--duration-fast) var(--ease-quiet);
 }
 
 .yaml-editor-body.loading::before {
@@ -281,21 +303,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-muted);
-  font-size: var(--font-sm);
-  background: var(--bg-primary);
+  color: var(--text2);
+  font-size: 12.5px;
+  background: var(--content);
 }
 
 .yaml-editor-body .monaco-editor,
 .yaml-editor-body .monaco-editor .margin,
 .yaml-editor-body .monaco-editor-background {
-  background: var(--bg-primary) !important;
+  background: var(--content) !important;
 }
 
 .yaml-editor-body .monaco-editor .sticky-widget {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--hair);
 }
 
+/* Status footer (same recipe as .ap-statusbar) */
 .yaml-editor-statusbar {
   height: 24px;
   min-height: 24px;
@@ -303,12 +326,12 @@
   align-items: center;
   gap: 14px;
   padding: 0 12px;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: var(--font-xxs);
+  background: var(--win);
+  border-top: 1px solid var(--hair);
+  color: var(--text2);
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
-  letter-spacing: var(--letter-spacing-wide);
+  letter-spacing: 0;
   flex-shrink: 0;
   user-select: none;
 }
@@ -323,7 +346,7 @@
   gap: 5px;
   padding: 0 6px;
   height: 18px;
-  border-radius: var(--radius-xs);
+  border-radius: 5px;
   border: none;
   background: transparent;
   font: inherit;
@@ -341,15 +364,15 @@
 }
 
 .statusbar-status.valid {
-  color: var(--success);
+  color: var(--success-fg);
 }
 
 .statusbar-status.invalid {
-  color: var(--danger);
+  color: var(--danger-fg);
   background: var(--danger-bg);
   cursor: pointer;
 }
 
 .statusbar-status.invalid:hover {
-  background: color-mix(in srgb, var(--danger) 25%, transparent);
+  background: color-mix(in srgb, var(--red) 22%, transparent);
 }

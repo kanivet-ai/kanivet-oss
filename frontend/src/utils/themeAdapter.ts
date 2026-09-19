@@ -220,12 +220,12 @@ function deriveUIColorsFromTokens(
     'bg-primary': [],
   };
 
-  colors['bg-primary'] = isDark ? '#1e1e1e' : '#ffffff';
-  colors['bg-secondary'] = isDark ? '#252526' : '#f3f3f3';
-  colors['bg-tertiary'] = isDark ? '#2d2d30' : '#ececec';
-  colors['text-primary'] = isDark ? '#cccccc' : '#333333';
-  colors['text-secondary'] = isDark ? '#969696' : '#666666';
-  colors['border'] = isDark ? '#464647' : '#e1e1e1';
+  colors['bg-primary'] = isDark ? '#1e1e20' : '#ffffff';
+  colors['bg-secondary'] = isDark ? '#28282b' : '#f5f5f7';
+  colors['bg-tertiary'] = isDark ? '#2c2c2e' : '#ebebee';
+  colors['text-primary'] = isDark ? '#f5f5f7' : '#1d1d1f';
+  colors['text-secondary'] = isDark ? '#98989d' : '#6e6e73';
+  colors['border'] = isDark ? '#3a3a3c' : '#d1d1d6';
 
   const scopePriorities: Record<
     string,
@@ -312,10 +312,62 @@ function deriveUIColorsFromTokens(
   }
 
   if (!colors['accent']) {
-    colors['accent'] = isDark ? '#007acc' : '#0078d4';
+    colors['accent'] = isDark ? '#0a84ff' : '#007aff';
   }
 
   return colors;
+}
+
+/**
+ * The stylesheet is written against the macOS-style tokens in index.css
+ * (--win, --content, --card, --hover, --sel, --blue, …). An imported VS Code
+ * theme only supplies the legacy names, so derive the system tokens from them
+ * to keep every surface consistent with the chosen palette.
+ */
+function deriveSystemTokens(
+  colors: Record<string, string>,
+  isDark: boolean,
+): Record<string, string> {
+  const content = colors['bg-primary'] || (isDark ? '#1e1e20' : '#ffffff');
+  const win = colors['bg-secondary'] || (isDark ? '#28282b' : '#f5f5f7');
+  const card = colors['bg-tertiary'] || (isDark ? '#2c2c2e' : '#ffffff');
+  const text = colors['text-primary'] || (isDark ? '#f5f5f7' : '#1d1d1f');
+  const accent = colors['accent'] || (isDark ? '#0a84ff' : '#007aff');
+  const accentRgb = hexToRgb(accent);
+  const textRgb = hexToRgb(text);
+  const inkRgb = isDark ? '255, 255, 255' : '0, 0, 0';
+  const alpha = (rgb: string, a: number) => `rgba(${rgb}, ${a})`;
+
+  return {
+    win,
+    content,
+    card,
+    inset: isDark
+      ? adjustColorBrightness(content, -0.02)
+      : adjustColorBrightness(content, -0.04),
+    sidebar: win,
+    toolbar: win,
+    hover: alpha(inkRgb, isDark ? 0.055 : 0.045),
+    stripe: alpha(inkRgb, isDark ? 0.028 : 0.022),
+    hair: alpha(inkRgb, isDark ? 0.075 : 0.07),
+    sep: alpha(inkRgb, isDark ? 0.14 : 0.13),
+    ctrl: alpha('120, 120, 128', isDark ? 0.26 : 0.12),
+    ctrl2: alpha('120, 120, 128', isDark ? 0.36 : 0.2),
+    text,
+    text2: alpha(textRgb, 0.62),
+    text3: alpha(textRgb, 0.36),
+    text4: alpha(textRgb, 0.22),
+    blue: accent,
+    'blue-hover': colors['accent-hover'] || accent,
+    'blue-soft': alpha(accentRgb, isDark ? 0.18 : 0.12),
+    'blue-rgb': accentRgb,
+    sel: accent,
+    'sel-soft': alpha(accentRgb, isDark ? 0.18 : 0.12),
+    green: colors['success'] || (isDark ? '#30d158' : '#34c759'),
+    orange: colors['warning'] || (isDark ? '#ff9f0a' : '#ff9500'),
+    red: colors['danger'] || (isDark ? '#ff453a' : '#ff3b30'),
+    'text-link': accent,
+  };
 }
 
 function detectThemeType(theme: any): 'dark' | 'light' {
@@ -398,9 +450,9 @@ export function convertVSCodeTheme(vscodeTheme: any): kanivetTheme {
       Object.assign(colors, derivedColors);
     }
 
-    const primaryBg = colors['bg-primary'] || (isDark ? '#1e1e1e' : '#ffffff');
+    const primaryBg = colors['bg-primary'] || (isDark ? '#1e1e20' : '#ffffff');
     const primaryText =
-      colors['text-primary'] || (isDark ? '#d4d4d4' : '#333333');
+      colors['text-primary'] || (isDark ? '#f5f5f7' : '#1d1d1f');
 
     if (!colors['bg-secondary']) {
       colors['bg-secondary'] = isDark
@@ -424,8 +476,8 @@ export function convertVSCodeTheme(vscodeTheme: any): kanivetTheme {
       colors['bg-active'] = colors['accent']
         ? mixColors(colors['accent'], colors['bg-primary'], 0.2)
         : isDark
-          ? '#007acc40'
-          : '#0078d440';
+          ? '#0a84ff40'
+          : '#007aff40';
     }
 
     if (!colors['text-secondary']) {
@@ -447,7 +499,7 @@ export function convertVSCodeTheme(vscodeTheme: any): kanivetTheme {
     }
 
     if (!colors['accent']) {
-      colors['accent'] = isDark ? '#007acc' : '#0078d4';
+      colors['accent'] = isDark ? '#0a84ff' : '#007aff';
     }
 
     if (!colors['accent-hover']) {
@@ -532,23 +584,23 @@ export function convertVSCodeTheme(vscodeTheme: any): kanivetTheme {
       colors['accent-rgb'] = hexToRgb(colors['accent']);
     }
 
-    colors['success-fg'] = colors['success'] || '#16a34a';
+    colors['success-fg'] = colors['success'] || '#34c759';
     colors['success-bg'] = colors['success-fg'] + '26';
-    colors['warning-fg'] = colors['warning'] || '#d97706';
+    colors['warning-fg'] = colors['warning'] || '#ff9500';
     colors['warning-bg'] = colors['warning-fg'] + '26';
-    colors['danger-fg'] = colors['danger'] || '#dc2626';
+    colors['danger-fg'] = colors['danger'] || '#ff3b30';
     colors['danger-bg'] = colors['danger-fg'] + '26';
-    colors['info-fg'] = colors['accent'] || '#2563eb';
+    colors['info-fg'] = colors['accent'] || '#007aff';
     colors['info-bg'] = colors['info-fg'] + '26';
 
-    colors['icon-muted'] = colors['text-muted'] || '#6e7781';
-    colors['icon-mid'] = colors['accent'] || '#3b82f6';
+    colors['icon-muted'] = colors['text-muted'] || '#8e8e93';
+    colors['icon-mid'] = colors['accent'] || '#0a84ff';
     colors['icon-top'] = adjustColorBrightness(
-      colors['accent'] || '#2563eb',
+      colors['accent'] || '#007aff',
       -0.1,
     );
     colors['icon-low'] = adjustColorBrightness(
-      colors['accent'] || '#60a5fa',
+      colors['accent'] || '#3395ff',
       0.1,
     );
 
@@ -556,19 +608,21 @@ export function convertVSCodeTheme(vscodeTheme: any): kanivetTheme {
       ? adjustColorBrightness(primaryBg, -0.05)
       : adjustColorBrightness(primaryBg, 0.02);
 
+    Object.assign(colors, deriveSystemTokens(colors, isDark));
+
     return {
       name: themeName,
       type: isDark ? 'dark' : 'light',
       colors,
       tokenColors: vscodeTheme.tokenColors,
       kubernetesColors: {
-        'pod.running': colors['success'] || '#16a34a',
-        'pod.pending': colors['warning'] || '#d97706',
-        'pod.failed': colors['danger'] || '#dc2626',
-        'pod.unknown': colors['text-muted'] || '#6e7781',
-        'namespace.border': colors['accent'] || '#2563eb',
-        'container.ready': colors['success'] || '#16a34a',
-        'container.notReady': colors['danger'] || '#dc2626',
+        'pod.running': colors['success'] || '#34c759',
+        'pod.pending': colors['warning'] || '#ff9500',
+        'pod.failed': colors['danger'] || '#ff3b30',
+        'pod.unknown': colors['text-muted'] || '#8e8e93',
+        'namespace.border': colors['accent'] || '#007aff',
+        'container.ready': colors['success'] || '#34c759',
+        'container.notReady': colors['danger'] || '#ff3b30',
       },
     };
   } catch (error) {
@@ -577,22 +631,22 @@ export function convertVSCodeTheme(vscodeTheme: any): kanivetTheme {
       name: 'Fallback Theme',
       type: 'dark',
       colors: {
-        'bg-primary': '#1e1e1e',
-        'bg-secondary': '#252526',
-        'bg-tertiary': '#2d2d30',
-        'text-primary': '#d4d4d4',
-        'text-secondary': '#969696',
-        border: '#464647',
-        accent: '#007acc',
+        'bg-primary': '#1e1e20',
+        'bg-secondary': '#28282b',
+        'bg-tertiary': '#2c2c2e',
+        'text-primary': '#f5f5f7',
+        'text-secondary': '#98989d',
+        border: '#3a3a3c',
+        accent: '#0a84ff',
       },
       kubernetesColors: {
-        'pod.running': '#16a34a',
-        'pod.pending': '#d97706',
-        'pod.failed': '#dc2626',
-        'pod.unknown': '#6e7781',
-        'namespace.border': '#2563eb',
-        'container.ready': '#16a34a',
-        'container.notReady': '#dc2626',
+        'pod.running': '#34c759',
+        'pod.pending': '#ff9500',
+        'pod.failed': '#ff3b30',
+        'pod.unknown': '#8e8e93',
+        'namespace.border': '#007aff',
+        'container.ready': '#34c759',
+        'container.notReady': '#ff3b30',
       },
     };
   }

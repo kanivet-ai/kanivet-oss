@@ -1,40 +1,56 @@
+/* Connection status — a tinted badge with a status dot / spinner ring. */
 .connection-status-indicator {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  font-size: 11px;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 11.5px;
   font-weight: 500;
-  transition: all 0.2s ease;
+  line-height: 1;
+  white-space: nowrap;
+  transition: background var(--duration-base) var(--ease-quiet), color var(--duration-base) var(--ease-quiet);
 }
 
 .connection-status-indicator.disconnected {
-  background: rgba(239, 68, 68, 0.15);
-  color: #ef4444;
-  animation: pulse-error 2s ease-in-out infinite;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  animation: none;
 }
 
 .connection-status-indicator.reconnecting {
-  background: rgba(234, 179, 8, 0.15);
-  color: #eab308;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
 }
 
 .connection-status-indicator.connecting {
-  background: rgba(59, 130, 246, 0.15);
-  color: #3b82f6;
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
+/* Drawn in CSS: a 7px dot, or a spinning ring while reconnecting */
 .connection-status-icon {
-  font-size: 10px;
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  font-size: 0;
+  flex: none;
 }
 
 .connection-status-indicator.reconnecting .connection-status-icon {
-  animation: spin 1s linear infinite;
+  width: 10px;
+  height: 10px;
+  background: transparent;
+  border: 1.5px solid currentColor;
+  border-top-color: transparent;
+  animation: spin 0.9s linear infinite;
 }
 
 .connection-status-indicator.connecting .connection-status-icon {
-  animation: pulse-icon 1s ease-in-out infinite;
+  animation: pulse-icon 1.2s ease-in-out infinite;
 }
 
 @keyframes spin {
@@ -44,7 +60,7 @@
 
 @keyframes pulse-icon {
   0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  50% { opacity: 0.4; }
 }
 
 @keyframes pulse-error {

@@ -1,8 +1,10 @@
+/* Crossplane resource trace — an outline tree of 30px rows with 7px status dots. */
 .crossplane-trace {
-  padding: 8px;
+  padding: 8px 10px;
   height: 100%;
   display: flex;
   flex-direction: column;
+  background: var(--content);
 }
 
 .trace-tree {
@@ -11,43 +13,73 @@
 }
 
 .retry-button {
-  padding: 2px 6px;
-  background: transparent;
-  border: 1px solid var(--border-color);
-  border-radius: 3px;
+  height: 28px;
+  padding: 0 12px;
+  background-color: var(--blue);
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+  transition: background-color var(--duration-fast) var(--ease-quiet);
 }
 
 .retry-button:hover {
-  background: var(--hover-bg);
+  background-color: var(--blue-hover);
 }
 
 .trace-node.compact {
-  margin-bottom: 1px;
+  margin-bottom: 0;
 }
 
 .trace-node-header {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 2px 6px;
-  cursor: pointer;
-  border-radius: 3px;
-  transition: background 0.15s;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px 0 6px;
+  cursor: default;
+  border-radius: 6px;
+  transition: background var(--duration-fast) var(--ease-quiet);
   font-size: 13px;
-  line-height: 20px;
+  line-height: 18px;
+  color: var(--text);
 }
 
 .trace-node-header:hover {
-  background: var(--hover-bg);
+  background: var(--hover);
+}
+
+.trace-node-header.is-selected,
+.trace-node-header[aria-selected='true'] {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.trace-node-header.is-selected .trace-node-kind,
+.trace-node-header.is-selected .trace-node-namespace,
+.trace-node-header.is-selected .trace-node-arrow,
+.trace-node-header.is-selected .trace-node-status-text {
+  color: var(--on-sel2);
+}
+
+.trace-node-header.is-selected .trace-node-name {
+  color: var(--on-sel);
 }
 
 .trace-node-arrow {
   width: 12px;
   font-size: 9px;
-  color: var(--text-secondary);
+  color: var(--text3);
   flex-shrink: 0;
+  text-align: center;
+  transition: color var(--duration-fast) var(--ease-quiet);
+}
+
+.trace-node-header:hover .trace-node-arrow {
+  color: var(--text2);
 }
 
 .trace-node-spacer {
@@ -62,52 +94,57 @@
 }
 
 .trace-indicator {
-  padding: 1px 5px;
+  padding: 0 6px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: 5px;
   font-size: 10px;
   font-weight: 600;
+  line-height: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid;
+  border: 0;
   white-space: nowrap;
+  background: var(--ctrl);
+  color: var(--text2);
 }
 
 .trace-indicator.synced-true {
-  background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
-  border-color: #4caf50;
+  background: var(--success-bg);
+  color: var(--success-fg);
+  border-color: transparent;
 }
 
 .trace-indicator.synced-false {
-  background: rgba(255, 152, 0, 0.15);
-  color: #ff9800;
-  border-color: #ff9800;
+  background: var(--warning-bg);
+  color: var(--warning-fg);
+  border-color: transparent;
 }
 
 .trace-indicator.ready-true {
-  background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
-  border-color: #4caf50;
+  background: var(--success-bg);
+  color: var(--success-fg);
+  border-color: transparent;
 }
 
 .trace-indicator.ready-false {
-  background: rgba(244, 67, 54, 0.15);
-  color: #f44336;
-  border-color: #f44336;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border-color: transparent;
 }
 
 .trace-node-kind {
-  font-weight: 500;
-  color: var(--text-secondary);
-  font-size: 12px;
+  font-weight: 400;
+  color: var(--text2);
+  font-size: 12.5px;
   flex-shrink: 0;
 }
 
 .trace-node-name {
-  color: var(--text-primary);
-  font-weight: 500;
+  color: var(--text);
+  font-weight: 400;
+  font-size: 13px;
+  letter-spacing: -0.1px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -116,49 +153,81 @@
 }
 
 .trace-node-namespace {
-  color: var(--text-secondary);
-  font-size: 11px;
-  opacity: 0.7;
+  color: var(--text3);
+  font-size: 11.5px;
+  opacity: 1;
 }
 
+/* Status = 7px dot + plain text */
 .trace-node-status-text {
   margin-left: auto;
-  padding: 1px 6px;
-  border-radius: 10px;
-  font-size: 10px;
-  font-weight: 500;
-  text-transform: uppercase;
+  padding: 0;
+  border-radius: 0;
+  font-size: 12.5px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text2);
+  background: transparent;
+}
+
+.trace-node-status-text::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gray);
+  flex: none;
 }
 
 .trace-node-status-text.ready {
-  background: rgba(76, 175, 80, 0.1);
-  color: #4caf50;
+  background: transparent;
+  color: var(--text2);
+}
+
+.trace-node-status-text.ready::before {
+  background: var(--green);
 }
 
 .trace-node-status-text.not-ready {
-  background: rgba(244, 67, 54, 0.1);
-  color: #f44336;
+  background: transparent;
+  color: var(--red);
+}
+
+.trace-node-status-text.not-ready::before {
+  background: var(--red);
 }
 
 .trace-node-status-text.out-of-sync {
-  background: rgba(255, 152, 0, 0.1);
-  color: #ff9800;
+  background: transparent;
+  color: var(--warning-fg);
+}
+
+.trace-node-status-text.out-of-sync::before {
+  background: var(--orange);
 }
 
 .trace-node-status-text.unknown {
-  background: rgba(128, 128, 128, 0.15);
-  color: var(--text-secondary);
+  background: transparent;
+  color: var(--text3);
+}
+
+.trace-node-status-text.unknown::before {
+  background: var(--gray);
 }
 
 .trace-node-message.compact {
-  padding: 4px 8px;
-  margin: 2px 0;
-  background: rgba(255, 152, 0, 0.05);
-  border-left: 2px solid #ff9800;
-  border-radius: 2px;
-  font-size: 11px;
-  color: var(--text-secondary);
+  padding: 6px 10px;
+  margin: 2px 0 4px;
+  background: var(--warning-bg);
+  border-left: 0;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--text2);
   line-height: var(--line-height-base);
 }
 
@@ -168,18 +237,21 @@
 
 .trace-metadata-key {
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text2);
   margin-right: 8px;
 }
 
 .trace-metadata-value {
-  color: var(--text-primary);
+  color: var(--text);
   font-family: var(--font-mono);
   white-space: pre-wrap;
 }
 
+/* Connector line down the left of each child group */
 .trace-node-children {
-  margin-top: 4px;
+  margin-top: 0;
+  margin-left: 11px;
+  border-left: 1px solid var(--hair);
 }
 
 .crossplane-trace.loading,
@@ -190,12 +262,13 @@
   justify-content: center;
   align-items: center;
   height: 100%;
-  gap: 8px;
+  gap: 10px;
 }
 
 .loading-message,
 .error-message,
 .empty-message {
-  font-size: 12px;
-  color: var(--text-secondary);
+  font-size: 13px;
+  color: var(--text2);
+  font-style: normal;
 }
