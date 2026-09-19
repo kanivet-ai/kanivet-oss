@@ -40,10 +40,18 @@
 
 /* ---- Toolbar: segmented controls ---------------------------------------- */
 
+/*
+  Segmented controls hug their content like the macOS ones — a track is never
+  stretched to the card width, so the icons never drift apart. What changes
+  with the card width is only the arrangement: metric control left and time
+  range right on one row while both fit, otherwise stacked and left-aligned.
+  The breakpoints below are the widths at which the two tracks stop fitting
+  side by side, with labels (~720px) and icon-only (~400px).
+*/
 .mx-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   flex-wrap: wrap;
   gap: 6px 8px;
   margin-bottom: 10px;
@@ -58,13 +66,9 @@
   background: var(--ctrl);
   border-radius: 7px;
   flex: none;
+  width: max-content;
   max-width: 100%;
   box-sizing: border-box;
-}
-
-.mx-seg-metrics {
-  flex: 0 1 auto;
-  min-width: 0;
 }
 
 .mx-seg-time {
@@ -89,7 +93,7 @@
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  min-width: 0;
+  flex: none;
   transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
 }
 
@@ -142,8 +146,15 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Narrow card: icons only for the metric control, tighter range segments. */
-@container metrics (max-width: 480px) {
+/* Labelled tracks no longer share a row: stack them, both left-aligned. */
+@container metrics (max-width: 720px) {
+  .mx-seg-time {
+    margin-left: 0;
+  }
+}
+
+/* Narrow card: icons only for the metric control — the two tracks fit side by side again. */
+@container metrics (max-width: 520px) {
   .mx-seg-label {
     display: none;
   }
@@ -151,22 +162,20 @@
   .mx-seg-metrics .mx-seg-btn {
     padding: 0 7px;
   }
+
+  .mx-seg-time {
+    margin-left: auto;
+  }
 }
 
-@container metrics (max-width: 340px) {
+/* Very narrow card: even the icon-only tracks stack, left-aligned. */
+@container metrics (max-width: 400px) {
   .mx-toolbar {
     gap: 6px;
   }
 
-  .mx-seg-metrics,
   .mx-seg-time {
-    width: 100%;
     margin-left: 0;
-  }
-
-  .mx-seg-metrics .mx-seg-btn,
-  .mx-seg-time .mx-seg-btn {
-    flex: 1 1 0;
   }
 }
 

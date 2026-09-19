@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import TreeNode, { nodeHasChevron } from './TreeNode';
+import TreeNode from './TreeNode';
 import { findTreeResourceNode } from '../utils/searchResults';
 import ScrollContainer from './ScrollContainer';
 import DebugPanel from './DebugPanel';
@@ -245,11 +245,6 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
   useEffect(() => {
     if (effectiveSelectedId) setFocusedNodeId(effectiveSelectedId);
   }, [effectiveSelectedId]);
-
-  const topLevelHasChevron = useMemo(
-    () => clusterData.some((node: any) => nodeHasChevron(node)),
-    [clusterData],
-  );
 
   const handleNodeClick = useCallback(
     async (node: any, isPinned: boolean = false) => {
@@ -665,7 +660,6 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
               onNodeClick={handleNodeClick}
               isLast={index === clusterData.length - 1}
               ancestorLabels={[]}
-              siblingsHaveChevron={topLevelHasChevron}
             />
           ))}
         </div>

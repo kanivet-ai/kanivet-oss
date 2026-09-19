@@ -63,6 +63,19 @@
   background: transparent;
 }
 
+/*
+  Radix ScrollArea sizes the viewport's inner wrapper as a table
+  (inline `min-width: 100%; display: table`) so it can grow to the widest row.
+  A source list must never scroll sideways: pin the wrapper to the viewport so
+  long labels ellipsize instead of pushing the counts past the edge. The
+  !important is needed to beat the inline style.
+*/
+.tree-viewport > div {
+  display: block !important;
+  min-width: 0 !important;
+  width: 100%;
+}
+
 .tree-content {
   padding: 2px 8px 14px;
   width: 100%;
