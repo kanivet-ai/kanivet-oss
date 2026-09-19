@@ -239,16 +239,17 @@ const TreeNode = ({
               align-items: center;
               gap: 8px;
               padding: 6px 12px;
-              background: var(--bg-secondary, #1e1e1e);
-              border: 1px solid var(--border-color, #333);
-              border-radius: 4px;
-              color: var(--text-primary, #fff);
+              background: var(--card);
+              border: 0;
+              border-radius: 7px;
+              color: var(--text);
+              font-family: var(--font-sans);
               font-size: 13px;
               position: absolute;
               top: -1000px;
               left: -1000px;
               pointer-events: none;
-              box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+              box-shadow: 0 0 0 0.5px var(--sep), var(--shadow-pop);
             `;
             
             const iconElement = e.currentTarget.querySelector('.tree-node-icon');
