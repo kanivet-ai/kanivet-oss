@@ -41,12 +41,12 @@
 /* ---- Toolbar: segmented controls ---------------------------------------- */
 
 /*
-  Segmented controls hug their content like the macOS ones — a track is never
-  stretched to the card width, so the icons never drift apart. What changes
-  with the card width is only the arrangement: metric control left and time
-  range right on one row while both fit, otherwise stacked and left-aligned.
-  The breakpoints below are the widths at which the two tracks stop fitting
-  side by side, with labels (~720px) and icon-only (~400px).
+  Two arrangements, chosen by the card width. While both tracks fit on one row
+  they hug their content: metric control left, time range right. Once they
+  stop fitting they stack and each track fills the card width with evenly
+  divided segments, so the toolbar reads as one block edge to edge. The
+  breakpoints are the widths at which the tracks stop fitting side by side,
+  with labels (~720px) and icon-only (~400px).
 */
 .mx-toolbar {
   display: flex;
@@ -146,15 +146,31 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Labelled tracks no longer share a row: stack them, both left-aligned. */
+/*
+  Stacked tracks fill the card width with evenly divided segments (the
+  custom-range clock stays compact); tracks that share a row hug their content.
+*/
 @container metrics (max-width: 720px) {
+  .mx-seg {
+    width: 100%;
+  }
+
+  .mx-seg-btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .mx-seg-btn-custom {
+    flex: none;
+  }
+
   .mx-seg-time {
     margin-left: 0;
   }
 }
 
-/* Narrow card: icons only for the metric control — the two tracks fit side by side again. */
-@container metrics (max-width: 520px) {
+/* Icons only for the metric control — the two tracks fit side by side again. */
+@container metrics (max-width: 560px) {
   .mx-seg-label {
     display: none;
   }
@@ -163,15 +179,36 @@
     padding: 0 7px;
   }
 
+  .mx-seg {
+    width: max-content;
+  }
+
+  .mx-seg-btn {
+    flex: none;
+  }
+
   .mx-seg-time {
     margin-left: auto;
   }
 }
 
-/* Very narrow card: even the icon-only tracks stack, left-aligned. */
+/* Even the icon-only tracks no longer share a row: stack and fill the width. */
 @container metrics (max-width: 400px) {
   .mx-toolbar {
     gap: 6px;
+  }
+
+  .mx-seg {
+    width: 100%;
+  }
+
+  .mx-seg-btn {
+    flex: 1 1 0;
+    min-width: 0;
+  }
+
+  .mx-seg-btn-custom {
+    flex: none;
   }
 
   .mx-seg-time {
