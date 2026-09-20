@@ -21,7 +21,7 @@ import {
   GearIcon,
 } from '@radix-ui/react-icons';
 import KeyboardShortcutsEditor from './KeyboardShortcutsEditor';
-import SSOSessionManager from './SSOSessionManager';
+import CloudAccountsMenu from './CloudAccountsMenu';
 import ConnectionStatusIndicator from './ConnectionStatusIndicator';
 import './TabBar.css';
 
@@ -366,7 +366,7 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
           >
             <KeyboardIcon width={16} height={16} />
           </button>
-          <SSOSessionManager />
+          <CloudAccountsMenu />
           <button
             className="theme-toggle"
             onClick={toggleTheme}

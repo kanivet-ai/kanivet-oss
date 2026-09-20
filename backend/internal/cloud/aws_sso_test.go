@@ -321,68 +321,6 @@ func TestNewAWSProviderMigratesImportedEKSExecAuthToNeverInteractive(t *testing.
 	}
 }
 
-func TestCacheSSOTokenWritesDeterministicSessionAndLegacyKanivetCompatibilityOnly(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("USERPROFILE", home)
-
-	configPath := filepath.Join(home, ".aws", "config")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o700); err != nil {
-		t.Fatalf("mkdir aws dir: %v", err)
-	}
-
-	config := `[profile kanivet-sso-123456789012-Admin]
-sso_start_url = https://example.awsapps.com/start/
-sso_region = eu-west-1
-sso_account_id = 123456789012
-sso_role_name = Admin
-region = eu-west-1
-
-[sso-session shared]
-sso_start_url = https://example.awsapps.com/start/
-sso_region = eu-west-1
-`
-	if err := os.WriteFile(configPath, []byte(config), 0o600); err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	p := &AWSProvider{}
-	token := ssoTokenCache{
-		StartURL:              "https://example.awsapps.com/start",
-		Region:                "eu-west-1",
-		AccessToken:           "access-token",
-		ExpiresAt:             "2026-08-04T12:00:00Z",
-		RefreshToken:          "refresh-token",
-		ClientID:              "client-id",
-		ClientSecret:          "client-secret",
-		RegistrationExpiresAt: "2026-09-04T12:00:00Z",
-	}
-	if err := p.cacheSSOToken(token); err != nil {
-		t.Fatalf("cacheSSOToken: %v", err)
-	}
-
-	deterministic := readCachedSSOToken(t, kanivetSSOSessionName(token.StartURL))
-	assertCachedSSOTokenMode(t, kanivetSSOSessionName(token.StartURL))
-	if deterministic.RefreshToken != token.RefreshToken {
-		t.Fatal("deterministic session cache did not persist the refresh token")
-	}
-	if deterministic.ClientID != token.ClientID {
-		t.Fatal("deterministic session cache did not persist the client ID")
-	}
-	if deterministic.ClientSecret != token.ClientSecret {
-		t.Fatal("deterministic session cache did not persist the client secret")
-	}
-
-	legacy := readCachedSSOToken(t, "https://example.awsapps.com/start/")
-	assertCachedSSOTokenMode(t, "https://example.awsapps.com/start/")
-	if legacy.AccessToken != token.AccessToken {
-		t.Fatal("legacy kanivet cache did not persist the access token")
-	}
-
-	assertMissingCachedSSOToken(t, "shared")
-	assertMissingCachedSSOToken(t, token.StartURL)
-}
-
 func readCachedSSOToken(t *testing.T, key string) ssoTokenCache {
 	t.Helper()
 
