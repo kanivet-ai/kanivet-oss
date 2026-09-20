@@ -16,10 +16,18 @@
   user-select: none;
 }
 
+/* The whole bar is the window's title bar (hiddenInset chrome), so it stays
+   draggable and double-click zooms like any macOS window. Only the controls
+   themselves opt out; the tab strip and the empty space around the buttons
+   remain drag handles. */
 .tab-bar button,
 .tab-bar .tab,
-.tab-bar .tabs-container,
-.tab-bar .tab-bar-controls {
+.tab-bar input,
+.tab-bar select,
+.tab-bar a,
+.tab-bar [role='menuitem'],
+.tab-bar [role='menu'],
+.tab-bar .connection-status-indicator {
   -webkit-app-region: no-drag;
 }
 
