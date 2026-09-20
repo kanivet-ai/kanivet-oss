@@ -1,0 +1,122 @@
+/* Browser sign-in progress panel — an inset card used by the accounts menu,
+   cloud discovery and the cluster error pane. */
+.login-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--inset);
+  box-shadow: var(--shadow-card);
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.login-progress.compact {
+  padding: 8px 10px;
+  gap: 6px;
+}
+
+.login-progress--success,
+.login-progress--error {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.login-progress--success {
+  color: var(--green);
+  background: var(--success-bg);
+}
+
+.login-progress--error {
+  color: var(--text);
+  background: var(--danger-bg);
+}
+
+.login-progress--error > svg:first-child {
+  color: var(--red);
+  flex-shrink: 0;
+}
+
+.login-progress--success > svg:first-child {
+  flex-shrink: 0;
+}
+
+.login-progress--success > span,
+.login-progress-message {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.login-progress-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.login-progress-spinner {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.login-progress-titles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.login-progress-title {
+  font-weight: 600;
+  font-size: 12.5px;
+}
+
+.login-progress-sub {
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.login-progress-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.login-progress-code {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--card);
+  box-shadow: var(--shadow-pill);
+  color: var(--text);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  position: relative;
+}
+
+.login-progress-code:hover {
+  background: var(--hover);
+}
+
+.login-progress-code svg {
+  color: var(--text3);
+  width: 13px;
+  height: 13px;
+}
+
+.login-progress-copied {
+  font-size: 11px;
+  color: var(--green);
+  font-family: var(--font-sans);
+  letter-spacing: 0;
+}

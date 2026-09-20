@@ -12,7 +12,7 @@ import { createDetailTabSlice } from './detailTabSlice';
 import { createResourceListTabSlice } from './resourceListTabSlice';
 import { createHelmSlice } from './helmSlice';
 import { createToastSlice } from './toastSlice';
-import { createSsoSlice } from './ssoSlice';
+import { createCloudAuthSlice } from './cloudAuthSlice';
 import { createConnectionSlice } from './connectionSlice';
 import api from '../services/api';
 
@@ -29,7 +29,7 @@ const useStore = create<StoreState>()((...a) => ({
   ...createResourceListTabSlice(...a),
   ...createHelmSlice(...a),
   ...createToastSlice(...a),
-  ...createSsoSlice(...a),
+  ...createCloudAuthSlice(...a),
   ...createConnectionSlice(...a),
 
   monitoringSettings: loadMonitoringSettings(),

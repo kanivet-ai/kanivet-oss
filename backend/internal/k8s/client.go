@@ -330,6 +330,12 @@ func (c *Client) findKubeconfigForContext(contextName string) string {
 	return c.contextToKubeconfigIndex()[contextName]
 }
 
+// KubeconfigPathForContext returns the kubeconfig file defining contextName,
+// or "" when no discovered kubeconfig has it.
+func (c *Client) KubeconfigPathForContext(contextName string) string {
+	return c.findKubeconfigForContext(contextName)
+}
+
 // contextToKubeconfigIndex returns a map of every kubeconfig context name to the
 // path of the kubeconfig file that defines it. Result is memoized and reused
 // until any kubeconfig file's mtime changes (or the discovered file list changes),
@@ -959,8 +965,8 @@ func (c *Client) GetClusterStatus(cluster string) (*ClusterStatus, error) {
 	vr := <-versionCh
 	if vr.err != nil {
 		errStr := vr.err.Error()
-		if strings.Contains(strings.ToLower(errStr), "sso session") {
-			status.Error = "AWS SSO session expired or invalid"
+		if code, message, ok := ClassifyClusterError(errStr); ok && IsAuthErrorCode(code) {
+			status.Error = message
 		} else {
 			status.Error = fmt.Sprintf("Failed to get server version: %v", vr.err)
 		}

@@ -6,9 +6,13 @@ import {
   AzureSubscription,
   DiscoveredCluster,
   CloudAuthStatus,
+  CloudAuthSummary,
+  ClusterAuthInfo,
+  CloudLoginJob,
   DiscoverRequest,
   ImportRequest,
-  SSOLoginResponse,
+  SSOLoginSession,
+  SSOSessionStatus,
   BatchImportJob,
   SSOAccount,
   DiscoveryEvent,
@@ -16,6 +20,37 @@ import {
 import api from './api';
 import { wsManager } from './api/websocket';
 import { getApiBase } from './api/types';
+
+/** Error thrown when the backend says an interactive AWS SSO sign-in is needed. */
+export class SSOLoginRequiredError extends Error {
+  readonly startUrl: string;
+  constructor(message: string, startUrl: string) {
+    super(message);
+    this.name = 'SSOLoginRequiredError';
+    this.startUrl = startUrl;
+  }
+}
+
+/** Error thrown when a cloud CLI Kanivet needs is not installed. */
+export class CLIMissingError extends Error {
+  readonly binary: string;
+  readonly installHint?: string;
+  constructor(message: string, binary: string, installHint?: string) {
+    super(message);
+    this.name = 'CLIMissingError';
+    this.binary = binary;
+    this.installHint = installHint;
+  }
+}
+
+export const describeCloudError = (err: unknown, fallback = 'Something went wrong'): string => {
+  if (err instanceof SSOLoginRequiredError) return 'AWS SSO sign-in required';
+  if (err instanceof CLIMissingError) return err.installHint ? `${err.message}. ${err.installHint}` : err.message;
+  const anyErr = err as any;
+  return anyErr?.response?.data?.error || anyErr?.message || fallback;
+};
+
+const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
 class CloudService {
   private client = axios.create();
@@ -56,37 +91,133 @@ class CloudService {
           }
         }
 
+        if (errorData?.code === 'sso_login_required') {
+          return Promise.reject(new SSOLoginRequiredError(errorData.error, errorData.startUrl));
+        }
+        if (errorData?.code === 'cli_missing') {
+          return Promise.reject(new CLIMissingError(errorData.error, errorData.binary, errorData.installHint));
+        }
         return Promise.reject(error);
       }
     );
   }
+
+  // ---- Auth overview -------------------------------------------------------
 
   async getAuthStatus(): Promise<CloudAuthStatus> {
     const response = await this.client.get('/cloud/status');
     return response.data.status;
   }
 
+  async getAuthSummary(force = false): Promise<CloudAuthSummary> {
+    const response = await this.client.get('/cloud/auth', { params: force ? { force: 1 } : {} });
+    return response.data;
+  }
+
+  async describeClusterAuth(cluster: string): Promise<ClusterAuthInfo> {
+    const response = await this.client.get('/cloud/cluster-auth', { params: { cluster } });
+    return response.data;
+  }
+
+  // ---- CLI login jobs (gcloud / az / aws --profile) -------------------------
+
+  async getLoginJob(id: string): Promise<CloudLoginJob> {
+    const response = await this.client.get(`/cloud/login-jobs/${encodeURIComponent(id)}`);
+    return response.data;
+  }
+
+  async cancelLoginJob(id: string): Promise<void> {
+    await this.client.delete(`/cloud/login-jobs/${encodeURIComponent(id)}`);
+  }
+
+  /** Polls a CLI login job until it leaves the running state. */
+  async waitForLoginJob(
+    job: CloudLoginJob,
+    onUpdate?: (job: CloudLoginJob) => void,
+    intervalMs = 1500
+  ): Promise<CloudLoginJob> {
+    let current = job;
+    while (current.state === 'running') {
+      await sleep(intervalMs);
+      try {
+        current = await this.getLoginJob(current.id);
+        onUpdate?.(current);
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
+          return { ...current, state: 'failed', error: 'The sign-in process disappeared.' };
+        }
+      }
+    }
+    return current;
+  }
+
+  // ---- AWS ------------------------------------------------------------------
+
   async listAWSProfiles(): Promise<AWSProfile[]> {
     const response = await this.client.get('/cloud/aws/profiles');
     return response.data.profiles || [];
   }
 
-  async loginAWS(profile: string): Promise<void> {
-    await this.client.post('/cloud/aws/login', { profile });
-  }
-
-  async startAWSSSOLogin(startUrl: string, region: string): Promise<SSOLoginResponse> {
-    const response = await this.client.post('/cloud/aws/sso/start', { startUrl, region });
+  /** Runs `aws sso login --profile <profile>` in the background. */
+  async loginAWSProfile(profile: string): Promise<CloudLoginJob> {
+    const response = await this.client.post('/cloud/aws/login', { profile });
     return response.data;
   }
 
-  async getAWSSSOSessions(): Promise<{ startUrl: string; region: string; expiresAt: number; isValid: boolean; label?: string }[]> {
+  async getAWSSSOSessions(): Promise<SSOSessionStatus[]> {
     const response = await this.client.get('/cloud/aws/sso/sessions');
     return response.data.sessions || [];
   }
 
-  async saveSSOSession(startUrl: string, region: string, label: string, expiresAt: number): Promise<void> {
-    await this.client.post('/cloud/aws/sso/session', { startUrl, region, label, expiresAt });
+  /** Starts a device-code login and returns immediately; poll with getSSOLogin. */
+  async beginAWSSSOLogin(startUrl: string, region?: string, openBrowser = true): Promise<SSOLoginSession> {
+    const response = await this.client.post('/cloud/aws/sso/login', { startUrl, region, openBrowser });
+    return response.data;
+  }
+
+  async getSSOLogin(id: string): Promise<SSOLoginSession> {
+    const response = await this.client.get(`/cloud/aws/sso/login/${encodeURIComponent(id)}`);
+    return response.data;
+  }
+
+  async cancelSSOLogin(id: string): Promise<void> {
+    await this.client.delete(`/cloud/aws/sso/login/${encodeURIComponent(id)}`);
+  }
+
+  /** Polls an SSO login until the user approves, cancels, or it expires. */
+  async waitForSSOLogin(
+    session: SSOLoginSession,
+    onUpdate?: (session: SSOLoginSession) => void,
+    intervalMs = 1500
+  ): Promise<SSOLoginSession> {
+    let current = session;
+    while (current.state === 'pending') {
+      await sleep(intervalMs);
+      try {
+        current = await this.getSSOLogin(current.id);
+        onUpdate?.(current);
+      } catch (err: any) {
+        if (err?.response?.status === 404) {
+          return { ...current, state: 'failed', error: 'The sign-in request disappeared.' };
+        }
+      }
+    }
+    return current;
+  }
+
+  /** Silently renews the access token with the stored refresh token. Throws SSOLoginRequiredError when impossible. */
+  async refreshAWSSSOSession(startUrl: string): Promise<SSOSessionStatus | null> {
+    const response = await this.client.post('/cloud/aws/sso/refresh', { startUrl });
+    return response.data.session || null;
+  }
+
+  /** Removes every cached token for the portal (same effect as `aws sso logout` for it). */
+  async signOutAWSSSO(startUrl: string): Promise<void> {
+    await this.client.post('/cloud/aws/sso/signout', { startUrl });
+  }
+
+  async saveSSOSession(startUrl: string, region: string, label: string): Promise<void> {
+    await this.client.post('/cloud/aws/sso/session', { startUrl, region, label });
   }
 
   async updateSSOSessionLabel(startUrl: string, label: string): Promise<void> {
@@ -95,35 +226,6 @@ class CloudService {
 
   async deleteSSOSession(startUrl: string): Promise<void> {
     await this.client.delete('/cloud/aws/sso/session', { params: { startUrl } });
-  }
-
-  async getSSOActiveAccount(): Promise<{
-    startUrl: string;
-    accountId: string;
-    accountName: string;
-    profileName: string;
-    roleName: string;
-    expiresAt: number;
-  } | null> {
-    const response = await this.client.get('/cloud/aws/sso/active-account');
-    return response.data.account || null;
-  }
-
-  async setSSOActiveAccount(
-    startUrl: string,
-    accountId: string,
-    accountName: string,
-    profileName: string,
-    roleName: string,
-    expiresAt: number
-  ): Promise<void> {
-    await this.client.post('/cloud/aws/sso/active-account', {
-      startUrl, accountId, accountName, profileName, roleName, expiresAt
-    });
-  }
-
-  async clearSSOActiveAccount(): Promise<void> {
-    await this.client.delete('/cloud/aws/sso/active-account');
   }
 
   async getAWSSSOAccounts(startUrl: string): Promise<SSOAccount[]> {
@@ -136,38 +238,22 @@ class CloudService {
     return response.data.roles || [];
   }
 
-  async activateAWSSSOAccount(startUrl: string, accountId: string, roleName?: string, region?: string): Promise<{
-    profileName: string;
-    accountId: string;
-    roleName: string;
-    region: string;
-    accessKeyId: string;
-    expiresAt: number;
-  }> {
-    const response = await this.client.post('/cloud/aws/sso/activate', { startUrl, accountId, roleName, region });
-    return response.data;
-  }
-
-  async deactivateAWSSSOAccount(): Promise<void> {
-    await this.client.post('/cloud/aws/sso/deactivate');
-  }
-
   async getAWSAccountId(profile: string): Promise<string> {
     const response = await this.client.get('/cloud/aws/account', { params: { profile } });
     return response.data.accountId;
   }
 
-  async refreshAWSCredentials(profile: string): Promise<void> {
-    await this.client.post('/cloud/aws/refresh', { profile });
-  }
+  // ---- GCP ------------------------------------------------------------------
 
   async listGCPProjects(): Promise<GCPProject[]> {
     const response = await this.client.get('/cloud/gcp/projects');
     return response.data.projects || [];
   }
 
-  async loginGCP(): Promise<void> {
-    await this.client.post('/cloud/gcp/login');
+  /** Runs `gcloud auth login` in the background; returns the job to poll. */
+  async loginGCP(): Promise<CloudLoginJob> {
+    const response = await this.client.post('/cloud/gcp/login');
+    return response.data;
   }
 
   async getGCPLocations(projectId: string): Promise<string[]> {
@@ -179,14 +265,20 @@ class CloudService {
     await this.client.post('/cloud/gcp/service-account', { keyFilePath });
   }
 
+  // ---- Azure ----------------------------------------------------------------
+
   async listAzureSubscriptions(): Promise<AzureSubscription[]> {
     const response = await this.client.get('/cloud/azure/subscriptions');
     return response.data.subscriptions || [];
   }
 
-  async loginAzure(): Promise<void> {
-    await this.client.post('/cloud/azure/login');
+  /** Runs `az login` in the background; returns the job to poll. */
+  async loginAzure(): Promise<CloudLoginJob> {
+    const response = await this.client.post('/cloud/azure/login');
+    return response.data;
   }
+
+  // ---- Discovery / import ---------------------------------------------------
 
   async discoverClusters(req: DiscoverRequest): Promise<DiscoveredCluster[]> {
     const response = await this.client.post('/cloud/discover', req);
@@ -227,25 +319,17 @@ class CloudService {
     }
   }
 
-  getProviderIcon(provider: CloudProvider): string {
-    switch (provider) {
-      case 'aws': return '☁️';
-      case 'gcp': return '🌐';
-      case 'azure': return '⬡';
-      default: return '📦';
-    }
-  }
-
   discoverClustersStreaming(
     req: DiscoverRequest,
     onEvent: (event: DiscoveryEvent) => void,
   ): () => void {
-    const key = `${req.provider}-${req.ssoStartUrl || req.profile || 'default'}-${Date.now()}`;
+    const key = `${req.provider}-${req.ssoStartUrl || req.profile || req.projectId || req.subscription || 'default'}-${Date.now()}`;
     this.discoveryHandlers.set(key, onEvent);
 
     const messageHandler = (msg: any) => {
       if (msg.type === 'cloud.discover' && msg.payload) {
         const payload = msg.payload;
+        if (payload.key && payload.key !== key) return;
         const event: DiscoveryEvent = {
           type: payload.type,
           cluster: payload.cluster,
@@ -256,7 +340,12 @@ class CloudService {
       }
     };
 
-    (api as any).wsHandlers.set('cloud.discover', new Set([messageHandler]));
+    const existing = (api as any).wsHandlers.get('cloud.discover') as Set<(msg: any) => void> | undefined;
+    if (existing) {
+      existing.add(messageHandler);
+    } else {
+      (api as any).wsHandlers.set('cloud.discover', new Set([messageHandler]));
+    }
 
     (api as any).__sendWS({
       type: 'cloud.discover',
@@ -270,6 +359,7 @@ class CloudService {
         region: req.region,
         allRegions: req.allRegions,
         projectId: req.projectId,
+        subscription: req.subscription,
       },
     });
 

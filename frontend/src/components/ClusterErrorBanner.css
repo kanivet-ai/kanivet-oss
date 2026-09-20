@@ -2,7 +2,9 @@
 .cluster-error-pane {
   position: absolute;
   inset: 0;
-  z-index: 10;
+  /* Above the inspector panel (z 200) so the pane covers the whole cluster
+     area and its card centres in the visible space. */
+  z-index: 300;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -177,6 +179,35 @@
 .cluster-error-pane-btn:disabled {
   cursor: progress;
   opacity: 0.6;
+}
+
+.cluster-error-pane-auth {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--text2);
+}
+
+.cluster-error-pane-auth code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text);
+  background: var(--inset);
+  padding: 0 4px;
+  border-radius: 4px;
+  word-break: break-all;
+}
+
+.cluster-error-pane-auth--warn {
+  color: var(--orange);
+}
+
+.cluster-error-pane-hint {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.cluster-error-pane-actions {
+  flex-wrap: wrap;
 }
 
 .cluster-error-spinning {

@@ -1,6 +1,7 @@
 package cloud
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -24,25 +25,27 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, middleware ...gin.HandlerF
 	cloud := rg.Group("/cloud", middleware...)
 	{
 		cloud.GET("/status", h.GetAuthStatus)
+		cloud.GET("/auth", h.GetAuthSummary)
+		cloud.GET("/cluster-auth", h.DescribeClusterAuth)
+		cloud.GET("/login-jobs/:id", h.GetLoginJob)
+		cloud.DELETE("/login-jobs/:id", h.CancelLoginJob)
 
 		aws := cloud.Group("/aws")
 		{
 			aws.GET("/profiles", h.ListAWSProfiles)
-			aws.POST("/login", h.LoginAWS)
-			aws.POST("/sso/start", h.StartAWSSSOLogin)
+			aws.POST("/login", h.LoginAWSProfile)
 			aws.GET("/sso/sessions", h.GetAWSSSOSessions)
+			aws.POST("/sso/login", h.BeginAWSSSOLogin)
+			aws.GET("/sso/login/:id", h.GetAWSSSOLogin)
+			aws.DELETE("/sso/login/:id", h.CancelAWSSSOLogin)
+			aws.POST("/sso/refresh", h.RefreshAWSSSOSession)
+			aws.POST("/sso/signout", h.SignOutAWSSSO)
 			aws.GET("/sso/accounts", h.GetAWSSSOAccounts)
 			aws.GET("/sso/roles", h.GetAWSSSOAccountRoles)
-			aws.POST("/sso/activate", h.ActivateAWSSSOAccount)
-			aws.POST("/sso/deactivate", h.DeactivateAWSSSOAccount)
 			aws.POST("/sso/session", h.SaveSSOSession)
 			aws.PUT("/sso/session/label", h.UpdateSSOSessionLabel)
 			aws.DELETE("/sso/session", h.DeleteSSOSession)
-			aws.GET("/sso/active-account", h.GetSSOActiveAccount)
-			aws.POST("/sso/active-account", h.SetSSOActiveAccount)
-			aws.DELETE("/sso/active-account", h.ClearSSOActiveAccount)
 			aws.GET("/account", h.GetAWSAccountID)
-			aws.POST("/refresh", h.RefreshAWSCredentials)
 		}
 
 		gcp := cloud.Group("/gcp")
@@ -68,21 +71,86 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, middleware ...gin.HandlerF
 	}
 }
 
+// writeError maps domain errors to actionable HTTP responses. A sign-in
+// requirement is 401 with a stable code so the UI can offer the right button
+// instead of a generic failure.
+func writeError(c *gin.Context, err error) {
+	var loginReq *SSOLoginRequiredError
+	if errors.As(err, &loginReq) {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error":    loginReq.Error(),
+			"code":     "sso_login_required",
+			"startUrl": loginReq.StartURL,
+		})
+		return
+	}
+	var missing *CLIMissingError
+	if errors.As(err, &missing) {
+		c.JSON(http.StatusFailedDependency, gin.H{
+			"error":       missing.Error(),
+			"code":        "cli_missing",
+			"binary":      missing.Binary,
+			"installHint": cliInstallHint(missing.Binary),
+		})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+}
+
 func (h *Handler) GetAuthStatus(c *gin.Context) {
 	status := h.service.GetAuthStatus(c.Request.Context())
 	c.JSON(http.StatusOK, gin.H{"status": status})
 }
 
+func (h *Handler) GetAuthSummary(c *gin.Context) {
+	force := c.Query("force") == "1" || c.Query("force") == "true"
+	c.JSON(http.StatusOK, h.service.GetAuthSummary(c.Request.Context(), force))
+}
+
+func (h *Handler) DescribeClusterAuth(c *gin.Context) {
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster is required"})
+		return
+	}
+	info, err := h.service.DescribeClusterAuth(c.Request.Context(), cluster)
+	if err != nil && info == nil {
+		writeError(c, err)
+		return
+	}
+	if err != nil {
+		info.Hint = err.Error()
+	}
+	c.JSON(http.StatusOK, info)
+}
+
+func (h *Handler) GetLoginJob(c *gin.Context) {
+	job, ok := h.service.GetLoginJob(c.Param("id"))
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login job not found"})
+		return
+	}
+	c.JSON(http.StatusOK, job)
+}
+
+func (h *Handler) CancelLoginJob(c *gin.Context) {
+	if !h.service.CancelLoginJob(c.Param("id")) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login job not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
 func (h *Handler) ListAWSProfiles(c *gin.Context) {
 	profiles, err := h.service.ListAWSProfiles()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"profiles": profiles})
 }
 
-func (h *Handler) LoginAWS(c *gin.Context) {
+func (h *Handler) LoginAWSProfile(c *gin.Context) {
 	var req struct {
 		Profile string `json:"profile"`
 	}
@@ -93,25 +161,91 @@ func (h *Handler) LoginAWS(c *gin.Context) {
 	if req.Profile == "" {
 		req.Profile = "default"
 	}
-	if err := h.service.LoginAWS(c.Request.Context(), req.Profile); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	job, err := h.service.LoginAWSProfile(c.Request.Context(), req.Profile)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, job)
+}
+
+func (h *Handler) BeginAWSSSOLogin(c *gin.Context) {
+	var req struct {
+		StartURL    string `json:"startUrl"`
+		Region      string `json:"region"`
+		OpenBrowser *bool  `json:"openBrowser"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.StartURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "startUrl is required"})
+		return
+	}
+	openBrowser := req.OpenBrowser == nil || *req.OpenBrowser
+	session, err := h.service.BeginAWSSSOLogin(c.Request.Context(), req.StartURL, req.Region, openBrowser)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusAccepted, session)
+}
+
+func (h *Handler) GetAWSSSOLogin(c *gin.Context) {
+	session, ok := h.service.GetAWSSSOLogin(c.Param("id"))
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login not found"})
+		return
+	}
+	c.JSON(http.StatusOK, session)
+}
+
+func (h *Handler) CancelAWSSSOLogin(c *gin.Context) {
+	if !h.service.CancelAWSSSOLogin(c.Param("id")) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "login not found"})
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
-func (h *Handler) StartAWSSSOLogin(c *gin.Context) {
-	var req SSOLoginRequest
+func (h *Handler) RefreshAWSSSOSession(c *gin.Context) {
+	var req struct {
+		StartURL string `json:"startUrl"`
+	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	resp, err := h.service.StartAWSSSOLogin(c.Request.Context(), req.StartURL, req.Region)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if req.StartURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "startUrl is required"})
 		return
 	}
-	c.JSON(http.StatusOK, resp)
+	session, err := h.service.RefreshAWSSSOSession(c.Request.Context(), req.StartURL)
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"session": session})
+}
+
+func (h *Handler) SignOutAWSSSO(c *gin.Context) {
+	var req struct {
+		StartURL string `json:"startUrl"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.StartURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "startUrl is required"})
+		return
+	}
+	if err := h.service.SignOutAWSSSO(req.StartURL); err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func (h *Handler) GetAWSSSOSessions(c *gin.Context) {
@@ -127,7 +261,7 @@ func (h *Handler) GetAWSSSOAccounts(c *gin.Context) {
 	}
 	accounts, err := h.service.GetAWSSSOAccounts(c.Request.Context(), startURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"accounts": accounts})
@@ -142,41 +276,10 @@ func (h *Handler) GetAWSSSOAccountRoles(c *gin.Context) {
 	}
 	roles, err := h.service.GetAWSSSOAccountRoles(c.Request.Context(), startURL, accountID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"roles": roles})
-}
-
-func (h *Handler) ActivateAWSSSOAccount(c *gin.Context) {
-	var req struct {
-		StartURL  string `json:"startUrl"`
-		AccountID string `json:"accountId"`
-		RoleName  string `json:"roleName"`
-		Region    string `json:"region"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if req.StartURL == "" || req.AccountID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "startUrl and accountId are required"})
-		return
-	}
-	result, err := h.service.ActivateAWSSSOAccount(c.Request.Context(), req.StartURL, req.AccountID, req.RoleName, req.Region)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, result)
-}
-
-func (h *Handler) DeactivateAWSSSOAccount(c *gin.Context) {
-	if err := h.service.DeactivateAWSSSOAccount(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
 }
 
 func (h *Handler) GetAWSAccountID(c *gin.Context) {
@@ -186,42 +289,28 @@ func (h *Handler) GetAWSAccountID(c *gin.Context) {
 	}
 	accountID, err := h.service.GetAWSAccountID(c.Request.Context(), profile)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"accountId": accountID})
 }
 
-func (h *Handler) RefreshAWSCredentials(c *gin.Context) {
-	var req struct {
-		Profile string `json:"profile"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if err := h.service.RefreshAWSCredentials(c.Request.Context(), req.Profile); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
 func (h *Handler) ListGCPProjects(c *gin.Context) {
 	projects, err := h.service.ListGCPProjects(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"projects": projects})
 }
 
 func (h *Handler) LoginGCP(c *gin.Context) {
-	if err := h.service.LoginGCP(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	job, err := h.service.LoginGCP(c.Request.Context())
+	if err != nil {
+		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	c.JSON(http.StatusAccepted, job)
 }
 
 func (h *Handler) GetGCPLocations(c *gin.Context) {
@@ -232,7 +321,7 @@ func (h *Handler) GetGCPLocations(c *gin.Context) {
 	}
 	locations, err := h.service.GetGCPLocations(c.Request.Context(), projectID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"locations": locations})
@@ -247,7 +336,7 @@ func (h *Handler) UseGCPServiceAccount(c *gin.Context) {
 		return
 	}
 	if err := h.service.UseGCPServiceAccount(c.Request.Context(), req.KeyFilePath); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -256,18 +345,19 @@ func (h *Handler) UseGCPServiceAccount(c *gin.Context) {
 func (h *Handler) ListAzureSubscriptions(c *gin.Context) {
 	subs, err := h.service.ListAzureSubscriptions(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"subscriptions": subs})
 }
 
 func (h *Handler) LoginAzure(c *gin.Context) {
-	if err := h.service.LoginAzure(c.Request.Context()); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	job, err := h.service.LoginAzure(c.Request.Context())
+	if err != nil {
+		writeError(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
+	c.JSON(http.StatusAccepted, job)
 }
 
 func (h *Handler) DiscoverClusters(c *gin.Context) {
@@ -278,7 +368,7 @@ func (h *Handler) DiscoverClusters(c *gin.Context) {
 	}
 	clusters, err := h.service.DiscoverClusters(c.Request.Context(), req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"clusters": clusters})
@@ -287,7 +377,7 @@ func (h *Handler) DiscoverClusters(c *gin.Context) {
 func (h *Handler) DiscoverAllClusters(c *gin.Context) {
 	clusters, err := h.service.DiscoverAllClusters(c.Request.Context())
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"clusters": clusters})
@@ -299,14 +389,11 @@ func (h *Handler) ImportCluster(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("[Handler.ImportCluster] Received request: provider=%s, name=%s, region=%s, accountId=%s, ssoStartUrl=%s, profile=%s, ssoRoleName=%s",
-		req.Provider, req.Name, req.Region, req.AccountID, req.SSOStartURL, req.Profile, req.SSORoleName)
 	if err := h.service.ImportCluster(c.Request.Context(), req); err != nil {
-		log.Printf("[Handler.ImportCluster] ERROR: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		log.Printf("[Handler.ImportCluster] %s: %v", req.Name, err)
+		writeError(c, err)
 		return
 	}
-	log.Printf("[Handler.ImportCluster] SUCCESS")
 	if h.onClusterImported != nil {
 		h.onClusterImported()
 	}
@@ -319,7 +406,6 @@ func (h *Handler) BatchImportClusters(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	log.Printf("[Handler.BatchImportClusters] Starting batch import for %d clusters", len(req.Clusters))
 	jobID := h.service.StartBatchImport(c.Request.Context(), req)
 	c.JSON(http.StatusAccepted, gin.H{"jobId": jobID})
 }
@@ -350,21 +436,23 @@ func (h *Handler) GetImportedClusters(c *gin.Context) {
 
 func (h *Handler) SaveSSOSession(c *gin.Context) {
 	var req struct {
-		StartURL  string `json:"startUrl"`
-		Region    string `json:"region"`
-		Label     string `json:"label"`
-		ExpiresAt int64  `json:"expiresAt"`
+		StartURL string `json:"startUrl"`
+		Region   string `json:"region"`
+		Label    string `json:"label"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if req.StartURL == "" || req.Region == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "startUrl and region are required"})
+	if req.StartURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "startUrl is required"})
 		return
 	}
-	if err := h.service.SaveSSOSession(req.StartURL, req.Region, req.Label, req.ExpiresAt); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	if req.Region == "" {
+		req.Region = "us-east-1"
+	}
+	if err := h.service.SaveSSOSession(req.StartURL, req.Region, req.Label); err != nil {
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -384,7 +472,7 @@ func (h *Handler) UpdateSSOSessionLabel(c *gin.Context) {
 		return
 	}
 	if err := h.service.UpdateSSOSessionLabel(req.StartURL, req.Label); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
@@ -397,44 +485,7 @@ func (h *Handler) DeleteSSOSession(c *gin.Context) {
 		return
 	}
 	if err := h.service.DeleteSSOSession(startURL); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-func (h *Handler) GetSSOActiveAccount(c *gin.Context) {
-	account, err := h.service.GetSSOActiveAccount()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"account": nil})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"account": account})
-}
-
-func (h *Handler) SetSSOActiveAccount(c *gin.Context) {
-	var req struct {
-		StartURL    string `json:"startUrl"`
-		AccountID   string `json:"accountId"`
-		AccountName string `json:"accountName"`
-		ProfileName string `json:"profileName"`
-		RoleName    string `json:"roleName"`
-		ExpiresAt   int64  `json:"expiresAt"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	if err := h.service.SetSSOActiveAccount(req.StartURL, req.AccountID, req.AccountName, req.ProfileName, req.RoleName, req.ExpiresAt); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"success": true})
-}
-
-func (h *Handler) ClearSSOActiveAccount(c *gin.Context) {
-	if err := h.service.ClearSSOActiveAccount(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
