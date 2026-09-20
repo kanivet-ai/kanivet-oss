@@ -20,6 +20,19 @@ type discoveryStreamKey struct {
 	key          string
 }
 
+type discoverPayload struct {
+	Action       string   `json:"action"`
+	Key          string   `json:"key"`
+	Provider     string   `json:"provider"`
+	SSOStartURL  string   `json:"ssoStartUrl,omitempty"`
+	Profile      string   `json:"profile,omitempty"`
+	AccountIDs   []string `json:"accountIds,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	AllRegions   bool     `json:"allRegions,omitempty"`
+	ProjectID    string   `json:"projectId,omitempty"`
+	Subscription string   `json:"subscription,omitempty"`
+}
+
 type discoveryStream struct {
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -37,17 +50,7 @@ func (h *CloudDiscoveryHandler) MessageTypes() []core.MessageType {
 }
 
 func (h *CloudDiscoveryHandler) HandleMessage(ctx context.Context, conn *core.Connection, msg *core.IncomingMessage) error {
-	var payload struct {
-		Action      string   `json:"action"`
-		Key         string   `json:"key"`
-		Provider    string   `json:"provider"`
-		SSOStartURL string   `json:"ssoStartUrl,omitempty"`
-		Profile     string   `json:"profile,omitempty"`
-		AccountIDs  []string `json:"accountIds,omitempty"`
-		Region      string   `json:"region,omitempty"`
-		AllRegions  bool     `json:"allRegions,omitempty"`
-		ProjectID   string   `json:"projectId,omitempty"`
-	}
+	var payload discoverPayload
 
 	if err := msg.UnmarshalPayload(&payload); err != nil {
 		return fmt.Errorf("failed to unmarshal cloud.discover payload: %w", err)
@@ -64,15 +67,16 @@ func (h *CloudDiscoveryHandler) HandleMessage(ctx context.Context, conn *core.Co
 }
 
 func (h *CloudDiscoveryHandler) handleStart(ctx context.Context, conn *core.Connection, payload struct {
-	Action      string   `json:"action"`
-	Key         string   `json:"key"`
-	Provider    string   `json:"provider"`
-	SSOStartURL string   `json:"ssoStartUrl,omitempty"`
-	Profile     string   `json:"profile,omitempty"`
-	AccountIDs  []string `json:"accountIds,omitempty"`
-	Region      string   `json:"region,omitempty"`
-	AllRegions  bool     `json:"allRegions,omitempty"`
-	ProjectID   string   `json:"projectId,omitempty"`
+	Action       string   `json:"action"`
+	Key          string   `json:"key"`
+	Provider     string   `json:"provider"`
+	SSOStartURL  string   `json:"ssoStartUrl,omitempty"`
+	Profile      string   `json:"profile,omitempty"`
+	AccountIDs   []string `json:"accountIds,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	AllRegions   bool     `json:"allRegions,omitempty"`
+	ProjectID    string   `json:"projectId,omitempty"`
+	Subscription string   `json:"subscription,omitempty"`
 }) error {
 	streamKey := discoveryStreamKey{
 		connectionID: string(conn.ID()),
@@ -105,23 +109,25 @@ func (h *CloudDiscoveryHandler) handleStart(ctx context.Context, conn *core.Conn
 }
 
 func (h *CloudDiscoveryHandler) runDiscovery(ctx context.Context, conn *core.Connection, payload struct {
-	Action      string   `json:"action"`
-	Key         string   `json:"key"`
-	Provider    string   `json:"provider"`
-	SSOStartURL string   `json:"ssoStartUrl,omitempty"`
-	Profile     string   `json:"profile,omitempty"`
-	AccountIDs  []string `json:"accountIds,omitempty"`
-	Region      string   `json:"region,omitempty"`
-	AllRegions  bool     `json:"allRegions,omitempty"`
-	ProjectID   string   `json:"projectId,omitempty"`
+	Action       string   `json:"action"`
+	Key          string   `json:"key"`
+	Provider     string   `json:"provider"`
+	SSOStartURL  string   `json:"ssoStartUrl,omitempty"`
+	Profile      string   `json:"profile,omitempty"`
+	AccountIDs   []string `json:"accountIds,omitempty"`
+	Region       string   `json:"region,omitempty"`
+	AllRegions   bool     `json:"allRegions,omitempty"`
+	ProjectID    string   `json:"projectId,omitempty"`
+	Subscription string   `json:"subscription,omitempty"`
 }) {
 	req := cloud.DiscoverRequest{
-		Provider:    cloud.Provider(payload.Provider),
-		SSOStartURL: payload.SSOStartURL,
-		Profile:     payload.Profile,
-		AccountIDs:  payload.AccountIDs,
-		Region:      payload.Region,
-		ProjectID:   payload.ProjectID,
+		Provider:     cloud.Provider(payload.Provider),
+		SSOStartURL:  payload.SSOStartURL,
+		Profile:      payload.Profile,
+		AccountIDs:   payload.AccountIDs,
+		Region:       payload.Region,
+		ProjectID:    payload.ProjectID,
+		Subscription: payload.Subscription,
 	}
 
 	eventCh := make(chan cloud.DiscoveryEvent, 100)
@@ -135,14 +141,15 @@ func (h *CloudDiscoveryHandler) runDiscovery(ctx context.Context, conn *core.Con
 			if !ok {
 				return
 			}
-			h.sendEvent(conn, event)
+			h.sendEvent(conn, payload.Key, event)
 		}
 	}
 }
 
-func (h *CloudDiscoveryHandler) sendEvent(conn *core.Connection, event cloud.DiscoveryEvent) {
+func (h *CloudDiscoveryHandler) sendEvent(conn *core.Connection, key string, event cloud.DiscoveryEvent) {
 	payload := map[string]interface{}{
 		"type": string(event.Type),
+		"key":  key,
 	}
 	if event.Cluster != nil {
 		payload["cluster"] = event.Cluster

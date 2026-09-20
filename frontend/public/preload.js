@@ -54,18 +54,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('tray:openSettings', callback);
     },
 
-    onRefreshSSO: (callback) => {
-      ipcRenderer.on('tray:refreshSSO', (_, startUrl) => callback(startUrl));
-      return () => ipcRenderer.removeListener('tray:refreshSSO', callback);
+    onSignInSSO: (callback) => {
+      const listener = (_, startUrl) => callback(startUrl);
+      ipcRenderer.on('tray:signInSSO', listener);
+      return () => ipcRenderer.removeListener('tray:signInSSO', listener);
     },
-    onAddSSO: (callback) => {
-      ipcRenderer.on('tray:addSSO', callback);
-      return () => ipcRenderer.removeListener('tray:addSSO', callback);
-    },
-    updateSSOAccounts: (accounts, active) => ipcRenderer.invoke('tray:updateSSOAccounts', accounts, active),
-    onActivateAccount: (callback) => {
-      ipcRenderer.on('tray:activateAccount', (_, account) => callback(account));
-      return () => ipcRenderer.removeListener('tray:activateAccount', callback);
+    onOpenCloudAccounts: (callback) => {
+      ipcRenderer.on('tray:openCloudAccounts', callback);
+      return () => ipcRenderer.removeListener('tray:openCloudAccounts', callback);
     },
   },
 });

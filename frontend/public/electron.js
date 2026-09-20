@@ -110,10 +110,6 @@ let backendPort = 53727;
 let tray = null;
 let activeTabs = [];
 let ssoSessions = [];
-let ssoAccounts = [];
-let activeSSOAccount = null;
-let ssoStatusBlinkInterval = null;
-let ssoStatusBlinkState = true;
 let backendRestartCount = 0;
 let isAppQuitting = false;
 const backendStderrRing = [];
@@ -475,13 +471,6 @@ ipcMain.handle('tray:updateTabs', (event, tabs) => {
 ipcMain.handle('tray:updateSSOSessions', (event, sessions) => {
   ssoSessions = sessions || [];
   updateTrayMenu();
-});
-
-ipcMain.handle('tray:updateSSOAccounts', (event, accounts, active) => {
-  ssoAccounts = accounts || [];
-  activeSSOAccount = active || null;
-  writeLog(`[Tray] SSO accounts updated: ${accounts?.length || 0} accounts, active: ${active?.accountName || 'none'}, expiresAt: ${active?.expiresAt || 'N/A'}`);
-  updateTrayMenu();
   updateTrayIcon();
 });
 
@@ -513,32 +502,36 @@ function updateTrayMenu() {
       }))
     : [{ label: 'No clusters open', enabled: false }];
 
-  const ssoAccountItems = ssoAccounts.length > 0
-    ? ssoAccounts.map((account) => {
-        const isActive = activeSSOAccount &&
-          activeSSOAccount.startUrl === account.startUrl &&
-          activeSSOAccount.accountId === account.accountId;
+  const ssoItems = ssoSessions.length > 0
+    ? ssoSessions.map((session) => {
+        const needsSignIn = session.state === 'expired' || session.state === 'signed_out';
+        const status = needsSignIn
+          ? 'sign in required'
+          : session.state === 'refreshable'
+            ? 'refreshing'
+            : formatTimeLeft(session.expiresAt);
         return {
-          label: `${isActive ? '● ' : ''}${account.accountName}`,
+          label: `${needsSignIn ? '○' : '●'} ${session.label || session.startUrl} — ${status}`,
+          enabled: needsSignIn,
           click: () => {
-            mainWindow?.webContents.send('tray:activateAccount', account);
+            showAndFocusWindow();
+            mainWindow?.webContents.send('tray:signInSSO', session.startUrl);
           },
-          enabled: !isActive,
         };
       })
-    : [{ label: 'No accounts available', enabled: false }];
+    : [{ label: 'No AWS SSO portals', enabled: false }];
 
   const contextMenu = Menu.buildFromTemplate([
     { label: 'Clusters', enabled: false },
     ...clusterItems,
     { type: 'separator' },
-    { label: 'AWS SSO Accounts', enabled: false },
-    ...ssoAccountItems,
+    { label: 'Cloud accounts', enabled: false },
+    ...ssoItems,
     {
-      label: 'Manage SSO...',
+      label: 'Manage cloud accounts…',
       click: () => {
         showAndFocusWindow();
-        mainWindow?.webContents.send('tray:addSSO');
+        mainWindow?.webContents.send('tray:openCloudAccounts');
       }
     },
     { type: 'separator' },
@@ -557,12 +550,18 @@ function updateTrayMenu() {
   tray.setContextMenu(contextMenu);
 }
 
+function formatTimeLeft(expiresAt) {
+  if (!expiresAt) return 'signed in';
+  const diff = expiresAt - Date.now();
+  if (diff <= 0) return 'expired';
+  const hours = Math.floor(diff / 3600000);
+  const minutes = Math.floor((diff % 3600000) / 60000);
+  return hours > 0 ? `${hours}h ${minutes}m left` : `${minutes}m left`;
+}
+
 function getSSOStatus() {
-  if (!activeSSOAccount) return 'none';
-  const now = Date.now();
-  const thirtyMinutes = 30 * 60 * 1000;
-  if (activeSSOAccount.expiresAt && now > activeSSOAccount.expiresAt) return 'expired';
-  if (activeSSOAccount.expiresAt && activeSSOAccount.expiresAt - now < thirtyMinutes) return 'expiring';
+  if (!ssoSessions.length) return 'none';
+  if (ssoSessions.some((s) => s.state === 'expired' || s.state === 'signed_out')) return 'attention';
   return 'active';
 }
 
@@ -594,28 +593,20 @@ function getBaseIcon() {
 function updateTrayIcon() {
   if (!tray) return;
   const status = getSSOStatus();
-
-  if (ssoStatusBlinkInterval) {
-    clearInterval(ssoStatusBlinkInterval);
-    ssoStatusBlinkInterval = null;
-  }
-
   const icon = getBaseIcon();
   if (process.platform === 'darwin') icon.setTemplateImage(true);
   tray.setImage(icon);
 
-  const statusIndicators = { none: '', active: '•', expiring: '◦', expired: '◦' };
+  const attention = ssoSessions.filter((s) => s.state === 'expired' || s.state === 'signed_out');
   const tooltips = {
     none: 'Kanivet',
-    active: `Kanivet - SSO: ${activeSSOAccount?.accountName || 'Active'}`,
-    expiring: `Kanivet - SSO Expiring Soon: ${activeSSOAccount?.accountName || ''}`,
-    expired: `Kanivet - SSO Expired: ${activeSSOAccount?.accountName || ''}`,
+    active: 'Kanivet — cloud accounts signed in',
+    attention: `Kanivet — sign in required: ${attention.map((s) => s.label || s.startUrl).join(', ')}`,
   };
-
   tray.setToolTip(tooltips[status] || 'Kanivet');
 
-  if (process.platform === 'darwin' && status !== 'none') {
-    tray.setTitle(statusIndicators[status], { fontType: 'monospacedDigit' });
+  if (process.platform === 'darwin' && status === 'attention') {
+    tray.setTitle('◦', { fontType: 'monospacedDigit' });
   } else {
     tray.setTitle('');
   }
@@ -867,7 +858,6 @@ function showBackendGiveUpDialog(stderrTail) {
     killBackendProcess();
     if (logStream) logStream.end();
     if (updateCheckTimer) clearInterval(updateCheckTimer);
-    if (ssoStatusBlinkInterval) clearInterval(ssoStatusBlinkInterval);
     app.exit(1);
   } catch (e) {
     writeLog(`[Backend] Failed to show give-up dialog: ${e.message}`);
@@ -1230,9 +1220,6 @@ app.on('before-quit', () => {
   }
   if (updateCheckTimer) {
     clearInterval(updateCheckTimer);
-  }
-  if (ssoStatusBlinkInterval) {
-    clearInterval(ssoStatusBlinkInterval);
   }
 });
 

@@ -5,12 +5,13 @@ import (
 	"crypto/sha1"
 	"encoding/base64"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"log"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,40 +23,47 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials/stscreds"
 	"github.com/aws/aws-sdk-go-v2/service/eks"
 	"github.com/aws/aws-sdk-go-v2/service/sso"
-	"github.com/aws/aws-sdk-go-v2/service/ssooidc"
 	"github.com/aws/aws-sdk-go-v2/service/sts"
 	"github.com/kanivet/backend/internal/faults"
 	"gopkg.in/ini.v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 )
 
 func normalizeStartURL(startURL string) string {
-	parsed, err := url.Parse(startURL)
+	parsed, err := url.Parse(strings.TrimSpace(startURL))
 	if err != nil {
 		return strings.TrimSuffix(strings.TrimSuffix(startURL, "#"), "/")
 	}
 	parsed.Fragment = ""
 	parsed.Path = strings.TrimSuffix(parsed.Path, "/")
+	parsed.Host = strings.ToLower(parsed.Host)
 	return parsed.String()
 }
 
+// AWSProvider talks to EKS/IAM Identity Center. It keeps no private credential
+// state: SSO tokens live in ~/.aws/sso/cache (shared with the AWS CLI, Leapp,
+// granted, …) and profiles live in ~/.aws/config, so whatever the user does in
+// a terminal is what Kanivet sees, and vice-versa.
 type AWSProvider struct {
-	configs        map[string]aws.Config
-	ssoCredentials map[string]*ssoCredCache
-	mu             sync.RWMutex
-	kubeconfigMu   sync.Mutex
-	awsConfigMu    sync.Mutex
-	accessTestSem  chan struct{}
+	configs       map[string]cachedAWSConfig
+	mu            sync.RWMutex
+	kubeconfigMu  sync.Mutex
+	awsConfigMu   sync.Mutex
+	accessTestSem chan struct{}
+
+	tokens *ssoTokenStore
+	logins *ssoLoginManager
+	cli    *cliLoginManager
 }
 
-type ssoCredCache struct {
-	accessToken string
-	region      string
-	expiresAt   time.Time
+type cachedAWSConfig struct {
+	cfg      aws.Config
+	loadedAt time.Time
 }
+
+const awsConfigCacheTTL = 10 * time.Minute
 
 type ssoTokenCache struct {
 	StartURL              string `json:"startUrl"`
@@ -82,6 +90,10 @@ const kanivetSSORegistrationScope = "sso:account:access"
 
 func kanivetSSOSessionName(startURL string) string {
 	return fmt.Sprintf("kanivet-sso-%x", sha1.Sum([]byte(normalizeStartURL(startURL))))
+}
+
+func kanivetSSOProfileName(accountID, roleName string) string {
+	return fmt.Sprintf("kanivet-sso-%s-%s", accountID, roleName)
 }
 
 func buildSSOTokenCache(now time.Time, startURL, region string, registration ssoClientRegistration, accessToken string, refreshToken *string, expiresIn int32) (ssoTokenCache, time.Time) {
@@ -211,55 +223,37 @@ func legacyKanivetInlineProfiles(cfg *ini.File) []legacySSOProfile {
 
 func NewAWSProvider() *AWSProvider {
 	p := &AWSProvider{
-		configs:        make(map[string]aws.Config),
-		ssoCredentials: make(map[string]*ssoCredCache),
-		accessTestSem:  make(chan struct{}, 3),
+		configs:       make(map[string]cachedAWSConfig),
+		accessTestSem: make(chan struct{}, 3),
+		tokens:        newSSOTokenStore(),
+		logins:        newSSOLoginManager(),
+		cli:           newCLILoginManager(),
 	}
-	p.loadCachedSSOTokens()
 	p.migrateLegacySSOProfiles()
 	p.migrateImportedEKSExecAuth()
+	p.restoreOriginalDefaultProfile()
 	return p
 }
 
-func (p *AWSProvider) loadCachedSSOTokens() {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
+// SetOnAuthChanged registers a callback fired whenever SSO state changes
+// (sign-in, silent refresh, sign-out, CLI login finished).
+func (p *AWSProvider) SetOnAuthChanged(fn func()) {
+	p.tokens.onChange = fn
+	p.cli.onDone = func(job *CLILoginJob) {
+		p.ResetConfigCache()
+		if fn != nil {
+			fn()
+		}
 	}
+}
 
-	cacheDir := filepath.Join(home, ".aws", "sso", "cache")
-	entries, err := os.ReadDir(cacheDir)
-	if err != nil {
-		return
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(cacheDir, entry.Name()))
-		if err != nil {
-			continue
-		}
-
-		var cached ssoTokenCache
-		if err := jsonv2.Unmarshal(data, &cached); err != nil || cached.StartURL == "" || cached.AccessToken == "" {
-			continue
-		}
-
-		expiresAt, err := time.Parse(time.RFC3339, cached.ExpiresAt)
-		if err != nil || time.Now().After(expiresAt) {
-			continue
-		}
-
-		normalizedURL := normalizeStartURL(cached.StartURL)
-		p.ssoCredentials[normalizedURL] = &ssoCredCache{
-			accessToken: cached.AccessToken,
-			region:      cached.Region,
-			expiresAt:   expiresAt,
-		}
-		log.Printf("Loaded cached SSO token for %s (expires %s)", normalizedURL, expiresAt.Format(time.RFC3339))
-	}
+// ResetConfigCache drops cached aws.Config values so rotated credentials in
+// ~/.aws/credentials (Leapp, aws-vault, …) are picked up.
+func (p *AWSProvider) ResetConfigCache() {
+	p.mu.Lock()
+	clear(p.configs)
+	p.mu.Unlock()
+	p.tokens.invalidate()
 }
 
 func getAllAWSRegions() []string {
@@ -280,6 +274,26 @@ func getAllAWSRegions() []string {
 		"il-central-1",
 		"mx-central-1",
 	}
+}
+
+// preferredSSORole picks the role Kanivet uses when the user has not chosen
+// one: something read-only or admin-ish first, otherwise the first role.
+func preferredSSORole(roles []string) string {
+	if len(roles) == 0 {
+		return ""
+	}
+	for _, r := range roles {
+		lower := strings.ToLower(r)
+		if strings.Contains(lower, "readonly") || strings.Contains(lower, "read-only") || strings.Contains(lower, "viewer") {
+			return r
+		}
+	}
+	for _, r := range roles {
+		if strings.Contains(strings.ToLower(r), "admin") {
+			return r
+		}
+	}
+	return roles[0]
 }
 
 func (p *AWSProvider) ListProfiles() ([]AWSProfile, error) {
@@ -313,7 +327,7 @@ func (p *AWSProvider) ListProfiles() ([]AWSProfile, error) {
 
 		for _, section := range cfg.Sections() {
 			name := section.Name()
-			if name == "DEFAULT" || strings.HasPrefix(name, "sso-session ") {
+			if name == "DEFAULT" || strings.HasPrefix(name, "sso-session ") || strings.HasPrefix(name, "services ") || name == "plugins" || name == "preview" {
 				continue
 			}
 			name = strings.TrimPrefix(name, "profile ")
@@ -340,6 +354,9 @@ func (p *AWSProvider) ListProfiles() ([]AWSProfile, error) {
 					profile.Region = section.Key("sso_region").String()
 				}
 			}
+			if section.HasKey("credential_process") {
+				profile.CredentialProcess = true
+			}
 			if roleArn := section.Key("role_arn").String(); roleArn != "" {
 				profile.RoleArn = roleArn
 			}
@@ -362,11 +379,14 @@ func (p *AWSProvider) ListProfiles() ([]AWSProfile, error) {
 			for i := range profiles {
 				if profiles[i].Name == name {
 					found = true
+					if section.HasKey("aws_access_key_id") {
+						profiles[i].HasStaticCredentials = true
+					}
 					break
 				}
 			}
 			if !found {
-				profiles = append(profiles, AWSProfile{Name: name, Source: ProfileSourceCredentials})
+				profiles = append(profiles, AWSProfile{Name: name, Source: ProfileSourceCredentials, HasStaticCredentials: section.HasKey("aws_access_key_id")})
 			}
 		}
 	}
@@ -394,9 +414,9 @@ func (p *AWSProvider) GetProfileRegion(profile string) string {
 func (p *AWSProvider) GetConfig(ctx context.Context, profile, region string) (aws.Config, error) {
 	key := fmt.Sprintf("%s:%s", profile, region)
 	p.mu.RLock()
-	if cfg, ok := p.configs[key]; ok {
+	if cached, ok := p.configs[key]; ok && time.Since(cached.loadedAt) < awsConfigCacheTTL {
 		p.mu.RUnlock()
-		return cfg, nil
+		return cached.cfg, nil
 	}
 	p.mu.RUnlock()
 
@@ -411,7 +431,7 @@ func (p *AWSProvider) GetConfig(ctx context.Context, profile, region string) (aw
 	}
 
 	p.mu.Lock()
-	p.configs[key] = cfg
+	p.configs[key] = cachedAWSConfig{cfg: cfg, loadedAt: time.Now()}
 	p.mu.Unlock()
 
 	return cfg, nil
@@ -429,113 +449,6 @@ func (p *AWSProvider) GetAccountID(ctx context.Context, profile string) (string,
 		return "", fmt.Errorf("failed to get caller identity: %w", err)
 	}
 	return *identity.Account, nil
-}
-
-func (p *AWSProvider) StartSSOLogin(ctx context.Context, startURL, region string) (*SSOLoginResponse, error) {
-	normalizedURL := normalizeStartURL(startURL)
-	p.mu.Lock()
-	delete(p.ssoCredentials, normalizedURL)
-	p.mu.Unlock()
-
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	if err != nil {
-		return nil, err
-	}
-
-	oidcClient := ssooidc.NewFromConfig(cfg)
-	registerResp, err := oidcClient.RegisterClient(ctx, &ssooidc.RegisterClientInput{
-		ClientName: aws.String("kanivet"),
-		ClientType: aws.String("public"),
-		Scopes:     []string{kanivetSSORegistrationScope},
-	})
-	if err != nil {
-		faults.CaptureExceptionWithContext(err, map[string]any{
-			"operation": "sso_register_client",
-			"region":    region,
-		})
-		return nil, fmt.Errorf("failed to register OIDC client: %w", err)
-	}
-
-	startAuthResp, err := oidcClient.StartDeviceAuthorization(ctx, &ssooidc.StartDeviceAuthorizationInput{
-		ClientId:     registerResp.ClientId,
-		ClientSecret: registerResp.ClientSecret,
-		StartUrl:     aws.String(startURL),
-	})
-	if err != nil {
-		faults.CaptureExceptionWithContext(err, map[string]any{
-			"operation": "sso_device_authorization",
-			"region":    region,
-		})
-		return nil, fmt.Errorf("failed to start device authorization: %w", err)
-	}
-
-	verifyURL := aws.ToString(startAuthResp.VerificationUriComplete)
-	if err := exec.Command("open", verifyURL).Start(); err != nil {
-		log.Printf("Failed to open browser: %v", err)
-	}
-
-	interval := time.Duration(startAuthResp.Interval) * time.Second
-	if interval == 0 {
-		interval = 5 * time.Second
-	}
-	deadline := time.Now().Add(time.Duration(startAuthResp.ExpiresIn) * time.Second)
-
-	for time.Now().Before(deadline) {
-		tokenResp, err := oidcClient.CreateToken(ctx, &ssooidc.CreateTokenInput{
-			ClientId:     registerResp.ClientId,
-			ClientSecret: registerResp.ClientSecret,
-			DeviceCode:   startAuthResp.DeviceCode,
-			GrantType:    aws.String("urn:ietf:params:oauth:grant-type:device_code"),
-		})
-		if err != nil {
-			if strings.Contains(err.Error(), "AuthorizationPendingException") ||
-				strings.Contains(err.Error(), "SlowDownException") {
-				time.Sleep(interval)
-				continue
-			}
-			faults.CaptureExceptionWithContext(err, map[string]any{
-				"operation": "sso_create_token",
-				"region":    region,
-			})
-			return nil, fmt.Errorf("failed to create token: %w", err)
-		}
-
-		accessToken := aws.ToString(tokenResp.AccessToken)
-		tokenCache, expiresAt := buildSSOTokenCache(
-			time.Now(),
-			startURL,
-			region,
-			ssoClientRegistration{
-				ClientID:              aws.ToString(registerResp.ClientId),
-				ClientSecret:          aws.ToString(registerResp.ClientSecret),
-				RegistrationExpiresAt: registerResp.ClientSecretExpiresAt,
-			},
-			accessToken,
-			tokenResp.RefreshToken,
-			tokenResp.ExpiresIn,
-		)
-		if err := p.cacheSSOToken(tokenCache); err != nil {
-			log.Printf("Failed to cache SSO token: %v", err)
-		}
-
-		normalizedURL := normalizeStartURL(startURL)
-		p.mu.Lock()
-		p.ssoCredentials[normalizedURL] = &ssoCredCache{
-			accessToken: accessToken,
-			region:      region,
-			expiresAt:   expiresAt,
-		}
-		p.mu.Unlock()
-
-		return &SSOLoginResponse{
-			DeviceCode:      *startAuthResp.DeviceCode,
-			UserCode:        *startAuthResp.UserCode,
-			VerificationURL: verifyURL,
-			ExpiresIn:       int(tokenResp.ExpiresIn),
-		}, nil
-	}
-
-	return nil, fmt.Errorf("SSO login timed out - please complete authentication in your browser")
 }
 
 func writeSSOTokenCache(key string, token ssoTokenCache) error {
@@ -557,35 +470,10 @@ func writeSSOTokenCache(key string, token ssoTokenCache) error {
 	})
 }
 
+// cacheSSOToken persists a token under every cache key that refers to its
+// portal: Kanivet's session, compatible user sso-sessions, and legacy keys.
 func (p *AWSProvider) cacheSSOToken(token ssoTokenCache) error {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	cacheDir := filepath.Join(home, ".aws", "sso", "cache")
-	if err := os.MkdirAll(cacheDir, 0700); err != nil {
-		return err
-	}
-
-	keys := []string{kanivetSSOSessionName(token.StartURL)}
-	if cfg, err := loadINIFile(filepath.Join(home, ".aws", "config")); err == nil {
-		keys = append(keys, legacyKanivetInlineProfileCacheKeys(cfg, token.StartURL)...)
-	}
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-		if err := writeSSOTokenCache(key, token); err != nil {
-			return err
-		}
-	}
-	return nil
+	return p.tokens.store(token)
 }
 
 func readSSOTokenCache(key string) (ssoTokenCache, error) {
@@ -699,35 +587,117 @@ func (p *AWSProvider) migrateImportedEKSExecAuth() {
 	}
 }
 
-func (p *AWSProvider) GetSSOAccounts(ctx context.Context, startURL string) ([]SSOAccount, error) {
-	normalizedURL := normalizeStartURL(startURL)
-	p.mu.RLock()
-	cred, ok := p.ssoCredentials[normalizedURL]
-	p.mu.RUnlock()
-	if !ok || time.Now().After(cred.expiresAt) {
-		return nil, fmt.Errorf("SSO session expired or not found - please login again")
-	}
+// kanivetBackupProfile is where older Kanivet builds stashed the user's real
+// [default] profile before overwriting it with SSO role credentials. Kanivet no
+// longer touches [default]; on startup we put the original back if a backup is
+// still there.
+const kanivetBackupProfile = "kanivet-backup-original-default"
 
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cred.region))
+func restoreDefaultFromBackup(path, backupSection string) (bool, error) {
+	cfg, err := loadINIFile(path)
+	if err != nil {
+		return false, err
+	}
+	if !cfg.HasSection(backupSection) {
+		return false, nil
+	}
+	backup := cfg.Section(backupSection)
+	defaultSection := cfg.Section("default")
+	for _, key := range defaultSection.Keys() {
+		defaultSection.DeleteKey(key.Name())
+	}
+	for _, key := range backup.Keys() {
+		defaultSection.Key(key.Name()).SetValue(key.Value())
+	}
+	cfg.DeleteSection(backupSection)
+	if len(defaultSection.Keys()) == 0 {
+		cfg.DeleteSection("default")
+	}
+	return true, saveINIFileAtomically(path, cfg, 0600)
+}
+
+func (p *AWSProvider) restoreOriginalDefaultProfile() {
+	p.awsConfigMu.Lock()
+	defer p.awsConfigMu.Unlock()
+	credPath, err := awsCredentialsPath()
+	if err != nil {
+		return
+	}
+	if restored, err := restoreDefaultFromBackup(credPath, kanivetBackupProfile); err != nil {
+		log.Printf("Warning: failed to restore original [default] credentials: %v", err)
+	} else if restored {
+		log.Printf("[AWS] Restored the original [default] credentials profile that an earlier Kanivet version had replaced")
+	}
+	configPath, err := awsConfigPath()
+	if err != nil {
+		return
+	}
+	if restored, err := restoreDefaultFromBackup(configPath, "profile "+kanivetBackupProfile); err != nil {
+		log.Printf("Warning: failed to restore original [default] config: %v", err)
+	} else if restored {
+		log.Printf("[AWS] Restored the original [default] config profile")
+	}
+}
+
+// knownSSOSessions lists the sso-session blocks in ~/.aws/config.
+func (p *AWSProvider) knownSSOSessions() []awsSSOSessionConfig {
+	sessions, _ := loadAWSSSOConfig()
+	return sessions
+}
+
+func (p *AWSProvider) ssoClient(ctx context.Context, startURL string) (*sso.Client, *ssoCachedToken, error) {
+	tok, err := p.tokens.resolve(ctx, startURL)
+	if err != nil {
+		return nil, nil, err
+	}
+	region := tok.Token.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+	cfg, err := config.LoadDefaultConfig(ctx,
+		config.WithRegion(region),
+		config.WithCredentialsProvider(aws.AnonymousCredentials{}),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+	return sso.NewFromConfig(cfg), tok, nil
+}
+
+func isSSOUnauthorized(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "UnauthorizedException") || strings.Contains(msg, "ExpiredToken") || strings.Contains(msg, "InvalidRequestException: Session token not found or invalid")
+}
+
+// ssoAPIError turns a rejected access token into a sign-in-required error and
+// drops Kanivet's copy of the dead token so the session shows as expired.
+func (p *AWSProvider) ssoAPIError(startURL string, tok *ssoCachedToken, operation string, err error) error {
+	if isSSOUnauthorized(err) {
+		if tok != nil && tok.FromKanivet && tok.Path != "" {
+			_ = os.Remove(tok.Path)
+			p.tokens.invalidate()
+			p.tokens.notify()
+		}
+		return loginRequired(startURL, "the portal rejected the cached token")
+	}
+	faults.CaptureExceptionWithContext(err, map[string]any{"operation": operation})
+	return fmt.Errorf("%s failed: %w", operation, err)
+}
+
+func (p *AWSProvider) GetSSOAccounts(ctx context.Context, startURL string) ([]SSOAccount, error) {
+	ssoClient, tok, err := p.ssoClient(ctx, startURL)
 	if err != nil {
 		return nil, err
 	}
-
-	ssoClient := sso.NewFromConfig(cfg)
 	var accounts []SSOAccount
-	paginator := sso.NewListAccountsPaginator(ssoClient, &sso.ListAccountsInput{
-		AccessToken: aws.String(cred.accessToken),
-	})
-
+	paginator := sso.NewListAccountsPaginator(ssoClient, &sso.ListAccountsInput{AccessToken: aws.String(tok.Token.AccessToken)})
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			if !strings.Contains(err.Error(), "ExpiredToken") && !strings.Contains(err.Error(), "UnauthorizedException") {
-				faults.CaptureExceptionWithContext(err, map[string]any{
-					"operation": "sso_list_accounts",
-				})
-			}
-			return nil, fmt.Errorf("failed to list SSO accounts: %w", err)
+			return nil, p.ssoAPIError(startURL, tok, "sso_list_accounts", err)
 		}
 		for _, acc := range page.AccountList {
 			accounts = append(accounts, SSOAccount{
@@ -737,40 +707,26 @@ func (p *AWSProvider) GetSSOAccounts(ctx context.Context, startURL string) ([]SS
 			})
 		}
 	}
+	sort.Slice(accounts, func(i, j int) bool {
+		return strings.ToLower(accounts[i].AccountName) < strings.ToLower(accounts[j].AccountName)
+	})
 	return accounts, nil
 }
 
 func (p *AWSProvider) GetSSORoles(ctx context.Context, startURL, accountID string) ([]string, error) {
-	normalizedURL := normalizeStartURL(startURL)
-	p.mu.RLock()
-	cred, ok := p.ssoCredentials[normalizedURL]
-	p.mu.RUnlock()
-	if !ok || time.Now().After(cred.expiresAt) {
-		return nil, fmt.Errorf("SSO session expired or not found - please login again")
-	}
-
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cred.region))
+	ssoClient, tok, err := p.ssoClient(ctx, startURL)
 	if err != nil {
 		return nil, err
 	}
-
-	ssoClient := sso.NewFromConfig(cfg)
 	var roles []string
 	paginator := sso.NewListAccountRolesPaginator(ssoClient, &sso.ListAccountRolesInput{
-		AccessToken: aws.String(cred.accessToken),
+		AccessToken: aws.String(tok.Token.AccessToken),
 		AccountId:   aws.String(accountID),
 	})
-
 	for paginator.HasMorePages() {
 		page, err := paginator.NextPage(ctx)
 		if err != nil {
-			if !strings.Contains(err.Error(), "ExpiredToken") && !strings.Contains(err.Error(), "UnauthorizedException") {
-				faults.CaptureExceptionWithContext(err, map[string]any{
-					"operation": "sso_list_roles",
-					"accountId": accountID,
-				})
-			}
-			return nil, fmt.Errorf("failed to list SSO roles: %w", err)
+			return nil, p.ssoAPIError(startURL, tok, "sso_list_roles", err)
 		}
 		for _, role := range page.RoleList {
 			roles = append(roles, aws.ToString(role.RoleName))
@@ -780,285 +736,65 @@ func (p *AWSProvider) GetSSORoles(ctx context.Context, startURL, accountID strin
 }
 
 func (p *AWSProvider) GetSSOCredentials(ctx context.Context, startURL, accountID, roleName string) (aws.Config, error) {
-	normalizedURL := normalizeStartURL(startURL)
-	p.mu.RLock()
-	cred, ok := p.ssoCredentials[normalizedURL]
-	p.mu.RUnlock()
-	if !ok || time.Now().After(cred.expiresAt) {
-		return aws.Config{}, fmt.Errorf("SSO session expired or not found - please login again")
-	}
-
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(cred.region))
+	ssoClient, tok, err := p.ssoClient(ctx, startURL)
 	if err != nil {
 		return aws.Config{}, err
 	}
-
-	ssoClient := sso.NewFromConfig(cfg)
 	roleCredsResp, err := ssoClient.GetRoleCredentials(ctx, &sso.GetRoleCredentialsInput{
-		AccessToken: aws.String(cred.accessToken),
+		AccessToken: aws.String(tok.Token.AccessToken),
 		AccountId:   aws.String(accountID),
 		RoleName:    aws.String(roleName),
 	})
 	if err != nil {
-		if !strings.Contains(err.Error(), "ExpiredToken") && !strings.Contains(err.Error(), "UnauthorizedException") {
-			faults.CaptureExceptionWithContext(err, map[string]any{
-				"operation": "sso_get_credentials",
-				"accountId": accountID,
-				"roleName":  roleName,
-			})
-		}
-		return aws.Config{}, fmt.Errorf("failed to get role credentials: %w", err)
+		return aws.Config{}, p.ssoAPIError(startURL, tok, "sso_get_credentials", err)
 	}
-
+	region := tok.Token.Region
+	if region == "" {
+		region = "us-east-1"
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region), config.WithCredentialsProvider(aws.AnonymousCredentials{}))
+	if err != nil {
+		return aws.Config{}, err
+	}
 	creds := roleCredsResp.RoleCredentials
 	cfg.Credentials = credentials.NewStaticCredentialsProvider(
 		aws.ToString(creds.AccessKeyId),
 		aws.ToString(creds.SecretAccessKey),
 		aws.ToString(creds.SessionToken),
 	)
-
 	return cfg, nil
 }
 
-func (p *AWSProvider) ActivateSSOAccount(ctx context.Context, startURL, accountID, roleName, region string) (*SSOActivateResponse, error) {
-	normalizedURL := normalizeStartURL(startURL)
-	p.mu.RLock()
-	cred, ok := p.ssoCredentials[normalizedURL]
-	p.mu.RUnlock()
-	if !ok || time.Now().After(cred.expiresAt) {
-		return nil, fmt.Errorf("SSO session expired or not found - please login again")
-	}
-
-	if roleName == "" {
-		roles, err := p.GetSSORoles(ctx, startURL, accountID)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get roles: %w", err)
-		}
-		if len(roles) == 0 {
-			return nil, fmt.Errorf("no roles available for account %s", accountID)
-		}
-		roleName = roles[0]
-		for _, r := range roles {
-			if strings.Contains(strings.ToLower(r), "admin") || strings.Contains(strings.ToLower(r), "readonly") {
-				roleName = r
-				break
-			}
-		}
-	}
-
-	if region == "" {
-		region = cred.region
-	}
-
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
-	if err != nil {
+// RefreshSSOSession refreshes the access token for startURL using the stored
+// refresh token. It returns ErrSSOLoginRequired when that is not possible.
+func (p *AWSProvider) RefreshSSOSession(ctx context.Context, startURL string) (*SSOSessionStatus, error) {
+	if _, err := p.tokens.resolve(ctx, startURL); err != nil {
 		return nil, err
 	}
-
-	ssoClient := sso.NewFromConfig(cfg)
-	roleCredsResp, err := ssoClient.GetRoleCredentials(ctx, &sso.GetRoleCredentialsInput{
-		AccessToken: aws.String(cred.accessToken),
-		AccountId:   aws.String(accountID),
-		RoleName:    aws.String(roleName),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("failed to get role credentials: %w", err)
+	for _, s := range p.GetSSOSessions() {
+		if normalizeStartURL(s.StartURL) == normalizeStartURL(startURL) {
+			return &s, nil
+		}
 	}
-
-	creds := roleCredsResp.RoleCredentials
-	accessKeyID := aws.ToString(creds.AccessKeyId)
-	secretAccessKey := aws.ToString(creds.SecretAccessKey)
-	sessionToken := aws.ToString(creds.SessionToken)
-	expiresAt := creds.Expiration
-
-	profileName := "default"
-	if err := p.writeCredentialsFile(profileName, accessKeyID, secretAccessKey, sessionToken, region); err != nil {
-		return nil, fmt.Errorf("failed to write credentials: %w", err)
-	}
-
-	return &SSOActivateResponse{
-		ProfileName: profileName,
-		AccountID:   accountID,
-		RoleName:    roleName,
-		Region:      region,
-		AccessKeyID: accessKeyID,
-		ExpiresAt:   expiresAt,
-	}, nil
+	return nil, nil
 }
 
-const kanivetBackupProfile = "kanivet-backup-original-default"
-
-func (p *AWSProvider) writeCredentialsFile(profileName, accessKeyID, secretAccessKey, sessionToken, region string) error {
-	p.awsConfigMu.Lock()
-	defer p.awsConfigMu.Unlock()
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+// SignOutSSO removes every cached token for the portal, exactly like
+// `aws sso logout` would for that start URL. Profiles are left untouched.
+func (p *AWSProvider) SignOutSSO(startURL string) error {
+	if pending, ok := p.logins.pendingFor(startURL); ok {
+		p.logins.cancel(pending.ID)
 	}
-
-	awsDir := filepath.Join(home, ".aws")
-	if err := os.MkdirAll(awsDir, 0700); err != nil {
-		return err
-	}
-
-	credPath := filepath.Join(awsDir, "credentials")
-	configPath := filepath.Join(awsDir, "config")
-
-	credFile, err := ini.LooseLoad(credPath)
-	if err != nil {
-		credFile = ini.Empty()
-	}
-
-	if profileName == "default" {
-		existingDefault := credFile.Section("default")
-		if existingDefault != nil && existingDefault.HasKey("aws_access_key_id") {
-			backupSection := credFile.Section(kanivetBackupProfile)
-			if !backupSection.HasKey("aws_access_key_id") {
-				for _, key := range existingDefault.Keys() {
-					backupSection.Key(key.Name()).SetValue(key.Value())
-				}
-			}
-		}
-	}
-
-	credSection := credFile.Section(profileName)
-	credSection.Key("aws_access_key_id").SetValue(accessKeyID)
-	credSection.Key("aws_secret_access_key").SetValue(secretAccessKey)
-	credSection.Key("aws_session_token").SetValue(sessionToken)
-
-	if err := credFile.SaveTo(credPath); err != nil {
-		return fmt.Errorf("failed to save credentials file: %w", err)
-	}
-
-	configFile, err := ini.LooseLoad(configPath)
-	if err != nil {
-		configFile = ini.Empty()
-	}
-
-	if profileName == "default" {
-		existingDefault := configFile.Section("default")
-		if existingDefault != nil && existingDefault.HasKey("region") {
-			backupSection := configFile.Section("profile " + kanivetBackupProfile)
-			if !backupSection.HasKey("region") {
-				for _, key := range existingDefault.Keys() {
-					backupSection.Key(key.Name()).SetValue(key.Value())
-				}
-			}
-		}
-	}
-
-	configSectionName := profileName
-	if profileName != "default" {
-		configSectionName = "profile " + profileName
-	}
-	configSection := configFile.Section(configSectionName)
-	configSection.Key("region").SetValue(region)
-
-	if err := configFile.SaveTo(configPath); err != nil {
-		return fmt.Errorf("failed to save config file: %w", err)
-	}
-
-	return nil
+	return p.tokens.removeTokensFor(startURL, false)
 }
 
-func (p *AWSProvider) DeactivateSSOAccount(ctx context.Context) error {
-	p.awsConfigMu.Lock()
-	defer p.awsConfigMu.Unlock()
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
+// ForgetSSOSession removes Kanivet's own cached tokens for a portal when the
+// user deletes a Kanivet-added session; tokens the CLI created stay.
+func (p *AWSProvider) ForgetSSOSession(startURL string) error {
+	if pending, ok := p.logins.pendingFor(startURL); ok {
+		p.logins.cancel(pending.ID)
 	}
-
-	credPath := filepath.Join(home, ".aws", "credentials")
-	configPath := filepath.Join(home, ".aws", "config")
-
-	credFile, err := ini.LooseLoad(credPath)
-	if err != nil {
-		return nil
-	}
-
-	backupCreds := credFile.Section(kanivetBackupProfile)
-	if backupCreds.HasKey("aws_access_key_id") {
-		defaultSection := credFile.Section("default")
-		for _, key := range defaultSection.Keys() {
-			defaultSection.DeleteKey(key.Name())
-		}
-		for _, key := range backupCreds.Keys() {
-			defaultSection.Key(key.Name()).SetValue(key.Value())
-		}
-		credFile.DeleteSection(kanivetBackupProfile)
-	} else {
-		credFile.DeleteSection("default")
-	}
-
-	if err := credFile.SaveTo(credPath); err != nil {
-		return fmt.Errorf("failed to save credentials file: %w", err)
-	}
-
-	configFile, err := ini.LooseLoad(configPath)
-	if err != nil {
-		return nil
-	}
-
-	backupConfig := configFile.Section("profile " + kanivetBackupProfile)
-	if backupConfig.HasKey("region") {
-		defaultSection := configFile.Section("default")
-		for _, key := range defaultSection.Keys() {
-			defaultSection.DeleteKey(key.Name())
-		}
-		for _, key := range backupConfig.Keys() {
-			defaultSection.Key(key.Name()).SetValue(key.Value())
-		}
-		configFile.DeleteSection("profile " + kanivetBackupProfile)
-	}
-
-	if err := configFile.SaveTo(configPath); err != nil {
-		return fmt.Errorf("failed to save config file: %w", err)
-	}
-
-	return nil
-}
-
-func (p *AWSProvider) InvalidateSSOSession(startURL string) error {
-	normalizedURL := normalizeStartURL(startURL)
-
-	p.mu.Lock()
-	delete(p.ssoCredentials, normalizedURL)
-	p.mu.Unlock()
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return err
-	}
-
-	keys := []string{startURL, normalizedURL, kanivetSSOSessionName(startURL)}
-	if cfg, err := loadINIFile(filepath.Join(home, ".aws", "config")); err == nil {
-		keys = append(keys, legacyKanivetInlineProfileCacheKeys(cfg, startURL)...)
-	}
-
-	seen := make(map[string]struct{}, len(keys))
-	for _, key := range keys {
-		if key == "" {
-			continue
-		}
-		if _, ok := seen[key]; ok {
-			continue
-		}
-		seen[key] = struct{}{}
-
-		cachePath, err := ssocreds.StandardCachedTokenFilepath(key)
-		if err != nil {
-			log.Printf("Warning: failed to resolve SSO cache path: %v", err)
-			continue
-		}
-		if err := os.Remove(cachePath); err != nil && !os.IsNotExist(err) {
-			log.Printf("Warning: failed to remove SSO cache file: %v", err)
-		}
-	}
-
-	return nil
+	return p.tokens.removeTokensFor(startURL, true)
 }
 
 func (p *AWSProvider) DiscoverClustersWithSSO(ctx context.Context, startURL string, regions []string, accountIDs []string) ([]DiscoveredCluster, error) {
@@ -1099,14 +835,7 @@ func (p *AWSProvider) DiscoverClustersWithSSO(ctx context.Context, startURL stri
 		if len(roles) == 0 {
 			continue
 		}
-
-		roleName := roles[0]
-		for _, r := range roles {
-			if strings.Contains(strings.ToLower(r), "admin") || strings.Contains(strings.ToLower(r), "readonly") {
-				roleName = r
-				break
-			}
-		}
+		roleName := preferredSSORole(roles)
 
 		cfg, err := p.GetSSOCredentials(ctx, startURL, account.AccountID, roleName)
 		if err != nil {
@@ -1116,7 +845,7 @@ func (p *AWSProvider) DiscoverClustersWithSSO(ctx context.Context, startURL stri
 
 		for _, region := range regions {
 			wg.Add(1)
-			go func(acc SSOAccount, baseCfg aws.Config, r string) {
+			go func(acc SSOAccount, baseCfg aws.Config, r string, availableRoles []string) {
 				defer wg.Done()
 				sem <- struct{}{}
 				defer func() { <-sem }()
@@ -1147,13 +876,15 @@ func (p *AWSProvider) DiscoverClustersWithSSO(ctx context.Context, startURL stri
 					c := descResp.Cluster
 
 					cluster := DiscoveredCluster{
-						ID:        fmt.Sprintf("arn:aws:eks:%s:%s:cluster/%s", r, acc.AccountID, name),
-						Name:      name,
-						Provider:  ProviderAWS,
-						Region:    r,
-						AccountID: acc.AccountID,
-						Endpoint:  aws.ToString(c.Endpoint),
-						Status:    string(c.Status),
+						ID:             fmt.Sprintf("arn:aws:eks:%s:%s:cluster/%s", r, acc.AccountID, name),
+						Name:           name,
+						Provider:       ProviderAWS,
+						Region:         r,
+						AccountID:      acc.AccountID,
+						Endpoint:       aws.ToString(c.Endpoint),
+						Status:         string(c.Status),
+						SSOStartURL:    startURL,
+						AvailableRoles: availableRoles,
 					}
 					if c.Version != nil {
 						cluster.Version = *c.Version
@@ -1165,7 +896,7 @@ func (p *AWSProvider) DiscoverClustersWithSSO(ctx context.Context, startURL stri
 					allClusters = append(allClusters, cluster)
 					mu.Unlock()
 				}
-			}(account, cfg, region)
+			}(account, cfg, region, roles)
 		}
 	}
 
@@ -1173,33 +904,34 @@ func (p *AWSProvider) DiscoverClustersWithSSO(ctx context.Context, startURL stri
 	return allClusters, nil
 }
 
-func (p *AWSProvider) LoginWithProfile(ctx context.Context, profile string) error {
+// LoginWithProfile runs `aws sso login --profile <profile>` in the background
+// (for profiles the user manages themselves) and returns the job to poll.
+func (p *AWSProvider) LoginWithProfile(ctx context.Context, profile string) (*CLILoginJob, error) {
 	profiles, err := p.ListProfiles()
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	var targetProfile *AWSProfile
-	for _, pr := range profiles {
-		if pr.Name == profile {
-			targetProfile = &pr
+	var target *AWSProfile
+	for i := range profiles {
+		if profiles[i].Name == profile {
+			target = &profiles[i]
 			break
 		}
 	}
-	if targetProfile == nil {
-		return fmt.Errorf("profile %s not found", profile)
+	if target == nil {
+		return nil, fmt.Errorf("profile %s not found", profile)
 	}
-
-	if targetProfile.IsSSO {
-		cmd := exec.CommandContext(ctx, "aws", "sso", "login", "--profile", profile)
-		cmd.Env = os.Environ()
-		if err := cmd.Run(); err != nil {
-			return fmt.Errorf("SSO login failed: %w", err)
+	if !target.IsSSO {
+		return nil, fmt.Errorf("profile %s does not use IAM Identity Center; its credentials are managed outside Kanivet (static keys, credential_process or a tool such as Leapp)", profile)
+	}
+	if target.SSOStartURL != "" {
+		// Try the shared token cache first: if any tool already signed in to
+		// this portal there is nothing to do.
+		if _, err := p.tokens.resolve(ctx, target.SSOStartURL); err == nil {
+			return &CLILoginJob{ID: "", Provider: ProviderAWS, Label: profile, State: cliJobSucceeded, StartedAt: time.Now().UnixMilli(), FinishedAt: time.Now().UnixMilli()}, nil
 		}
 	}
-
-	_, err = p.GetAccountID(ctx, profile)
-	return err
+	return p.cli.start("aws:"+profile, ProviderAWS, profile, "aws", []string{"sso", "login", "--profile", profile}, cliEnv())
 }
 
 func (p *AWSProvider) DiscoverClusters(ctx context.Context, profile string, regions []string) ([]DiscoveredCluster, error) {
@@ -1278,6 +1010,7 @@ func (p *AWSProvider) discoverClustersInRegion(ctx context.Context, profile, reg
 			AccountID: accountID,
 			Endpoint:  aws.ToString(c.Endpoint),
 			Status:    string(c.Status),
+			Profile:   profile,
 		}
 		if c.Version != nil {
 			cluster.Version = *c.Version
@@ -1289,12 +1022,56 @@ func (p *AWSProvider) discoverClustersInRegion(ctx context.Context, profile, reg
 		caData := aws.ToString(c.CertificateAuthority.Data)
 		hasAccess, accessErr := p.testClusterAccess(ctx, name, cluster.Endpoint, caData, region, profile, "", "", "")
 		cluster.HasAccess = hasAccess
+		cluster.AccessChecked = true
 		cluster.AccessError = accessErr
 
 		clusters = append(clusters, cluster)
 	}
 
 	return clusters, nil
+}
+
+// findUserSSOProfile returns the name of a profile the user already has in
+// ~/.aws/config for this portal/account/role, so an imported cluster reuses it
+// (and `aws sso login --profile <theirs>` in a terminal keeps it working).
+func findUserSSOProfile(startURL, accountID, roleName string) (string, bool) {
+	_, profiles := loadAWSSSOConfig()
+	normalized := normalizeStartURL(startURL)
+	for _, prof := range profiles {
+		if strings.HasPrefix(prof.Name, "kanivet-") {
+			continue
+		}
+		if normalizeStartURL(prof.StartURL) == normalized && prof.AccountID == accountID && prof.RoleName == roleName {
+			return prof.Name, true
+		}
+	}
+	return "", false
+}
+
+// ssoProfileForImport resolves (or creates) the AWS profile an imported EKS
+// cluster's exec plugin should use.
+func (p *AWSProvider) ssoProfileForImport(ctx context.Context, startURL, accountID, roleName, fallbackRegion string) (string, error) {
+	if name, ok := findUserSSOProfile(startURL, accountID, roleName); ok {
+		return name, nil
+	}
+	ssoRegion := fallbackRegion
+	if tok, err := p.tokens.resolve(ctx, startURL); err == nil && tok.Token.Region != "" {
+		ssoRegion = tok.Token.Region
+	} else if tok := p.tokens.best(startURL, time.Now()); tok != nil && tok.Token.Region != "" {
+		ssoRegion = tok.Token.Region
+	} else {
+		for _, sess := range p.knownSSOSessions() {
+			if normalizeStartURL(sess.StartURL) == normalizeStartURL(startURL) && sess.Region != "" {
+				ssoRegion = sess.Region
+				break
+			}
+		}
+	}
+	profileName := kanivetSSOProfileName(accountID, roleName)
+	if err := p.ensureSSOProfile(profileName, startURL, ssoRegion, accountID, roleName); err != nil {
+		return "", err
+	}
+	return profileName, nil
 }
 
 func (p *AWSProvider) ImportCluster(ctx context.Context, req ImportRequest) error {
@@ -1306,74 +1083,54 @@ func (p *AWSProvider) ImportCluster(ctx context.Context, req ImportRequest) erro
 	var ssoRoleName string
 
 	if req.SSOStartURL != "" {
-		log.Printf("[ImportCluster] Using SSO authentication with startUrl=%s", req.SSOStartURL)
 		if req.SSORoleName != "" {
 			ssoRoleName = req.SSORoleName
-			log.Printf("[ImportCluster] Using user-specified role: %s", ssoRoleName)
 		} else {
 			roles, rolesErr := p.GetSSORoles(ctx, req.SSOStartURL, req.AccountID)
-			if rolesErr != nil || len(roles) == 0 {
-				log.Printf("[ImportCluster] ERROR: Failed to get SSO roles: %v", rolesErr)
-				return fmt.Errorf("failed to get SSO roles for account %s: %v", req.AccountID, rolesErr)
+			if rolesErr != nil {
+				return fmt.Errorf("failed to get SSO roles for account %s: %w", req.AccountID, rolesErr)
 			}
-			log.Printf("[ImportCluster] Found %d roles: %v", len(roles), roles)
-			ssoRoleName = roles[0]
-			for _, r := range roles {
-				if strings.Contains(strings.ToLower(r), "admin") || strings.Contains(strings.ToLower(r), "readonly") {
-					ssoRoleName = r
-					break
-				}
+			if len(roles) == 0 {
+				return fmt.Errorf("no SSO roles available for account %s", req.AccountID)
 			}
-			log.Printf("[ImportCluster] Auto-selected role: %s", ssoRoleName)
+			ssoRoleName = preferredSSORole(roles)
 		}
 		cfg, err = p.GetSSOCredentials(ctx, req.SSOStartURL, req.AccountID, ssoRoleName)
 		if err != nil {
-			log.Printf("[ImportCluster] ERROR: Failed to get SSO credentials: %v", err)
 			return fmt.Errorf("failed to get SSO credentials: %w", err)
 		}
 		cfg.Region = req.Region
 	} else if req.Profile != "" {
-		log.Printf("[ImportCluster] Using profile authentication with profile=%s", req.Profile)
 		cfg, err = p.GetConfig(ctx, req.Profile, req.Region)
 		if err != nil {
-			log.Printf("[ImportCluster] ERROR: Failed to get config for profile: %v", err)
 			return err
 		}
 	} else {
-		log.Printf("[ImportCluster] WARNING: No SSO URL or profile specified")
 		cfg, err = p.GetConfig(ctx, "default", req.Region)
 		if err != nil {
-			log.Printf("[ImportCluster] ERROR: Failed to get default config: %v", err)
 			return err
 		}
 	}
 
-	log.Printf("[ImportCluster] Describing cluster %s in region %s", req.Name, req.Region)
 	eksClient := eks.NewFromConfig(cfg)
 	descResp, err := eksClient.DescribeCluster(ctx, &eks.DescribeClusterInput{Name: aws.String(req.Name)})
 	if err != nil {
-		log.Printf("[ImportCluster] ERROR: Failed to describe cluster: %v", err)
 		return fmt.Errorf("failed to describe cluster: %w", err)
 	}
 	cluster := descResp.Cluster
-	log.Printf("[ImportCluster] Cluster described successfully: endpoint=%s", aws.ToString(cluster.Endpoint))
 
 	kubeconfigPath := KanivetKubeconfigPath()
-	log.Printf("[ImportCluster] Loading kubeconfig from %s", kubeconfigPath)
 
 	p.kubeconfigMu.Lock()
 	defer p.kubeconfigMu.Unlock()
 
 	var kubeconfig *clientcmdapi.Config
-
 	if _, statErr := os.Stat(kubeconfigPath); os.IsNotExist(statErr) {
-		log.Printf("[ImportCluster] Kubeconfig does not exist, creating new one")
 		kubeconfig = clientcmdapi.NewConfig()
 	} else {
 		var loadErr error
 		kubeconfig, loadErr = clientcmd.LoadFromFile(kubeconfigPath)
 		if loadErr != nil {
-			log.Printf("[ImportCluster] ERROR: Failed to load existing kubeconfig: %v", loadErr)
 			return fmt.Errorf("failed to load existing kubeconfig: %w", loadErr)
 		}
 	}
@@ -1381,7 +1138,6 @@ func (p *AWSProvider) ImportCluster(ctx context.Context, req ImportRequest) erro
 	clusterName := fmt.Sprintf("arn:aws:eks:%s:%s:cluster/%s", req.Region, req.AccountID, req.Name)
 	contextName := clusterName
 	caData, _ := base64.StdEncoding.DecodeString(aws.ToString(cluster.CertificateAuthority.Data))
-	log.Printf("[ImportCluster] Using cluster/context name: %s", clusterName)
 
 	kubeconfig.Clusters[clusterName] = &clientcmdapi.Cluster{
 		Server:                   aws.ToString(cluster.Endpoint),
@@ -1392,36 +1148,19 @@ func (p *AWSProvider) ImportCluster(ctx context.Context, req ImportRequest) erro
 		Exec: &clientcmdapi.ExecConfig{
 			APIVersion:      "client.authentication.k8s.io/v1beta1",
 			Command:         "aws",
-			Args:            []string{"eks", "get-token", "--cluster-name", req.Name, "--region", req.Region},
+			Args:            []string{"eks", "get-token", "--cluster-name", req.Name, "--region", req.Region, "--output", "json"},
 			InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+			InstallHint:     cliInstallHint("aws"),
 		},
 	}
 	if req.SSOStartURL != "" {
-		profileName := fmt.Sprintf("kanivet-sso-%s-%s", req.AccountID, ssoRoleName)
-		log.Printf("[ImportCluster] Creating SSO profile: %s", profileName)
-		normalizedURL := normalizeStartURL(req.SSOStartURL)
-		p.mu.RLock()
-		cred, ok := p.ssoCredentials[normalizedURL]
-		p.mu.RUnlock()
-		ssoRegion := req.Region
-		if ok && cred.region != "" {
-			ssoRegion = cred.region
+		profileName, err := p.ssoProfileForImport(ctx, req.SSOStartURL, req.AccountID, ssoRoleName, req.Region)
+		if err != nil {
+			return fmt.Errorf("failed to prepare SSO profile: %w", err)
 		}
-		if err := p.ensureSSOProfile(profileName, req.SSOStartURL, ssoRegion, req.AccountID, ssoRoleName); err != nil {
-			log.Printf("[ImportCluster] WARNING: Failed to create SSO profile: %v", err)
-		} else {
-			log.Printf("[ImportCluster] SSO profile created/verified successfully")
-		}
-		authInfo.Exec.Env = []clientcmdapi.ExecEnvVar{
-			{Name: "AWS_PROFILE", Value: profileName},
-		}
+		authInfo.Exec.Env = []clientcmdapi.ExecEnvVar{{Name: "AWS_PROFILE", Value: profileName}}
 	} else if req.Profile != "" {
-		log.Printf("[ImportCluster] Using existing profile: %s", req.Profile)
-		authInfo.Exec.Env = []clientcmdapi.ExecEnvVar{
-			{Name: "AWS_PROFILE", Value: req.Profile},
-		}
-	} else {
-		log.Printf("[ImportCluster] WARNING: No profile or SSO URL, cluster may not authenticate properly")
+		authInfo.Exec.Env = []clientcmdapi.ExecEnvVar{{Name: "AWS_PROFILE", Value: req.Profile}}
 	}
 	kubeconfig.AuthInfos[clusterName] = authInfo
 
@@ -1430,12 +1169,10 @@ func (p *AWSProvider) ImportCluster(ctx context.Context, req ImportRequest) erro
 		AuthInfo: clusterName,
 	}
 
-	log.Printf("[ImportCluster] Writing kubeconfig to %s", kubeconfigPath)
-	if err := clientcmd.WriteToFile(*kubeconfig, kubeconfigPath); err != nil {
-		log.Printf("[ImportCluster] ERROR: Failed to write kubeconfig: %v", err)
-		return err
+	if err := saveKubeconfigAtomically(kubeconfigPath, kubeconfig); err != nil {
+		return fmt.Errorf("failed to write kubeconfig: %w", err)
 	}
-	log.Printf("[ImportCluster] SUCCESS: Cluster %s imported successfully", req.Name)
+	log.Printf("[ImportCluster] Cluster %s imported", req.Name)
 	return nil
 }
 
@@ -1455,10 +1192,6 @@ func (p *AWSProvider) AssumeRole(ctx context.Context, profile, roleArn, sessionN
 	return cfg, nil
 }
 
-func (p *AWSProvider) RefreshSSOCredentials(ctx context.Context, profile string) error {
-	return p.LoginWithProfile(ctx, profile)
-}
-
 func (p *AWSProvider) ensureSSOProfile(profileName, ssoStartURL, ssoRegion, accountID, roleName string) error {
 	p.awsConfigMu.Lock()
 	defer p.awsConfigMu.Unlock()
@@ -1466,6 +1199,9 @@ func (p *AWSProvider) ensureSSOProfile(profileName, ssoStartURL, ssoRegion, acco
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
+	}
+	if ssoRegion == "" {
+		ssoRegion = "us-east-1"
 	}
 
 	configPath := filepath.Join(home, ".aws", "config")
@@ -1492,29 +1228,147 @@ func (p *AWSProvider) ensureSSOProfile(profileName, ssoStartURL, ssoRegion, acco
 	return saveINIFileAtomically(configPath, cfg, 0600)
 }
 
+// SSOSessionState describes how usable a portal's cached token is.
+const (
+	SSOStateActive      = "active"      // access token valid
+	SSOStateRefreshable = "refreshable" // access token expired but a refresh token can renew it silently
+	SSOStateExpired     = "expired"     // token expired, interactive sign-in needed
+	SSOStateSignedOut   = "signed_out"  // no token at all
+)
+
+// SSOSessionStatus is one IAM Identity Center portal as the UI sees it.
 type SSOSessionStatus struct {
-	StartURL  string `json:"startUrl"`
-	Region    string `json:"region"`
-	ExpiresAt int64  `json:"expiresAt"`
-	IsValid   bool   `json:"isValid"`
-	Label     string `json:"label,omitempty"`
+	StartURL     string           `json:"startUrl"`
+	Region       string           `json:"region"`
+	Label        string           `json:"label,omitempty"`
+	State        string           `json:"state"`
+	IsValid      bool             `json:"isValid"`
+	Refreshable  bool             `json:"refreshable"`
+	ExpiresAt    int64            `json:"expiresAt"`
+	Source       string           `json:"source"` // kanivet | config | cache
+	Managed      bool             `json:"managed"`
+	SessionNames []string         `json:"sessionNames,omitempty"`
+	ProfileCount int              `json:"profileCount"`
+	Login        *SSOLoginSession `json:"login,omitempty"`
+	// Error explains an expired state that needs a person, e.g. a rejected
+	// refresh token.
+	Error string `json:"error,omitempty"`
 }
 
-func (p *AWSProvider) GetSSOSessions() []SSOSessionStatus {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+// staleCacheSessionAge is how long an expired token that only exists as a
+// leftover cache file (no profile, no Kanivet entry) is still worth listing.
+const staleCacheSessionAge = 7 * 24 * time.Hour
 
-	var sessions []SSOSessionStatus
-	now := time.Now()
-	for startURL, cred := range p.ssoCredentials {
-		sessions = append(sessions, SSOSessionStatus{
-			StartURL:  startURL,
-			Region:    cred.region,
-			ExpiresAt: cred.expiresAt.UnixMilli(),
-			IsValid:   now.Before(cred.expiresAt),
-		})
+func (p *AWSProvider) sessionStatus(startURL, region string, now time.Time) SSOSessionStatus {
+	status := SSOSessionStatus{StartURL: normalizeStartURL(startURL), Region: region, State: SSOStateSignedOut}
+	if tok := p.tokens.best(startURL, now); tok != nil {
+		status.ExpiresAt = tok.ExpiresAt.UnixMilli()
+		if status.Region == "" {
+			status.Region = tok.Token.Region
+		}
+		status.Refreshable = tok.refreshable(now)
+		switch {
+		case tok.valid(now):
+			status.State = SSOStateActive
+			status.IsValid = true
+		case status.Refreshable:
+			status.State = SSOStateRefreshable
+		default:
+			status.State = SSOStateExpired
+			status.Error = tok.RefreshError
+		}
 	}
-	return sessions
+	if login, ok := p.logins.pendingFor(startURL); ok {
+		status.Login = login
+	}
+	return status
+}
+
+// GetSSOSessions lists every portal known from ~/.aws/config and the token
+// cache. The Service layer merges in Kanivet-added sessions and labels.
+func (p *AWSProvider) GetSSOSessions() []SSOSessionStatus {
+	now := time.Now()
+	sessions, profiles := loadAWSSSOConfig()
+	byURL := make(map[string]*SSOSessionStatus)
+	order := []string{}
+
+	ensure := func(startURL, region, source string) *SSOSessionStatus {
+		key := normalizeStartURL(startURL)
+		if s, ok := byURL[key]; ok {
+			if s.Region == "" {
+				s.Region = region
+			}
+			return s
+		}
+		s := p.sessionStatus(startURL, region, now)
+		s.Source = source
+		byURL[key] = &s
+		order = append(order, key)
+		return &s
+	}
+
+	for _, sess := range sessions {
+		if strings.HasPrefix(sess.Name, "kanivet-sso-") {
+			s := ensure(sess.StartURL, sess.Region, "kanivet")
+			s.Managed = true
+			continue
+		}
+		s := ensure(sess.StartURL, sess.Region, "config")
+		s.SessionNames = append(s.SessionNames, sess.Name)
+	}
+	for _, prof := range profiles {
+		if prof.StartURL == "" {
+			continue
+		}
+		s := ensure(prof.StartURL, prof.Region, "config")
+		if !strings.HasPrefix(prof.Name, "kanivet-") {
+			s.ProfileCount++
+		}
+	}
+	for _, tok := range p.tokens.tokens() {
+		src := "cache"
+		if tok.FromKanivet {
+			src = "kanivet"
+		}
+		s := ensure(tok.Token.StartURL, tok.Token.Region, src)
+		if tok.FromKanivet {
+			s.Managed = true
+		}
+	}
+
+	out := make([]SSOSessionStatus, 0, len(order))
+	for _, key := range order {
+		s := byURL[key]
+		// Old cache files from portals nobody configured any more are noise.
+		if s.Source == "cache" && s.State == SSOStateExpired && s.ExpiresAt > 0 &&
+			now.Sub(time.UnixMilli(s.ExpiresAt)) > staleCacheSessionAge {
+			continue
+		}
+		sort.Strings(s.SessionNames)
+		out = append(out, *s)
+	}
+	return out
+}
+
+// RefreshExpiringSSOTokens silently renews every portal token that has a
+// refresh token and is expired or about to expire. Nothing interactive happens.
+func (p *AWSProvider) RefreshExpiringSSOTokens(ctx context.Context) {
+	now := time.Now()
+	seen := make(map[string]struct{})
+	for _, tok := range p.tokens.tokens() {
+		key := normalizeStartURL(tok.Token.StartURL)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		best := p.tokens.best(tok.Token.StartURL, now)
+		if best == nil || best.freshEnough(now.Add(ssoRefreshLeeway)) || !best.refreshable(now) {
+			continue
+		}
+		if _, err := p.tokens.resolve(ctx, tok.Token.StartURL); err != nil {
+			log.Printf("[SSO] background refresh for %s: %v", key, err)
+		}
+	}
 }
 
 func (p *AWSProvider) GetImportedClusterIDs() []string {
@@ -1541,7 +1395,9 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 
 	accountID, err := p.GetAccountID(ctx, profile)
 	if err != nil {
-		log.Printf("Warning: could not get account ID: %v", err)
+		log.Printf("Warning: could not get account ID for profile %s: %v", profile, err)
+		eventCh <- DiscoveryEvent{Type: DiscoveryEventError, Error: fmt.Sprintf("Profile %s: %s", profile, humanizeAWSCredentialError(err))}
+		return
 	}
 
 	eventCh <- DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
@@ -1658,6 +1514,32 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 	eventCh <- DiscoveryEvent{Type: DiscoveryEventComplete}
 }
 
+// humanizeAWSCredentialError rewrites the SDK's credential-chain errors into
+// something a person can act on.
+func humanizeAWSCredentialError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var loginReq *SSOLoginRequiredError
+	if errors.As(err, &loginReq) {
+		return "AWS SSO sign-in required"
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	switch {
+	case strings.Contains(lower, "sso session") && (strings.Contains(lower, "expired") || strings.Contains(lower, "invalid")),
+		strings.Contains(lower, "token for") && strings.Contains(lower, "does not exist"),
+		strings.Contains(lower, "error loading sso token"),
+		strings.Contains(lower, "invalid_grant"):
+		return "the SSO session for this profile has expired; sign in again"
+	case strings.Contains(lower, "no ec2 imds role"), strings.Contains(lower, "failed to refresh cached credentials"), strings.Contains(lower, "nocredentialproviders"), strings.Contains(lower, "unable to locate credentials"):
+		return "no valid credentials were found for this profile; start its session in your credential tool (Leapp, aws-vault, …) or run aws sso login"
+	case strings.Contains(lower, "expiredtoken"):
+		return "the credentials for this profile have expired"
+	}
+	return msg
+}
+
 func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, startURL string, regions []string, accountIDs []string, eventCh chan<- DiscoveryEvent) {
 	defer close(eventCh)
 
@@ -1665,7 +1547,7 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 
 	accounts, err := p.GetSSOAccounts(ctx, startURL)
 	if err != nil {
-		eventCh <- DiscoveryEvent{Type: DiscoveryEventError, Error: err.Error()}
+		eventCh <- DiscoveryEvent{Type: DiscoveryEventError, Error: humanizeAWSCredentialError(err)}
 		return
 	}
 
@@ -1718,13 +1600,7 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 			if err != nil || len(roles) == 0 {
 				return
 			}
-			roleName := roles[0]
-			for _, r := range roles {
-				if strings.Contains(strings.ToLower(r), "admin") || strings.Contains(strings.ToLower(r), "readonly") {
-					roleName = r
-					break
-				}
-			}
+			roleName := preferredSSORole(roles)
 			cfg, err := p.GetSSOCredentials(ctx, startURL, acc.AccountID, roleName)
 			if err != nil {
 				return
@@ -1810,13 +1686,7 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 				eventCh <- DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster}
 
 				caData := aws.ToString(c.CertificateAuthority.Data)
-				roleName := j.availableRoles[0]
-				for _, r := range j.availableRoles {
-					if strings.Contains(strings.ToLower(r), "admin") || strings.Contains(strings.ToLower(r), "readonly") {
-						roleName = r
-						break
-					}
-				}
+				roleName := preferredSSORole(j.availableRoles)
 				accessWg.Add(1)
 				go func(clusterID, clusterName, endpoint, ca, region, accountID, role string) {
 					defer accessWg.Done()
@@ -1858,12 +1728,9 @@ func (p *AWSProvider) testClusterAccess(ctx context.Context, clusterName, endpoi
 	case <-ctx.Done():
 		return false, "context cancelled"
 	}
-	log.Printf("[testClusterAccess] Testing access for cluster=%s region=%s profile=%s ssoStartURL=%s accountID=%s roleName=%s",
-		clusterName, region, profile, ssoStartURL, accountID, roleName)
 
 	caBytes, err := base64.StdEncoding.DecodeString(caData)
 	if err != nil {
-		log.Printf("[testClusterAccess] Invalid CA data: %v", err)
 		return false, fmt.Sprintf("invalid CA data: %v", err)
 	}
 
@@ -1876,34 +1743,20 @@ func (p *AWSProvider) testClusterAccess(ctx context.Context, clusterName, endpoi
 		Exec: &clientcmdapi.ExecConfig{
 			APIVersion:      "client.authentication.k8s.io/v1beta1",
 			Command:         "aws",
-			Args:            []string{"eks", "get-token", "--cluster-name", clusterName, "--region", region},
+			Args:            []string{"eks", "get-token", "--cluster-name", clusterName, "--region", region, "--output", "json"},
 			InteractiveMode: clientcmdapi.NeverExecInteractiveMode,
+			Env:             []clientcmdapi.ExecEnvVar{{Name: "PATH", Value: augmentedPATH()}},
 		},
 	}
 	if ssoStartURL != "" && accountID != "" && roleName != "" {
-		profileName := fmt.Sprintf("kanivet-sso-%s-%s", accountID, roleName)
-		normalizedURL := normalizeStartURL(ssoStartURL)
-		p.mu.RLock()
-		cred, ok := p.ssoCredentials[normalizedURL]
-		p.mu.RUnlock()
-		log.Printf("[testClusterAccess] SSO credentials found in cache: %v (url=%s)", ok, normalizedURL)
-		if ok {
-			if err := p.ensureSSOProfile(profileName, ssoStartURL, cred.region, accountID, roleName); err == nil {
-				log.Printf("[testClusterAccess] Using SSO profile: %s", profileName)
-				authInfo.Exec.Env = []clientcmdapi.ExecEnvVar{{Name: "AWS_PROFILE", Value: profileName}}
-			} else {
-				log.Printf("[testClusterAccess] Failed to ensure SSO profile: %v", err)
-				return false, fmt.Sprintf("failed to setup SSO profile: %v", err)
-			}
-		} else {
-			log.Printf("[testClusterAccess] SSO credentials not in cache, cannot test access")
-			return false, "SSO session not found"
+		profileName, err := p.ssoProfileForImport(ctx, ssoStartURL, accountID, roleName, region)
+		if err != nil {
+			return false, fmt.Sprintf("failed to setup SSO profile: %v", err)
 		}
+		authInfo.Exec.Env = append(authInfo.Exec.Env, clientcmdapi.ExecEnvVar{Name: "AWS_PROFILE", Value: profileName})
 	} else if profile != "" {
-		log.Printf("[testClusterAccess] Using profile: %s", profile)
-		authInfo.Exec.Env = []clientcmdapi.ExecEnvVar{{Name: "AWS_PROFILE", Value: profile}}
+		authInfo.Exec.Env = append(authInfo.Exec.Env, clientcmdapi.ExecEnvVar{Name: "AWS_PROFILE", Value: profile})
 	} else {
-		log.Printf("[testClusterAccess] No auth method provided")
 		return false, "no authentication configured"
 	}
 	kubeconfig.AuthInfos["test"] = authInfo
@@ -1912,53 +1765,9 @@ func (p *AWSProvider) testClusterAccess(ctx context.Context, clusterName, endpoi
 
 	restConfig, err := clientcmd.NewNonInteractiveClientConfig(*kubeconfig, "test", &clientcmd.ConfigOverrides{}, nil).ClientConfig()
 	if err != nil {
-		log.Printf("[testClusterAccess] Config error: %v", err)
 		return false, fmt.Sprintf("config error: %v", err)
 	}
-	restConfig.Timeout = 5 * time.Second
-
-	client, err := kubernetes.NewForConfig(restConfig)
-	if err != nil {
-		log.Printf("[testClusterAccess] Client error: %v", err)
-		return false, fmt.Sprintf("client error: %v", err)
-	}
-
-	log.Printf("[testClusterAccess] Calling ServerVersion for %s...", clusterName)
-	_, err = client.Discovery().ServerVersion()
-	if err != nil {
-		errStr := err.Error()
-		log.Printf("[testClusterAccess] ServerVersion error for %s: %v", clusterName, err)
-		if strings.Contains(errStr, "Unauthorized") || strings.Contains(errStr, "forbidden") {
-			return false, "unauthorized access"
-		}
-		if strings.Contains(errStr, "timeout") || strings.Contains(errStr, "deadline exceeded") {
-			return false, "connection timeout"
-		}
-		return false, errStr
-	}
-	log.Printf("[testClusterAccess] Access verified for %s", clusterName)
-	return true, ""
-}
-
-func (p *AWSProvider) testClusterAccessWithProfile(ctx context.Context, clusterName, endpoint, caData, region, profile string) (bool, string) {
-	token, err := p.getEKSTokenWithCLI(ctx, clusterName, region, profile)
-	if err != nil {
-		return false, fmt.Sprintf("token error: %v", err)
-	}
-
-	caBytes, err := base64.StdEncoding.DecodeString(caData)
-	if err != nil {
-		return false, fmt.Sprintf("invalid CA data: %v", err)
-	}
-
-	restConfig := &rest.Config{
-		Host:        endpoint,
-		BearerToken: token,
-		TLSClientConfig: rest.TLSClientConfig{
-			CAData: caBytes,
-		},
-		Timeout: 10 * time.Second,
-	}
+	restConfig.Timeout = 8 * time.Second
 
 	client, err := kubernetes.NewForConfig(restConfig)
 	if err != nil {
@@ -1977,23 +1786,4 @@ func (p *AWSProvider) testClusterAccessWithProfile(ctx context.Context, clusterN
 		return false, errStr
 	}
 	return true, ""
-}
-
-func (p *AWSProvider) getEKSTokenWithCLI(ctx context.Context, clusterName, region, profile string) (string, error) {
-	args := []string{"eks", "get-token", "--cluster-name", clusterName, "--region", region, "--output", "json"}
-	cmd := exec.CommandContext(ctx, "aws", args...)
-	cmd.Env = append(os.Environ(), fmt.Sprintf("AWS_PROFILE=%s", profile))
-	out, err := cmd.Output()
-	if err != nil {
-		return "", fmt.Errorf("aws eks get-token failed: %w", err)
-	}
-	var result struct {
-		Status struct {
-			Token string `json:"token"`
-		} `json:"status"`
-	}
-	if err := jsonv2.Unmarshal(out, &result); err != nil {
-		return "", fmt.Errorf("failed to parse token: %w", err)
-	}
-	return result.Status.Token, nil
 }

@@ -2,18 +2,20 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import cloudService from '../services/cloudService';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
-import { SSOSession } from '../store/types';
+import { normalizeStartUrl } from '../store/cloudAuthSlice';
 import {
   CloudProvider,
   AWSProfile,
   GCPProject,
   AzureSubscription,
   DiscoveredCluster,
-  CloudAuthStatus,
   BatchImportJob,
   SSOAccount,
+  SSOSessionStatus,
   DiscoveryProgress,
 } from '../types/cloud';
+import LoginProgress from './cloud/LoginProgress';
+import AWSRegionSelect from './cloud/AWSRegionSelect';
 import {
   LockClosedIcon,
   MagnifyingGlassIcon,
@@ -35,6 +37,7 @@ import AWSIcon from './AWSIcon';
 import GCPIcon from './GCPIcon';
 import AzureIcon from './AzureIcon';
 import './CloudDiscovery.css';
+import './cloud/cloudAuthShared.css';
 
 interface CloudDiscoveryProps {
   onClusterImported: () => void;
@@ -48,15 +51,33 @@ const STORAGE_KEY = 'cloud-discovery-state';
 export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImported }) => {
   const {
     ssoSessions,
-    loadSsoSessions,
+    ssoLogins,
+    authSummary,
+    providerLogins,
+    loadAuthSummary,
     addSsoSession,
     removeSsoSession: removeStoreSsoSession,
     updateSsoSessionLabel,
-    refreshSsoSession,
-  } = useStore(useShallow((s) => ({ ssoSessions: s.ssoSessions, loadSsoSessions: s.loadSsoSessions, addSsoSession: s.addSsoSession, removeSsoSession: s.removeSsoSession, updateSsoSessionLabel: s.updateSsoSessionLabel, refreshSsoSession: s.refreshSsoSession })));
+    signInSSO,
+    cancelSSOLogin,
+    signInProvider,
+    cancelProviderLogin,
+  } = useStore(useShallow((s) => ({
+    ssoSessions: s.ssoSessions,
+    ssoLogins: s.ssoLogins,
+    authSummary: s.authSummary,
+    providerLogins: s.providerLogins,
+    loadAuthSummary: s.loadAuthSummary,
+    addSsoSession: s.addSsoSession,
+    removeSsoSession: s.removeSsoSession,
+    updateSsoSessionLabel: s.updateSsoSessionLabel,
+    signInSSO: s.signInSSO,
+    cancelSSOLogin: s.cancelSSOLogin,
+    signInProvider: s.signInProvider,
+    cancelProviderLogin: s.cancelProviderLogin,
+  })));
 
   const [activeTab, setActiveTab] = useState<TabId>('aws');
-  const [authStatus, setAuthStatus] = useState<CloudAuthStatus>({ aws: false, gcp: false, azure: false });
   const [loading, setLoading] = useState(false);
   const [discovering, setDiscovering] = useState(false);
   const [importing, setImporting] = useState<string | null>(null);
@@ -97,8 +118,8 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
   const loadPersistedState = useCallback(async () => {
     const start = performance.now();
     try {
-      await loadSsoSessions();
-      console.log(`[CloudDiscovery] loadSsoSessions took ${(performance.now() - start).toFixed(0)}ms`);
+      await loadAuthSummary();
+      console.log(`[CloudDiscovery] loadAuthSummary took ${(performance.now() - start).toFixed(0)}ms`);
       const stored = localStorage.getItem(STORAGE_KEY);
       const localState = stored ? JSON.parse(stored) : { discoveredClusters: [], lastDiscoveredAt: null };
       const importedIds = await cloudService.getImportedClusterIDs();
@@ -119,7 +140,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
       console.error('Failed to load persisted state:', err);
       initialLoadDoneRef.current = true;
     }
-  }, [loadSsoSessions]);
+  }, [loadAuthSummary]);
 
   const persistState = useCallback((clusters: DiscoveredCluster[], timestamp: number | null) => {
     if (!initialLoadDoneRef.current) return;
@@ -138,20 +159,23 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
 
   useEffect(() => {
     loadPersistedState();
-    loadAuthStatus();
+    loadAuthSummary(true);
     loadAWSProfiles();
     return () => {
       stopDiscoveryRef.current.forEach(stop => stop());
     };
   }, [loadPersistedState]);
 
-  useEffect(() => {
-    if (activeTab === 'gcp' && authStatus.gcp) loadGCPProjects();
-  }, [activeTab, authStatus.gcp]);
+  const gcpSignedIn = Boolean(authSummary?.gcp?.signedIn);
+  const azureSignedIn = Boolean(authSummary?.azure?.signedIn);
 
   useEffect(() => {
-    if (activeTab === 'azure' && authStatus.azure) loadAzureSubscriptions();
-  }, [activeTab, authStatus.azure]);
+    if (activeTab === 'gcp' && gcpSignedIn) loadGCPProjects();
+  }, [activeTab, gcpSignedIn]);
+
+  useEffect(() => {
+    if (activeTab === 'azure' && azureSignedIn) loadAzureSubscriptions();
+  }, [activeTab, azureSignedIn]);
 
   useEffect(() => {
     persistState(discoveredClusters, lastDiscoveredAt);
@@ -164,15 +188,6 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
       setSelectedSsoSessions(new Set(ssoSessions.map(s => s.startUrl)));
     }
   }, [ssoSessions]);
-
-  const loadAuthStatus = async () => {
-    try {
-      const status = await cloudService.getAuthStatus();
-      setAuthStatus(status);
-    } catch (err) {
-      console.error('Failed to load auth status:', err);
-    }
-  };
 
   const loadAWSProfiles = async () => {
     setProfilesLoading(true);
@@ -238,39 +253,42 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
   };
 
   const handleAddSsoSession = async () => {
-    if (!newSsoUrl) return;
+    const url = newSsoUrl.trim();
+    if (!url) return;
     setLoading(true);
     setError(null);
     try {
-      await cloudService.startAWSSSOLogin(newSsoUrl, newSsoRegion);
-      addSsoSession({
-        startUrl: newSsoUrl,
-        region: newSsoRegion,
-        expiresAt: Date.now() + 8 * 60 * 60 * 1000,
-        label: new URL(newSsoUrl).hostname.split('.')[0],
-      });
-      setSelectedSsoSessions(prev => new Set([...prev, newSsoUrl]));
-      setNewSsoUrl('');
-      setShowAddSso(false);
-      setSuccessMessage('SSO authentication successful!');
+      const ok = await addSsoSession(url, newSsoRegion);
+      if (ok) {
+        setSelectedSsoSessions(prev => new Set([...prev, normalizeStartUrl(url)]));
+        setNewSsoUrl('');
+        setShowAddSso(false);
+        setSuccessMessage('Signed in to AWS IAM Identity Center');
+      }
     } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'SSO login failed');
+      setError(err.response?.data?.error || err.message || 'SSO sign-in failed');
     } finally {
       setLoading(false);
     }
   };
 
-  const reconnectSsoSession = async (session: SSOSession) => {
-    setLoading(true);
+  const reconnectSsoSession = async (session: SSOSessionStatus) => {
     setError(null);
-    try {
-      await refreshSsoSession(session.startUrl, session.region);
-      setSuccessMessage('Session refreshed!');
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Reconnect failed');
-    } finally {
-      setLoading(false);
+    const ok = await signInSSO(session.startUrl, session.region);
+    if (ok) {
+      setSsoAccounts(prev => {
+        const next = new Map(prev);
+        next.delete(session.startUrl);
+        return next;
+      });
+      setSuccessMessage(`Signed in to ${session.label || session.startUrl}`);
     }
+  };
+
+  const handleLoginProvider = async (provider: 'gcp' | 'azure') => {
+    setError(null);
+    const ok = await signInProvider(provider);
+    if (ok) setSuccessMessage(provider === 'gcp' ? 'Signed in to Google Cloud' : 'Signed in to Azure');
   };
 
   const handleRemoveSsoSession = (startUrl: string) => {
@@ -292,7 +310,7 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
     });
   };
 
-  const startEditingLabel = (session: SSOSession) => {
+  const startEditingLabel = (session: SSOSessionStatus) => {
     setEditingSessionUrl(session.startUrl);
     setEditingLabel(session.label || '');
   };
@@ -385,46 +403,29 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
     });
   };
 
-  const isSessionExpired = (session: SSOSession) => Date.now() > session.expiresAt;
-  const isSessionExpiringSoon = (session: SSOSession) => {
+  // "Expired" means an interactive sign-in is needed. A refreshable session is
+  // usable: the backend renews it silently on the next call.
+  const isSessionExpired = (session: SSOSessionStatus) => session.state === 'expired' || session.state === 'signed_out';
+  const isSessionExpiringSoon = (session: SSOSessionStatus) => {
+    if (session.state !== 'active' || session.refreshable) return false;
     const timeLeft = session.expiresAt - Date.now();
     return timeLeft > 0 && timeLeft < 30 * 60 * 1000;
   };
 
-  const formatTimeLeft = (expiresAt: number) => {
-    const ms = expiresAt - Date.now();
-    if (ms <= 0) return 'Expired';
-    const hours = Math.floor(ms / (1000 * 60 * 60));
-    const mins = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-    if (hours > 0) return `${hours}h ${mins}m left`;
-    return `${mins}m left`;
-  };
-
-  const handleLoginGCP = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await cloudService.loginGCP();
-      setSuccessMessage('GCP authentication successful!');
-      await loadAuthStatus();
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Login failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLoginAzure = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      await cloudService.loginAzure();
-      setSuccessMessage('Azure authentication successful!');
-      await loadAuthStatus();
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || 'Login failed');
-    } finally {
-      setLoading(false);
+  const formatSessionState = (session: SSOSessionStatus) => {
+    switch (session.state) {
+      case 'active': {
+        const ms = session.expiresAt - Date.now();
+        const hours = Math.floor(ms / (1000 * 60 * 60));
+        const mins = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
+        return hours > 0 ? `${hours}h ${mins}m left` : `${Math.max(mins, 1)}m left`;
+      }
+      case 'refreshable':
+        return 'Renewing…';
+      case 'expired':
+        return 'Expired · sign in';
+      default:
+        return 'Not signed in';
     }
   };
 
@@ -709,8 +710,8 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
     <div className="cloud-settings-panel">
       <div className="cloud-settings-section">
         <div className="cloud-settings-section-header">
-          <h3><LockClosedIcon /> SSO Sessions</h3>
-          <button className="cloud-icon-btn ap-icon-btn" onClick={() => setShowAddSso(!showAddSso)} title="Add SSO">
+          <h3><LockClosedIcon /> IAM Identity Center</h3>
+          <button className="cloud-icon-btn ap-icon-btn" onClick={() => setShowAddSso(!showAddSso)} title="Add an AWS access portal">
             <PlusIcon />
           </button>
         </div>
@@ -721,72 +722,35 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
               type="text"
               value={newSsoUrl}
               onChange={(e) => setNewSsoUrl(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') handleAddSsoSession(); }}
               placeholder="https://my-org.awsapps.com/start"
               className="cloud-input ap-input"
             />
-            <select value={newSsoRegion} onChange={(e) => setNewSsoRegion(e.target.value)} className="cloud-select ap-select">
-              <optgroup label="US">
-                <option value="us-east-1">us-east-1 (N. Virginia)</option>
-                <option value="us-east-2">us-east-2 (Ohio)</option>
-                <option value="us-west-1">us-west-1 (N. California)</option>
-                <option value="us-west-2">us-west-2 (Oregon)</option>
-              </optgroup>
-              <optgroup label="Canada">
-                <option value="ca-central-1">ca-central-1 (Central)</option>
-                <option value="ca-west-1">ca-west-1 (Calgary)</option>
-              </optgroup>
-              <optgroup label="South America">
-                <option value="sa-east-1">sa-east-1 (São Paulo)</option>
-              </optgroup>
-              <optgroup label="Europe">
-                <option value="eu-west-1">eu-west-1 (Ireland)</option>
-                <option value="eu-west-2">eu-west-2 (London)</option>
-                <option value="eu-west-3">eu-west-3 (Paris)</option>
-                <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
-                <option value="eu-central-2">eu-central-2 (Zurich)</option>
-                <option value="eu-north-1">eu-north-1 (Stockholm)</option>
-                <option value="eu-south-1">eu-south-1 (Milan)</option>
-                <option value="eu-south-2">eu-south-2 (Spain)</option>
-              </optgroup>
-              <optgroup label="Asia Pacific">
-                <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
-                <option value="ap-northeast-2">ap-northeast-2 (Seoul)</option>
-                <option value="ap-northeast-3">ap-northeast-3 (Osaka)</option>
-                <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
-                <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
-                <option value="ap-southeast-3">ap-southeast-3 (Jakarta)</option>
-                <option value="ap-southeast-4">ap-southeast-4 (Melbourne)</option>
-                <option value="ap-southeast-5">ap-southeast-5 (Malaysia)</option>
-                <option value="ap-southeast-6">ap-southeast-6 (New Zealand)</option>
-                <option value="ap-southeast-7">ap-southeast-7 (Thailand)</option>
-                <option value="ap-south-1">ap-south-1 (Mumbai)</option>
-                <option value="ap-south-2">ap-south-2 (Hyderabad)</option>
-                <option value="ap-east-1">ap-east-1 (Hong Kong)</option>
-                <option value="ap-east-2">ap-east-2 (Taipei)</option>
-              </optgroup>
-              <optgroup label="Middle East">
-                <option value="me-south-1">me-south-1 (Bahrain)</option>
-                <option value="me-central-1">me-central-1 (UAE)</option>
-              </optgroup>
-              <optgroup label="Africa">
-                <option value="af-south-1">af-south-1 (Cape Town)</option>
-              </optgroup>
-              <optgroup label="Israel">
-                <option value="il-central-1">il-central-1 (Tel Aviv)</option>
-              </optgroup>
-              <optgroup label="Mexico">
-                <option value="mx-central-1">mx-central-1 (Central)</option>
-              </optgroup>
-            </select>
-            <button className="cloud-btn cloud-btn-primary cloud-btn-sm ap-btn ap-btn--primary ap-btn--sm" onClick={handleAddSsoSession} disabled={loading || !newSsoUrl}>
-              {loading ? 'Connecting...' : 'Connect'}
+            <AWSRegionSelect value={newSsoRegion} onChange={setNewSsoRegion} className="cloud-select ap-select" />
+            <button className="cloud-btn cloud-btn-primary cloud-btn-sm ap-btn ap-btn--primary ap-btn--sm" onClick={handleAddSsoSession} disabled={loading || !newSsoUrl.trim()}>
+              {loading ? 'Waiting for approval…' : 'Sign in'}
             </button>
+            {(() => {
+              const pendingNew = newSsoUrl.trim() ? ssoLogins[normalizeStartUrl(newSsoUrl)] : undefined;
+              return pendingNew && pendingNew.state === 'pending' ? (
+                <LoginProgress
+                  state="pending"
+                  code={pendingNew.userCode}
+                  url={pendingNew.verificationUrlComplete}
+                  onCancel={() => cancelSSOLogin(newSsoUrl)}
+                  compact
+                />
+              ) : null;
+            })()}
           </div>
         )}
 
         <div className="cloud-sso-list">
           {ssoSessions.length === 0 ? (
-            <div className="cloud-empty-hint">No SSO sessions. Click + to add one.</div>
+            <div className="cloud-empty-hint">
+              No AWS access portals yet. Add one with +, or run <code>aws configure sso</code> in a terminal; portals in
+              ~/.aws/config appear here automatically.
+            </div>
           ) : (
             [...ssoSessions].sort((a, b) => (a.label || '').localeCompare(b.label || '')).map(session => {
               const expired = isSessionExpired(session);
@@ -795,10 +759,13 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
               const accounts = ssoAccounts.get(session.startUrl) || [];
               const selected = selectedAccounts.get(session.startUrl) || new Set();
               const isLoading = loadingAccounts.has(session.startUrl);
+              const login = ssoLogins[normalizeStartUrl(session.startUrl)];
+              const signingIn = login?.state === 'pending';
+              const showLogin = login && login.state !== 'authorized' && login.state !== 'cancelled';
               return (
                 <div key={session.startUrl} className={`cloud-sso-item-wrapper ${expired ? 'expired' : ''}`}>
                   <div className={`cloud-sso-item ${expiringSoon ? 'expiring' : ''}`}>
-                    {accounts.length > 0 && (
+                    {accounts.length > 0 && !expired && (
                       <input
                         type="checkbox"
                         checked={accounts.length > 0 && selected.size === accounts.length}
@@ -832,43 +799,72 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
                           placeholder="Session alias"
                         />
                       ) : (
-                        <span className="cloud-sso-item-label">{session.label || 'SSO'}</span>
+                        <span className="cloud-sso-item-label">{session.label || 'AWS SSO'}</span>
                       )}
-                      <span className="cloud-sso-item-time">
+                      <span className={`cloud-sso-item-time cloud-sso-state-pill ${expired ? 'attention' : ''}`}>
                         <ClockIcon />
-                        {formatTimeLeft(session.expiresAt)}
+                        {formatSessionState(session)}
                       </span>
-                      {accounts.length > 0 && (
+                      {session.source === 'config' && (
+                        <span className="cloud-badge" title="Defined in ~/.aws/config">~/.aws/config</span>
+                      )}
+                      {accounts.length > 0 && !expired && (
                         <span className="cloud-sso-account-count">{selected.size}/{accounts.length} accounts</span>
                       )}
                     </div>
                     <div className="cloud-sso-item-actions">
+                      {expired && !signingIn && (
+                        <button
+                          className="ap-btn ap-btn--primary ap-btn--sm"
+                          onClick={(e) => { e.stopPropagation(); reconnectSsoSession(session); }}
+                        >
+                          Sign in
+                        </button>
+                      )}
                       {editingSessionUrl !== session.startUrl && (
                         <button
                           className="cloud-icon-btn ap-icon-btn"
                           onClick={(e) => { e.stopPropagation(); startEditingLabel(session); }}
-                          title="Edit alias"
+                          title="Rename"
                         >
                           <Pencil1Icon />
                         </button>
                       )}
-                      <button
-                        className="cloud-icon-btn ap-icon-btn"
-                        onClick={() => reconnectSsoSession(session)}
-                        title="Reconnect"
-                        disabled={loading}
-                      >
-                        <ReloadIcon />
-                      </button>
-                      <button
-                        className="cloud-icon-btn cloud-icon-btn-danger ap-icon-btn"
-                        onClick={() => handleRemoveSsoSession(session.startUrl)}
-                        title="Remove"
-                      >
-                        <TrashIcon />
-                      </button>
+                      {!expired && (
+                        <button
+                          className="cloud-icon-btn ap-icon-btn"
+                          onClick={(e) => { e.stopPropagation(); reconnectSsoSession(session); }}
+                          title="Sign in again"
+                          disabled={signingIn}
+                        >
+                          <ReloadIcon />
+                        </button>
+                      )}
+                      {session.managed && (
+                        <button
+                          className="cloud-icon-btn cloud-icon-btn-danger ap-icon-btn"
+                          onClick={(e) => { e.stopPropagation(); handleRemoveSsoSession(session.startUrl); }}
+                          title="Remove from Kanivet"
+                        >
+                          <TrashIcon />
+                        </button>
+                      )}
                     </div>
                   </div>
+                  {showLogin && (
+                    <div className="cloud-sso-login">
+                      <LoginProgress
+                        state={login.state === 'pending' ? 'pending' : login.state === 'expired' ? 'expired' : 'failed'}
+                        code={login.userCode}
+                        url={login.verificationUrlComplete}
+                        error={login.error}
+                        onCancel={() => cancelSSOLogin(session.startUrl)}
+                        onRetry={() => reconnectSsoSession(session)}
+                        onDismiss={() => cancelSSOLogin(session.startUrl)}
+                        compact
+                      />
+                    </div>
+                  )}
                   {isExpanded && !expired && (
                     <div className="cloud-sso-accounts">
                       {isLoading ? (
@@ -972,23 +968,84 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
     </div>
   );
 
+  const renderProviderIdentity = (provider: 'gcp' | 'azure') => {
+    const summary = provider === 'gcp' ? authSummary?.gcp : authSummary?.azure;
+    const login = providerLogins[provider];
+    const running = login?.state === 'running';
+    const showLogin = login && login.state !== 'succeeded' && login.state !== 'cancelled';
+    const cli = provider === 'gcp' ? 'gcloud' : 'Azure CLI';
+    const title = provider === 'gcp' ? 'Google Cloud' : 'Azure';
+    const signedIn = Boolean(summary?.signedIn);
+    const stateLabel = !summary
+      ? 'Checking sign-in…'
+      : summary.state === 'active'
+        ? 'Signed in'
+        : summary.state === 'expired'
+          ? 'Sign-in expired'
+          : summary.state === 'signed_out'
+            ? 'Not signed in'
+            : `${summary.cliName} not installed`;
+    const dot = !summary ? 'ap-dot--muted' : summary.state === 'active' ? 'ap-dot--success' : summary.state === 'unavailable' ? 'ap-dot--muted' : 'ap-dot--warning';
+    return (
+      <div className="cloud-settings-section">
+        <div className="cloud-settings-section-header">
+          <h3>{provider === 'gcp' ? <GCPIcon /> : <AzureIcon />} {title}</h3>
+        </div>
+        <div className="cloud-provider-identity">
+          <span className={`ap-dot ${dot}`} />
+          <div className="cloud-provider-identity-text">
+            <span className="cloud-provider-identity-name">{summary?.identity || stateLabel}</span>
+            <span className="cloud-provider-identity-detail">
+              {summary?.identity ? `${stateLabel}${summary.detail ? ` · ${summary.detail}` : ''}` : summary?.detail || summary?.error || ''}
+            </span>
+          </div>
+          {summary?.cliInstalled && (
+            <button
+              className={`ap-btn ap-btn--sm ${signedIn ? '' : 'ap-btn--primary'}`}
+              onClick={() => handleLoginProvider(provider)}
+              disabled={running}
+            >
+              {running ? 'Waiting…' : signedIn ? 'Switch account' : `Sign in with ${cli}`}
+            </button>
+          )}
+        </div>
+        {summary && !summary.cliInstalled && summary.cliInstallHint && (
+          <div className="cloud-provider-hint">{summary.cliInstallHint}</div>
+        )}
+        {summary && summary.cliInstalled && !summary.pluginInstalled && summary.pluginInstallHint && (
+          <div className="cloud-provider-hint">Imported clusters authenticate through <code>{summary.pluginName}</code>. {summary.pluginInstallHint}</div>
+        )}
+        {summary?.error && summary.state === 'expired' && <div className="cloud-provider-hint">{summary.error}</div>}
+        {showLogin && (
+          <LoginProgress
+            state={login.state === 'running' ? 'pending' : 'failed'}
+            title={`Finish signing in with ${cli}`}
+            waitingText="Waiting for the browser sign-in to complete…"
+            code={login.code}
+            url={login.url}
+            error={login.error}
+            onCancel={() => cancelProviderLogin(provider)}
+            onRetry={() => handleLoginProvider(provider)}
+            onDismiss={() => cancelProviderLogin(provider)}
+            compact
+          />
+        )}
+      </div>
+    );
+  };
+
   const renderGCPSettings = () => (
     <div className="cloud-settings-panel">
-      {!authStatus.gcp ? (
-        <div className="cloud-auth-prompt-inline">
-          <GCPIcon />
-          <p>Login to discover GKE clusters</p>
-          <button className="cloud-btn cloud-btn-primary ap-btn ap-btn--primary" onClick={handleLoginGCP} disabled={loading}>
-            {loading ? 'Authenticating...' : 'Login with gcloud'}
-          </button>
-        </div>
-      ) : (
+      {renderProviderIdentity('gcp')}
+      {gcpSignedIn && (
         <div className="cloud-settings-section">
           <div className="cloud-settings-section-header">
             <h3><GCPIcon /> Projects</h3>
           </div>
           <div className="cloud-profile-list">
-            {gcpProjects.map(p => (
+            {gcpProjects.length === 0 ? (
+              <div className="cloud-empty-hint">No projects visible to this account.</div>
+            ) : gcpProjects.map(p => (
               <label key={p.id} className={`cloud-profile-item ${selectedProjects.has(p.id) ? 'selected' : ''}`}>
                 <input
                   type="checkbox"
@@ -1007,21 +1064,16 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
 
   const renderAzureSettings = () => (
     <div className="cloud-settings-panel">
-      {!authStatus.azure ? (
-        <div className="cloud-auth-prompt-inline">
-          <AzureIcon />
-          <p>Login to discover AKS clusters</p>
-          <button className="cloud-btn cloud-btn-primary ap-btn ap-btn--primary" onClick={handleLoginAzure} disabled={loading}>
-            {loading ? 'Authenticating...' : 'Login with Azure CLI'}
-          </button>
-        </div>
-      ) : (
+      {renderProviderIdentity('azure')}
+      {azureSignedIn && (
         <div className="cloud-settings-section">
           <div className="cloud-settings-section-header">
             <h3><AzureIcon /> Subscriptions</h3>
           </div>
           <div className="cloud-profile-list">
-            {azureSubs.map(s => (
+            {azureSubs.length === 0 ? (
+              <div className="cloud-empty-hint">No subscriptions visible to this account.</div>
+            ) : azureSubs.map(s => (
               <label key={s.id} className={`cloud-profile-item ${selectedSubs.has(s.id) ? 'selected' : ''}`}>
                 <input
                   type="checkbox"
@@ -1180,10 +1232,10 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
         <button className={`cloud-tab ${activeTab === 'aws' ? 'active' : ''}`} onClick={() => setActiveTab('aws')}>
           <AWSIcon /> AWS
         </button>
-        <button className="cloud-tab disabled" disabled title="Coming soon">
+        <button className={`cloud-tab ${activeTab === 'gcp' ? 'active' : ''}`} onClick={() => setActiveTab('gcp')}>
           <GCPIcon /> GCP
         </button>
-        <button className="cloud-tab disabled" disabled title="Coming soon">
+        <button className={`cloud-tab ${activeTab === 'azure' ? 'active' : ''}`} onClick={() => setActiveTab('azure')}>
           <AzureIcon /> Azure
         </button>
       </div>

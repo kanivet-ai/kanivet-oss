@@ -17,7 +17,8 @@ import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
 import { getCachedBatchClusterStatus } from '../services/api/clusters';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
-import { useSSOAutoRefresh } from '../hooks/useSSOAutoRefresh';
+import { useCloudAuthSync } from '../hooks/useCloudAuthSync';
+import { isAuthErrorCode } from '../utils/clusterAuthErrors';
 import {
   createTabSwitchHandlers,
   createFocusNavigationHandlers,
@@ -38,8 +39,8 @@ const Layout = () => {
     hydrateFromStorage,
     openBottomTab,
     ssoSessions,
-    refreshSsoSession,
-  } = useStore(useShallow((s) => ({ loadClusters: s.loadClusters, loadClusterAliases: s.loadClusterAliases, currentTab: s.currentTab, navigateBack: s.navigateBack, navigateForward: s.navigateForward, setFocusArea: s.setFocusArea, setCurrentTab: s.setCurrentTab, openTab: s.openTab, closeTab: s.closeTab, hydrateFromStorage: s.hydrateFromStorage, openBottomTab: s.openBottomTab, ssoSessions: s.ssoSessions, refreshSsoSession: s.refreshSsoSession })));
+    signInSSO,
+  } = useStore(useShallow((s) => ({ loadClusters: s.loadClusters, loadClusterAliases: s.loadClusterAliases, currentTab: s.currentTab, navigateBack: s.navigateBack, navigateForward: s.navigateForward, setFocusArea: s.setFocusArea, setCurrentTab: s.setCurrentTab, openTab: s.openTab, closeTab: s.closeTab, hydrateFromStorage: s.hydrateFromStorage, openBottomTab: s.openBottomTab, ssoSessions: s.ssoSessions, signInSSO: s.signInSSO })));
   const hasClusterError = useStore((s) => Boolean(currentTab && s.clusterErrors[currentTab]));
   const setClusterError = useStore((s) => s.setClusterError);
 
@@ -92,7 +93,6 @@ const Layout = () => {
   const [showClusterSelector, setShowClusterSelector] = useState(false);
   const [showThemeSettings, setShowThemeSettings] = useState(false);
   const [showComponentLibrary, setShowComponentLibrary] = useState(false);
-  const [showSSOManager, setShowSSOManager] = useState(false);
   const { focusArea, hasListItems, hasDetailData, hasDetailTabs, isDetailsPanelCollapsed } = useStore(useShallow((s) => {
     const t = s.getCurrentTabState();
     return { focusArea: t?.focusArea || 'tree', hasListItems: (t?.listItems?.length || 0) > 0, hasDetailData: !!t?.detailData, hasDetailTabs: (t?.detailTabs?.length || 0) > 0, isDetailsPanelCollapsed: t?.isDetailsPanelCollapsed || false };
@@ -101,7 +101,7 @@ const Layout = () => {
   const tabNames = useStore(useShallow((s) => s.activeTabs.map((t) => t.name)));
   const activeTabs = useMemo(() => tabIds.map((id, i) => ({ id, name: tabNames[i] })), [tabIds, tabNames]);
 
-  useSSOAutoRefresh();
+  useCloudAuthSync();
 
   useEffect(() => {
     loadClusters().then(() => notifyWelcome(useStore.getState().clusters.length)).catch(() => {});
@@ -375,9 +375,11 @@ const Layout = () => {
 
   // Listen for cluster retry events
   useEffect(() => {
+    const inFlight = new Set<string>();
     const handleClusterRetry = async (event: Event) => {
       const { cluster } = (event as CustomEvent<{ cluster: string }>).detail;
-      if (!cluster) return;
+      if (!cluster || inFlight.has(cluster)) return;
+      inFlight.add(cluster);
       console.log('[Layout] Retrying cluster connection, clearing cache for:', cluster);
       const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache;
       if (cacheMap) {
@@ -401,11 +403,53 @@ const Layout = () => {
           }
         }
       } finally {
+        inFlight.delete(cluster);
         window.dispatchEvent(new CustomEvent('cluster:retry-done', { detail: { cluster, healthy } }));
       }
     };
     window.addEventListener('cluster:retry', handleClusterRetry);
     return () => window.removeEventListener('cluster:retry', handleClusterRetry);
+  }, []);
+
+  // When credentials change (a sign-in here, a silent token refresh, or a
+  // terminal `aws sso login` / `az login` / `gcloud auth login`), retry every
+  // cluster that is failing for an auth reason. This never prompts; it only
+  // reconnects clusters whose credentials just became valid.
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const handleAuthChanged = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(async () => {
+        const { clusterErrors, currentTab: activeCluster, loadClusterStatus, clearClusterError } = useStore.getState();
+        const failing = Object.values(clusterErrors)
+          .filter((e) => isAuthErrorCode(e.errorCode))
+          .map((e) => e.cluster);
+        if (failing.length === 0) return;
+        console.log('[Layout] Cloud credentials changed; retrying clusters with auth errors:', failing);
+        try {
+          await api.refreshClusters();
+        } catch {
+          /* retried per cluster below */
+        }
+        for (const cluster of failing) {
+          if (cluster === activeCluster) {
+            window.dispatchEvent(new CustomEvent('cluster:retry', { detail: { cluster } }));
+            continue;
+          }
+          try {
+            await loadClusterStatus(cluster, true);
+            if (useStore.getState().clusterStatuses[cluster]?.healthy) clearClusterError(cluster);
+          } catch {
+            /* leave the error in place */
+          }
+        }
+      }, 1200);
+    };
+    window.addEventListener('cloud:auth-changed', handleAuthChanged);
+    return () => {
+      window.removeEventListener('cloud:auth-changed', handleAuthChanged);
+      if (timer) clearTimeout(timer);
+    };
   }, []);
 
   // Listen for connection restored events to refresh data
@@ -461,6 +505,7 @@ const Layout = () => {
       const sessionsData = ssoSessions.map((s) => ({
         startUrl: s.startUrl,
         label: s.label,
+        state: s.state,
         expiresAt: s.expiresAt,
       }));
       electronAPI.tray.updateSSOSessions(sessionsData);
@@ -478,29 +523,21 @@ const Layout = () => {
     const cleanupOpenSettings = electronAPI.tray.onOpenSettings?.(() => {
       setShowThemeSettings(true);
     });
-    const cleanupRefreshSSO = electronAPI.tray.onRefreshSSO?.((startUrl: string) => {
+    const cleanupSignInSSO = electronAPI.tray.onSignInSSO?.((startUrl: string) => {
       const session = ssoSessions.find((s) => s.startUrl === startUrl);
-      if (session) refreshSsoSession(startUrl, session.region);
+      signInSSO(startUrl, session?.region);
     });
-    const cleanupAddSSO = electronAPI.tray.onAddSSO?.(() => {
-      setShowSSOManager(true);
+    const cleanupOpenAccounts = electronAPI.tray.onOpenCloudAccounts?.(() => {
+      window.dispatchEvent(new CustomEvent('cloud:openAccounts'));
     });
 
     return () => {
       cleanupSwitchTab?.();
       cleanupOpenSettings?.();
-      cleanupRefreshSSO?.();
-      cleanupAddSSO?.();
+      cleanupSignInSSO?.();
+      cleanupOpenAccounts?.();
     };
-  }, [setCurrentTab, refreshSsoSession, ssoSessions]);
-
-  // Emit event to open SSO manager when triggered from tray
-  useEffect(() => {
-    if (showSSOManager) {
-      window.dispatchEvent(new CustomEvent('sso:openManager'));
-      setShowSSOManager(false);
-    }
-  }, [showSSOManager]);
+  }, [setCurrentTab, signInSSO, ssoSessions]);
 
   return (
     <div className="layout">
