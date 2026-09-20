@@ -67,14 +67,16 @@ const (
 )
 
 type AWSProfile struct {
-	Name        string           `json:"name"`
-	Region      string           `json:"region,omitempty"`
-	AccountID   string           `json:"accountId,omitempty"`
-	RoleArn     string           `json:"roleArn,omitempty"`
-	IsSSO       bool             `json:"isSso"`
-	SSOSession  string           `json:"ssoSession,omitempty"`
-	SSOStartURL string           `json:"ssoStartUrl,omitempty"`
-	Source      AWSProfileSource `json:"source"`
+	Name                 string           `json:"name"`
+	Region               string           `json:"region,omitempty"`
+	AccountID            string           `json:"accountId,omitempty"`
+	RoleArn              string           `json:"roleArn,omitempty"`
+	IsSSO                bool             `json:"isSso"`
+	SSOSession           string           `json:"ssoSession,omitempty"`
+	SSOStartURL          string           `json:"ssoStartUrl,omitempty"`
+	CredentialProcess    bool             `json:"credentialProcess,omitempty"`
+	HasStaticCredentials bool             `json:"hasStaticCredentials,omitempty"`
+	Source               AWSProfileSource `json:"source"`
 }
 
 type GCPProject struct {
@@ -144,29 +146,6 @@ type BatchImportJob struct {
 	StartedAt  int64               `json:"startedAt"`
 }
 
-type SSOLoginRequest struct {
-	StartURL  string `json:"startUrl"`
-	Region    string `json:"region"`
-	AccountID string `json:"accountId,omitempty"`
-	RoleName  string `json:"roleName,omitempty"`
-}
-
-type SSOLoginResponse struct {
-	DeviceCode      string `json:"deviceCode"`
-	UserCode        string `json:"userCode"`
-	VerificationURL string `json:"verificationUrl"`
-	ExpiresIn       int    `json:"expiresIn"`
-}
-
-type SSOActivateResponse struct {
-	ProfileName string `json:"profileName"`
-	AccountID   string `json:"accountId"`
-	RoleName    string `json:"roleName"`
-	Region      string `json:"region"`
-	AccessKeyID string `json:"accessKeyId"`
-	ExpiresAt   int64  `json:"expiresAt"`
-}
-
 type SSOAccount struct {
 	AccountID   string `json:"accountId"`
 	AccountName string `json:"accountName"`
@@ -197,4 +176,64 @@ type DiscoveryProgress struct {
 	RegionsScanned int    `json:"regionsScanned"`
 	TotalRegions   int    `json:"totalRegions"`
 	ClustersFound  int    `json:"clustersFound"`
+}
+
+// ProviderAuthSummary is the sign-in state of a CLI-backed provider (gcloud, az).
+type ProviderAuthSummary struct {
+	Provider          Provider     `json:"provider"`
+	State             string       `json:"state"` // active | expired | signed_out | unavailable
+	SignedIn          bool         `json:"signedIn"`
+	Identity          string       `json:"identity,omitempty"`
+	Detail            string       `json:"detail,omitempty"`
+	ExpiresAt         int64        `json:"expiresAt,omitempty"`
+	CLIName           string       `json:"cliName"`
+	CLIInstalled      bool         `json:"cliInstalled"`
+	CLIInstallHint    string       `json:"cliInstallHint,omitempty"`
+	PluginName        string       `json:"pluginName,omitempty"`
+	PluginInstalled   bool         `json:"pluginInstalled"`
+	PluginInstallHint string       `json:"pluginInstallHint,omitempty"`
+	Error             string       `json:"error,omitempty"`
+	Login             *CLILoginJob `json:"login,omitempty"`
+	CheckedAt         int64        `json:"checkedAt"`
+}
+
+// AWSAuthSummary groups every IAM Identity Center portal plus CLI availability.
+type AWSAuthSummary struct {
+	Sessions       []SSOSessionStatus `json:"sessions"`
+	CLIInstalled   bool               `json:"cliInstalled"`
+	CLIInstallHint string             `json:"cliInstallHint,omitempty"`
+	ProfileCount   int                `json:"profileCount"`
+	ProfileLogins  []*CLILoginJob     `json:"profileLogins,omitempty"`
+}
+
+// CloudAuthSummary is what the toolbar account menu and the cluster error pane
+// render from.
+type CloudAuthSummary struct {
+	AWS       AWSAuthSummary      `json:"aws"`
+	GCP       ProviderAuthSummary `json:"gcp"`
+	Azure     ProviderAuthSummary `json:"azure"`
+	UpdatedAt int64               `json:"updatedAt"`
+}
+
+// ClusterAuthInfo explains how a kubeconfig context authenticates so the UI
+// can offer the right sign-in action instead of a generic error.
+type ClusterAuthInfo struct {
+	Cluster          string `json:"cluster"`
+	Provider         string `json:"provider"` // aws | gcp | azure | other
+	Method           string `json:"method"`
+	Command          string `json:"command,omitempty"`
+	CommandInstalled bool   `json:"commandInstalled"`
+	Profile          string `json:"profile,omitempty"`
+	SSOStartURL      string `json:"ssoStartUrl,omitempty"`
+	SSORegion        string `json:"ssoRegion,omitempty"`
+	SSOSessionName   string `json:"ssoSessionName,omitempty"`
+	SSOState         string `json:"ssoState,omitempty"`
+	SignIn           string `json:"signIn,omitempty"` // aws-sso | aws-profile | gcp | azure
+	// MatchingProfiles lists ~/.aws/config profiles whose sso_account_id is
+	// this EKS cluster's account, for contexts that name no profile.
+	MatchingProfiles []string `json:"matchingProfiles,omitempty"`
+	ExternalTool     bool     `json:"externalTool"`
+	Hint             string   `json:"hint,omitempty"`
+	InstallHint      string   `json:"installHint,omitempty"`
+	KubeconfigPath   string   `json:"kubeconfigPath,omitempty"`
 }

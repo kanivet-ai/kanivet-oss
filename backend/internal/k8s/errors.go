@@ -16,6 +16,18 @@ func IsResourceGone(err error) bool {
 	return errors.Is(err, ErrResourceGone)
 }
 
+// IsAuthErrorCode reports whether a classified cluster error code means the
+// user's cloud credentials need attention (as opposed to network/cert issues).
+func IsAuthErrorCode(code string) bool {
+	switch code {
+	case "aws_sso_expired", "aws_token_expired", "aws_credentials_missing",
+		"azure_auth_expired", "azure_kubelogin", "gcp_auth_expired", "gcp_plugin_missing",
+		"unauthorized", "token_expired", "exec_missing":
+		return true
+	}
+	return false
+}
+
 // ClassifyClusterError maps a raw error string to a stable error code and a
 // user-facing message. Returns ok=false when no pattern matches; callers can
 // then fall back to a generic "cluster_error" with the original text.
@@ -29,26 +41,80 @@ func ClassifyClusterError(errMsg string) (code, message string, ok bool) {
 	}
 	lower := strings.ToLower(errMsg)
 
-	if strings.Contains(lower, "sso session") && (strings.Contains(lower, "expired") || strings.Contains(lower, "invalid")) {
-		return "aws_sso_expired", "Your AWS SSO session has expired. Please run 'aws sso login' to refresh.", true
+	// Missing credential helper binaries. client-go reports these as
+	// `exec: executable aws not found` (plus a "credential plugin that is not
+	// installed" hint) or `exec: "aws": executable file not found in $PATH`.
+	if strings.Contains(lower, "executable file not found") ||
+		strings.Contains(lower, "credential plugin that is not installed") ||
+		(strings.Contains(lower, "exec: executable") && strings.Contains(lower, "not found")) ||
+		(strings.Contains(lower, "no such file or directory") && strings.Contains(lower, "exec")) {
+		switch {
+		case strings.Contains(lower, `"aws"`) || strings.Contains(lower, "executable aws ") || strings.Contains(lower, "aws-iam-authenticator"):
+			return "exec_missing", "The AWS CLI is not installed or not on PATH, so this cluster's credentials cannot be fetched.", true
+		case strings.Contains(lower, "gke-gcloud-auth-plugin"):
+			return "gcp_plugin_missing", "gke-gcloud-auth-plugin is not installed. Install it with `gcloud components install gke-gcloud-auth-plugin`.", true
+		case strings.Contains(lower, "gcloud"):
+			return "exec_missing", "The Google Cloud CLI is not installed or not on PATH.", true
+		case strings.Contains(lower, "kubelogin"):
+			return "exec_missing", "kubelogin is not installed. Install it with `az aks install-cli`.", true
+		case strings.Contains(lower, `"az"`) || strings.Contains(lower, "executable az "):
+			return "exec_missing", "The Azure CLI is not installed or not on PATH.", true
+		}
+		return "exec_missing", "A credential helper referenced by this kubeconfig is not installed.", true
 	}
-	if strings.Contains(lower, "security token") && strings.Contains(lower, "expired") {
-		return "aws_token_expired", "Your AWS security token has expired. Please refresh your credentials.", true
+
+	// AWS IAM Identity Center.
+	if (strings.Contains(lower, "sso session") && (strings.Contains(lower, "expired") || strings.Contains(lower, "invalid"))) ||
+		strings.Contains(lower, "error loading sso token") ||
+		(strings.Contains(lower, "token for") && strings.Contains(lower, "does not exist")) ||
+		strings.Contains(lower, "sso token") && strings.Contains(lower, "not found") ||
+		strings.Contains(lower, "invalid_grant") && strings.Contains(lower, "sso") ||
+		strings.Contains(lower, "unauthorizedexception") && strings.Contains(lower, "sso") {
+		return "aws_sso_expired", "Your AWS SSO session has expired. Sign in again to reconnect.", true
 	}
-	if strings.Contains(lower, "aadsts") || strings.Contains(lower, "azure active directory") {
-		return "azure_auth_expired", "Your Azure AD token has expired. Please run 'az login' to refresh.", true
+	if strings.Contains(lower, "security token") && (strings.Contains(lower, "expired") || strings.Contains(lower, "invalid")) ||
+		strings.Contains(lower, "expiredtoken") {
+		return "aws_token_expired", "Your AWS credentials have expired. Refresh them in the tool that issued them, or sign in again.", true
+	}
+	if strings.Contains(lower, "unable to locate credentials") ||
+		strings.Contains(lower, "nocredentialproviders") ||
+		strings.Contains(lower, "no valid credential sources") ||
+		strings.Contains(lower, "failed to refresh cached credentials") ||
+		(strings.Contains(lower, "profile") && strings.Contains(lower, "could not be found")) ||
+		strings.Contains(lower, "the config profile") && strings.Contains(lower, "could not be found") {
+		return "aws_credentials_missing", "No valid AWS credentials were found for this cluster's profile. Start its session in your credential tool or sign in again.", true
+	}
+
+	// Azure.
+	if strings.Contains(lower, "aadsts") || strings.Contains(lower, "azure active directory") || strings.Contains(lower, "re-authenticate") && strings.Contains(lower, "azure") {
+		return "azure_auth_expired", "Your Azure sign-in has expired. Sign in with the Azure CLI again.", true
+	}
+	if strings.Contains(lower, "please run 'az login'") || strings.Contains(lower, "please run \"az login\"") || strings.Contains(lower, "az login") && strings.Contains(lower, "setup account") {
+		return "azure_auth_expired", "You are not signed in to Azure. Sign in with the Azure CLI.", true
 	}
 	if strings.Contains(lower, "kubelogin") {
-		return "azure_kubelogin", "Azure authentication failed. Please run 'kubelogin convert-kubeconfig' or 'az login'.", true
+		return "azure_kubelogin", "Azure authentication failed. Sign in with the Azure CLI, or run `kubelogin convert-kubeconfig -l azurecli`.", true
+	}
+
+	// Google Cloud.
+	if strings.Contains(lower, "reauthentication required") || strings.Contains(lower, "reauthentication failed") ||
+		(strings.Contains(lower, "invalid_grant") && (strings.Contains(lower, "google") || strings.Contains(lower, "gcloud") || strings.Contains(lower, "gke"))) ||
+		strings.Contains(lower, "token has been expired or revoked") {
+		return "gcp_auth_expired", "Your Google Cloud sign-in has expired. Sign in with gcloud again.", true
+	}
+	if strings.Contains(lower, "gke-gcloud-auth-plugin") && (strings.Contains(lower, "not found") || strings.Contains(lower, "no such file")) {
+		return "gcp_plugin_missing", "gke-gcloud-auth-plugin is not installed. Install it with `gcloud components install gke-gcloud-auth-plugin`.", true
 	}
 	if strings.Contains(lower, "gcloud") || (strings.Contains(lower, "google") && strings.Contains(lower, "credential")) {
-		return "gcp_auth_expired", "Your GCP credentials have expired. Please run 'gcloud auth login'.", true
+		return "gcp_auth_expired", "Your Google Cloud credentials are unavailable. Sign in with gcloud.", true
 	}
+
+	// Generic exec plugin failures.
 	if strings.Contains(lower, "exec: executable") && strings.Contains(lower, "failed") {
-		return "exec_failed", "Failed to execute authentication command. Please check your kubeconfig credentials.", true
+		return "exec_failed", "Failed to execute the credential helper. Check your kubeconfig credentials.", true
 	}
 	if strings.Contains(lower, "getting credentials") {
-		return "exec_failed", "Failed to obtain cluster credentials. Please check your kubeconfig.", true
+		return "exec_failed", "Failed to obtain cluster credentials. Check your kubeconfig.", true
 	}
 	if strings.Contains(lower, "the server has asked for the client to provide credentials") ||
 		strings.Contains(lower, "unauthorized") ||

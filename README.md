@@ -44,7 +44,7 @@ Get the installer for your operating system from [GitHub Releases](https://githu
 2. Launch Kanivet, open the cluster selector, and use **Quick Find** to select a cluster.
 3. Choose a namespace and open a pod or workload to inspect its status, logs, and events.
 
-If your kubeconfig uses a cloud authentication plugin, install the required CLI and make sure your login is current. For kubeconfig refresh, cloud discovery, and connection troubleshooting, follow the [Kubernetes desktop quickstart](docs/QUICKSTART.md).
+If your kubeconfig uses a cloud authentication plugin, install the required CLI and make sure your login is current; Kanivet shares sign-ins with the AWS CLI, gcloud and az, see [cloud sign-in](docs/CLOUD_AUTH.md). For kubeconfig refresh, cloud discovery, and connection troubleshooting, follow the [Kubernetes desktop quickstart](docs/QUICKSTART.md).
 
 ## Frequently asked questions
 

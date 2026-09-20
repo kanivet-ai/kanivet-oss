@@ -397,6 +397,13 @@ export class WebSocketManager {
         return;
       }
 
+      if (msg.type === 'cloud_auth_changed') {
+        window.dispatchEvent(new CustomEvent('cloud:auth-changed', {
+          detail: { provider: msg.provider, local: false }
+        }));
+        return;
+      }
+
       if (msg.type === 'clusters_refreshed') {
         window.dispatchEvent(new CustomEvent('clusters:refreshed', {
           detail: { clusters: msg.clusters || [], reason: msg.reason || 'unknown' }

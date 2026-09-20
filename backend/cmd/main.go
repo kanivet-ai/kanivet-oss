@@ -637,11 +637,25 @@ func main() {
 			refreshClustersAndBroadcast("cloud_import")
 		}
 		cloudService.SetOnBatchComplete(invalidateClusterCache)
+		cloudService.SetKubeconfigResolver(k8sClient.KubeconfigPathForContext)
+		cloudService.SetOnAuthChanged(func(provider cloud.Provider) {
+			// Auth changed (sign-in, silent refresh, terminal login, sign-out):
+			// drop cached clients so the next request re-runs the exec plugin,
+			// then tell every UI to re-read /cloud/auth and retry failed clusters.
+			k8sClient.RefreshClusterCache("")
+			apiHandler.BroadcastJSON(map[string]any{
+				"type":      "cloud_auth_changed",
+				"provider":  string(provider),
+				"timestamp": time.Now().UnixMilli(),
+			})
+		})
+		go cloudService.StartAuthMonitor(appCtx)
 		cloudHandler := cloud.NewHandler(cloudService)
 		cloudHandler.SetOnClusterImported(invalidateClusterCache)
 		cloudHandler.RegisterRoutes(v1)
 
 		configWatcher := cloud.NewConfigWatcher(cloud.DefaultConfigWatchPaths(), func(reason string) {
+			cloudService.NotifyExternalConfigChange(reason)
 			refreshClustersAndBroadcast("external_config_change:" + reason)
 		})
 		go configWatcher.Start(appCtx)
