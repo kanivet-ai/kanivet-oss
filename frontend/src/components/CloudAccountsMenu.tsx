@@ -14,6 +14,7 @@ import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import cloudService from '../services/cloudService';
 import { normalizeStartUrl } from '../store/cloudAuthSlice';
+import { ssoSessionValidity } from '../utils/ssoSessionLabel';
 import {
   ProviderAuthSummary,
   SSOAccount,
@@ -29,22 +30,12 @@ import './CloudAccountsMenu.css';
 const needsSignIn = (s: SSOSessionStatus) =>
   s.state === 'expired' || s.state === 'signed_out';
 
-export const formatTimeLeft = (expiresAt: number, now = Date.now()) => {
-  const diff = expiresAt - now;
-  if (diff <= 0) return 'expired';
-  const hours = Math.floor(diff / 3_600_000);
-  const minutes = Math.floor((diff % 3_600_000) / 60_000);
-  if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h left`;
-  if (hours > 0) return `${hours}h ${minutes}m left`;
-  return `${Math.max(minutes, 1)}m left`;
-};
-
 export const describeSession = (
   s: SSOSessionStatus,
 ): { text: string; tone: 'ok' | 'info' | 'attention' } => {
   switch (s.state) {
     case 'active':
-      return { text: `Signed in · ${formatTimeLeft(s.expiresAt)}`, tone: 'ok' };
+      return { text: `Signed in · ${ssoSessionValidity(s)}`, tone: 'ok' };
     case 'refreshable':
       return { text: 'Signed in · renewing', tone: 'info' };
     case 'expired':

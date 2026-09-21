@@ -3,6 +3,7 @@ import cloudService from '../services/cloudService';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { normalizeStartUrl } from '../store/cloudAuthSlice';
+import { ssoSessionValidity } from '../utils/ssoSessionLabel';
 import {
   CloudProvider,
   AWSProfile,
@@ -414,12 +415,8 @@ export const CloudDiscovery: React.FC<CloudDiscoveryProps> = ({ onClusterImporte
 
   const formatSessionState = (session: SSOSessionStatus) => {
     switch (session.state) {
-      case 'active': {
-        const ms = session.expiresAt - Date.now();
-        const hours = Math.floor(ms / (1000 * 60 * 60));
-        const mins = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
-        return hours > 0 ? `${hours}h ${mins}m left` : `${Math.max(mins, 1)}m left`;
-      }
+      case 'active':
+        return ssoSessionValidity(session);
       case 'refreshable':
         return 'Renewing…';
       case 'expired':
