@@ -638,11 +638,13 @@ func main() {
 		}
 		cloudService.SetOnBatchComplete(invalidateClusterCache)
 		cloudService.SetKubeconfigResolver(k8sClient.KubeconfigPathForContext)
+		k8sClient.SetAWSProfileResolver(cloudService.AWSProfileForCluster)
 		cloudService.SetOnAuthChanged(func(provider cloud.Provider) {
 			// Auth changed (sign-in, silent refresh, terminal login, sign-out):
 			// drop cached clients so the next request re-runs the exec plugin,
 			// then tell every UI to re-read /cloud/auth and retry failed clusters.
 			k8sClient.RefreshClusterCache("")
+			helmService.ClearConfigCache()
 			apiHandler.BroadcastJSON(map[string]any{
 				"type":      "cloud_auth_changed",
 				"provider":  string(provider),

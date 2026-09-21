@@ -506,6 +506,7 @@ const Layout = () => {
         startUrl: s.startUrl,
         label: s.label,
         state: s.state,
+        refreshable: s.refreshable,
         expiresAt: s.expiresAt,
       }));
       electronAPI.tray.updateSSOSessions(sessionsData);

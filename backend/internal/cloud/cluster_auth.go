@@ -93,7 +93,13 @@ func execEnvValue(env []clientcmdapi.ExecEnvVar, name string) string {
 // authenticates, resolving AWS profiles down to their SSO portal so the UI can
 // offer the exact sign-in that will fix a failing cluster.
 func (p *AWSProvider) describeClusterAuth(cluster, kubeconfigPath string) (*ClusterAuthInfo, error) {
-	info := &ClusterAuthInfo{Cluster: cluster, Provider: "other", Method: "none", KubeconfigPath: kubeconfigPath}
+	return p.describeBoundClusterAuth(cluster, kubeconfigPath, nil)
+}
+
+// describeBoundClusterAuth describes a context as Kanivet connects to it: with
+// a binding, the exec plugin runs under the binding's profile.
+func (p *AWSProvider) describeBoundClusterAuth(cluster, kubeconfigPath string, binding *ClusterSSOBinding) (*ClusterAuthInfo, error) {
+	info := &ClusterAuthInfo{Cluster: cluster, Provider: "other", Method: "none", KubeconfigPath: kubeconfigPath, SSOBinding: binding}
 	if kubeconfigPath == "" {
 		return info, fmt.Errorf("context %s not found in any kubeconfig", cluster)
 	}
@@ -122,6 +128,13 @@ func (p *AWSProvider) describeClusterAuth(cluster, kubeconfigPath string) (*Clus
 			info.Provider = "aws"
 		case strings.HasPrefix(cluster, "gke_"):
 			info.Provider = "gcp"
+		}
+	}
+
+	if info.Provider == "aws" {
+		info.AccountID = eksAccountFromContext(cluster)
+		if info.AccountID == "" {
+			info.AccountID = eksAccountFromContext(ctx.Cluster)
 		}
 	}
 
@@ -197,14 +210,20 @@ func (p *AWSProvider) describeExecAuth(info *ClusterAuthInfo, execCfg *clientcmd
 }
 
 func (p *AWSProvider) describeAWSExec(info *ClusterAuthInfo, execCfg *clientcmdapi.ExecConfig) {
-	profile := execEnvValue(execCfg.Env, "AWS_PROFILE")
+	profile := ""
+	if info.SSOBinding != nil {
+		profile = info.SSOBinding.Profile
+	}
+	if profile == "" {
+		profile = execEnvValue(execCfg.Env, "AWS_PROFILE")
+	}
 	if profile == "" {
 		profile = execFlagValue(execCfg.Args, "--profile")
 	}
 	if profile == "" {
 		profile = execEnvValue(execCfg.Env, "AWS_DEFAULT_PROFILE")
 	}
-	if execEnvValue(execCfg.Env, "AWS_ACCESS_KEY_ID") != "" {
+	if info.SSOBinding == nil && execEnvValue(execCfg.Env, "AWS_ACCESS_KEY_ID") != "" {
 		info.Method = "aws-static"
 		info.ExternalTool = true
 		info.Hint = "This context carries static AWS keys in its exec environment."

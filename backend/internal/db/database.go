@@ -99,7 +99,7 @@ func New() (*DB, error) {
 	db.Exec("PRAGMA locking_mode = NORMAL")   // Allow concurrent access
 	db.Exec("PRAGMA read_uncommitted = true") // Allow dirty reads for better concurrency
 
-	if err := db.AutoMigrate(&ClusterGroup{}, &ClusterAssignment{}, &ClusterAlias{}, &SSOSession{}, &ClusterMetricsSettings{}); err != nil {
+	if err := db.AutoMigrate(&ClusterGroup{}, &ClusterAssignment{}, &ClusterAlias{}, &SSOSession{}, &ClusterMetricsSettings{}, &ClusterAWSBinding{}); err != nil {
 		return nil, err
 	}
 

@@ -27,6 +27,8 @@ func (h *Handler) RegisterRoutes(rg *gin.RouterGroup, middleware ...gin.HandlerF
 		cloud.GET("/status", h.GetAuthStatus)
 		cloud.GET("/auth", h.GetAuthSummary)
 		cloud.GET("/cluster-auth", h.DescribeClusterAuth)
+		cloud.PUT("/cluster-auth/sso", h.BindClusterSSO)
+		cloud.DELETE("/cluster-auth/sso", h.UnbindClusterSSO)
 		cloud.GET("/login-jobs/:id", h.GetLoginJob)
 		cloud.DELETE("/login-jobs/:id", h.CancelLoginJob)
 
@@ -136,6 +138,44 @@ func (h *Handler) GetLoginJob(c *gin.Context) {
 func (h *Handler) CancelLoginJob(c *gin.Context) {
 	if !h.service.CancelLoginJob(c.Param("id")) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "login job not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"success": true})
+}
+
+// BindClusterSSO connects a kubeconfig context through an Identity Center
+// account and role. The choice is stored by Kanivet; the kubeconfig is untouched.
+func (h *Handler) BindClusterSSO(c *gin.Context) {
+	var req struct {
+		Cluster   string `json:"cluster"`
+		StartURL  string `json:"startUrl"`
+		AccountID string `json:"accountId"`
+		RoleName  string `json:"roleName"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	binding, err := h.service.BindClusterSSO(c.Request.Context(), req.Cluster, req.StartURL, req.AccountID, req.RoleName)
+	if errors.Is(err, ErrInvalidBinding) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if err != nil {
+		writeError(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, binding)
+}
+
+func (h *Handler) UnbindClusterSSO(c *gin.Context) {
+	cluster := c.Query("cluster")
+	if cluster == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster is required"})
+		return
+	}
+	if err := h.service.UnbindClusterSSO(cluster); err != nil {
+		writeError(c, err)
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"success": true})
