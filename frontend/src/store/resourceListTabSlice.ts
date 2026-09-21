@@ -1,5 +1,6 @@
 import { StateCreator } from 'zustand';
 import { getResourceCategory } from '../utils/resourceUtils';
+import { resolvePaneId } from '../utils/centerPaneLayout';
 import { ResourceListTabSlice, StoreState, ResourceListTab } from './types';
 
 export const createResourceListTabSlice: StateCreator<StoreState, [], [], ResourceListTabSlice> = (set, get) => ({
@@ -17,22 +18,13 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
       : resourceKind;
 
-    let targetPaneId = paneId || tab.state.focusedCenterPaneId || undefined;
-    if (targetPaneId && targetPaneId !== 'root' && tab.state.centerPaneLayout) {
-      const findNode = (node: any, nodeId: string): any => {
-        if (node.id === nodeId) return node;
-        if (node.children) { for (const child of node.children) { const found = findNode(child, nodeId); if (found) return found; } }
-        return null;
-      };
-      const foundNode = findNode(tab.state.centerPaneLayout, targetPaneId);
-      if (!foundNode) {
-        targetPaneId = 'root';
-        set((state) => ({
-          activeTabs: state.activeTabs.map((t) => t.id === cluster ? { ...t, state: { ...t.state, focusedCenterPaneId: 'root' } } : t),
-        }));
-      }
+    const wantedPaneId = paneId || tab.state.focusedCenterPaneId || undefined;
+    const paneKey = resolvePaneId(tab.state.centerPaneLayout, wantedPaneId);
+    if (wantedPaneId && paneKey !== wantedPaneId) {
+      set((state) => ({
+        activeTabs: state.activeTabs.map((t) => t.id === cluster ? { ...t, state: { ...t.state, focusedCenterPaneId: paneKey } } : t),
+      }));
     }
-    const paneKey = targetPaneId || 'root';
 
     const matches = tab.state.resourceListTabs.filter((rt) => {
       const samePane = (rt.paneId || 'root') === paneKey;

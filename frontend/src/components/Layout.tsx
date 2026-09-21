@@ -578,7 +578,9 @@ const Layout = () => {
                     flexDirection: 'column',
                   }}
                 >
-                  <CenterPaneSplitContainer tabId={currentTab} />
+                  {/* Keyed by cluster: pane ids differ between clusters, so each one
+                      gets its own layout instead of inheriting the previous tab's. */}
+                  <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
                   <BottomDock />
                 </div>
                 {(hasDetailData || hasDetailTabs) && <DetailView />}
