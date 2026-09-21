@@ -132,6 +132,29 @@ type Client struct {
 	contextIndexMu    sync.RWMutex
 	contextIndex      map[string]string
 	contextIndexStamp map[string]int64
+
+	// awsProfileResolver names the AWS profile Kanivet should use for a
+	// context instead of whatever its exec block resolves to. Guarded by mu.
+	awsProfileResolver func(cluster string) string
+}
+
+// SetAWSProfileResolver installs the lookup for per-context AWS profiles. The
+// profile is applied to the exec plugin in memory; kubeconfig files are never
+// rewritten. Call RefreshClusterCache after a context's answer changes.
+func (c *Client) SetAWSProfileResolver(resolve func(cluster string) string) {
+	c.mu.Lock()
+	c.awsProfileResolver = resolve
+	c.mu.Unlock()
+}
+
+func (c *Client) awsProfileFor(cluster string) string {
+	c.mu.RLock()
+	resolve := c.awsProfileResolver
+	c.mu.RUnlock()
+	if resolve == nil {
+		return ""
+	}
+	return resolve(cluster)
 }
 
 func (c *Client) invalidateContextIndex() {
@@ -421,6 +444,11 @@ func (c *Client) getConfigForCluster(cluster string) (*rest.Config, error) {
 		if context, ok := rawConfig.Contexts[cluster]; ok {
 			if authInfo, ok := rawConfig.AuthInfos[context.AuthInfo]; ok && authInfo.Exec != nil {
 				log.Printf("Cluster %s uses exec plugin: %s", cluster, authInfo.Exec.Command)
+
+				if profile := c.awsProfileFor(cluster); profile != "" {
+					log.Printf("Cluster %s authenticates with AWS profile %s chosen in Kanivet", cluster, profile)
+					applyAWSProfile(authInfo.Exec, profile)
+				}
 
 				// Ensure PATH environment variable is available for exec plugins
 				if authInfo.Exec.Env == nil {

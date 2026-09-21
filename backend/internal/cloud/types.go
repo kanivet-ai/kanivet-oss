@@ -217,6 +217,15 @@ type CloudAuthSummary struct {
 
 // ClusterAuthInfo explains how a kubeconfig context authenticates so the UI
 // can offer the right sign-in action instead of a generic error.
+// ClusterSSOBinding is the Identity Center identity Kanivet uses for one
+// kubeconfig context. It is Kanivet state; the kubeconfig is not rewritten.
+type ClusterSSOBinding struct {
+	StartURL  string `json:"startUrl"`
+	AccountID string `json:"accountId"`
+	RoleName  string `json:"roleName"`
+	Profile   string `json:"profile"`
+}
+
 type ClusterAuthInfo struct {
 	Cluster          string `json:"cluster"`
 	Provider         string `json:"provider"` // aws | gcp | azure | other
@@ -232,8 +241,13 @@ type ClusterAuthInfo struct {
 	// MatchingProfiles lists ~/.aws/config profiles whose sso_account_id is
 	// this EKS cluster's account, for contexts that name no profile.
 	MatchingProfiles []string `json:"matchingProfiles,omitempty"`
-	ExternalTool     bool     `json:"externalTool"`
-	Hint             string   `json:"hint,omitempty"`
-	InstallHint      string   `json:"installHint,omitempty"`
-	KubeconfigPath   string   `json:"kubeconfigPath,omitempty"`
+	// AccountID is the AWS account of an EKS context, read from its ARN.
+	AccountID string `json:"accountId,omitempty"`
+	// SSOBinding is the Identity Center account and role chosen in Kanivet
+	// for this context, overriding the profile its exec block resolves to.
+	SSOBinding     *ClusterSSOBinding `json:"ssoBinding,omitempty"`
+	ExternalTool   bool               `json:"externalTool"`
+	Hint           string             `json:"hint,omitempty"`
+	InstallHint    string             `json:"installHint,omitempty"`
+	KubeconfigPath string             `json:"kubeconfigPath,omitempty"`
 }

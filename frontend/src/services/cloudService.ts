@@ -8,6 +8,7 @@ import {
   CloudAuthStatus,
   CloudAuthSummary,
   ClusterAuthInfo,
+  ClusterSSOBinding,
   CloudLoginJob,
   DiscoverRequest,
   ImportRequest,
@@ -117,6 +118,16 @@ class CloudService {
   async describeClusterAuth(cluster: string): Promise<ClusterAuthInfo> {
     const response = await this.client.get('/cloud/cluster-auth', { params: { cluster } });
     return response.data;
+  }
+
+  /** Reach a context through an Identity Center account and role; the kubeconfig is not touched. */
+  async bindClusterSSO(cluster: string, startUrl: string, accountId: string, roleName: string): Promise<ClusterSSOBinding> {
+    const response = await this.client.put('/cloud/cluster-auth/sso', { cluster, startUrl, accountId, roleName });
+    return response.data;
+  }
+
+  async unbindClusterSSO(cluster: string): Promise<void> {
+    await this.client.delete('/cloud/cluster-auth/sso', { params: { cluster } });
   }
 
   // ---- CLI login jobs (gcloud / az / aws --profile) -------------------------
