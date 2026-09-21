@@ -3,6 +3,7 @@ import api from '../services/api';
 import { notifyDrainComplete, notifyRolloutComplete } from '../services/islandNotifications';
 import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } from './types';
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
+import { applyLoadedDetails } from './applyLoadedDetails';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
 
@@ -371,27 +372,12 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       throw error;
     }
     if (signal?.aborted) return;
-    const detailsName = details?.metadata?.name || details?.name;
-    const detailsNs = details?.metadata?.namespace || details?.namespace || '';
-    const tabState = get().getCurrentTabState();
-    if (tabState?.activeDetailTab) {
-      const activeDt = tabState.detailTabs.find((dt) => dt.id === tabState.activeDetailTab);
-      const dtName = activeDt?.item?.metadata?.name || activeDt?.item?.name;
-      const dtNs = activeDt?.item?.metadata?.namespace || activeDt?.item?.namespace || '';
-      if (detailsName && dtName && (dtName !== detailsName || dtNs !== detailsNs)) return details;
-      set((state) => ({
-        activeTabs: state.activeTabs.map((t) =>
-          t.id === cluster ? {
-            ...t, state: {
-              ...t.state, detailData: details, isDetailsPanelCollapsed: false,
-              detailTabs: t.state.detailTabs.map((dt) => dt.id === tabState.activeDetailTab ? { ...dt, item: details } : dt),
-            },
-          } : t
-        ),
-      }));
-    } else {
-      get().updateCurrentTabState({ detailData: details, isDetailsPanelCollapsed: false });
-    }
+    // Target the cluster the request was made for: the user may have switched
+    // cluster tabs while it was in flight.
+    const before = get().activeTabs;
+    const after = applyLoadedDetails(before, cluster, details);
+    if (after === before) return details;
+    set({ activeTabs: after });
     get().loadResourceEvents(cluster, resource, details, signal);
     return details;
   },

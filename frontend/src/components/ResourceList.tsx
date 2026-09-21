@@ -159,13 +159,14 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     handleSplitPane,
   } = useTabManagement(paneId, allCenterTabs, closeDetailTab, closeResourceListTab, closeBottomTab);
 
+  // The list unmounts on every cluster tab switch. An in-flight detail request
+  // is left to finish: aborting it stranded the detail pane on its list-row
+  // placeholder, and loadDetails only applies an answer to the cluster and
+  // resource it was asked for.
   useEffect(() => {
     return () => {
       currentLoadingRequestRef.current = null;
-      if (currentAbortControllerRef.current) {
-        currentAbortControllerRef.current.abort();
-        currentAbortControllerRef.current = null;
-      }
+      currentAbortControllerRef.current = null;
     };
   }, []);
 
