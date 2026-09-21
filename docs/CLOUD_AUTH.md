@@ -24,9 +24,11 @@ The account icon in the toolbar lists every identity Kanivet can see:
 
 - **AWS IAM Identity Center** portals: the ones you added in Kanivet, every
   `[sso-session …]` in `~/.aws/config`, and any portal that has a cached token.
-  Each row shows *Signed in · 6h left*, *Signed in · renewing*, *Expired · sign
-  in required*, or *Not signed in*. Expand a row to see the accounts assigned
-  to you.
+  Each row shows *Signed in · renews automatically*, *Signed in · renewing*,
+  *Expired · sign in required*, or *Not signed in*. A countdown such as
+  *Signed in · 40m left* appears only for a token that has no refresh token;
+  AWS access tokens last about an hour and the portal does not report when the
+  session itself ends. Expand a row to see the accounts assigned to you.
 - **Google Cloud**: the active gcloud account and project.
 - **Azure**: the Azure CLI user and subscription.
 
