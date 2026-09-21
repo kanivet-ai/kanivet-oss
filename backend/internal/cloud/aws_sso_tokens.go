@@ -277,8 +277,11 @@ func parseAWSSSOConfig(cfg *ini.File) ([]awsSSOSessionConfig, []awsSSOProfileCon
 		} else if startURL := section.Key("sso_start_url").String(); startURL != "" {
 			prof.Legacy = true
 			prof.StartURL = startURL
-			if prof.Region == "" {
-				prof.Region = section.Key("sso_region").String()
+			// sso_region is where the Identity Center portal lives; region is
+			// where the profile's API calls go. They are frequently different,
+			// and only sso_region can serve the OIDC device flow, so it wins.
+			if ssoRegion := section.Key("sso_region").String(); ssoRegion != "" {
+				prof.Region = ssoRegion
 			}
 		} else {
 			continue
