@@ -4,6 +4,7 @@ import { notifyDrainComplete, notifyRolloutComplete } from '../services/islandNo
 import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } from './types';
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
 import { applyLoadedDetails } from './applyLoadedDetails';
+import { keepKnownCounts } from './keepKnownCounts';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
 
@@ -157,9 +158,11 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
           const updatedTabs = [...activeTabs];
           const updatedExpandedNodes = new Set(updatedTabs[tabIndex].state.expandedNodes);
           updatedExpandedNodes.add(nodeId);
+          const currentTree = updatedTabs[tabIndex].state.treeData;
+          const placeholders = keepKnownCounts(findNodeById(currentTree, nodeId)?.children, formattedResources);
           updatedTabs[tabIndex] = {
             ...updatedTabs[tabIndex],
-            state: { ...updatedTabs[tabIndex].state, treeData: updateTreeNode(updatedTabs[tabIndex].state.treeData, nodeId, formattedResources, updatedExpandedNodes), expandedNodes: updatedExpandedNodes },
+            state: { ...updatedTabs[tabIndex].state, treeData: updateTreeNode(currentTree, nodeId, placeholders, updatedExpandedNodes), expandedNodes: updatedExpandedNodes },
           };
           set({ activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) });
         }
@@ -233,9 +236,11 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const updatedTabs = [...activeTabs];
       const updatedExpandedNodes = new Set(updatedTabs[tabIndex].state.expandedNodes);
       updatedExpandedNodes.add(nodeId);
+      const currentTree = updatedTabs[tabIndex].state.treeData;
+      const placeholders = keepKnownCounts(findNodeById(currentTree, nodeId)?.children, formattedResources);
       updatedTabs[tabIndex] = {
         ...updatedTabs[tabIndex],
-        state: { ...updatedTabs[tabIndex].state, treeData: updateTreeNode(updatedTabs[tabIndex].state.treeData, nodeId, formattedResources, updatedExpandedNodes), expandedNodes: updatedExpandedNodes },
+        state: { ...updatedTabs[tabIndex].state, treeData: updateTreeNode(currentTree, nodeId, placeholders, updatedExpandedNodes), expandedNodes: updatedExpandedNodes },
       };
       set({ activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) });
 
