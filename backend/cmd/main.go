@@ -740,6 +740,9 @@ func main() {
 	// Shutdown handler components (event listeners, DB, etc.)
 	apiHandler.Shutdown()
 
+	// Stop in-flight log streams before the websocket server goes away.
+	logsHandler.Shutdown()
+
 	// Shutdown websocket server
 	if err := wsServer.Shutdown(ctx); err != nil {
 		log.Printf("WebSocket server shutdown error: %v", err)
