@@ -64,7 +64,7 @@ type logEntry struct {
 	timestamp time.Time
 }
 
-func NewLogsHandler(k8sClient k8s.Interface) core.MessageHandler {
+func NewLogsHandler(k8sClient k8s.Interface) *LogsHandler {
 	return &LogsHandler{
 		k8sClient:     k8sClient,
 		activeStreams: &sync.Map{},
@@ -592,6 +592,26 @@ func (h *LogsHandler) send(conn *core.Connection, payload map[string]any) {
 		if err := conn.Send(data); err != nil {
 			log.Printf("Failed to send logs message: %v", err)
 		}
+	}
+}
+
+// Shutdown cancels every active log stream and waits for the goroutines
+// driving them to finish. Callers that own the handler's lifetime should use
+// it so that in-flight streams do not outlive the server they belong to.
+func (h *LogsHandler) Shutdown() {
+	var streams []*logStream
+
+	h.activeStreams.Range(func(key, value any) bool {
+		if stream, ok := value.(*logStream); ok {
+			stream.cancel()
+			streams = append(streams, stream)
+		}
+		h.activeStreams.Delete(key)
+		return true
+	})
+
+	for _, stream := range streams {
+		<-stream.done
 	}
 }
 
