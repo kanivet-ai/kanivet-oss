@@ -54,6 +54,15 @@ sign-in that fixes it:
 - **GKE**: *Sign in with gcloud*. **AKS**: *Sign in with Azure CLI*.
 - **Missing CLI or plugin**: an install hint for `aws`, `gcloud`,
   `gke-gcloud-auth-plugin`, `az` or `kubelogin`.
+- **EKS context that follows the active profile** (the usual result of
+  `aws eks update-kubeconfig` with Leapp, aws-vault or static keys, where the
+  exec block names no profile): if a signed-in access portal grants the
+  cluster's account, the pane offers *Connect with AWS SSO* with a role picker.
+  Kanivet then runs that context's `aws eks get-token` under a profile for the
+  chosen account and role. The choice is stored by Kanivet, not written to the
+  kubeconfig, so `kubectl` in a terminal keeps following your other tool. To
+  switch role later, or go back with *Use kubeconfig credentials*, open the
+  Cloud accounts menu while the cluster's tab is active.
 
 Each pane also shows the equivalent terminal command. Kanivet notices terminal
 sign-ins within a few seconds and reconnects failing clusters automatically.

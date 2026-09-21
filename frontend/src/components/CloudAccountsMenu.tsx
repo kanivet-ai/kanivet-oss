@@ -15,7 +15,9 @@ import { useShallow } from 'zustand/react/shallow';
 import cloudService from '../services/cloudService';
 import { normalizeStartUrl } from '../store/cloudAuthSlice';
 import { ssoSessionValidity } from '../utils/ssoSessionLabel';
+import { offersSsoConnect } from '../utils/clusterSsoConnect';
 import {
+  ClusterAuthInfo,
   ProviderAuthSummary,
   SSOAccount,
   SSOSessionStatus,
@@ -25,6 +27,7 @@ import GCPIcon from './GCPIcon';
 import AzureIcon from './AzureIcon';
 import LoginProgress from './cloud/LoginProgress';
 import AWSRegionSelect from './cloud/AWSRegionSelect';
+import ClusterSSOConnect from './cloud/ClusterSSOConnect';
 import './CloudAccountsMenu.css';
 
 const needsSignIn = (s: SSOSessionStatus) =>
@@ -117,7 +120,11 @@ const CloudAccountsMenu = () => {
     })),
   );
 
+  const currentTab = useStore((s) => s.currentTab);
   const [isOpen, setIsOpen] = useState(false);
+  // How the open cluster authenticates, to offer its AWS account and role here.
+  const [tabAuth, setTabAuth] = useState<ClusterAuthInfo | null>(null);
+  const [tabAuthVersion, setTabAuthVersion] = useState(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newRegion, setNewRegion] = useState('us-east-1');
@@ -144,6 +151,23 @@ const CloudAccountsMenu = () => {
     const timer = setInterval(() => setTick((t) => t + 1), 60_000);
     return () => clearInterval(timer);
   }, [isOpen, loadAuthSummary]);
+
+  useEffect(() => {
+    setTabAuth(null);
+    if (!isOpen || !currentTab) return;
+    let cancelled = false;
+    cloudService
+      .describeClusterAuth(currentTab)
+      .then((info) => {
+        if (!cancelled) setTabAuth(info);
+      })
+      .catch(() => {
+        if (!cancelled) setTabAuth(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, currentTab, tabAuthVersion]);
 
   useEffect(() => {
     const open = () => {
@@ -549,6 +573,25 @@ const CloudAccountsMenu = () => {
           </div>
 
           <div className="cloud-accounts-body">
+            {currentTab && tabAuth?.accountId && offersSsoConnect(tabAuth) && (
+              <>
+                <div className="ap-group-label">Current cluster</div>
+                <div className="cloud-accounts-current">
+                  <ClusterSSOConnect
+                    cluster={currentTab}
+                    accountId={tabAuth.accountId}
+                    binding={tabAuth.ssoBinding}
+                    onChanged={() => {
+                      setTabAuthVersion((v) => v + 1);
+                      window.dispatchEvent(
+                        new CustomEvent('cluster:retry', { detail: { cluster: currentTab } }),
+                      );
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="ap-group-label">AWS IAM Identity Center</div>
 
             {showAddForm && (

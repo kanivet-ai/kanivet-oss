@@ -215,6 +215,14 @@ export interface CloudAuthSummary {
 export type ClusterSignIn = 'aws-sso' | 'aws-profile' | 'gcp' | 'azure' | '';
 
 /** How a kubeconfig context authenticates, resolved down to the sign-in that fixes it. */
+/** Kanivet state, not kubeconfig: the identity used to reach one context. */
+export interface ClusterSSOBinding {
+  startUrl: string;
+  accountId: string;
+  roleName: string;
+  profile: string;
+}
+
 export interface ClusterAuthInfo {
   cluster: string;
   provider: 'aws' | 'gcp' | 'azure' | 'other';
@@ -229,6 +237,10 @@ export interface ClusterAuthInfo {
   signIn?: ClusterSignIn;
   /** Profiles in ~/.aws/config for this EKS cluster's account, when the context names none. */
   matchingProfiles?: string[];
+  /** AWS account of an EKS context, read from its ARN. */
+  accountId?: string;
+  /** Identity Center account and role chosen in Kanivet for this context. */
+  ssoBinding?: ClusterSSOBinding;
   externalTool: boolean;
   hint?: string;
   installHint?: string;
