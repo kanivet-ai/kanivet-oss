@@ -639,10 +639,25 @@ func (p *AWSProvider) restoreOriginalDefaultProfile() {
 	}
 }
 
-// knownSSOSessions lists the sso-session blocks in ~/.aws/config.
-func (p *AWSProvider) knownSSOSessions() []awsSSOSessionConfig {
-	sessions, _ := loadAWSSSOConfig()
-	return sessions
+// ssoRegionForStartURL finds the region hosting startURL's Identity Center
+// portal. It looks at sso-session blocks first, then falls back to legacy
+// profiles, which carry sso_start_url and sso_region inline and are the only
+// source of a region for a config that predates sso-session. Returns "" when
+// nothing in ~/.aws/config mentions the portal.
+func ssoRegionForStartURL(startURL string) string {
+	normalized := normalizeStartURL(startURL)
+	sessions, profiles := loadAWSSSOConfig()
+	for _, sess := range sessions {
+		if normalizeStartURL(sess.StartURL) == normalized && sess.Region != "" {
+			return sess.Region
+		}
+	}
+	for _, prof := range profiles {
+		if prof.Legacy && normalizeStartURL(prof.StartURL) == normalized && prof.Region != "" {
+			return prof.Region
+		}
+	}
+	return ""
 }
 
 func (p *AWSProvider) ssoClient(ctx context.Context, startURL string) (*sso.Client, *ssoCachedToken, error) {
@@ -1059,13 +1074,8 @@ func (p *AWSProvider) ssoProfileForImport(ctx context.Context, startURL, account
 		ssoRegion = tok.Token.Region
 	} else if tok := p.tokens.best(startURL, time.Now()); tok != nil && tok.Token.Region != "" {
 		ssoRegion = tok.Token.Region
-	} else {
-		for _, sess := range p.knownSSOSessions() {
-			if normalizeStartURL(sess.StartURL) == normalizeStartURL(startURL) && sess.Region != "" {
-				ssoRegion = sess.Region
-				break
-			}
-		}
+	} else if region := ssoRegionForStartURL(startURL); region != "" {
+		ssoRegion = region
 	}
 	profileName := kanivetSSOProfileName(accountID, roleName)
 	if err := p.ensureSSOProfile(profileName, startURL, ssoRegion, accountID, roleName); err != nil {
