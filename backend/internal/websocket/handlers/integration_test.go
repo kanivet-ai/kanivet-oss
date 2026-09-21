@@ -16,9 +16,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 )
 
 func int32Ptr(i int32) *int32 { return &i }
@@ -153,7 +155,24 @@ func seedFakeClientset() *fake.Clientset {
 		},
 	)
 	cs.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &version.Info{Major: "1", Minor: "30"}
+	installPodLogsReactor(cs)
 	return cs
+}
+
+// installPodLogsReactor handles the pods/log subresource explicitly.
+//
+// The fake clientset routes GetLogs through a GenericActionImpl that none of
+// the built-in reactors match, so it falls through to a default branch that
+// formats the whole action — including the PodLogOptions and its *metav1.Time
+// — into an error string. Handling the action here keeps the tests off that
+// path entirely.
+func installPodLogsReactor(cs *fake.Clientset) {
+	cs.PrependReactor("get", "pods", func(action k8stesting.Action) (bool, runtime.Object, error) {
+		if action.GetSubresource() != "log" {
+			return false, nil, nil
+		}
+		return true, &corev1.Pod{}, nil
+	})
 }
 
 func dialWS(t *testing.T, serverURL string) *websocket.Conn {
@@ -453,6 +472,7 @@ func TestLogsHandlerStartStop(t *testing.T) {
 	server := ws.NewServer()
 	logsHandler := handlers.NewLogsHandler(mockK8s)
 	server.RegisterHandler("logs", logsHandler)
+	t.Cleanup(logsHandler.Shutdown)
 
 	testServer := httptest.NewServer(server)
 	defer testServer.Close()
@@ -521,10 +541,13 @@ func TestLogsHandlerDeploymentPodDiscovery(t *testing.T) {
 		},
 	)
 
+	installPodLogsReactor(fakeClient)
+
 	mockK8s := &k8s.MockClient{TypedClient: fakeClient, ClusterName: "test-cluster"}
 	server := ws.NewServer()
 	logsHandler := handlers.NewLogsHandler(mockK8s)
 	server.RegisterHandler("logs", logsHandler)
+	t.Cleanup(logsHandler.Shutdown)
 
 	testServer := httptest.NewServer(server)
 	defer testServer.Close()
@@ -568,6 +591,7 @@ func TestLogsHandlerInvalidCluster(t *testing.T) {
 	server := ws.NewServer()
 	logsHandler := handlers.NewLogsHandler(mockK8s)
 	server.RegisterHandler("logs", logsHandler)
+	t.Cleanup(logsHandler.Shutdown)
 
 	testServer := httptest.NewServer(server)
 	defer testServer.Close()
@@ -608,6 +632,7 @@ func TestConcurrentLogStreams(t *testing.T) {
 	server := ws.NewServer()
 	logsHandler := handlers.NewLogsHandler(mockK8s)
 	server.RegisterHandler("logs", logsHandler)
+	t.Cleanup(logsHandler.Shutdown)
 
 	testServer := httptest.NewServer(server)
 	defer testServer.Close()
