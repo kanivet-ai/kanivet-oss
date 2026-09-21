@@ -148,12 +148,7 @@ func (p *AWSProvider) BeginSSOLogin(ctx context.Context, startURL, region string
 		region = regRegion
 	}
 	if region == "" {
-		for _, sess := range p.knownSSOSessions() {
-			if normalizeStartURL(sess.StartURL) == normalizeStartURL(startURL) && sess.Region != "" {
-				region = sess.Region
-				break
-			}
-		}
+		region = ssoRegionForStartURL(startURL)
 	}
 	if region == "" {
 		region = "us-east-1"
