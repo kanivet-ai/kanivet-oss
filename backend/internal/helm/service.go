@@ -32,6 +32,15 @@ type Service struct {
 	configCacheMu sync.RWMutex
 }
 
+// ClearConfigCache drops every cached action configuration. Each one embeds
+// the rest.Config it was built from, exec credentials included, so it must go
+// whenever a cluster's credentials or AWS role change.
+func (s *Service) ClearConfigCache() {
+	s.configCacheMu.Lock()
+	clear(s.configCache)
+	s.configCacheMu.Unlock()
+}
+
 type Release struct {
 	Name         string            `json:"name"`
 	Namespace    string            `json:"namespace"`

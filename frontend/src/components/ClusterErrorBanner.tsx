@@ -6,7 +6,9 @@ import cloudService from '../services/cloudService';
 import { ClusterAuthInfo } from '../types/cloud';
 import { normalizeStartUrl } from '../store/cloudAuthSlice';
 import { isAuthErrorCode } from '../utils/clusterAuthErrors';
+import { offersSsoConnect } from '../utils/clusterSsoConnect';
 import LoginProgress from './cloud/LoginProgress';
+import ClusterSSOConnect from './cloud/ClusterSSOConnect';
 import './ClusterErrorBanner.css';
 
 const getErrorTitle = (errorCode: string) => {
@@ -63,6 +65,9 @@ const ClusterErrorBanner = () => {
   const [isRetrying, setIsRetrying] = useState(false);
   const [auth, setAuth] = useState<ClusterAuthInfo | null>(null);
   const retryStartRef = useRef<number>(0);
+  // Bumped when the identity used for this cluster changes, to re-read it.
+  const [authVersion, setAuthVersion] = useState(0);
+  const refreshAuth = () => setAuthVersion((v) => v + 1);
 
   const error: ClusterError | undefined = currentTab ? clusterErrors[currentTab] : undefined;
   const errorCode = error?.errorCode;
@@ -98,7 +103,7 @@ const ClusterErrorBanner = () => {
     return () => {
       cancelled = true;
     };
-  }, [currentTab, errorCode]);
+  }, [currentTab, errorCode, authVersion]);
 
   if (!currentTab) return null;
   const vcStatus = vclusterStatuses?.[currentTab];
@@ -236,6 +241,23 @@ const ClusterErrorBanner = () => {
           <div className="cluster-error-pane-section">
             <div className="cluster-error-pane-section-label">Credentials come from another tool</div>
             <div className="cluster-error-pane-auth">{auth.hint}</div>
+          </div>
+        )}
+
+        {auth && auth.accountId && offersSsoConnect(auth) && (
+          <div className="cluster-error-pane-section">
+            <div className="cluster-error-pane-section-label">
+              {auth.ssoBinding ? 'AWS role used by Kanivet' : 'Use AWS SSO instead'}
+            </div>
+            <ClusterSSOConnect
+              cluster={cluster}
+              accountId={auth.accountId}
+              binding={auth.ssoBinding}
+              onChanged={() => {
+                refreshAuth();
+                handleRetry();
+              }}
+            />
           </div>
         )}
 

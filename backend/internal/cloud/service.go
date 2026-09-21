@@ -326,7 +326,7 @@ func (s *Service) DescribeClusterAuth(ctx context.Context, cluster string) (*Clu
 			}
 		}
 	}
-	return s.aws.describeClusterAuth(cluster, path)
+	return s.aws.describeBoundClusterAuth(cluster, path, s.clusterSSOBinding(cluster))
 }
 
 func (s *Service) DiscoverClusters(ctx context.Context, req DiscoverRequest) ([]DiscoveredCluster, error) {

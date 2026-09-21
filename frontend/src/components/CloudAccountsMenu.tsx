@@ -14,7 +14,10 @@ import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import cloudService from '../services/cloudService';
 import { normalizeStartUrl } from '../store/cloudAuthSlice';
+import { ssoSessionValidity } from '../utils/ssoSessionLabel';
+import { offersSsoConnect } from '../utils/clusterSsoConnect';
 import {
+  ClusterAuthInfo,
   ProviderAuthSummary,
   SSOAccount,
   SSOSessionStatus,
@@ -24,27 +27,18 @@ import GCPIcon from './GCPIcon';
 import AzureIcon from './AzureIcon';
 import LoginProgress from './cloud/LoginProgress';
 import AWSRegionSelect from './cloud/AWSRegionSelect';
+import ClusterSSOConnect from './cloud/ClusterSSOConnect';
 import './CloudAccountsMenu.css';
 
 const needsSignIn = (s: SSOSessionStatus) =>
   s.state === 'expired' || s.state === 'signed_out';
-
-export const formatTimeLeft = (expiresAt: number, now = Date.now()) => {
-  const diff = expiresAt - now;
-  if (diff <= 0) return 'expired';
-  const hours = Math.floor(diff / 3_600_000);
-  const minutes = Math.floor((diff % 3_600_000) / 60_000);
-  if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h left`;
-  if (hours > 0) return `${hours}h ${minutes}m left`;
-  return `${Math.max(minutes, 1)}m left`;
-};
 
 export const describeSession = (
   s: SSOSessionStatus,
 ): { text: string; tone: 'ok' | 'info' | 'attention' } => {
   switch (s.state) {
     case 'active':
-      return { text: `Signed in · ${formatTimeLeft(s.expiresAt)}`, tone: 'ok' };
+      return { text: `Signed in · ${ssoSessionValidity(s)}`, tone: 'ok' };
     case 'refreshable':
       return { text: 'Signed in · renewing', tone: 'info' };
     case 'expired':
@@ -126,7 +120,11 @@ const CloudAccountsMenu = () => {
     })),
   );
 
+  const currentTab = useStore((s) => s.currentTab);
   const [isOpen, setIsOpen] = useState(false);
+  // How the open cluster authenticates, to offer its AWS account and role here.
+  const [tabAuth, setTabAuth] = useState<ClusterAuthInfo | null>(null);
+  const [tabAuthVersion, setTabAuthVersion] = useState(0);
   const [showAddForm, setShowAddForm] = useState(false);
   const [newUrl, setNewUrl] = useState('');
   const [newRegion, setNewRegion] = useState('us-east-1');
@@ -153,6 +151,23 @@ const CloudAccountsMenu = () => {
     const timer = setInterval(() => setTick((t) => t + 1), 60_000);
     return () => clearInterval(timer);
   }, [isOpen, loadAuthSummary]);
+
+  useEffect(() => {
+    setTabAuth(null);
+    if (!isOpen || !currentTab) return;
+    let cancelled = false;
+    cloudService
+      .describeClusterAuth(currentTab)
+      .then((info) => {
+        if (!cancelled) setTabAuth(info);
+      })
+      .catch(() => {
+        if (!cancelled) setTabAuth(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, currentTab, tabAuthVersion]);
 
   useEffect(() => {
     const open = () => {
@@ -558,6 +573,25 @@ const CloudAccountsMenu = () => {
           </div>
 
           <div className="cloud-accounts-body">
+            {currentTab && tabAuth?.accountId && offersSsoConnect(tabAuth) && (
+              <>
+                <div className="ap-group-label">Current cluster</div>
+                <div className="cloud-accounts-current">
+                  <ClusterSSOConnect
+                    cluster={currentTab}
+                    accountId={tabAuth.accountId}
+                    binding={tabAuth.ssoBinding}
+                    onChanged={() => {
+                      setTabAuthVersion((v) => v + 1);
+                      window.dispatchEvent(
+                        new CustomEvent('cluster:retry', { detail: { cluster: currentTab } }),
+                      );
+                    }}
+                  />
+                </div>
+              </>
+            )}
+
             <div className="ap-group-label">AWS IAM Identity Center</div>
 
             {showAddForm && (

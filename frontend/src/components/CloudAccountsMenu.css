@@ -302,3 +302,8 @@
 .cloud-accounts-arrow {
   fill: var(--toolbar);
 }
+
+/* Account and role used for the open cluster. */
+.cloud-accounts-current {
+  padding: 2px 8px 10px;
+}

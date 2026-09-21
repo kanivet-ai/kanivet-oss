@@ -24,9 +24,11 @@ The account icon in the toolbar lists every identity Kanivet can see:
 
 - **AWS IAM Identity Center** portals: the ones you added in Kanivet, every
   `[sso-session …]` in `~/.aws/config`, and any portal that has a cached token.
-  Each row shows *Signed in · 6h left*, *Signed in · renewing*, *Expired · sign
-  in required*, or *Not signed in*. Expand a row to see the accounts assigned
-  to you.
+  Each row shows *Signed in · renews automatically*, *Signed in · renewing*,
+  *Expired · sign in required*, or *Not signed in*. A countdown such as
+  *Signed in · 40m left* appears only for a token that has no refresh token;
+  AWS access tokens last about an hour and the portal does not report when the
+  session itself ends. Expand a row to see the accounts assigned to you.
 - **Google Cloud**: the active gcloud account and project.
 - **Azure**: the Azure CLI user and subscription.
 
@@ -52,6 +54,15 @@ sign-in that fixes it:
 - **GKE**: *Sign in with gcloud*. **AKS**: *Sign in with Azure CLI*.
 - **Missing CLI or plugin**: an install hint for `aws`, `gcloud`,
   `gke-gcloud-auth-plugin`, `az` or `kubelogin`.
+- **EKS context that follows the active profile** (the usual result of
+  `aws eks update-kubeconfig` with Leapp, aws-vault or static keys, where the
+  exec block names no profile): if a signed-in access portal grants the
+  cluster's account, the pane offers *Connect with AWS SSO* with a role picker.
+  Kanivet then runs that context's `aws eks get-token` under a profile for the
+  chosen account and role. The choice is stored by Kanivet, not written to the
+  kubeconfig, so `kubectl` in a terminal keeps following your other tool. To
+  switch role later, or go back with *Use kubeconfig credentials*, open the
+  Cloud accounts menu while the cluster's tab is active.
 
 Each pane also shows the equivalent terminal command. Kanivet notices terminal
 sign-ins within a few seconds and reconnects failing clusters automatically.

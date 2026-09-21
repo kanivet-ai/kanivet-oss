@@ -509,7 +509,9 @@ function updateTrayMenu() {
           ? 'sign in required'
           : session.state === 'refreshable'
             ? 'refreshing'
-            : formatTimeLeft(session.expiresAt);
+            : session.refreshable
+              ? 'renews automatically'
+              : formatTimeLeft(session.expiresAt);
         return {
           label: `${needsSignIn ? '○' : '●'} ${session.label || session.startUrl} — ${status}`,
           enabled: needsSignIn,
