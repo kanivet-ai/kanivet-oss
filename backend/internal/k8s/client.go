@@ -1570,7 +1570,10 @@ func (c *Client) GetResourceCount(ctx context.Context, cluster string, gvr schem
 	}
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	list, err := metadataClient.Resource(gvr).List(timeoutCtx, metav1.ListOptions{Limit: 1, ResourceVersion: "0"})
+	// No ResourceVersion "0" here: a list served from the watch cache ignores
+	// Limit and returns every object, so the count of 780 pods downloaded 780
+	// pods. A limited list returns one object plus remainingItemCount.
+	list, err := metadataClient.Resource(gvr).List(timeoutCtx, metav1.ListOptions{Limit: 1})
 	if err != nil {
 		return 0, fmt.Errorf("failed to count resources: %w", err)
 	}
