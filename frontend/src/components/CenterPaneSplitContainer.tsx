@@ -4,6 +4,7 @@ import CenterPaneSplitPane, { SplitNode } from './CenterPaneSplitPane';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { initialCenterLayout, resolvePaneId } from '../utils/centerPaneLayout';
 import './CenterPaneSplitContainer.css';
 
 const countLeafNodes = (node: SplitNode): number => {
@@ -15,19 +16,12 @@ interface CenterPaneSplitContainerProps {
   tabId: string;
 }
 
-const getInitialLayout = (tabId: string): { rootNode: SplitNode; focusedNodeId: string; nodeCounter: number } => {
-  const tabState = useStore.getState().getCurrentTabState();
-  const rootNode = (tabState?.centerPaneLayout?.id
-    ? tabState.centerPaneLayout
-    : { id: 'root', type: 'resourceList', tabId }) as SplitNode;
-  const focusedNodeId = tabState?.focusedCenterPaneId || 'root';
-  const findMaxPaneId = (node: SplitNode): number => {
-    const match = node.id.match(/^pane-(\d+)$/);
-    const current = match ? parseInt(match[1], 10) : 0;
-    if (!node.children) return current;
-    return Math.max(current, ...node.children.map(findMaxPaneId));
-  };
-  return { rootNode, focusedNodeId, nodeCounter: findMaxPaneId(rootNode) + 1 };
+// Reads the layout of the tab this container renders, not of whichever tab
+// happens to be current. Layout.tsx keys the container by cluster, so this
+// runs again for every cluster tab.
+const getInitialLayout = (tabId: string) => {
+  const tab = useStore.getState().activeTabs.find((t) => t.id === tabId);
+  return initialCenterLayout(tab?.state, tabId);
 };
 
 const CenterPaneSplitContainer = ({ tabId }: CenterPaneSplitContainerProps) => {
@@ -109,15 +103,16 @@ const CenterPaneSplitContainer = ({ tabId }: CenterPaneSplitContainerProps) => {
     updateCurrentTabState({ activeResourceListTabByPane: perPaneMap });
   };
 
-  // On mount, ensure any resource list tabs without paneId are assigned to root
+  // On mount, adopt resource list tabs that no rendered pane would show: ones
+  // without a paneId, and ones tagged with a pane this layout does not contain.
   useEffect(() => {
     const { getCurrentTabState, updateResourceListTab } = useStore.getState();
     const tabState = getCurrentTabState();
-    if (tabState?.resourceListTabs) {
-      tabState.resourceListTabs
-        .filter((tab) => !tab.paneId)
-        .forEach((tab) => updateResourceListTab(tab.id, { paneId: 'root' }));
-    }
+    const layout = initialState.current.rootNode;
+    (tabState?.resourceListTabs || []).forEach((tab) => {
+      const paneId = resolvePaneId(layout, tab.paneId);
+      if (paneId !== tab.paneId) updateResourceListTab(tab.id, { paneId });
+    });
   }, [tabId]);
 
   const findNode = useCallback(
