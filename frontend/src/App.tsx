@@ -5,6 +5,7 @@ import SplashScreen from './components/SplashScreen';
 import StarProjectDialog from './components/StarProjectDialog';
 import { ThemeProvider, useTheme } from './components/ThemeProvider';
 import api from './services/api';
+import { isStarProjectPromptDismissed } from './utils/starProjectPromptPreference';
 
 const AppInner = () => {
   const { theme, resolvedTheme } = useTheme();
@@ -22,7 +23,7 @@ const AppInner = () => {
       .finally(() => {
         if (cancelled) return;
         setIsLoading(false);
-        setShowStarProjectDialog(true);
+        setShowStarProjectDialog(!isStarProjectPromptDismissed());
         const splash = document.getElementById('native-splash');
         if (splash) {
           splash.classList.add('hiding');
