@@ -1,4 +1,5 @@
 import Dialog from './common/Dialog';
+import { Button } from '@radix-ui/themes';
 
 const GITHUB_REPOSITORY_URL = 'https://github.com/kanivet-ai/kanivet-oss';
 
@@ -11,6 +12,14 @@ const StarProjectDialog = ({ isOpen, onClose }: StarProjectDialogProps) => {
   const handleStarProject = () => {
     window.open(GITHUB_REPOSITORY_URL, '_blank', 'noopener,noreferrer');
     onClose();
+  };
+
+  const handleReportBug = () => {
+    window.open(
+      'https://github.com/kanivet-ai/kanivet-oss/issues/new?template=bug_report.md',
+      '_blank',
+      'noopener,noreferrer',
+    );
   };
 
   return (
@@ -30,6 +39,14 @@ const StarProjectDialog = ({ isOpen, onClose }: StarProjectDialogProps) => {
         <p style={{ margin: 0 }}>
           It helps others discover the project and supports the community.
         </p>
+        <Button
+          variant="soft"
+          color="gray"
+          onClick={handleReportBug}
+          style={{ justifySelf: 'start' }}
+        >
+          Report a bug
+        </Button>
       </div>
     </Dialog>
   );
