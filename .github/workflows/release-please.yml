@@ -13,9 +13,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validation:
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+      pull-requests: read
+
   prepare:
+    needs: validation
     runs-on: ubuntu-24.04
     permissions:
+      actions: write
       contents: write
       issues: write
       pull-requests: write
@@ -44,6 +52,15 @@ jobs:
           script: |
             const plan = require('./scripts/release-plan.cjs');
             await plan({ github, context, core });
+      - name: Dispatch CI for the pending release-please PR
+        if: steps.plan.outputs.channel == 'rc' && steps.plan.outputs.pr != ''
+        uses: actions/github-script@v7
+        env:
+          RELEASE_PR: ${{ steps.plan.outputs.pr }}
+        with:
+          script: |
+            const { dispatchPendingReleaseCi } = require('./scripts/dispatch-ci.cjs');
+            await dispatchPendingReleaseCi({ github, context, pr: process.env.RELEASE_PR });
 
   release-candidate:
     needs: prepare
