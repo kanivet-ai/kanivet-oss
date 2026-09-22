@@ -52,6 +52,7 @@ const StarProjectDialog = ({ isOpen, onClose }: StarProjectDialogProps) => {
           <KanivetMark size={32} tile />
           <RDialog.Title
             size="4"
+            mb="0"
             style={{
               fontFamily: 'var(--font-sans)',
               letterSpacing: 'var(--letter-spacing-tight)',
