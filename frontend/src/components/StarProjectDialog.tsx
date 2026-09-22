@@ -1,5 +1,12 @@
+import * as Checkbox from '@radix-ui/react-checkbox';
+import { CheckIcon } from '@radix-ui/react-icons';
 import { Button, Dialog as RDialog, Flex } from '@radix-ui/themes';
+import { useState } from 'react';
 import KanivetMark from './icons/KanivetMark';
+import {
+  isStarProjectPromptDismissed,
+  setStarProjectPromptDismissed,
+} from '../utils/starProjectPromptPreference';
 
 const GITHUB_REPOSITORY_URL = 'https://github.com/kanivet-ai/kanivet-oss';
 
@@ -9,6 +16,15 @@ interface StarProjectDialogProps {
 }
 
 const StarProjectDialog = ({ isOpen, onClose }: StarProjectDialogProps) => {
+  const [dontShowAgain, setDontShowAgain] = useState(
+    isStarProjectPromptDismissed,
+  );
+
+  const handleDontShowAgainChange = (checked: boolean) => {
+    setDontShowAgain(checked);
+    setStarProjectPromptDismissed(checked);
+  };
+
   const handleStarProject = () => {
     window.open(GITHUB_REPOSITORY_URL, '_blank', 'noopener,noreferrer');
     onClose();
@@ -48,6 +64,30 @@ const StarProjectDialog = ({ isOpen, onClose }: StarProjectDialogProps) => {
           If Kanivet helps you navigate Kubernetes, a GitHub star helps more
           people discover it.
         </RDialog.Description>
+        <Flex asChild align="center" gap="2" mt="3">
+          <label style={{ cursor: 'pointer', fontSize: 13 }}>
+            <Checkbox.Root
+              checked={dontShowAgain}
+              onCheckedChange={handleDontShowAgainChange}
+              aria-label="Don’t show this again"
+              style={{
+                alignItems: 'center',
+                background: 'var(--gray-a3)',
+                border: '1px solid var(--gray-a6)',
+                borderRadius: 4,
+                display: 'inline-flex',
+                height: 16,
+                justifyContent: 'center',
+                width: 16,
+              }}
+            >
+              <Checkbox.Indicator>
+                <CheckIcon />
+              </Checkbox.Indicator>
+            </Checkbox.Root>
+            Don’t show this again
+          </label>
+        </Flex>
         <Flex
           gap="2"
           mt="4"

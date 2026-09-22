@@ -10,7 +10,7 @@ const source = readFileSync(
 describe('StarProjectDialog', () => {
   it('uses a local accessible Radix dialog with the Kanivet tile', () => {
     expect(source).toContain(
-      "import { Button, Dialog as RDialog, Flex } from '@radix-ui/themes';",
+      "import * as Checkbox from '@radix-ui/react-checkbox';",
     );
     expect(source).toContain("import KanivetMark from './icons/KanivetMark';");
     expect(source).toMatch(
@@ -21,6 +21,9 @@ describe('StarProjectDialog', () => {
       /<RDialog\.Title[\s\S]*?>\s*Enjoying Kanivet\?\s*<\/RDialog\.Title>/,
     );
     expect(source).toMatch(/<RDialog\.Description>[\s\S]*?GitHub star/);
+    expect(source).toMatch(/<Checkbox\.Root[\s\S]*?Don’t show this again/);
+    expect(source).toContain('aria-label="Don’t show this again"');
+    expect(source).toContain('onCheckedChange={handleDontShowAgainChange}');
   });
 
   it('provides bug reporting and star actions with the expected close behavior', () => {
@@ -35,5 +38,6 @@ describe('StarProjectDialog', () => {
     expect(source).toMatch(
       /window\.open\(GITHUB_REPOSITORY_URL, '_blank', 'noopener,noreferrer'\);\s*onClose\(\);/,
     );
+    expect(source).toContain('setStarProjectPromptDismissed(checked);');
   });
 });
