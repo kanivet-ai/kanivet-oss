@@ -19,6 +19,7 @@ import {
   ChevronRightIcon,
   LayersIcon,
   GearIcon,
+  ExclamationTriangleIcon,
 } from '@radix-ui/react-icons';
 import KeyboardShortcutsEditor from './KeyboardShortcutsEditor';
 import SSOSessionManager from './SSOSessionManager';
@@ -395,6 +396,14 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
             aria-label="Search"
           >
             <MagnifyingGlassIcon width={16} height={16} />
+          </button>
+          <button
+            className="theme-toggle"
+            onClick={() => window.open('https://github.com/kanivet-ai/kanivet-oss/issues/new?template=bug_report.md', '_blank', 'noopener,noreferrer')}
+            title="Report a bug"
+            aria-label="Report a bug"
+          >
+            <ExclamationTriangleIcon width={16} height={16} />
           </button>
           {onOpenSettings && (
             <button
