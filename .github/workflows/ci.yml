@@ -1,0 +1,121 @@
+name: Pull request and application validation
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  release-eligibility:
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Find the current release-please PR
+        id: release-pr
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = 'release-please--branches--main';
+            if (context.ref !== `refs/heads/${branch}`) {
+              core.setFailed(`workflow_dispatch is reserved for the ${branch} release-please branch.`);
+              return;
+            }
+            const pulls = await github.paginate(github.rest.pulls.list, { ...context.repo, state: 'open', base: 'main', per_page: 100 });
+            const pr = pulls.find(candidate => candidate.head.ref === branch && candidate.head.repo?.full_name === `${context.repo.owner}/${context.repo.repo}` && candidate.labels.some(label => label.name === 'autorelease: pending'));
+            if (!pr) core.setFailed('No current same-repository pending release-please PR was found.');
+            else {
+              core.setOutput('title', pr.title);
+              core.setOutput('body', pr.body || '');
+            }
+      - name: Validate release-please PR title
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title || steps.release-pr.outputs.title }}
+          PR_BODY: ${{ github.event.pull_request.body || steps.release-pr.outputs.body || '' }}
+        run: node scripts/validate-release-title.cjs
+
+  frontend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install frontend dependencies
+        working-directory: frontend
+        env:
+          HUSKY: '0'
+        run: npm ci
+      - name: Typecheck frontend
+        working-directory: frontend
+        run: npm run typecheck
+      - name: Test frontend
+        working-directory: frontend
+        run: npm test
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build
+
+  backend:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Vet backend
+        working-directory: backend
+        run: go vet ./...
+      - name: Test backend with the race detector
+        working-directory: backend
+        run: go test -race ./...
+      - name: Build production backend
+        working-directory: backend
+        run: go build -tags production -trimpath -o /tmp/kanivet-backend ./cmd/main.go
+
+  release-tooling:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python test dependency
+        run: python3 -m pip install --disable-pip-version-check PyYAML==6.0.2
+      - name: Test release tooling
+        run: |
+          node --test scripts/*.test.cjs
+          python3 scripts/collect-release.test.py
+          python3 scripts/create_updater_manifest.test.py
+          bash scripts/r2-budget.test.sh

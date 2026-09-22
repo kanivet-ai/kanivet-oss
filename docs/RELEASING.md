@@ -8,14 +8,14 @@ The [security policy](../SECURITY.md#supported-versions) prioritizes the latest 
 
 ## Automated release flow
 
-1. Reviewed changes merge into `main` with Conventional Commits-style PR titles.
+1. Reviewed changes merge into `main` with Conventional Commits-style PR titles. The PR validation checks the title and release-please configuration—not PR-body release footers—to determine the bump. Use squash-only merging with GitHub's squash commit title set to the PR title, and do not modify that final title during merge: it is the merged release-please input.
 2. [release-please.yml](../.github/workflows/release-please.yml) updates the pending version PR and builds release candidates linked from it.
 3. A founder or delegated release coordinator reviews the proposed version and changelog, including breaking changes, licensing, and security disclosures.
 4. Merging the release-please PR builds the stable artifacts. The release is published after the required platform jobs succeed.
 
 [publish.yml](../.github/workflows/publish.yml) runs application tests, builds the frontend and production Go backend, packages macOS, Windows, and Linux artifacts, and collects update metadata. macOS packaging requires signing/notarization credentials. Windows builds produce a combined x64/ARM64 installer; Linux and macOS use architecture-specific artifacts.
 
-Use [test-release.yml](../.github/workflows/test-release.yml) for a packaging validation run with publication disabled. It still requires the configured build environment and macOS secrets. Consult [SETUP.md](../SETUP.md) for local builds.
+Use [test-release.yml](../.github/workflows/test-release.yml) for a packaging validation run with publication disabled. It still requires the configured build environment and macOS secrets. The read-only Ubuntu CI workflow runs frontend, backend, and release-tooling validation without signing, publication, or secrets. On `main`, the release workflow calls that reusable CI before release preparation, so there is no duplicate standalone `push` CI run. The trusted release-please PR is dispatched the same read-only CI because `GITHUB_TOKEN` updates do not create a `pull_request` event. Consult [SETUP.md](../SETUP.md) for local builds.
 
 ## Maintainer checklist
 
