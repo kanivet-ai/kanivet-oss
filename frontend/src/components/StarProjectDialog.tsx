@@ -1,5 +1,5 @@
-import Dialog from './common/Dialog';
-import { Button } from '@radix-ui/themes';
+import { Button, Dialog as RDialog, Flex } from '@radix-ui/themes';
+import KanivetMark from './icons/KanivetMark';
 
 const GITHUB_REPOSITORY_URL = 'https://github.com/kanivet-ai/kanivet-oss';
 
@@ -23,32 +23,51 @@ const StarProjectDialog = ({ isOpen, onClose }: StarProjectDialogProps) => {
   };
 
   return (
-    <Dialog
-      isOpen={isOpen}
-      onClose={onClose}
-      onConfirm={handleStarProject}
-      title="Enjoying Kanivet?"
-      confirmText="Star on GitHub"
-      cancelText="Maybe later"
-    >
-      <div style={{ display: 'grid', gap: 8 }}>
-        <p style={{ margin: 0 }}>
-          If Kanivet helps you navigate and troubleshoot Kubernetes, please
-          consider starring the project on GitHub.
-        </p>
-        <p style={{ margin: 0 }}>
-          It helps others discover the project and supports the community.
-        </p>
-        <Button
-          variant="soft"
-          color="gray"
-          onClick={handleReportBug}
-          style={{ justifySelf: 'start' }}
+    <RDialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <RDialog.Content
+        size="2"
+        maxWidth="400px"
+        style={{
+          width: 'calc(100vw - 32px)',
+          fontFamily: 'var(--font-sans)',
+        }}
+      >
+        <Flex align="center" gap="3" mb="3">
+          <KanivetMark size={32} tile />
+          <RDialog.Title
+            size="4"
+            style={{
+              fontFamily: 'var(--font-sans)',
+              letterSpacing: 'var(--letter-spacing-tight)',
+            }}
+          >
+            Enjoying Kanivet?
+          </RDialog.Title>
+        </Flex>
+        <RDialog.Description>
+          If Kanivet helps you navigate Kubernetes, a GitHub star helps more
+          people discover it.
+        </RDialog.Description>
+        <Flex
+          gap="2"
+          mt="4"
+          align="center"
+          justify="between"
+          wrap="wrap"
+          style={{ rowGap: 8 }}
         >
-          Report a bug
-        </Button>
-      </div>
-    </Dialog>
+          <Button variant="soft" color="gray" onClick={handleReportBug}>
+            Report a bug
+          </Button>
+          <Flex gap="2" wrap="wrap" style={{ marginLeft: 'auto' }}>
+            <Button variant="soft" color="gray" onClick={onClose}>
+              Maybe later
+            </Button>
+            <Button onClick={handleStarProject}>Star on GitHub</Button>
+          </Flex>
+        </Flex>
+      </RDialog.Content>
+    </RDialog.Root>
   );
 };
 
