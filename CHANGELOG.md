@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.3.0...v0.4.0) (2026-09-22)
+
+
+### Features
+
+* add GitHub star prompt and bug reporting with persistent opt-out ([9c08c20](https://github.com/kanivet-ai/kanivet-oss/commit/9c08c20a2a8dbfe9b60aabdd130dcaedd4af4b93))
+
+
+### CI
+
+* validate release eligibility and test app before publishing ([#26](https://github.com/kanivet-ai/kanivet-oss/issues/26)) ([a0657a3](https://github.com/kanivet-ai/kanivet-oss/commit/a0657a3a8ab64e28d863f4eeec3e5305f61cd92b))
+
 ## [0.3.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.2.0...v0.3.0) (2026-09-21)
 
 
