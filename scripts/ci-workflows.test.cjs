@@ -3,8 +3,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/ci.yml'), 'utf8');
-const releaseWorkflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/release-please.yml'), 'utf8');
+// Windows runners check files out with CRLF line endings; normalize so the
+// newline-anchored patterns below match on every platform.
+const readWorkflow = (name) => fs.readFileSync(path.join(__dirname, '../.github/workflows', name), 'utf8').replace(/\r\n/g, '\n');
+
+const workflow = readWorkflow('ci.yml');
+const releaseWorkflow = readWorkflow('release-please.yml');
 
 test('CI validates every PR, including title edits, and can be dispatched or reused by release publication', () => {
   assert.match(workflow, /pull_request:\n    types: \[opened, synchronize, reopened, edited\]/);
