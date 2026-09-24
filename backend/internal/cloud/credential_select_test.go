@@ -3,6 +3,7 @@ package cloud
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -151,7 +152,7 @@ func TestAWSSignInChangeForgetsCredentialChecks(t *testing.T) {
 	_ = s.AWSProfileForCluster(bindingTestCluster)
 
 	ids.set("sandbox-admin", "243517631187")
-	s.NotifyExternalConfigChange("/home/u/.aws/sso/cache/token.json")
+	s.NotifyExternalConfigChange(filepath.Join("home", "u", ".aws", "sso", "cache", "token.json"))
 
 	if got := s.AWSProfileForCluster(bindingTestCluster); got != "sandbox-admin" {
 		t.Errorf("profile = %q after an AWS sign-in change, want the bound role again", got)
