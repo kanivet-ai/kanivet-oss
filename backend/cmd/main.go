@@ -639,6 +639,7 @@ func main() {
 		cloudService.SetOnBatchComplete(invalidateClusterCache)
 		cloudService.SetKubeconfigResolver(k8sClient.KubeconfigPathForContext)
 		k8sClient.SetAWSProfileResolver(cloudService.AWSProfileForCluster)
+		k8sClient.SetOnCacheReset(cloudService.ForgetCredentialChecks)
 		cloudService.SetOnAuthChanged(func(provider cloud.Provider) {
 			// Auth changed (sign-in, silent refresh, terminal login, sign-out):
 			// drop cached clients so the next request re-runs the exec plugin,
