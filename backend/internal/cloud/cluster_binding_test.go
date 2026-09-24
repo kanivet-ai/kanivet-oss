@@ -71,6 +71,8 @@ sso_role_name = AdministratorAccess
 	}
 	s := NewService(&db.DB{DB: gdb})
 	s.SetKubeconfigResolver(func(string) string { return kubeconfigPath })
+	// Every profile reaches the cluster's account unless a test says otherwise.
+	s.credentials = newCredentialChecker(func(context.Context, string) (string, error) { return "243517631187", nil })
 	return s, kubeconfigPath
 }
 

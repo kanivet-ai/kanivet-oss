@@ -136,6 +136,9 @@ type Client struct {
 	// awsProfileResolver names the AWS profile Kanivet should use for a
 	// context instead of whatever its exec block resolves to. Guarded by mu.
 	awsProfileResolver func(cluster string) string
+	// onCacheReset runs after cached clients are dropped, so whatever chose
+	// their credentials can look again. Guarded by mu.
+	onCacheReset func()
 }
 
 // SetAWSProfileResolver installs the lookup for per-context AWS profiles. The
@@ -144,6 +147,15 @@ type Client struct {
 func (c *Client) SetAWSProfileResolver(resolve func(cluster string) string) {
 	c.mu.Lock()
 	c.awsProfileResolver = resolve
+	c.mu.Unlock()
+}
+
+// SetOnCacheReset registers a callback for RefreshClusterCache. Dropped
+// clients are rebuilt on the next request, and that is when a different
+// credential source may be the one that works.
+func (c *Client) SetOnCacheReset(fn func()) {
+	c.mu.Lock()
+	c.onCacheReset = fn
 	c.mu.Unlock()
 }
 
@@ -289,7 +301,11 @@ func (c *Client) RefreshClusterCache(cluster string) {
 		delete(c.bulkMetadata, cluster)
 		delete(c.discovery, cluster)
 	}
+	onReset := c.onCacheReset
 	c.mu.Unlock()
+	if onReset != nil {
+		onReset()
+	}
 	c.resourceNameMu.Lock()
 	if cluster == "" {
 		clear(c.resourceNameCache)
