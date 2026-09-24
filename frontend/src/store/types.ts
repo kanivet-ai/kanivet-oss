@@ -286,6 +286,12 @@ export interface ResourceSlice {
 export interface RealtimeSlice {
   startRealtime: (forceRefresh?: boolean) => void;
   _startRealtimeInternal: (forceRefresh?: boolean) => void;
+  // Takes the on-screen subscription off screen but keeps it open, so a later
+  // switch back to it is instant.
+  parkRealtime: () => void;
+  // Closes the subscriptions, on screen or parked, whose topic matches.
+  releaseRealtimeTopics: (shouldRelease: (topic: string) => boolean) => void;
+  // Closes every subscription.
   stopRealtime: () => void;
 }
 

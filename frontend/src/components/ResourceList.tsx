@@ -32,6 +32,9 @@ import { getResourceIcon } from '../utils/resourceIcons';
 import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
 import './ResourceList.css';
 
+// Resource-list tabs that show a full page rather than a resource table.
+const PAGE_KINDS = new Set(['ClusterDashboard', 'FinOpsDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);
+
 interface ResourceListProps {
   paneId?: string;
   isFocusedPane?: boolean;
@@ -120,13 +123,14 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   const [drainResults, setDrainResults] = useState<any>(null);
   const isKeyboardNavigationRef = useRef(false);
 
-  const getResourceKey = useCallback((item: any) => {
-    const group = selectedNode?.data?.group || '_';
-    const version = selectedNode?.data?.version || 'v1';
-    const kind = selectedNode?.data?.kind || '';
-    const namespace = item.namespace || '_';
-    return `${group}/${version}/${kind}/${namespace}/${item.name}`;
-  }, [selectedNode]);
+  // One key function per resource type, so a kept-alive table gets the same
+  // function back when its tab is shown again and can skip its per-row work.
+  const resourceKeyFnsRef = useRef(new Map<string, (item: any) => string>());
+  const resourceKeyPrefix = `${selectedNode?.data?.group || '_'}/${selectedNode?.data?.version || 'v1'}/${selectedNode?.data?.kind || ''}/`;
+  if (!resourceKeyFnsRef.current.has(resourceKeyPrefix)) {
+    resourceKeyFnsRef.current.set(resourceKeyPrefix, (item: any) => `${resourceKeyPrefix}${item.namespace || '_'}/${item.name}`);
+  }
+  const getResourceKey = resourceKeyFnsRef.current.get(resourceKeyPrefix)!;
 
   const actions = useResourceListActions({
     selectedNode,
@@ -645,6 +649,11 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
 
   const isDashboardActiveTab = activeTab?.resource?.kind === 'ClusterDashboard';
 
+  const keptListsRef = useRef(new Map<string, React.ReactNode>());
+  for (const id of [...keptListsRef.current.keys()]) {
+    if (!allCenterTabs.some((t) => t.id === id)) keptListsRef.current.delete(id);
+  }
+
   return (
     <div
       className={`resource-list ${focusArea === 'list' ? 'focused' : ''}`}
@@ -713,8 +722,6 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             setActiveDetailTab(tabId);
           } else if (!paneId && tab && 'type' in tab && (tab.type === 'logs' || tab.type === 'shell' || tab.type === 'edit')) {
             setActiveBottomTab(tabId);
-          } else if (!paneId) {
-            setActiveResourceListTab(tabId);
           }
         }}
         className="resource-list-tabs-root"
@@ -929,18 +936,39 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             </div>
           </div>
         ) : (
-          allCenterTabs.map((tab) => {
+          <div className="resource-list-tab-panels">
+          {allCenterTabs.map((tab) => {
             const isDetailTabType = 'item' in tab;
             const isBottomTabType = 'type' in tab && (tab.type === 'logs' || tab.type === 'deployment-logs' || tab.type === 'shell' || tab.type === 'edit' || tab.type === 'trace');
+            const isActive = activeTabId === tab.id;
+            const isListTab = !isDetailTabType && !isBottomTabType && !PAGE_KINDS.has(tab.resource?.kind);
+
+            // A list tab keeps its table mounted while hidden. Its last rendered
+            // element is reused as is, so React skips it entirely and switching
+            // back shows the existing rows instead of rebuilding the table.
+            let listContent: React.ReactNode = null;
+            if (isListTab) {
+              if (isActive) {
+                listContent = renderResourceList();
+                keptListsRef.current.set(tab.id, listContent);
+              } else {
+                listContent = keptListsRef.current.get(tab.id) ?? null;
+              }
+            }
 
             return (
-              <Tabs.Content key={tab.id} value={tab.id} className="resource-list-tab-content">
+              <Tabs.Content
+                key={tab.id}
+                value={tab.id}
+                className={`resource-list-tab-content${isListTab && listContent !== null ? ' kept-alive' : ''}`}
+                forceMount={isListTab && listContent !== null ? true : undefined}
+              >
                 {isDetailTabType ? (
                   <DetailTabContent tab={tab} />
                 ) : isBottomTabType ? (
                   <BottomTabContent tab={tab} />
                 ) : (
-                  <div style={{ display: activeTabId === tab.id ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+                  <div style={{ display: isActive || isListTab ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
                     {tab.resource?.kind === 'ClusterDashboard' ? (
                       null
                     ) : tab.resource?.kind === 'FinOpsDashboard' ? (
@@ -952,13 +980,14 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
                     ) : (
-                      renderResourceList()
+                      listContent
                     )}
                   </div>
                 )}
               </Tabs.Content>
             );
-          })
+          })}
+          </div>
         )}
       </Tabs.Root>
 
