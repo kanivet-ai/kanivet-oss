@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -125,29 +126,8 @@ func TestConnectionConfigValidation(t *testing.T) {
 }
 
 func TestConnectionSendBackpressure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upgrader := websocket.Upgrader{}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		defer func() {
-			if err := conn.Close(); err != nil {
-				t.Logf("Failed to close connection in handler: %v", err)
-			}
-		}()
-
-		// Don't read messages to fill up the channel
-		time.Sleep(100 * time.Millisecond)
-	}))
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	config := &ConnectionConfig{
 		MaxMessageSize:  1024,
 		WriteTimeout:    time.Second,
@@ -155,8 +135,13 @@ func TestConnectionSendBackpressure(t *testing.T) {
 		PingInterval:    time.Minute,
 		PongWait:        2 * time.Minute,
 	}
-
-	wsConn := NewConnection("test", conn, config)
+	wsConn := &Connection{
+		ctx:      ctx,
+		cancel:   cancel,
+		sendChan: make(chan []byte, config.SendChannelSize),
+		config:   config,
+	}
+	wsConn.state.Store(int32(StateConnected))
 
 	// Fill the channel
 	if err := wsConn.Send([]byte("msg1")); err != nil {
@@ -167,13 +152,9 @@ func TestConnectionSendBackpressure(t *testing.T) {
 	}
 
 	// This should trigger backpressure
-	err = wsConn.Send([]byte("msg3"))
+	err := wsConn.Send([]byte("msg3"))
 	if err != ErrRateLimitExceeded {
 		t.Errorf("Expected ErrRateLimitExceeded, got %v", err)
-	}
-
-	if err := wsConn.Close(); err != nil {
-		t.Logf("Failed to close connection: %v", err)
 	}
 }
 
