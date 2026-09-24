@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.4.0...v0.5.0) (2026-09-24)
+
+
+### Features
+
+* **frontend:** Perf/fast tab switching ([#30](https://github.com/kanivet-ai/kanivet-oss/issues/30)) ([c68224e](https://github.com/kanivet-ai/kanivet-oss/commit/c68224e70dbb986ce4177b4db61c60685d60a360))
+
+
+### Bug Fixes
+
+* normalize CRLF when testing workflow files on Windows ([#28](https://github.com/kanivet-ai/kanivet-oss/issues/28)) ([7942edc](https://github.com/kanivet-ai/kanivet-oss/commit/7942edc7bf976da730d84f98b59b089b5696d831))
+* resolve Windows release-candidate AWS config test failure ([#31](https://github.com/kanivet-ai/kanivet-oss/issues/31)) ([fe88541](https://github.com/kanivet-ai/kanivet-oss/commit/fe88541745f994d6df71a9adb21253cced4f074a))
+
 ## [0.4.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.3.0...v0.4.0) (2026-09-22)
 
 
