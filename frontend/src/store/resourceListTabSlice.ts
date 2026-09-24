@@ -2,6 +2,15 @@ import { StateCreator } from 'zustand';
 import { getResourceCategory } from '../utils/resourceUtils';
 import { resolvePaneId } from '../utils/centerPaneLayout';
 import { ResourceListTabSlice, StoreState, ResourceListTab } from './types';
+import { itemsTopic, liveItemsFor } from './realtimeSlice';
+
+// A tab's items taken from its still-open subscription when there is one, so an
+// activated tab shows current rows at once instead of its last snapshot.
+const withLiveItems = (rt: ResourceListTab): ResourceListTab => {
+  if (rt.resource.kind === 'ClusterDashboard') return rt;
+  const live = liveItemsFor(itemsTopic(rt.cluster, rt.resource));
+  return live && live !== rt.items ? { ...rt, items: live } : rt;
+};
 
 export const createResourceListTabSlice: StateCreator<StoreState, [], [], ResourceListTabSlice> = (set, get) => ({
   openResourceListTab: async (resource: any, cluster: string, isPinned: boolean = false, paneId?: string) => {
@@ -40,11 +49,14 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
 
     if (existingTab) {
       const ns = existingTab.selectedNamespaces;
+      const current = withLiveItems(existingTab);
+      const live = current !== existingTab;
       set((state) => ({
         activeTabs: state.activeTabs.map((t) =>
           t.id === cluster ? {
-            ...t, state: { ...t.state, activeResourceListTab: existingTab.id, listItems: existingTab.items, selectedItem: existingTab.selectedItem,
-              resourceListTabs: t.state.resourceListTabs.map((rt) => rt.id === existingTab.id ? { ...rt, isPinned: isPinned || rt.isPinned } : rt),
+            ...t, state: { ...t.state, activeResourceListTab: existingTab.id, listItems: current.items, selectedItem: existingTab.selectedItem,
+              ...(live ? { isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined } : {}),
+              resourceListTabs: t.state.resourceListTabs.map((rt) => rt.id === existingTab.id ? { ...rt, items: current.items, isPinned: isPinned || rt.isPinned } : rt),
               activeResourceListTabByPane: { ...(t.state.activeResourceListTabByPane || {}), [paneKey]: existingTab.id },
               selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all',
             },
@@ -60,13 +72,16 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
         node = { id: nodeId, label: existingTab.resource.name, type: 'resource' as const, data: existingTab.resource };
       }
       get().selectNode(node);
+      // Pinning an open preview tab moves it among the pinned tabs, as a newly
+      // opened pinned tab would be placed.
+      if (isPinned && !existingTab.isPinned) get().pinResourceListTab(existingTab.id);
       return;
     }
 
-    const topic = `items:${cluster}:${resource.group || ''}:${resource.version}:${resource.name}:`;
+    const topic = itemsTopic(cluster, resource);
     const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache || new Map();
     const topicCache = cacheMap.get(topic);
-    const items = topicCache ? Array.from(topicCache.values()) : [];
+    const items = liveItemsFor(topic) ?? (topicCache ? Array.from(topicCache.values()) : []);
 
     let newResourceListTabs = tab.state.resourceListTabs;
     if (!isPinned) {
@@ -94,8 +109,14 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     const tab = activeTabs.find((t) => t.id === currentTab);
     if (!tab) return;
     const closingActiveTab = tab.state.activeResourceListTab === tabId;
-    if (closingActiveTab) get().stopRealtime();
     const newTabs = tab.state.resourceListTabs.filter((rt) => rt.id !== tabId);
+    const closing = tab.state.resourceListTabs.find((rt) => rt.id === tabId);
+    if (closing) {
+      const topic = itemsTopic(closing.cluster, closing.resource);
+      if (!newTabs.some((rt) => itemsTopic(rt.cluster, rt.resource) === topic)) {
+        get().releaseRealtimeTopics((t) => t === topic);
+      }
+    }
     let newActiveTab = tab.state.activeResourceListTab;
     const perPaneMap = { ...(tab.state.activeResourceListTabByPane || {}) };
     Object.keys(perPaneMap).forEach((paneId) => {
@@ -138,8 +159,10 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     const { activeTabs, currentTab } = get();
     const tab = activeTabs.find((t) => t.id === currentTab);
     if (!tab) return;
-    const resourceListTab = tab.state.resourceListTabs.find((rt) => rt.id === tabId);
-    if (!resourceListTab) return;
+    const storedTab = tab.state.resourceListTabs.find((rt) => rt.id === tabId);
+    if (!storedTab) return;
+    const resourceListTab = withLiveItems(storedTab);
+    const live = resourceListTab !== storedTab;
 
     let selectedNode;
     const resource = resourceListTab.resource;
@@ -154,7 +177,15 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     const ns = resourceListTab.selectedNamespaces;
     set((state) => ({
       activeTabs: state.activeTabs.map((t) =>
-        t.id === currentTab ? { ...t, state: { ...t.state, activeResourceListTab: tabId, listItems: resourceListTab.items, selectedItem: resourceListTab.selectedItem, selectedNode, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all' } } : t
+        t.id === currentTab ? {
+          ...t, state: {
+            ...t.state, activeResourceListTab: tabId, listItems: resourceListTab.items, selectedItem: resourceListTab.selectedItem, selectedNode, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all',
+            ...(live ? {
+              resourceListTabs: t.state.resourceListTabs.map((rt) => rt.id === tabId ? { ...rt, items: resourceListTab.items } : rt),
+              isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined,
+            } : {}),
+          },
+        } : t
       ),
     }));
     if (resourceListTab.resource.kind !== 'ClusterDashboard') get().startRealtime(true);
@@ -166,7 +197,8 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     if (!tab || !paneId) return;
     const current = tab.state.activeResourceListTabByPane || {};
     const next = { ...current, [paneId]: tabId };
-    const resourceListTab = tab.state.resourceListTabs.find((rt) => rt.id === tabId);
+    const storedTab = tab.state.resourceListTabs.find((rt) => rt.id === tabId);
+    const resourceListTab = storedTab && withLiveItems(storedTab);
 
     if (resourceListTab) {
       let selectedNode;
@@ -178,7 +210,14 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
         selectedNode = { id: nodeId, label: resourceListTab.resource.name, type: 'resource' as const, data: resourceListTab.resource };
       }
       const ns = resourceListTab.selectedNamespaces;
-      get().updateCurrentTabState({ activeResourceListTabByPane: next, selectedNode, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all' });
+      const live = resourceListTab !== storedTab;
+      get().updateCurrentTabState({
+        activeResourceListTabByPane: next, selectedNode, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all',
+        ...(live ? {
+          resourceListTabs: tab.state.resourceListTabs.map((rt) => rt.id === tabId ? { ...rt, items: resourceListTab.items } : rt),
+          isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined,
+        } : {}),
+      });
       if (resourceListTab.resource.kind !== 'ClusterDashboard') get().startRealtime(true);
     } else {
       get().updateCurrentTabState({ activeResourceListTabByPane: next });

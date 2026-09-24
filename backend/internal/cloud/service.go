@@ -38,6 +38,7 @@ type Service struct {
 
 	onAuthChanged      AuthChangedFunc
 	kubeconfigResolver func(cluster string) string
+	credentials        *credentialChecker
 
 	summaryMu     sync.Mutex
 	gcpSummary    *ProviderAuthSummary
@@ -57,6 +58,7 @@ func NewService(database *db.DB) *Service {
 		db:            database,
 		importJobs:    make(map[string]*BatchImportJob),
 		summaryFlight: make(map[Provider]chan struct{}),
+		credentials:   newCredentialChecker(awsIdentity),
 	}
 	s.aws.SetOnAuthChanged(func() { s.notifyAuthChanged(ProviderAWS) })
 	s.gcp.SetOnAuthChanged(func() { s.invalidateProviderSummary(ProviderGCP); s.notifyAuthChanged(ProviderGCP) })
@@ -83,6 +85,9 @@ func (s *Service) SetKubeconfigResolver(fn func(cluster string) string) {
 }
 
 func (s *Service) notifyAuthChanged(provider Provider) {
+	if provider == ProviderAWS {
+		s.credentials.forget()
+	}
 	s.mu.RLock()
 	fn := s.onAuthChanged
 	s.mu.RUnlock()

@@ -122,17 +122,15 @@ const TreeNode = ({
     if (disabled) return;
 
     if (node.type === 'resource' || node.type === 'overview' || node.type === 'argo-overview' || node.type === 'helm') {
-      // Single vs double click: double click pins the tab
+      // The first click opens the resource at once; a second click within the
+      // double-click window pins the tab it opened.
       if (clickTimer) {
         clearTimeout(clickTimer);
         setClickTimer(null);
         onNodeClick(node, true);
       } else {
-        const timer = setTimeout(() => {
-          setClickTimer(null);
-          onNodeClick(node, false);
-        }, 200);
-        setClickTimer(timer);
+        onNodeClick(node, false);
+        setClickTimer(setTimeout(() => setClickTimer(null), 200));
       }
     } else {
       // For non-resource nodes, just expand/collapse

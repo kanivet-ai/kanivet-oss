@@ -131,11 +131,15 @@ type Client struct {
 
 	contextIndexMu    sync.RWMutex
 	contextIndex      map[string]string
+	contextProviders  map[string]string
 	contextIndexStamp map[string]int64
 
 	// awsProfileResolver names the AWS profile Kanivet should use for a
 	// context instead of whatever its exec block resolves to. Guarded by mu.
 	awsProfileResolver func(cluster string) string
+	// onCacheReset runs after cached clients are dropped, so whatever chose
+	// their credentials can look again. Guarded by mu.
+	onCacheReset func()
 }
 
 // SetAWSProfileResolver installs the lookup for per-context AWS profiles. The
@@ -144,6 +148,15 @@ type Client struct {
 func (c *Client) SetAWSProfileResolver(resolve func(cluster string) string) {
 	c.mu.Lock()
 	c.awsProfileResolver = resolve
+	c.mu.Unlock()
+}
+
+// SetOnCacheReset registers a callback for RefreshClusterCache. Dropped
+// clients are rebuilt on the next request, and that is when a different
+// credential source may be the one that works.
+func (c *Client) SetOnCacheReset(fn func()) {
+	c.mu.Lock()
+	c.onCacheReset = fn
 	c.mu.Unlock()
 }
 
@@ -160,6 +173,7 @@ func (c *Client) awsProfileFor(cluster string) string {
 func (c *Client) invalidateContextIndex() {
 	c.contextIndexMu.Lock()
 	c.contextIndex = nil
+	c.contextProviders = nil
 	c.contextIndexStamp = nil
 	c.contextIndexMu.Unlock()
 }
@@ -289,7 +303,11 @@ func (c *Client) RefreshClusterCache(cluster string) {
 		delete(c.bulkMetadata, cluster)
 		delete(c.discovery, cluster)
 	}
+	onReset := c.onCacheReset
 	c.mu.Unlock()
+	if onReset != nil {
+		onReset()
+	}
 	c.resourceNameMu.Lock()
 	if cluster == "" {
 		clear(c.resourceNameCache)
@@ -335,14 +353,20 @@ func getOrCreate[T any](cache map[string]T, key string, creator func() (T, error
 type ClusterInfo struct {
 	Name       string `json:"name"`
 	Kubeconfig string `json:"kubeconfig"`
+	// Provider is "aws", "gcp" or "azure" when the context's server or
+	// credential plugin shows where the cluster runs, whatever it is named.
+	Provider string `json:"provider,omitempty"`
 }
 
 func (c *Client) ListClusters() ([]ClusterInfo, error) {
 	start := time.Now()
 	index := c.contextToKubeconfigIndex()
+	c.contextIndexMu.RLock()
+	providers := c.contextProviders
+	c.contextIndexMu.RUnlock()
 	clusters := make([]ClusterInfo, 0, len(index))
 	for name, path := range index {
-		clusters = append(clusters, ClusterInfo{Name: name, Kubeconfig: path})
+		clusters = append(clusters, ClusterInfo{Name: name, Kubeconfig: path, Provider: providers[name]})
 	}
 	sort.Slice(clusters, func(i, j int) bool { return clusters[i].Name < clusters[j].Name })
 	log.Printf("[K8S] ListClusters found %d clusters in %v", len(clusters), time.Since(start))
@@ -387,6 +411,7 @@ func (c *Client) contextToKubeconfigIndex() map[string]string {
 	c.contextIndexMu.RUnlock()
 
 	index := make(map[string]string)
+	providers := make(map[string]string)
 	for _, path := range paths {
 		cfg, err := clientcmd.LoadFromFile(path)
 		if err != nil {
@@ -396,12 +421,16 @@ func (c *Client) contextToKubeconfigIndex() map[string]string {
 		for ctx := range cfg.Contexts {
 			if _, exists := index[ctx]; !exists {
 				index[ctx] = path
+				if provider := contextProvider(cfg, ctx); provider != "" {
+					providers[ctx] = provider
+				}
 			}
 		}
 	}
 
 	c.contextIndexMu.Lock()
 	c.contextIndex = index
+	c.contextProviders = providers
 	c.contextIndexStamp = stamp
 	c.contextIndexMu.Unlock()
 
