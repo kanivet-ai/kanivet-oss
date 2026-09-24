@@ -37,9 +37,10 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
     closeTab,
     openBottomTab,
     clusterAliases,
+    clusterProviders,
     reorderTabs,
     clusterErrors,
-  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, setCurrentTab: s.setCurrentTab, closeTab: s.closeTab, openBottomTab: s.openBottomTab, clusterAliases: s.clusterAliases, reorderTabs: s.reorderTabs, clusterErrors: s.clusterErrors })));
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, setCurrentTab: s.setCurrentTab, closeTab: s.closeTab, openBottomTab: s.openBottomTab, clusterAliases: s.clusterAliases, clusterProviders: s.clusterProviders, reorderTabs: s.reorderTabs, clusterErrors: s.clusterErrors })));
   const tabIds = useStore(useShallow((s) => s.activeTabs.map((t) => t.id)));
   const tabNames = useStore(useShallow((s) => s.activeTabs.map((t) => t.name)));
   const activeTabs = useMemo(() => tabIds.map((id, i) => ({ id, name: tabNames[i] })), [tabIds, tabNames]);
@@ -252,7 +253,7 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
       <div className="tab-bar-divider" />
       <div className="tabs-container" ref={tabsContainerRef}>
         {activeTabs.map((tab, index) => {
-          const clusterInfo = parseClusterName(tab.id, clusterAliases[tab.id]);
+          const clusterInfo = parseClusterName(tab.id, clusterAliases[tab.id], clusterProviders[tab.id]);
           const isActive = currentTab === tab.id;
           const isDragging = draggedIndex === index;
           const showLeftIndicator = dropIndicator?.index === index && dropIndicator.side === 'left';

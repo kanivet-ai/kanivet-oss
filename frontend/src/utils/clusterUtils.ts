@@ -29,7 +29,12 @@ export function parseVClusterId(id: string): { host: string; namespace: string; 
   return { host, namespace, name };
 }
 
-export function parseClusterName(context: string, alias?: string): ParsedClusterInfo {
+/**
+ * Reads a context name for display. `provider`, when the backend knows it from
+ * the context's server, identifies clusters whose name does not follow a
+ * cloud's default format.
+ */
+export function parseClusterName(context: string, alias?: string, provider?: 'aws' | 'gcp' | 'azure'): ParsedClusterInfo {
   if (typeof context !== 'string') {
     const fallback = String(context);
     return { provider: 'other', isAWS: false, clusterName: fallback, displayName: alias || fallback, originalContext: fallback, hasAlias: !!alias };
@@ -85,6 +90,18 @@ export function parseClusterName(context: string, alias?: string): ParsedCluster
       project,
       clusterName,
       displayName: alias || clusterName,
+      originalContext: context,
+      hasAlias,
+    };
+  }
+
+  if (provider) {
+    const hasAlias = !!alias && alias !== context;
+    return {
+      provider,
+      isAWS: provider === 'aws',
+      clusterName: context,
+      displayName: alias || context,
       originalContext: context,
       hasAlias,
     };

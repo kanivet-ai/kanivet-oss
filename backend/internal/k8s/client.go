@@ -131,6 +131,7 @@ type Client struct {
 
 	contextIndexMu    sync.RWMutex
 	contextIndex      map[string]string
+	contextProviders  map[string]string
 	contextIndexStamp map[string]int64
 
 	// awsProfileResolver names the AWS profile Kanivet should use for a
@@ -172,6 +173,7 @@ func (c *Client) awsProfileFor(cluster string) string {
 func (c *Client) invalidateContextIndex() {
 	c.contextIndexMu.Lock()
 	c.contextIndex = nil
+	c.contextProviders = nil
 	c.contextIndexStamp = nil
 	c.contextIndexMu.Unlock()
 }
@@ -351,14 +353,20 @@ func getOrCreate[T any](cache map[string]T, key string, creator func() (T, error
 type ClusterInfo struct {
 	Name       string `json:"name"`
 	Kubeconfig string `json:"kubeconfig"`
+	// Provider is "aws", "gcp" or "azure" when the context's server or
+	// credential plugin shows where the cluster runs, whatever it is named.
+	Provider string `json:"provider,omitempty"`
 }
 
 func (c *Client) ListClusters() ([]ClusterInfo, error) {
 	start := time.Now()
 	index := c.contextToKubeconfigIndex()
+	c.contextIndexMu.RLock()
+	providers := c.contextProviders
+	c.contextIndexMu.RUnlock()
 	clusters := make([]ClusterInfo, 0, len(index))
 	for name, path := range index {
-		clusters = append(clusters, ClusterInfo{Name: name, Kubeconfig: path})
+		clusters = append(clusters, ClusterInfo{Name: name, Kubeconfig: path, Provider: providers[name]})
 	}
 	sort.Slice(clusters, func(i, j int) bool { return clusters[i].Name < clusters[j].Name })
 	log.Printf("[K8S] ListClusters found %d clusters in %v", len(clusters), time.Since(start))
@@ -403,6 +411,7 @@ func (c *Client) contextToKubeconfigIndex() map[string]string {
 	c.contextIndexMu.RUnlock()
 
 	index := make(map[string]string)
+	providers := make(map[string]string)
 	for _, path := range paths {
 		cfg, err := clientcmd.LoadFromFile(path)
 		if err != nil {
@@ -412,12 +421,16 @@ func (c *Client) contextToKubeconfigIndex() map[string]string {
 		for ctx := range cfg.Contexts {
 			if _, exists := index[ctx]; !exists {
 				index[ctx] = path
+				if provider := contextProvider(cfg, ctx); provider != "" {
+					providers[ctx] = provider
+				}
 			}
 		}
 	}
 
 	c.contextIndexMu.Lock()
 	c.contextIndex = index
+	c.contextProviders = providers
 	c.contextIndexStamp = stamp
 	c.contextIndexMu.Unlock()
 

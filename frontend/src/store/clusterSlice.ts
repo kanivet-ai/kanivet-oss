@@ -17,6 +17,7 @@ export const createClusterSlice: StateCreator<StoreState, [], [], ClusterSlice> 
   clusters: [],
   clusterStatuses: {},
   clusterAliases: {},
+  clusterProviders: {},
   clusterErrors: {},
   vclusterStatuses: {},
   clusterDashboards: {},
@@ -43,7 +44,9 @@ export const createClusterSlice: StateCreator<StoreState, [], [], ClusterSlice> 
   loadClusters: async () => {
     const clusterInfos = await api.getClusters();
     const clusters = clusterInfos.map((c) => c.name);
-    set({ clusters });
+    const clusterProviders: Record<string, 'aws' | 'gcp' | 'azure'> = {};
+    for (const c of clusterInfos) if (c.provider) clusterProviders[c.name] = c.provider;
+    set({ clusters, clusterProviders });
     const { activeTabs, currentTab } = get();
     if (!currentTab && activeTabs.length === 0 && clusters.length > 0) {
       get().hydrateFromStorage();
