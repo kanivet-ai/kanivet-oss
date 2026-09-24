@@ -546,6 +546,23 @@ export const MonitorIcon = (p: KubeIconProps) => (
   </Svg>
 );
 
+/** Chip with pins: CPU. */
+export const CpuIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <rect x={4} y={4} width={8} height={8} rx={1.25} />
+    <rect x={6.5} y={6.5} width={3} height={3} rx={0.5} />
+    <path d="M6.5 1.75V4M9.5 1.75V4M6.5 12v2.25M9.5 12v2.25M1.75 6.5H4M1.75 9.5H4M12 6.5h2.25M12 9.5h2.25" />
+  </Svg>
+);
+
+/** Memory module: RAM. */
+export const MemoryIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <rect x={1.75} y={4.5} width={12.5} height={6} rx={1} />
+    <path d="M4.75 7h1.5M9.75 7h1.5M4 10.5v1.75M6.67 10.5v1.75M9.33 10.5v1.75M12 10.5v1.75" />
+  </Svg>
+);
+
 /** Archive box: backups, snapshots, restores. */
 export const ArchiveIcon = (p: KubeIconProps) => (
   <Svg {...p}>

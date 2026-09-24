@@ -19,6 +19,8 @@ export interface ClusterGroup {
 export interface ClusterInfo {
   name: string;
   kubeconfig: string;
+  /** Where the cluster runs, from its API server or credential plugin. */
+  provider?: 'aws' | 'gcp' | 'azure';
 }
 
 export interface PortForward {

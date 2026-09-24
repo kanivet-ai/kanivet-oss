@@ -27,9 +27,11 @@
 }
 
 .compact-header-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 36px;
   height: 36px;
-  padding: 8px;
   border-radius: 9px;
   color: #fff;
   background: linear-gradient(160deg, color-mix(in srgb, var(--blue) 65%, #fff), var(--blue));
@@ -1534,4 +1536,9 @@
   font-size: 11.5px;
   color: var(--text2);
   font-variant-numeric: tabular-nums;
+}
+
+/* Google's mark is multicolour; give it a light tile instead of tinting it. */
+.compact-header-icon[data-provider='gcp'] {
+  background: #fff;
 }

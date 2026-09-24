@@ -33,15 +33,6 @@ func (s *Service) clusterSSOBinding(cluster string) *ClusterSSOBinding {
 	return bindingFromRow(row)
 }
 
-// AWSProfileForCluster is the k8s client's resolver: the AWS profile Kanivet
-// should run this context's exec plugin under, or "" to leave it alone.
-func (s *Service) AWSProfileForCluster(cluster string) string {
-	if binding := s.clusterSSOBinding(cluster); binding != nil {
-		return binding.Profile
-	}
-	return ""
-}
-
 // BindClusterSSO makes Kanivet reach a kubeconfig context with an Identity
 // Center account and role, whatever profile its exec block would pick up. It
 // reuses the user's own profile for that account and role when one exists and

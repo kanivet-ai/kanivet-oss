@@ -69,7 +69,40 @@ const ClusterSSOConnect = ({ cluster, accountId, binding, onChanged }: Props) =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [portalKey, accountId, binding?.startUrl, binding?.roleName]);
 
+  const run = async (action: () => Promise<unknown>, fallback: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      await action();
+      onChanged();
+    } catch (err: any) {
+      setError(err.response?.data?.error || err.message || fallback);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisconnect = () =>
+    run(() => cloudService.unbindClusterSSO(cluster), 'Could not stop using AWS SSO');
+
+  // A bound role whose portal is signed out or no longer lists the account must
+  // still be removable, or the cluster stays tied to credentials that fail.
+  const boundButUnavailable = (message: React.ReactNode) => (
+    <div className="cluster-sso-connect">
+      <div className="cluster-sso-connect-text">
+        Kanivet reaches this cluster as <code>{binding!.roleName}</code> through IAM Identity Center. {message}
+      </div>
+      <div className="cluster-sso-connect-row">
+        <button className="ap-btn ap-btn--ghost ap-btn--sm" onClick={handleDisconnect} disabled={busy}>
+          Use kubeconfig credentials
+        </button>
+      </div>
+      {error && <div className="cluster-sso-connect-error">{error}</div>}
+    </div>
+  );
+
   if (portals.length === 0) {
+    if (binding) return boundButUnavailable('Its access portal is not signed in.');
     return (
       <div className="cluster-sso-connect-muted">
         Sign in to an AWS access portal from Cloud accounts to reach account <code>{accountId}</code> without another tool.
@@ -84,6 +117,7 @@ const ClusterSSOConnect = ({ cluster, accountId, binding, onChanged }: Props) =>
     );
   }
   if (options.length === 0) {
+    if (binding) return boundButUnavailable(<>No signed-in access portal lists account <code>{accountId}</code> right now.</>);
     return (
       <div className="cluster-sso-connect-muted">
         None of your signed-in AWS access portals grants account <code>{accountId}</code>.
@@ -97,23 +131,8 @@ const ClusterSSOConnect = ({ cluster, accountId, binding, onChanged }: Props) =>
     binding.roleName === role &&
     normalizeStartUrl(binding.startUrl) === normalizeStartUrl(selected.portal.startUrl);
 
-  const run = async (action: () => Promise<unknown>, fallback: string) => {
-    setBusy(true);
-    setError(null);
-    try {
-      await action();
-      onChanged();
-    } catch (err: any) {
-      setError(err.response?.data?.error || err.message || fallback);
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleConnect = () =>
     run(() => cloudService.bindClusterSSO(cluster, selected.portal.startUrl, accountId, role), 'Could not connect with AWS SSO');
-  const handleDisconnect = () =>
-    run(() => cloudService.unbindClusterSSO(cluster), 'Could not stop using AWS SSO');
 
   return (
     <div className="cluster-sso-connect">
