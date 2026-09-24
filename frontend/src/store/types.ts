@@ -220,6 +220,7 @@ export interface ClusterSlice {
   clusters: string[];
   clusterStatuses: Record<string, import('../types').ClusterStatus>;
   clusterAliases: Record<string, string>;
+  clusterProviders: Record<string, 'aws' | 'gcp' | 'azure'>;
   clusterErrors: Record<string, ClusterError>;
   vclusterStatuses: Record<string, VClusterStatus>;
   clusterDashboards: Record<string, DashboardOverviewData>;

@@ -234,8 +234,8 @@ export const QuickClusterSearch: React.FC<QuickClusterSearchProps> = ({
     }
   }, [mouseEnabled]);
 
-  const getProviderIcon = (clusterName: string) => {
-    const parsed = parseClusterName(clusterName);
+  const getProviderIcon = (clusterName: string, provider?: ClusterInfo['provider']) => {
+    const parsed = parseClusterName(clusterName, undefined, provider);
     switch (parsed.provider) {
       case 'aws':
         return <AWSIcon size={16} />;
@@ -294,7 +294,7 @@ export const QuickClusterSearch: React.FC<QuickClusterSearchProps> = ({
                 onMouseEnter={() => handleMouseEnter(index)}
               >
                 <span className={`quick-search-icon ${parsed.provider}`}>
-                  {getProviderIcon(cluster.name)}
+                  {getProviderIcon(cluster.name, cluster.provider)}
                 </span>
                 <div className="quick-search-info">
                   <span className="quick-search-name">{getDisplayName(cluster)}</span>
