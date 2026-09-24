@@ -57,7 +57,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
 
   closeTab: (clusterId: string) => {
     const { activeTabs, currentTab, bottomTabs } = get();
-    if (currentTab === clusterId) get().stopRealtime();
+    get().releaseRealtimeTopics((topic) => topic.startsWith(`items:${clusterId}:`));
     const terminalTabs = bottomTabs.filter(
       (tab) => tab.cluster === clusterId && tab.type === 'shell' && tab.resource.kind === 'Terminal'
     );
@@ -95,7 +95,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
 
   setCurrentTab: (tabId: string | null) => {
     const prevTab = get().currentTab;
-    if (prevTab && prevTab !== tabId) get().stopRealtime();
+    if (prevTab && prevTab !== tabId) get().parkRealtime();
     set({ currentTab: tabId });
     try {
       if (tabId) localStorage.setItem('kanivet.currentTab', tabId);

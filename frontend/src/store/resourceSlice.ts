@@ -5,6 +5,7 @@ import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } 
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
 import { applyLoadedDetails } from './applyLoadedDetails';
 import { keepKnownCounts } from './keepKnownCounts';
+import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
 
@@ -314,7 +315,11 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     const topicCache = cacheMap.get(topic);
     const cachedItems = topicCache ? Array.from(topicCache.values()) : [];
     const nsPatch = resource.namespaced ? {} : { namespaces: [] };
-    if (cachedItems.length > 0) {
+    // A subscription that is still open already has the current list.
+    const live = liveItemsFor(topic);
+    if (live) {
+      get().updateCurrentTabState({ listItems: live, isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined, ...nsPatch });
+    } else if (cachedItems.length > 0) {
       get().updateCurrentTabState({ listItems: cachedItems, hasReceivedInitialListData: false, ...nsPatch });
     } else {
       get().updateCurrentTabState({ listItems: [], selectedItem: null, hasReceivedInitialListData: false, ...nsPatch });
@@ -335,8 +340,11 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     const topic = `items:${currentTab}:${resource.group || ''}:${resource.version}:${resource.name}:`;
     const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache || new Map();
     if (cacheMap.has(topic)) cacheMap.delete(topic);
+    // Close the subscription so a new one brings a fresh snapshot from the server.
+    get().releaseRealtimeTopics((t) => t === topic);
     get().updateCurrentTabState({ loadError: undefined, isLoadingListItems: true, hasReceivedInitialListData: false, listItems: [], selectedItem: null });
     await get().loadListItems(currentTab, resource);
+    get().startRealtime(true);
     const tab = activeTabs.find((t) => t.id === currentTab);
     if (tab && tab.state.activeResourceListTab) {
       const activeListTab = tab.state.resourceListTabs.find((rt) => rt.id === tab.state.activeResourceListTab);

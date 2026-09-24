@@ -10,6 +10,29 @@ interface UseResourceListStateProps {
 
 const EMPTY_ROLLOUT_STATUSES = new Map<string, any>();
 
+function matchesSearch(item: any, query: string): boolean {
+  if (item.name?.toLowerCase().includes(query)) return true;
+  if (item.namespace?.toLowerCase().includes(query)) return true;
+  if (item.kind?.toLowerCase().includes(query)) return true;
+  if (item.message?.toLowerCase().includes(query)) return true;
+  if (item.reason?.toLowerCase().includes(query)) return true;
+  // Where the pod is scheduled, so a node name narrows the list to its pods.
+  const nodeName = item.nodeName || item.spec?.nodeName;
+  if (typeof nodeName === 'string' && nodeName.toLowerCase().includes(query)) return true;
+  if (formatStatus(item).toLowerCase().includes(query)) return true;
+  const labels = item.labels || {};
+  for (const key in labels) {
+    const val = String(labels[key]);
+    if (key.toLowerCase().includes(query) || val.toLowerCase().includes(query) || `${key}=${val}`.toLowerCase().includes(query)) return true;
+  }
+  const annotations = item.annotations || {};
+  for (const key in annotations) {
+    const val = String(annotations[key]);
+    if (key.toLowerCase().includes(query) || val.toLowerCase().includes(query) || `${key}=${val}`.toLowerCase().includes(query)) return true;
+  }
+  return false;
+}
+
 export function useResourceListState({ paneId }: UseResourceListStateProps) {
   const {
     currentTab,
@@ -185,41 +208,33 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
   const sortBy = (isResourceListTab && activeTab?.sortBy) || tabState?.sortBy || 'name';
   const sortOrder = (isResourceListTab && activeTab?.sortOrder) || tabState?.sortOrder || 'asc';
 
+  const isNamespaced = !!selectedNode?.data?.namespaced;
   const namespaceFilteredItems = useMemo(() => {
-    const isClusterScoped = !selectedNode?.data?.namespaced;
-    const hasNamespaceFilter = !isClusterScoped && selectedNamespaces && selectedNamespaces.length > 0;
+    const hasNamespaceFilter = isNamespaced && selectedNamespaces && selectedNamespaces.length > 0;
     if (!hasNamespaceFilter) return listItems;
     return listItems.filter((item: any) => item.namespace && selectedNamespaces.includes(item.namespace));
-  }, [listItems, selectedNamespaces, selectedNode]);
+  }, [listItems, selectedNamespaces, isNamespaced]);
+
+  // Filtered, sorted lists keyed by the list they came from. Switching back to a
+  // tab whose list has not changed reuses its result instead of sorting again,
+  // and the unchanged array lets the table skip its per-item work.
+  const filteredCacheRef = useRef(new WeakMap<any[], Map<string, any[]>>());
 
   const getFilteredItems = useCallback((searchQuery: string) => {
     const query = searchQuery?.toLowerCase() || '';
-    if (!query) return sortItems(namespaceFilteredItems, { sortBy, sortOrder });
-
-    const filtered = namespaceFilteredItems.filter((item: any) => {
-      if (item.name?.toLowerCase().includes(query)) return true;
-      if (item.namespace?.toLowerCase().includes(query)) return true;
-      if (item.kind?.toLowerCase().includes(query)) return true;
-      if (item.message?.toLowerCase().includes(query)) return true;
-      if (item.reason?.toLowerCase().includes(query)) return true;
-      // Where the pod is scheduled, so a node name narrows the list to its pods.
-      const nodeName = item.nodeName || item.spec?.nodeName;
-      if (typeof nodeName === 'string' && nodeName.toLowerCase().includes(query)) return true;
-      if (formatStatus(item).toLowerCase().includes(query)) return true;
-      const labels = item.labels || {};
-      for (const key in labels) {
-        const val = String(labels[key]);
-        if (key.toLowerCase().includes(query) || val.toLowerCase().includes(query) || `${key}=${val}`.toLowerCase().includes(query)) return true;
-      }
-      const annotations = item.annotations || {};
-      for (const key in annotations) {
-        const val = String(annotations[key]);
-        if (key.toLowerCase().includes(query) || val.toLowerCase().includes(query) || `${key}=${val}`.toLowerCase().includes(query)) return true;
-      }
-      return false;
-    });
-
-    return sortItems(filtered, { sortBy, sortOrder });
+    const cacheKey = `${sortBy}\u0000${sortOrder}\u0000${query}`;
+    let perList = filteredCacheRef.current.get(namespaceFilteredItems);
+    const cached = perList?.get(cacheKey);
+    if (cached) return cached;
+    const result = sortItems(query ? namespaceFilteredItems.filter((item: any) => matchesSearch(item, query)) : namespaceFilteredItems, { sortBy, sortOrder });
+    if (!perList) {
+      perList = new Map();
+      filteredCacheRef.current.set(namespaceFilteredItems, perList);
+    }
+    // A list is typically viewed with a handful of sorts and searches; keep the latest few.
+    if (perList.size >= 8) perList.delete(perList.keys().next().value as string);
+    perList.set(cacheKey, result);
+    return result;
   }, [namespaceFilteredItems, sortBy, sortOrder]);
 
   const handleNamespaceChange = useCallback(async (namespace: string) => {
