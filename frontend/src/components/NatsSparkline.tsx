@@ -3,28 +3,22 @@ interface NatsSparklineProps {
   height?: number;
 }
 
-/** 3-point moving average - smooths poll-timing jitter out of a rate series. */
-const smooth = (values: number[]): number[] =>
-  values.map((_, i) => {
-    const window = values.slice(Math.max(0, i - 2), i + 1);
-    return window.reduce((sum, v) => sum + v, 0) / window.length;
-  });
-
 const LOGICAL_WIDTH = 100;
 
 /**
  * Filled trend area for a rate series - no charting library needed for a
  * stat-tile sparkline. Scales to its container's width (via a fixed logical
  * viewBox + preserveAspectRatio="none") instead of a hardcoded pixel size, so
- * it never overflows a narrower stat card. Values are smoothed first so
- * counter-delta jitter between polls doesn't read as a sawtooth.
+ * it never overflows a narrower stat card.
+ *
+ * Plots the values exactly as given, unsmoothed - its last point must always
+ * match the headline number next to it, or the two visibly disagree.
  */
 const NatsSparkline = ({ values, height = 26 }: NatsSparklineProps) => {
   if (values.length < 2) return null;
-  const smoothed = smooth(values);
-  const max = Math.max(...smoothed, 1);
-  const step = LOGICAL_WIDTH / (smoothed.length - 1);
-  const linePoints = smoothed.map(
+  const max = Math.max(...values, 1);
+  const step = LOGICAL_WIDTH / (values.length - 1);
+  const linePoints = values.map(
     (v, i) =>
       `${(i * step).toFixed(1)},${(height - (v / max) * height).toFixed(1)}`,
   );

@@ -54,6 +54,18 @@ const Bytes = ({ value }: { value: number }) => (
   <span title={`${value.toLocaleString()} bytes`}>{formatBytes(value)}</span>
 );
 
+/** A per-second rate, compacted the same way as message counts, with the exact figure on hover. */
+const Rate = ({ value }: { value: number | undefined }) => {
+  if (value === undefined) return <span>–</span>;
+  return (
+    <span
+      title={`${value.toLocaleString(undefined, { maximumFractionDigits: 2 })} messages/sec (exact)`}
+    >
+      {formatCompactNumber(value)}/s
+    </span>
+  );
+};
+
 const STREAM_KIND_LABEL: Record<string, string> = {
   kv: 'KV',
   objectstore: 'Object Store',
@@ -286,12 +298,12 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
         </div>
         <div
           className="nats-stat-card nats-stat-card-rate"
-          title="Messages received per second, since the last real sample from the server"
+          title="Live rate, not a total: messages/sec received, measured between the two most recent samples from the server (not thousands/millions unless the K/M suffix shows)"
         >
-          <span className="nats-stat-label">In Msgs/sec</span>
+          <span className="nats-stat-label">In Rate</span>
           <span className="nats-stat-row">
             <span className="nats-stat-value">
-              {inRateNow !== undefined ? inRateNow.toFixed(1) : '–'}
+              <Rate value={inRateNow} />
             </span>
             <span className="nats-sparkline-wrap">
               <NatsSparkline values={inRates} />
@@ -300,20 +312,23 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
         </div>
         <div
           className="nats-stat-card nats-stat-card-rate"
-          title="Messages sent per second, since the last real sample from the server"
+          title="Live rate, not a total: messages/sec sent, measured between the two most recent samples from the server (not thousands/millions unless the K/M suffix shows)"
         >
-          <span className="nats-stat-label">Out Msgs/sec</span>
+          <span className="nats-stat-label">Out Rate</span>
           <span className="nats-stat-row">
             <span className="nats-stat-value">
-              {outRateNow !== undefined ? outRateNow.toFixed(1) : '–'}
+              <Rate value={outRateNow} />
             </span>
             <span className="nats-sparkline-wrap">
               <NatsSparkline values={outRates} />
             </span>
           </span>
         </div>
-        <div className="nats-stat-card">
-          <span className="nats-stat-label">In / Out Bytes</span>
+        <div
+          className="nats-stat-card"
+          title="Lifetime total since the server started, not a rate"
+        >
+          <span className="nats-stat-label">In / Out Bytes (total)</span>
           <span className="nats-stat-value small">
             <Bytes value={varz?.in_bytes ?? 0} /> /{' '}
             <Bytes value={varz?.out_bytes ?? 0} />

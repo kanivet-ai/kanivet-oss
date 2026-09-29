@@ -13,7 +13,7 @@ export const formatCompactNumber = (value: number): string => {
   const abs = Math.abs(value);
   if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
   if (abs >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
-  return `${value}`;
+  return Number.isInteger(value) ? `${value}` : value.toFixed(1);
 };
 
 export const formatCPU = (cpu: string): string => {
