@@ -7,6 +7,15 @@ export const formatBytes = (bytes: number | string): string => {
   return parseFloat((numBytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
+/** "1234567" -> "1.2M", "8200" -> "8.2K", "42" -> "42". Small counts pass through unrounded. */
+export const formatCompactNumber = (value: number): string => {
+  if (!Number.isFinite(value)) return '0';
+  const abs = Math.abs(value);
+  if (abs >= 1_000_000) return `${(value / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+  if (abs >= 1_000) return `${(value / 1_000).toFixed(1).replace(/\.0$/, '')}K`;
+  return `${value}`;
+};
+
 export const formatCPU = (cpu: string): string => {
   if (!cpu) return '0';
   if (cpu.endsWith('m')) return cpu;

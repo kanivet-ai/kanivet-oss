@@ -29,7 +29,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const isVCluster = cluster.startsWith('vcluster:');
       const rawCategories = await api.getCategories(cluster);
       const hasCount = (resources: any[]) => resources.some((res: any) => (res.count ?? 0) > 0);
-      const disabledActionables: Record<string, boolean> = { crossplane: false, argocd: false, vclusters: isVCluster };
+      const disabledActionables: Record<string, boolean> = { crossplane: false, argocd: false, nats: false, vclusters: isVCluster };
       const setNodeDisabled = (nodeId: string, disabled: boolean) => {
         set((state) => {
           const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
@@ -47,13 +47,38 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
           return { activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) };
         });
       };
+      const removeNode = (nodeId: string) => {
+        set((state) => {
+          const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
+          if (tabIndex === -1) return state;
+          const currentState = state.activeTabs[tabIndex].state;
+          const treeData = currentState.treeData.filter((node) => node.id !== nodeId);
+          if (treeData.length === currentState.treeData.length) return state;
+          const updatedTabs = [...state.activeTabs];
+          updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...currentState, treeData } };
+          return { activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) };
+        });
+      };
+      const checkNats = () => {
+        api.getNatsDetection(cluster).catch(() => ({ installed: false }) as any)
+          .then((det) => setNodeDisabled('nats-monitoring', !det.installed));
+      };
       api.getResources(cluster, 'crossplane', false).catch(() => [])
         .then((resources) => setNodeDisabled('crossplane', !hasCount(resources)));
       api.getResources(cluster, 'argocd', false).catch(() => [])
         .then((resources) => setNodeDisabled('argocd', !hasCount(resources)));
-      if (!isVCluster) {
+      if (isVCluster) {
+        // NATS runs inside the vcluster, not on the host - check normally here.
+        checkNats();
+      } else {
         api.listVClusters(cluster).catch(() => [])
-          .then((vcs) => setNodeDisabled('virtual-clusters', vcs.length === 0));
+          .then((vcs) => {
+            setNodeDisabled('virtual-clusters', vcs.length === 0);
+            // A host with virtual clusters delegates NATS to each vcluster's own
+            // tree instead of showing it (possibly misleadingly) at host level.
+            if (vcs.length > 0) removeNode('nats-monitoring');
+            else checkNats();
+          });
       }
       const categoryMap = new Map<string, any>(rawCategories.map((cat: any) => [cat.id, cat]));
       [{ id: 'crossplane', name: 'Crossplane' }, { id: 'argocd', name: 'Argo CD' }].forEach((cat) => {
@@ -67,6 +92,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const overviewNode: TreeNode = { id: 'cluster-overview', label: 'Overview', type: 'overview', data: { cluster } };
       const eventsNode: TreeNode = { id: 'cluster-events', label: 'Events', type: 'resource', hideCount: true, data: { name: 'events', group: '', version: 'v1', kind: 'Event', namespaced: true, cluster } };
       const helmNode: TreeNode = { id: 'helm-releases', label: 'Helm Releases', type: 'helm', data: { cluster } };
+      const natsNode: TreeNode = { id: 'nats-monitoring', label: 'NATS', type: 'nats', data: { cluster }, disabled: disabledActionables.nats };
       const incidentsNode: TreeNode = { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline', data: { cluster } };
       const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
       const settingsNode: TreeNode = { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings', data: { cluster } };
@@ -95,7 +121,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, natsNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };

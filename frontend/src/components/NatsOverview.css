@@ -1,0 +1,492 @@
+/* NATS monitoring — a header card, stat tiles, and an account/stream/consumer tree. */
+.nats-overview {
+  height: 100%;
+  overflow: auto;
+  background: var(--content);
+  color: var(--text);
+  padding: 14px 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nats-overview.centered {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  height: 100%;
+  gap: 8px;
+  text-align: center;
+  padding: 40px;
+}
+
+.nats-empty-icon {
+  font-size: 28px;
+  color: var(--text3);
+  line-height: 1;
+}
+
+.nats-status-message {
+  font-size: 13px;
+  color: var(--text2);
+  max-width: 480px;
+}
+
+.nats-status-message.error {
+  color: var(--danger-fg);
+}
+
+.nats-status-hint {
+  font-size: 12px;
+  color: var(--text3);
+  max-width: 480px;
+}
+
+.nats-status-hint.inline {
+  padding: 6px 2px 2px;
+}
+
+.nats-retry-button {
+  height: 28px;
+  padding: 0 12px;
+  background-color: var(--blue);
+  color: #fff;
+  border: 0;
+  border-radius: 7px;
+  cursor: pointer;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+/* ---- Cards -------------------------------------------------------------- */
+.nats-card {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 14px 16px;
+}
+
+.nats-header-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nats-health-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  flex: none;
+}
+
+.nats-health-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.nats-health-pill.healthy {
+  background: var(--success-bg);
+  color: var(--success-fg);
+}
+
+.nats-health-pill.unhealthy {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.nats-header-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.nats-server-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.2px;
+}
+
+.nats-server-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--text3);
+}
+
+/* ---- Stat tiles ----------------------------------------------------------- */
+.nats-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+}
+
+.nats-stat-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+.nats-stat-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.nats-stat-value {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.4px;
+  line-height: 1.1;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.nats-stat-value.small {
+  font-size: 15px;
+}
+
+.nats-stat-card-rate {
+  overflow: hidden;
+}
+
+.nats-stat-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.nats-sparkline-wrap {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+}
+
+.nats-sparkline {
+  display: block;
+  width: 100%;
+  color: var(--blue);
+  opacity: 0.8;
+}
+
+/* ---- Attention panel --------------------------------------------------- */
+.nats-issues-card {
+  padding: 12px 16px;
+}
+
+.nats-section-title.warning {
+  color: var(--warning-fg);
+  margin-bottom: 8px;
+}
+
+.nats-issue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nats-issue-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.nats-issue-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--orange);
+  flex: none;
+}
+
+.nats-issue-target {
+  color: var(--text);
+  font-weight: 500;
+  flex: none;
+}
+
+.nats-issue-sep {
+  color: var(--text3);
+}
+
+.nats-issue-reason {
+  color: var(--text3);
+}
+
+.nats-issue-more {
+  font-size: 11.5px;
+  color: var(--text3);
+  padding-top: 2px;
+}
+
+/* ---- JetStream + Connected Clients: equal height, each scrolls on its own --- */
+.nats-panels {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.nats-jetstream-card,
+.nats-clients-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.nats-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 10px;
+  flex: none;
+}
+
+.nats-section-title .nats-section-sep {
+  margin: 0 6px;
+  color: var(--text3);
+  font-weight: 400;
+}
+
+.nats-section-title .nats-section-subtitle {
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+  color: var(--text3);
+}
+
+.nats-account-tree {
+  overflow: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.nats-account {
+  margin-bottom: 12px;
+}
+
+.nats-account-name {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text2);
+  margin-bottom: 6px;
+  overflow-wrap: anywhere;
+}
+
+.nats-tree-arrow {
+  width: 12px;
+  font-size: 10px;
+  color: var(--text3);
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.nats-stream-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  background: var(--blue-soft);
+  color: var(--blue);
+  flex: none;
+}
+
+.nats-stream-tag {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: capitalize;
+  background: var(--ctrl);
+  color: var(--text3);
+}
+
+/* Stream table: chevron | name+badges | storage | messages | bytes | consumers */
+.nats-stream-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.nats-stream-row {
+  display: grid;
+  grid-template-columns: 14px 2fr 1fr 0.8fr 0.9fr 0.7fr;
+  gap: 10px;
+  align-items: center;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: 7px;
+  font-size: 12.5px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.nats-stream-row.nats-stream-data {
+  background: var(--ctrl);
+  margin-bottom: 1px;
+}
+
+.nats-stream-row.clickable {
+  cursor: default;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.nats-stream-row.clickable:hover {
+  background: var(--hover);
+}
+
+.nats-stream-row.nats-stream-head {
+  height: 22px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-variant-numeric: normal;
+}
+
+.nats-stream-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nats-stream-name {
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nats-stream-group {
+  margin-bottom: 2px;
+}
+
+/* Nested consumer table: name | pending | ack pending | redelivered | waiting */
+.nats-consumer-table {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 8px 24px;
+  padding: 4px 8px;
+  border: 1px solid var(--hair);
+  border-radius: 8px;
+  background: var(--content);
+}
+
+.nats-consumer-row {
+  display: grid;
+  grid-template-columns: 1.6fr 0.8fr 0.9fr 0.9fr 0.8fr;
+  gap: 10px;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.nats-consumer-row.nats-consumer-head {
+  height: 18px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-variant-numeric: normal;
+}
+
+.nats-consumer-name {
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ---- Connected clients table -------------------------------------------- */
+.nats-clients-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-x: auto;
+}
+
+.nats-clients-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.nats-clients-row {
+  display: grid;
+  grid-template-columns: 1.4fr 1.3fr 1fr 0.9fr 1.1fr 1.2fr 0.8fr;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 4px;
+  font-size: 12px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+  border-bottom: 1px solid var(--hair);
+}
+
+.nats-clients-row:last-child {
+  border-bottom: 0;
+}
+
+.nats-clients-row.nats-clients-head {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-variant-numeric: normal;
+}
+
+.nats-client-name,
+.nats-client-pod {
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nats-client-pod {
+  color: var(--text2);
+  font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}

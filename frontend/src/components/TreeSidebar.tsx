@@ -318,6 +318,27 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
+      } else if (node.type === 'nats') {
+        console.log('Node is nats, opening NATS monitoring tab...');
+        selectNode(node);
+        if (currentTab) {
+          const natsResource = {
+            name: 'nats-monitoring',
+            group: '',
+            version: 'v1',
+            kind: 'NatsMonitoring',
+            namespaced: false,
+          };
+          await openResourceListTab(
+            natsResource,
+            currentTab,
+            isPinned,
+            freshPaneId || undefined,
+          );
+          recordNavigation('nats', node.id, node.data).catch((error) => {
+            console.error('Error recording navigation:', error);
+          });
+        }
       } else if (node.type === 'finops') {
         console.log('Node is finops, opening finops dashboard tab...');
         selectNode(node);

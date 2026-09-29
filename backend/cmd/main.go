@@ -549,6 +549,8 @@ func main() {
 		v1.POST("/cluster/argo/applications/:namespace/:name/sync", apiHandler.ArgoSyncApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/refresh", apiHandler.ArgoRefreshApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/rollback", apiHandler.ArgoRollbackApplication)
+		v1.GET("/cluster/nats/detect", apiHandler.GetNatsDetection)
+		v1.GET("/cluster/nats/overview", apiHandler.GetNatsOverview)
 		v1.GET("/cluster/resource-schema/:group/:version/:kind", apiHandler.GetResourceSchema)
 
 		// Cluster groups management
