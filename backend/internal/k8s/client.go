@@ -79,6 +79,7 @@ type Interface interface {
 	ListVClusters(host string) ([]VClusterInfo, error)
 	ConnectVCluster(host, namespace, name string) (*VClusterConnection, error)
 	DisconnectVCluster(id string) error
+	ResolveVClusterHostPod(vclusterID, namespace, name string) (*VClusterHostPod, error)
 }
 
 type RolloutStatus struct {

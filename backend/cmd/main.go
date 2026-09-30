@@ -502,6 +502,7 @@ func main() {
 		v1.DELETE("/cluster/portforward/*id", apiHandler.StopPortForward)
 		v1.GET("/cluster/vclusters", apiHandler.ListVClusters)
 		v1.POST("/cluster/vclusters/connect", apiHandler.ConnectVCluster)
+		v1.GET("/cluster/vclusters/host-pod", apiHandler.GetVClusterHostPod)
 		v1.DELETE("/cluster/vclusters/*id", apiHandler.DisconnectVCluster)
 		v1.POST("/cluster/resources", apiHandler.CreateResource)
 		v1.PUT("/cluster/resources", apiHandler.UpdateResource)

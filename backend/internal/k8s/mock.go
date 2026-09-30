@@ -210,3 +210,7 @@ func (m *MockClient) ConnectVCluster(host, namespace, name string) (*VClusterCon
 }
 
 func (m *MockClient) DisconnectVCluster(id string) error { return nil }
+
+func (m *MockClient) ResolveVClusterHostPod(vclusterID, namespace, name string) (*VClusterHostPod, error) {
+	return nil, fmt.Errorf("vcluster not supported in mock")
+}
