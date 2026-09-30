@@ -287,6 +287,9 @@ class API {
     return vclusters.connectVCluster(host, namespace, name);
   }
   async disconnectVCluster(id: string): Promise<void> { return vclusters.disconnectVCluster(id); }
+  async getVClusterHostPod(cluster: string, namespace: string, name: string): Promise<vclusters.VClusterHostPod> {
+    return vclusters.getVClusterHostPod(cluster, namespace, name);
+  }
 }
 
 const apiInstance = new API();

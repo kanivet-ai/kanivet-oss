@@ -4,7 +4,7 @@ import SmartValue from './SmartValue';
 import './PropertyRow.css';
 
 interface PropertyRowProps {
-  label: string;
+  label: React.ReactNode;
   value?: React.ReactNode;
   copyText?: string;
   icon?: React.ReactNode;

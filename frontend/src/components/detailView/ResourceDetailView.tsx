@@ -29,6 +29,7 @@ import NodeDetailView from './resourceTypes/NodeDetailView';
 import EventDetailView from './resourceTypes/EventDetailView';
 import ApplicationDetailView from './resourceTypes/ApplicationDetailView';
 import MetadataSection from './shared/MetadataSection';
+import VClusterHostRows from './shared/VClusterHostRows';
 import PropertyRow from '../common/PropertyRow';
 import ScaleDialog from '../dialogs/ScaleDialog';
 import Dialog from '../common/Dialog';
@@ -452,7 +453,9 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                 <MetadataSection metadata={metadata} handleResourceClick={handleResourceClick}>
                   {resource.kind === 'Pod' && spec.nodeName && (
                     <PropertyRow
-                      label="Node"
+                      label={cluster.startsWith('vcluster:') ? (
+                        <>Node <span className="ap-badge ap-badge--sm ap-badge--purple">vcluster</span></>
+                      ) : 'Node'}
                       copyText={spec.nodeName}
                       value={
                         <button
@@ -464,6 +467,9 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                         </button>
                       }
                     />
+                  )}
+                  {resource.kind === 'Pod' && cluster.startsWith('vcluster:') && metadata.namespace && metadata.name && (
+                    <VClusterHostRows cluster={cluster} namespace={metadata.namespace} name={metadata.name} />
                   )}
                   {resource.kind === 'Pod' && status.podIP && (
                     <PropertyRow label="Pod IP" value={status.podIP} copyText={status.podIP} mono />

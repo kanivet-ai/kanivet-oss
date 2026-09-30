@@ -1,11 +1,13 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/kanivet/backend/internal/k8s"
 )
 
 func (h *Handler) ListVClusters(c *gin.Context) {
@@ -63,4 +65,32 @@ func (h *Handler) DisconnectVCluster(c *gin.Context) {
 		return
 	}
 	h.respond(c, http.StatusOK, gin.H{"success": true}, nil)
+}
+
+// GetVClusterHostPod maps a pod inside a vcluster tab to the real pod and node
+// backing it in the host cluster.
+func (h *Handler) GetVClusterHostPod(c *gin.Context) {
+	cluster, ok := h.requireCluster(c)
+	if !ok {
+		return
+	}
+	if !k8s.IsVClusterID(cluster) {
+		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("cluster %s is not a vcluster", cluster))
+		return
+	}
+	namespace, name := c.Query("namespace"), c.Query("name")
+	if namespace == "" || name == "" {
+		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("namespace and name are required"))
+		return
+	}
+	hostPod, err := h.k8s.ResolveVClusterHostPod(cluster, namespace, name)
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, k8s.ErrVClusterHostPodNotFound) {
+			status = http.StatusNotFound
+		}
+		h.respond(c, status, nil, err)
+		return
+	}
+	h.respond(c, http.StatusOK, hostPod, nil)
 }
