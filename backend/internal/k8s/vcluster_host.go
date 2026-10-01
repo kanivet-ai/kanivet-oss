@@ -14,9 +14,12 @@ import (
 
 // Metadata the vcluster syncer stamps on every object it copies to the host.
 const (
-	vclusterManagedByLabel            = "vcluster.loft.sh/managed-by"
-	vclusterObjectNameAnnotation      = "vcluster.loft.sh/object-name"
-	vclusterObjectNamespaceAnnotation = "vcluster.loft.sh/object-namespace"
+	VClusterManagedByLabel            = "vcluster.loft.sh/managed-by"
+	VClusterObjectNameAnnotation      = "vcluster.loft.sh/object-name"
+	VClusterObjectNamespaceAnnotation = "vcluster.loft.sh/object-namespace"
+	// VClusterOwnerReferencesAnnotation holds the virtual pod's owner references
+	// as JSON; the host pod itself is owned by the vcluster's Service.
+	VClusterOwnerReferencesAnnotation = "vcluster.loft.sh/owner-references"
 )
 
 var ErrVClusterHostPodNotFound = errors.New("host pod not found")
@@ -57,10 +60,10 @@ func (c *Client) ResolveVClusterHostPod(vclusterID, namespace, name string) (*VC
 
 func findVClusterHostPod(ctx context.Context, client kubernetes.Interface, hostNamespace, vcName, podNamespace, podName string) (*corev1.Pod, error) {
 	isMatch := func(p *corev1.Pod) bool {
-		if p.Annotations[vclusterObjectNameAnnotation] != podName || p.Annotations[vclusterObjectNamespaceAnnotation] != podNamespace {
+		if p.Annotations[VClusterObjectNameAnnotation] != podName || p.Annotations[VClusterObjectNamespaceAnnotation] != podNamespace {
 			return false
 		}
-		managedBy, labelled := p.Labels[vclusterManagedByLabel]
+		managedBy, labelled := p.Labels[VClusterManagedByLabel]
 		return !labelled || managedBy == vcName
 	}
 

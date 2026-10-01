@@ -1,0 +1,153 @@
+/* Savings opportunities — a Finder-style list inside a card. */
+.savings-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.savings-row {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 9px 14px;
+}
+
+.savings-row:nth-child(odd) {
+  background: var(--stripe);
+}
+
+.savings-type {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 18px;
+  margin-top: 1px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--ctrl);
+  color: var(--text2);
+}
+
+.savings-type.savings-rightsize {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.savings-type.savings-underutilized-node {
+  background: color-mix(in srgb, var(--orange) 14%, transparent);
+  color: var(--orange);
+}
+
+.savings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.savings-target {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.savings-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.savings-ns {
+  margin-left: 8px;
+  font-size: 11.5px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.savings-text {
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--text2);
+}
+
+.savings-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.savings-value {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--success-fg);
+}
+
+.savings-unit {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.savings-unpriced {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.savings-more {
+  align-self: stretch;
+  height: 30px;
+  border: 0;
+  border-top: 1px solid var(--hair);
+  background: transparent;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.savings-more:hover {
+  background: var(--hover);
+}
+
+/* Small "open" affordance shared by cost rows */
+.row-open-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
+  flex: none;
+}
+
+.row-open-btn svg {
+  width: 12px;
+  height: 12px;
+}
+
+.savings-row:hover .row-open-btn,
+.cost-table tr:hover .row-open-btn,
+.row-open-btn:focus-visible {
+  opacity: 1;
+}
+
+.row-open-btn:hover {
+  color: var(--blue);
+  background: var(--hover);
+}

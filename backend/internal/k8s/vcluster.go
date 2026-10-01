@@ -70,6 +70,12 @@ func IsVClusterID(name string) bool {
 	return strings.HasPrefix(name, VClusterIDPrefix)
 }
 
+// ParseVClusterID splits a vcluster connection ID into the host cluster, the
+// host namespace the vcluster runs in, and the vcluster's name.
+func ParseVClusterID(id string) (host, namespace, name string, ok bool) {
+	return parseVClusterID(id)
+}
+
 func parseVClusterID(id string) (host, namespace, name string, ok bool) {
 	if !IsVClusterID(id) {
 		return "", "", "", false

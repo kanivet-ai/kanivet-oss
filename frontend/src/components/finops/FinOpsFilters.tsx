@@ -25,9 +25,35 @@ interface FinOpsFiltersProps {
     filteredNodes: number;
   };
   availableNamespaces: string[];
+  /** Usage-based filters only make sense when metrics-server reported usage. */
+  usageAvailable: boolean;
 }
 
-export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFiltersChange, stats, availableNamespaces }) => {
+export const DEFAULT_FINOPS_FILTERS: FinOpsFilterState = {
+  search: '',
+  selectedNamespaces: [],
+  efficiencyMin: 0,
+  efficiencyMax: 200,
+  costMin: 0,
+  costMax: 999999,
+  showNoRequests: false,
+  showOverprovisioned: false,
+  showOvercommitted: false,
+};
+
+export function countActiveFilters(filters: FinOpsFilterState): number {
+  return [
+    filters.search !== '',
+    filters.selectedNamespaces.length > 0,
+    filters.efficiencyMin > 0 || filters.efficiencyMax < 200,
+    filters.costMin > 0 || filters.costMax < 999999,
+    filters.showNoRequests,
+    filters.showOverprovisioned,
+    filters.showOvercommitted,
+  ].filter(Boolean).length;
+}
+
+export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFiltersChange, stats, availableNamespaces, usageAvailable }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [showNsDropdown, setShowNsDropdown] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -43,11 +69,6 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
           left: rect.left,
           minWidth: Math.max(rect.width, 250),
         };
-        console.log('[Dropdown Position]', {
-          buttonRect: { top: rect.top, bottom: rect.bottom, left: rect.left, width: rect.width },
-          dropdownStyle: style,
-          scrollY: window.scrollY,
-        });
         setDropdownStyle(style);
       }
     };
@@ -83,17 +104,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
   };
 
   const handleReset = () => {
-    onFiltersChange({
-      search: '',
-      selectedNamespaces: [],
-      efficiencyMin: 0,
-      efficiencyMax: 200,
-      costMin: 0,
-      costMax: 999999,
-      showNoRequests: false,
-      showOverprovisioned: false,
-      showOvercommitted: false,
-    });
+    onFiltersChange(DEFAULT_FINOPS_FILTERS);
     setIsExpanded(false);
   };
 
@@ -108,15 +119,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
     onFiltersChange({ ...filters, selectedNamespaces: selected });
   };
 
-  const activeFilterCount = [
-    filters.search !== '',
-    filters.selectedNamespaces.length > 0,
-    filters.efficiencyMin > 0 || filters.efficiencyMax < 200,
-    filters.costMin > 0 || filters.costMax < 999999,
-    filters.showNoRequests,
-    filters.showOverprovisioned,
-    filters.showOvercommitted,
-  ].filter(Boolean).length;
+  const activeFilterCount = countActiveFilters(filters);
 
   return (
     <div className="finops-filters">
@@ -125,7 +128,7 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
           <MagnifyingGlassIcon className="search-icon" />
           <input
             type="text"
-            placeholder="Search namespaces, workloads, nodes..."
+            placeholder="Search namespaces, workloads, pods, nodes…"
             value={filters.search}
             onChange={(e) => handleSearchChange(e.target.value)}
             className="search-input"
@@ -200,8 +203,9 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
               </div>
             </div>
 
+            {usageAvailable && (
             <div className="filter-group">
-              <label className="filter-label">Efficiency %</label>
+              <label className="filter-label">Requests used %</label>
               <div className="filter-range">
                 <input
                   type="number"
@@ -227,11 +231,12 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
                 <button className="preset-chip critical" onClick={() => onFiltersChange({ ...filters, efficiencyMin: 0, efficiencyMax: 30 })}>
                   &lt;30%
                 </button>
-                <button className="preset-chip overcommit" onClick={() => onFiltersChange({ ...filters, efficiencyMin: 85, efficiencyMax: 100 })}>
-                  &gt;85%
+                <button className="preset-chip overcommit" onClick={() => onFiltersChange({ ...filters, efficiencyMin: 100, efficiencyMax: 200 })}>
+                  &gt;100%
                 </button>
               </div>
             </div>
+            )}
 
             <div className="filter-group">
               <label className="filter-label">Cost $/mo</label>
@@ -276,24 +281,28 @@ export const FinOpsFilters: React.FC<FinOpsFiltersProps> = ({ filters, onFilters
                   />
                   <span>No resource requests</span>
                 </label>
-                <label className="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    className="ap-checkbox"
-                    checked={filters.showOverprovisioned}
-                    onChange={(e) => onFiltersChange({ ...filters, showOverprovisioned: e.target.checked })}
-                  />
-                  <span>Underutilized (&lt;30%)</span>
-                </label>
-                <label className="filter-checkbox">
-                  <input
-                    type="checkbox"
-                    className="ap-checkbox"
-                    checked={filters.showOvercommitted}
-                    onChange={(e) => onFiltersChange({ ...filters, showOvercommitted: e.target.checked })}
-                  />
-                  <span>Overcommitted (&gt;85%)</span>
-                </label>
+                {usageAvailable && (
+                  <>
+                    <label className="filter-checkbox">
+                      <input
+                        type="checkbox"
+                        className="ap-checkbox"
+                        checked={filters.showOverprovisioned}
+                        onChange={(e) => onFiltersChange({ ...filters, showOverprovisioned: e.target.checked })}
+                      />
+                      <span>Over-provisioned (&lt;30% of requests used)</span>
+                    </label>
+                    <label className="filter-checkbox">
+                      <input
+                        type="checkbox"
+                        className="ap-checkbox"
+                        checked={filters.showOvercommitted}
+                        onChange={(e) => onFiltersChange({ ...filters, showOvercommitted: e.target.checked })}
+                      />
+                      <span>Under-requested (using &gt;100%)</span>
+                    </label>
+                  </>
+                )}
               </div>
             </div>
           </div>

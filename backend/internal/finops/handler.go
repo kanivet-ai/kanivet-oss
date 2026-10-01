@@ -1,6 +1,7 @@
 package finops
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"sync"
@@ -120,7 +121,7 @@ func (h *Handler) GetCostRecommendations(c *gin.Context) {
 }
 
 func (h *Handler) GetPricingStatus(c *gin.Context) {
-	status := h.service.GetPricingStatus()
+	status := h.service.GetPricingStatus(c.Request.Context(), c.Query("cluster"))
 	c.JSON(http.StatusOK, gin.H{"data": status})
 }
 
@@ -130,7 +131,7 @@ func (h *Handler) PreloadPricing(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster parameter required"})
 		return
 	}
-	go h.service.PreloadPricing(c.Request.Context(), cluster)
+	go func() { _ = h.service.PreloadPricing(context.Background(), cluster) }()
 	c.JSON(http.StatusOK, gin.H{"data": "preloading"})
 }
 
@@ -162,6 +163,10 @@ func (h *Handler) StreamDashboardEndpoint(c *gin.Context) {
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.WriteHeader(http.StatusOK)
 
+	if c.Query("refresh") == "true" {
+		h.service.Invalidate(cluster)
+	}
+
 	flusher, _ := c.Writer.(http.Flusher)
 	enc := json.NewEncoder(c.Writer)
 	var mu sync.Mutex
@@ -189,6 +194,9 @@ func (h *Handler) GetDashboard(c *gin.Context) {
 		return
 	}
 
+	if c.Query("refresh") == "true" {
+		h.service.Invalidate(cluster)
+	}
 	dashboard, err := h.service.GetDashboard(c.Request.Context(), cluster)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -207,6 +215,9 @@ func (h *Handler) GetResourceCost(c *gin.Context) {
 
 	kind := c.Param("kind")
 	namespace := c.Param("namespace")
+	if namespace == "_" {
+		namespace = ""
+	}
 	name := c.Param("name")
 
 	if kind == "" || name == "" {
@@ -214,73 +225,53 @@ func (h *Handler) GetResourceCost(c *gin.Context) {
 		return
 	}
 
-	ctx := c.Request.Context()
-	var cost interface{}
-	var err error
-
-	switch kind {
-	case "Pod":
-		pods, e := h.service.GetPodCosts(ctx, cluster, namespace)
-		if e != nil {
-			err = e
-			break
-		}
-		for _, p := range pods {
-			if p.PodName == name && p.Namespace == namespace {
-				cost = p
-				break
-			}
-		}
-	case "Deployment", "StatefulSet", "DaemonSet", "ReplicaSet":
-		workloads, e := h.service.GetWorkloadCosts(ctx, cluster, namespace)
-		if e != nil {
-			err = e
-			break
-		}
-		for _, w := range workloads {
-			if w.Name == name && w.Namespace == namespace && w.Kind == kind {
-				cost = w
-				break
-			}
-		}
-	case "Namespace":
-		namespaces, e := h.service.GetNamespaceCosts(ctx, cluster)
-		if e != nil {
-			err = e
-			break
-		}
-		for _, n := range namespaces {
-			if n.Namespace == name {
-				cost = n
-				break
-			}
-		}
-	case "Node":
-		nodes, e := h.service.GetNodeCosts(ctx, cluster)
-		if e != nil {
-			err = e
-			break
-		}
-		for _, n := range nodes {
-			if n.NodeName == name {
-				cost = n
-				break
-			}
-		}
-	default:
-		c.JSON(http.StatusBadRequest, gin.H{"error": "unsupported resource kind for cost calculation"})
-		return
-	}
-
+	d, err := h.service.GetDashboard(c.Request.Context(), cluster)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-
-	if cost == nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "resource not found or has no cost data"})
+	if cost := findResourceCost(d, kind, namespace, name); cost != nil {
+		c.JSON(http.StatusOK, gin.H{"data": cost})
 		return
 	}
+	c.JSON(http.StatusNotFound, gin.H{"error": "resource not found or has no cost data"})
+}
 
-	c.JSON(http.StatusOK, gin.H{"data": cost})
+// findResourceCost looks a resource up in a dashboard: nodes, namespaces,
+// pods, or any workload kind pods roll up to (Deployment, StatefulSet,
+// DaemonSet, CronJob, ...).
+func findResourceCost(d *Dashboard, kind, namespace, name string) interface{} {
+	switch kind {
+	case "Node":
+		for i := range d.Nodes {
+			if d.Nodes[i].NodeName == name {
+				return d.Nodes[i]
+			}
+		}
+		return nil
+	case "Namespace":
+		for i := range d.Namespaces {
+			if d.Namespaces[i].Namespace == name {
+				return d.Namespaces[i]
+			}
+		}
+		return nil
+	}
+	for _, ns := range d.Namespaces {
+		if ns.Namespace != namespace {
+			continue
+		}
+		for _, w := range ns.TopWorkloads {
+			if kind == "Pod" {
+				for _, p := range w.Pods {
+					if p.PodName == name {
+						return p
+					}
+				}
+			} else if w.Kind == kind && w.Name == name {
+				return w
+			}
+		}
+	}
+	return nil
 }

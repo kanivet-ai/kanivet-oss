@@ -6,12 +6,15 @@ export async function getFinOpsDashboard(cluster: string): Promise<any> {
   return response.data.data;
 }
 
+/** Streams the cost dashboard; `refresh` skips the server's 60s cache. */
 export async function streamFinOpsDashboard(
   cluster: string,
   onChunk: (type: string, data: any) => void,
   signal?: AbortSignal,
+  refresh = false,
 ): Promise<void> {
-  return streamJsonLines(`/finops/dashboard/stream?cluster=${encodeURIComponent(cluster)}`, 'finops', onChunk, signal);
+  const query = `cluster=${encodeURIComponent(cluster)}${refresh ? '&refresh=true' : ''}`;
+  return streamJsonLines(`/finops/dashboard/stream?${query}`, 'finops', onChunk, signal);
 }
 
 export async function getFinOpsSummary(cluster: string): Promise<any> {

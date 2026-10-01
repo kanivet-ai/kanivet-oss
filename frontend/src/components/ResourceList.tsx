@@ -972,7 +972,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                     {tab.resource?.kind === 'ClusterDashboard' ? (
                       null
                     ) : tab.resource?.kind === 'FinOpsDashboard' ? (
-                      <FinOpsDashboard key={`finops-dashboard-${tab.id}`} />
+                      <FinOpsDashboard key={`finops-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'HelmReleases' ? (
                       <HelmPage key={`helm-page-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'IncidentTimeline' ? (

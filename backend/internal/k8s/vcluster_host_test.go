@@ -15,10 +15,10 @@ func syncedPod(hostNS, hostName, vcName, virtNS, virtName, node string) *corev1.
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      hostName,
 			Namespace: hostNS,
-			Labels:    map[string]string{vclusterManagedByLabel: vcName},
+			Labels:    map[string]string{VClusterManagedByLabel: vcName},
 			Annotations: map[string]string{
-				vclusterObjectNameAnnotation:      virtName,
-				vclusterObjectNamespaceAnnotation: virtNS,
+				VClusterObjectNameAnnotation:      virtName,
+				VClusterObjectNamespaceAnnotation: virtNS,
 			},
 		},
 		Spec: corev1.PodSpec{NodeName: node},
