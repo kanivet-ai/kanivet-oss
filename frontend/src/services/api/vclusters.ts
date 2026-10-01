@@ -28,3 +28,14 @@ export async function connectVCluster(host: string, namespace: string, name: str
 export async function disconnectVCluster(id: string): Promise<void> {
   await apiClient.getAxios().delete(`/cluster/vclusters/${encodeURIComponent(id)}`);
 }
+
+export interface VClusterHostPod {
+  host: string;
+  namespace: string;
+  name: string;
+  nodeName: string;
+}
+
+export async function getVClusterHostPod(cluster: string, namespace: string, name: string): Promise<VClusterHostPod> {
+  return apiClient.request('/cluster/vclusters/host-pod', { cluster, namespace, name }, false);
+}
