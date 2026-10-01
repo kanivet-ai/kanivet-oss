@@ -99,10 +99,10 @@ jobs:
         run: go build -tags production -trimpath -o /tmp/kanivet-backend ./cmd/main.go
 
   windows:
-    # The release build runs these tests on Windows before publishing; running
-    # them here catches Windows-only failures (an open file can't be deleted,
-    # path separators, line endings) before merge instead of after it. On
-    # main the release build already runs them, so this job is for PRs only.
+    # The release build runs these tests on Windows after merge; running them
+    # here catches Windows-only failures (an open file can't be deleted, path
+    # separators, line endings) before merge instead. On main the release
+    # build already runs them, so this job is for pull requests only.
     if: github.event_name == 'pull_request'
     runs-on: windows-2022
     timeout-minutes: 45
