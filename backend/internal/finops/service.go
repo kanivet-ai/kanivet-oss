@@ -9,6 +9,7 @@ import (
 
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/k8s"
+	"github.com/kanivet/backend/internal/k8s/podcache"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -38,7 +39,40 @@ type Service struct {
 	k8s     k8s.Interface
 	cache   *cache.Cache
 	pricing pricingSource
-	now     func() time.Time
+	// pods, when set, serves pods from a shared watch instead of listing
+	// every pod on each computation.
+	pods podcache.Lister
+	now  func() time.Time
+}
+
+// SetPodLister makes the service read pods from a shared pod cache.
+func (s *Service) SetPodLister(l podcache.Lister) { s.pods = l }
+
+// listPods returns the cluster's running and pending pods, optionally in one
+// namespace.
+func (s *Service) listPods(ctx context.Context, cs kubernetes.Interface, cluster, namespace string) ([]v1.Pod, error) {
+	if s.pods == nil {
+		l, err := cs.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{FieldSelector: activePodsSelector})
+		if err != nil {
+			return nil, err
+		}
+		return l.Items, nil
+	}
+	cached, err := s.pods.List(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]v1.Pod, 0, len(cached))
+	for _, p := range cached {
+		if namespace != "" && p.Namespace != namespace {
+			continue
+		}
+		if p.Status.Phase == v1.PodSucceeded || p.Status.Phase == v1.PodFailed {
+			continue
+		}
+		out = append(out, *p)
+	}
+	return out, nil
 }
 
 func NewService(k8sClient k8s.Interface, cacheInstance *cache.Cache) *Service {
@@ -114,11 +148,11 @@ func (s *Service) calculateDashboard(ctx context.Context, cluster string) (*Dash
 			return nil
 		},
 		func() error {
-			l, err := cs.CoreV1().Pods("").List(ctx, metav1.ListOptions{FieldSelector: activePodsSelector})
+			l, err := s.listPods(ctx, cs, cluster, "")
 			if err != nil {
 				return fmt.Errorf("list pods: %w", err)
 			}
-			pods = l.Items
+			pods = l
 			return nil
 		},
 		func() error {
@@ -184,11 +218,11 @@ func (s *Service) calculateVClusterDashboard(ctx context.Context, cluster, host,
 			return nil
 		},
 		func() error {
-			l, err := hostCS.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{FieldSelector: activePodsSelector})
+			l, err := s.listPods(ctx, hostCS, host, namespace)
 			if err != nil {
 				return fmt.Errorf("list host pods in %s: %w", namespace, err)
 			}
-			hostPods = l.Items
+			hostPods = l
 			return nil
 		},
 		func() error {
