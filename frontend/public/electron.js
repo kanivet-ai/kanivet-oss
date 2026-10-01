@@ -929,6 +929,13 @@ function getBackendCandidates(platform = process.platform, arch = process.arch) 
 
 async function startBackend() {
   if (isDev) {
+    // KANIVET_DEV_BACKEND_PORT points a dev window at a backend you run
+    // yourself on another port, leaving whatever holds 53727 alone.
+    const devPort = Number(process.env.KANIVET_DEV_BACKEND_PORT);
+    if (devPort > 0) {
+      setBackendPort(devPort);
+      return backendPort;
+    }
     killExistingBackend(53727);
     await sleep(500);
     return backendPort;

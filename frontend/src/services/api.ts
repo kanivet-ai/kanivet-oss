@@ -12,9 +12,11 @@ import * as searchApi from './api/search';
 import * as helm from './api/helm';
 import * as metrics from './api/metrics';
 import * as finops from './api/finops';
+import * as rightsizing from './api/rightsizing';
 import * as incidents from './api/incidents';
 import * as vclusters from './api/vclusters';
 import { IncidentTimelineFilters, IncidentTimelineResponse } from '../types/incidents';
+import type { Evidence, RightsizingProfile, RightsizingReport, RightsizingWindow } from '../types/rightsizing';
 
 export type { ClusterGroup, ClusterInfo } from './api/types';
 
@@ -277,6 +279,17 @@ class API {
   }
   async getFinOpsPricingDebug(cluster: string): Promise<any> { return finops.getFinOpsPricingDebug(cluster); }
   async preloadFinOpsPricing(cluster: string): Promise<void> { return finops.preloadFinOpsPricing(cluster); }
+
+  async getRightsizingReport(cluster: string, profile: RightsizingProfile, window: RightsizingWindow, refresh = false, known?: string): Promise<RightsizingReport> {
+    return rightsizing.getRightsizingReport(cluster, profile, window, refresh, known);
+  }
+  async getRightsizingWorkload(cluster: string, ref: rightsizing.WorkloadRef, profile: RightsizingProfile, window: RightsizingWindow): Promise<Evidence> {
+    return rightsizing.getRightsizingWorkload(cluster, ref, profile, window);
+  }
+  async dismissRightsizing(cluster: string, input: rightsizing.DismissInput): Promise<void> { return rightsizing.dismissRightsizing(cluster, input); }
+  async undismissRightsizing(cluster: string, input: rightsizing.WorkloadRef & { container?: string }): Promise<void> {
+    return rightsizing.undismissRightsizing(cluster, input);
+  }
 
   async getIncidentTimeline(cluster: string, filters: IncidentTimelineFilters = {}): Promise<IncidentTimelineResponse> {
     return incidents.getIncidentTimeline(cluster, filters);

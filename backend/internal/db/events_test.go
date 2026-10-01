@@ -15,7 +15,7 @@ func newTestDB(t *testing.T) *DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	d := &DB{gdb}
+	d := &DB{DB: gdb}
 	if err := d.MigrateEvents(); err != nil {
 		t.Fatalf("migrate events: %v", err)
 	}

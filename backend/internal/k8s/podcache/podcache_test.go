@@ -2,6 +2,7 @@ package podcache
 
 import (
 	"context"
+	"slices"
 	"testing"
 	"time"
 
@@ -65,7 +66,7 @@ func TestListSyncsAndSlimsPods(t *testing.T) {
 	if p.Labels["vcluster.loft.sh/managed-by"] != "beige-vcluster" || p.Annotations["vcluster.loft.sh/object-name"] != "api-0" {
 		t.Errorf("vcluster identity lost: %v %v", p.Labels, p.Annotations)
 	}
-	if len(p.Annotations) != 1 || p.ManagedFields != nil || p.Spec.Containers[0].Env != nil || p.Spec.Volumes != nil || p.Spec.Containers[0].Image != "" {
+	if len(p.Annotations) != 1 || p.ManagedFields != nil || p.Spec.Containers[0].Env != nil || p.Spec.Volumes != nil {
 		t.Errorf("heavy fields kept: annotations=%v env=%v volumes=%v", p.Annotations, p.Spec.Containers[0].Env, p.Spec.Volumes)
 	}
 }
@@ -113,5 +114,20 @@ func TestIdleClustersAreStopped(t *testing.T) {
 	c.mu.Unlock()
 	if prod || !staging {
 		t.Errorf("prod cached=%v (want false), staging cached=%v (want true)", prod, staging)
+	}
+}
+
+func TestSlimKeepsOnlyJVMOptions(t *testing.T) {
+	p := heavyPod("jvm")
+	p.Spec.Containers[0].Env = append(p.Spec.Containers[0].Env, corev1.EnvVar{Name: "JAVA_TOOL_OPTIONS", Value: "-XX:MaxRAMPercentage=75"})
+	p.Spec.Containers[0].Command = []string{"/opt/java/bin/java"}
+	p.Spec.Containers[0].Args = []string{"-Xmx512m", "-jar", "app.jar", "--password=hunter2"}
+	out, _ := slim(p)
+	c := out.(*corev1.Pod).Spec.Containers[0]
+	if len(c.Env) != 1 || c.Env[0].Name != "JAVA_TOOL_OPTIONS" {
+		t.Fatalf("env %v", c.Env)
+	}
+	if !slices.Equal(c.Args, []string{"/opt/java/bin/java", "-Xmx512m"}) || c.Image != "registry/app:1" {
+		t.Fatalf("args %v image %q", c.Args, c.Image)
 	}
 }

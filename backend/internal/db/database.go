@@ -13,6 +13,9 @@ import (
 
 type DB struct {
 	*gorm.DB
+	// rsCache holds rightsizing's history chunks and reports in a file of
+	// their own; nil means they live in the main database (tests).
+	rsCache *gorm.DB
 }
 
 type ClusterGroup struct {
@@ -103,7 +106,7 @@ func New() (*DB, error) {
 		return nil, err
 	}
 
-	dbInstance := &DB{db}
+	dbInstance := &DB{DB: db}
 
 	// Migrate search tables
 	if err := dbInstance.MigrateSearch(); err != nil {
@@ -119,6 +122,15 @@ func New() (*DB, error) {
 	// feature, never abort startup into a crash loop on the user's DB.
 	if err := dbInstance.MigrateSnapshots(); err != nil {
 		log.Printf("[DB] snapshot table migration failed, list snapshots disabled: %v", err)
+	}
+
+	// Rightsizing reports are a cache and dismissals are optional state; a
+	// failed migration disables persistence, never startup.
+	if err := dbInstance.OpenRightsizingCache(filepath.Join(dbDir, "cache", "rightsizing.db")); err != nil {
+		log.Printf("[DB] rightsizing cache unavailable, history will not be cached: %v", err)
+	}
+	if err := dbInstance.MigrateRightsizing(); err != nil {
+		log.Printf("[DB] rightsizing table migration failed, reports will not persist: %v", err)
 	}
 
 	// One-time schema steps for databases created by earlier releases.

@@ -29,6 +29,9 @@ interface Props {
   /** Show the usage column; without metrics-server it would be all dashes. */
   showUsage?: boolean;
   nameHeader?: string;
+  /** Monthly savings from the rightsizing engine, by workload and by namespace. */
+  workloadSavings?: (wl: WorkloadCost) => number | undefined;
+  namespaceSavings?: (ns: NamespaceCost) => number | undefined;
 }
 
 interface EfficiencyCellProps {
@@ -60,7 +63,7 @@ const EfficiencyCell: React.FC<EfficiencyCellProps> = ({ item }) => {
 const CostCell: React.FC<{ monthly: number; savings?: number; compact?: boolean }> = ({ monthly, savings, compact }) => (
   <div className="cost-with-insights">
     {savings !== undefined && savings >= 1 && (
-      <Tooltip content={`Right-sizing requests to 1.3× current usage would save about ${formatCost(savings)}/mo`}>
+      <Tooltip content={`Rightsizing its requests to what its usage history supports saves about ${formatCost(savings)}/mo. See Rightsizing for the evidence.`}>
         <span className="savings-hint">−{formatCost(savings)}</span>
       </Tooltip>
     )}
@@ -120,6 +123,8 @@ export const NamespaceCostTable: React.FC<Props> = ({
   hideShare,
   showUsage = true,
   nameHeader = 'Namespace / Workload / Pod',
+  workloadSavings,
+  namespaceSavings,
 }) => {
   const [expandedNs, setExpandedNs] = useState<Set<string>>(new Set());
   const [expandedWl, setExpandedWl] = useState<Set<string>>(new Set());
@@ -197,7 +202,7 @@ export const NamespaceCostTable: React.FC<Props> = ({
             {wl.hpa && <HPABadge hpa={wl.hpa} />}
           </td>
           {showUsage && <td className="col-efficiency"><EfficiencyCell item={wl} /></td>}
-          <td className="col-cost"><CostCell monthly={wl.monthlyCost} savings={wl.rightsizingSavings} /></td>
+          <td className="col-cost"><CostCell monthly={wl.monthlyCost} savings={workloadSavings?.(wl)} /></td>
           {!hideShare && (
             <td className="col-share">
               {isBarePod && wl.pods?.[0] ? <PodNodeCell pod={wl.pods[0]} node={nodeByName.get(wl.pods[0].nodeName)} /> : null}
@@ -263,7 +268,7 @@ export const NamespaceCostTable: React.FC<Props> = ({
                 </td>
                 <td className="col-pods"><span className="resource-count">{ns.podCount}</span></td>
                 {showUsage && <td className="col-efficiency"><EfficiencyCell item={ns} /></td>}
-                <td className="col-cost"><CostCell monthly={ns.monthlyCost} savings={ns.rightsizingSavings} /></td>
+                <td className="col-cost"><CostCell monthly={ns.monthlyCost} savings={namespaceSavings?.(ns)} /></td>
                 {!hideShare && (
                   <td className="col-share">
                     <div className="share-cell">

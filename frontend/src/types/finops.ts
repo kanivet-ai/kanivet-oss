@@ -50,7 +50,6 @@ export interface ClusterCostSummary {
   allocatedCost: number;
   idleCost: number;
   idlePercentage: number;
-  rightsizingSavings: number;
   cpuEfficiency: number;
   memoryEfficiency: number;
   overallEfficiency: number;
@@ -130,7 +129,6 @@ export interface NamespaceCost {
   cpuEfficiency: number;
   memoryEfficiency: number;
   overallEfficiency: number;
-  rightsizingSavings?: number;
   topWorkloads?: WorkloadCost[];
   /** The vcluster running in this host namespace, if any. */
   vcluster?: string;
@@ -163,7 +161,6 @@ export interface WorkloadCost {
   cpuEfficiency: number;
   memoryEfficiency: number;
   overallEfficiency: number;
-  rightsizingSavings?: number;
   pods?: PodCost[];
   hpa?: HPAInfo;
 }
@@ -181,6 +178,8 @@ export interface CostRecommendation {
   projectedSavings: number;
   recommendation: string;
   priority: 'high' | 'medium' | 'low';
+  /** Rightsizing rows come from the rightsizing engine and open its evidence. */
+  rightsizing?: import('./rightsizing').WorkloadReport;
 }
 
 export interface FinOpsDashboardData {

@@ -255,8 +255,11 @@ func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInf
 			MaxIdleConns:        10,
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
-			DisableCompression:  false,
-			DisableKeepAlives:   false,
+			// History answers run to megabytes over a loopback port-forward:
+			// the default 4KB buffer costs one read syscall per 4KB.
+			ReadBufferSize:     64 << 10,
+			DisableCompression: false,
+			DisableKeepAlives:  false,
 			DialContext: (&net.Dialer{
 				Timeout:   1 * time.Second,
 				KeepAlive: 30 * time.Second,

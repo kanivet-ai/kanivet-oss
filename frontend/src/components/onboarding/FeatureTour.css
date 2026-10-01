@@ -1,0 +1,183 @@
+/* One-time feature tour: a spotlight on the real UI and a small card beside it. */
+
+.ft-root {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+}
+
+/* The page stays visible but quiet; the spotlight is a hole in the dim. */
+.ft-dim,
+.ft-spot,
+.ft-block {
+  position: fixed;
+}
+
+/* The dim and the blockers take clicks; the spotlight lets them through to
+   the real element underneath. */
+.ft-dim,
+.ft-block {
+  pointer-events: auto;
+}
+
+.ft-spot {
+  pointer-events: none;
+}
+
+.ft-dim {
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.ft-spot {
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px var(--blue),
+    0 0 0 9999px rgba(0, 0, 0, 0.62);
+  transition:
+    top var(--duration-base, 180ms) var(--ease-snap, ease),
+    left var(--duration-base, 180ms) var(--ease-snap, ease),
+    width var(--duration-base, 180ms) var(--ease-snap, ease),
+    height var(--duration-base, 180ms) var(--ease-snap, ease);
+}
+
+.ft-card {
+  position: fixed;
+  width: 340px;
+  max-width: calc(100vw - 32px);
+  padding: 16px 16px 14px;
+  border-radius: 12px;
+  background: var(--card);
+  color: var(--text);
+  box-shadow:
+    var(--shadow-pop),
+    0 0 0 1px var(--hair);
+  outline: none;
+  animation: ft-in var(--duration-base, 180ms) var(--ease-snap, ease);
+}
+
+.ft-card.ft-welcome {
+  width: 380px;
+}
+
+@keyframes ft-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.ft-card h3 {
+  margin: 0 28px 6px 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.ft-welcome h3 {
+  font-size: 17px;
+}
+
+.ft-step {
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.ft-body p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text2);
+}
+
+.ft-body .ft-muted {
+  color: var(--text3);
+  font-size: 12px;
+}
+
+.ft-body kbd {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--ctrl);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.ft-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.ft-primary,
+.ft-link,
+.ft-close {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+
+.ft-primary {
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 7px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.ft-primary:focus-visible,
+.ft-link:focus-visible,
+.ft-close:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.ft-link {
+  padding: 0;
+  background: transparent;
+  color: var(--text2);
+  font-size: 12.5px;
+}
+
+.ft-link:hover {
+  color: var(--text);
+}
+
+.ft-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text3);
+}
+
+.ft-close:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ft-spot,
+  .ft-card {
+    transition: none;
+    animation: none;
+  }
+}
+
+.ft-card:focus,
+.ft-card:focus-visible {
+  outline: none;
+}

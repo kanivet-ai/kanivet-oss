@@ -339,6 +339,19 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
+      } else if (node.type === 'rightsizing') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(
+            { name: 'rightsizing-dashboard', group: '', version: 'v1', kind: 'RightsizingDashboard', namespaced: false },
+            currentTab,
+            isPinned,
+            freshPaneId || undefined,
+          );
+          recordNavigation('rightsizing', node.id, node.data).catch((error) => {
+            console.error('Error recording navigation:', error);
+          });
+        }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');
         selectNode(node);

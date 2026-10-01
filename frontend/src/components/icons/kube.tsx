@@ -431,6 +431,16 @@ export const FinOpsIcon = (p: KubeIconProps) => (
   </Svg>
 );
 
+/** A request bar trimmed to its usage line. */
+export const RightsizingIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M2.5 13.5h11" />
+    <rect x={3.5} y={4} width={3} height={7} rx={0.75} />
+    <rect x={9.5} y={7} width={3} height={4} rx={0.75} />
+    <path d="M9 4.5h4" strokeDasharray="1.4 1.4" />
+  </Svg>
+);
+
 /** Hexagon with a live core. */
 export const WorkloadsIcon = (p: KubeIconProps) => (
   <Svg {...p}>

@@ -11,6 +11,7 @@ import EventsSection from './shared/EventsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { PodMetrics } from '../PodMetrics';
 import { WorkloadMetrics } from '../WorkloadMetrics';
+import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -524,6 +525,20 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                         />
                       </div>
                     </MetricsPropertyGroup>
+                    <div className="section-divider" />
+                  </>
+                )}
+
+                {['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'].includes(resource.kind) && (
+                  <>
+                    <PropertyGroup title="Rightsizing" icon={getResourceIcon('rightsizing')} persistKey="rightsizing">
+                      <WorkloadRightsizingCard
+                        cluster={cluster}
+                        kind={resource.kind}
+                        namespace={metadata.namespace || 'default'}
+                        name={metadata.name}
+                      />
+                    </PropertyGroup>
                     <div className="section-divider" />
                   </>
                 )}
