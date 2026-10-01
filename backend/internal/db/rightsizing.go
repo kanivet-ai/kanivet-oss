@@ -81,6 +81,20 @@ func (db *DB) OpenRightsizingCache(path string) error {
 	return nil
 }
 
+// CloseRightsizingCache closes the cache file. Windows can't delete or
+// replace a file that is still open.
+func (db *DB) CloseRightsizingCache() error {
+	if db.rsCache == nil {
+		return nil
+	}
+	sqlDB, err := db.rsCache.DB()
+	if err != nil {
+		return err
+	}
+	db.rsCache = nil
+	return sqlDB.Close()
+}
+
 func (db *DB) cache() *gorm.DB {
 	if db.rsCache != nil {
 		return db.rsCache

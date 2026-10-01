@@ -17,12 +17,20 @@ test('CI validates every PR, including title edits, and can be dispatched or reu
   assert.match(workflow, /workflow_call:/);
 });
 
-test('CI is read-only, Ubuntu-hosted, and only cancels superseded PR runs', () => {
+test('CI is read-only and only cancels superseded PR runs', () => {
   assert.match(workflow, /permissions:\n  contents: read/);
   assert.match(workflow, /runs-on: ubuntu-24\.04/g);
   assert.match(workflow, /cancel-in-progress: \$\{\{ github\.event_name == 'pull_request' \}\}/);
   assert.doesNotMatch(workflow, /pull_request_target|secrets:|contents: write|publish/i);
-  assert.equal((workflow.match(/persist-credentials: false/g) || []).length, 4);
+  assert.equal((workflow.match(/persist-credentials: false/g) || []).length, 5);
+});
+
+test('Windows tests run on pull requests only, where the release build does not', () => {
+  const job = workflow.slice(workflow.indexOf('\n  windows:'), workflow.indexOf('\n  release-tooling:'));
+  assert.match(job, /if: github\.event_name == 'pull_request'\n/);
+  assert.match(job, /runs-on: windows-2022/);
+  assert.match(job, /go test \.\/\.\.\./);
+  assert.match(job, /npm test/);
 });
 
 test('CI runs the requested application and release-tooling checks', () => {

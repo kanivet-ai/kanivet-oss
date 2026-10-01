@@ -98,6 +98,43 @@ jobs:
         working-directory: backend
         run: go build -tags production -trimpath -o /tmp/kanivet-backend ./cmd/main.go
 
+  windows:
+    # The release build runs these tests on Windows after merge; running them
+    # here catches Windows-only failures (an open file can't be deleted, path
+    # separators, line endings) before merge instead. On main the release
+    # build already runs them, so this job is for pull requests only.
+    if: github.event_name == 'pull_request'
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Install dependencies
+        working-directory: frontend
+        env:
+          HUSKY: '0'
+        run: npm ci
+      - name: Test release tooling and application
+        run: |
+          node --test scripts/*.test.cjs
+          cd backend
+          go test ./...
+          cd ../frontend
+          npm test
+
   release-tooling:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
