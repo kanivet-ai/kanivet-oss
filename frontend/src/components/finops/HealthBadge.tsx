@@ -1,64 +1,60 @@
 import React from 'react';
 import { CheckCircledIcon, ExclamationTriangleIcon, CrossCircledIcon, InfoCircledIcon, QuestionMarkCircledIcon } from '@radix-ui/react-icons';
-import { getEfficiencyBadge } from '../../types/finops';
+import { getUsageBadge, formatPercent, formatMilliCores, formatBytes } from '../../types/finops';
 import { Tooltip } from '../common/Tooltip';
 import './HealthBadge.css';
 
 interface HealthBadgeProps {
+  /** usage / request, in percent */
   efficiency: number;
+  hasUsage?: boolean;
   size?: 'sm' | 'md' | 'lg';
   showLabel?: boolean;
   showIcon?: boolean;
   cpuRequest?: number;
   memoryRequest?: number;
+  cpuUsed?: number;
+  memoryUsed?: number;
 }
 
+/** Usage efficiency of a workload or namespace: what it uses against what it requests. */
 export const HealthBadge: React.FC<HealthBadgeProps> = ({
   efficiency,
+  hasUsage = false,
   size = 'sm',
   showLabel = true,
   showIcon = true,
-  cpuRequest = 1,
-  memoryRequest = 1,
+  cpuRequest = 0,
+  memoryRequest = 0,
+  cpuUsed = 0,
+  memoryUsed = 0,
 }) => {
   const hasRequests = cpuRequest > 0 || memoryRequest > 0;
-  const badge = getEfficiencyBadge(efficiency, hasRequests);
-  
+  const badge = getUsageBadge(efficiency, hasRequests, hasUsage);
+
   const getIcon = () => {
     if (badge.isSpecialCase) return <QuestionMarkCircledIcon />;
-    if (efficiency >= 85) return <ExclamationTriangleIcon />;
+    if (efficiency > 100) return <ExclamationTriangleIcon />;
     if (efficiency >= 70) return <CheckCircledIcon />;
     if (efficiency >= 50) return <InfoCircledIcon />;
     if (efficiency >= 30) return <ExclamationTriangleIcon />;
     return <CrossCircledIcon />;
   };
 
-  const getTooltipContent = () => {
-    if (badge.isSpecialCase) {
-      return (
-        <div className="health-tooltip">
-          <strong>No Resource Requests</strong>
-          <p>
-            This workload has no CPU/memory requests defined. Set requests for proper scheduling and cost allocation.
-          </p>
-        </div>
-      );
-    }
-    if (efficiency >= 85) {
-      return (
-        <div className="health-tooltip">
-          <strong>Overcommitted ({efficiency.toFixed(0)}%)</strong>
-          <p>
-            Pods are requesting more than available capacity. This works due to overcommitment, but leaves no headroom for traffic spikes.
-          </p>
-        </div>
-      );
-    }
-    return badge.description;
-  };
+  const tooltip = (
+    <div className="health-tooltip">
+      <strong>{badge.isSpecialCase ? badge.label : `${badge.label} (${formatPercent(efficiency)} of requests used)`}</strong>
+      <p>{badge.description}</p>
+      {hasUsage && hasRequests && (
+        <p>
+          CPU {formatMilliCores(cpuUsed)} of {formatMilliCores(cpuRequest)} · Memory {formatBytes(memoryUsed)} of {formatBytes(memoryRequest)}
+        </p>
+      )}
+    </div>
+  );
 
   return (
-    <Tooltip content={getTooltipContent()}>
+    <Tooltip content={tooltip}>
       <span className={`health-badge health-badge-${size} ${badge.class}`}>
         {showIcon && <span className="health-icon">{getIcon()}</span>}
         {showLabel && <span className="health-label">{badge.label}</span>}
@@ -66,4 +62,3 @@ export const HealthBadge: React.FC<HealthBadgeProps> = ({
     </Tooltip>
   );
 };
-

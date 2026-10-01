@@ -6,34 +6,57 @@ export interface PricingInfo {
   error?: string;
   nodesWithPricing: number;
   nodesMissingPrice: number;
+  /** False when the cloud has no price source (GKE, on-prem, kind). */
+  supported: boolean;
 }
 
+export type CostScope = 'cluster' | 'vcluster';
+
+export interface VClusterCost {
+  host: string;
+  namespace: string;
+  name: string;
+  hostMonthlyCost: number;
+  sharePercent: number;
+  controlPlane?: WorkloadCost[];
+}
+
+/**
+ * Totals for one dashboard. In cluster scope the efficiency fields are
+ * allocation (requests / allocatable). In vcluster scope they are zero: the
+ * nodes are shared, so `vcluster` carries the share of the host instead.
+ */
 export interface ClusterCostSummary {
   cluster: string;
+  scope: CostScope;
   provider: string;
   region: string;
   nodeCount: number;
+  spotNodeCount: number;
+  spotAtOnDemandCount: number;
+  spotAtOnDemandCost: number;
   podCount: number;
   namespaceCount: number;
   totalCpu: number;
   totalMemory: number;
-  usedCpu: number;
-  usedMemory: number;
   requestedCpu: number;
   requestedMemory: number;
+  usedCpu: number;
+  usedMemory: number;
+  usageAvailable: boolean;
   hourlyCost: number;
   dailyCost: number;
   monthlyCost: number;
-  projectedMonthlyCost: number;
+  allocatedCost: number;
+  idleCost: number;
+  idlePercentage: number;
+  rightsizingSavings: number;
   cpuEfficiency: number;
   memoryEfficiency: number;
   overallEfficiency: number;
-  idleCost: number;
-  idlePercentage: number;
-  spotSavings?: number;
   breakdown: CostBreakdown;
-  trend?: CostTrend;
   pricingInfo: PricingInfo;
+  vcluster?: VClusterCost;
   lastUpdated: string;
 }
 
@@ -41,24 +64,10 @@ export interface CostBreakdown {
   computeCost: number;
   cpuCost: number;
   memoryCost: number;
-  storageCost: number;
-  networkCost: number;
   controlPlaneCost: number;
 }
 
-export interface CostTrend {
-  direction: 'up' | 'down' | 'stable';
-  changePercent: number;
-  previous: number;
-  current: number;
-  datapoints?: CostDatapoint[];
-}
-
-export interface CostDatapoint {
-  timestamp: string;
-  cost: number;
-}
-
+/** In vcluster scope, requests, pods and allocated cost count only the vcluster's pods. */
 export interface NodeCost {
   nodeName: string;
   instanceType: string;
@@ -67,19 +76,20 @@ export interface NodeCost {
   hourlyCost: number;
   dailyCost: number;
   monthlyCost: number;
+  priceMissing?: boolean;
   cpuCapacity: number;
   memoryCapacity: number;
   cpuAllocatable: number;
   memoryAllocatable: number;
   cpuRequested: number;
   memoryRequested: number;
-  cpuUsed?: number;
-  memoryUsed?: number;
   podCount: number;
   isSpot: boolean;
-  labels?: Record<string, string>;
+  spotAtOnDemand?: boolean;
+  allocatedMonthlyCost: number;
 }
 
+/** Efficiency on pods, workloads and namespaces is usage / request, set only when hasUsage. */
 export interface PodCost {
   podName: string;
   namespace: string;
@@ -92,6 +102,7 @@ export interface PodCost {
   memoryLimit: number;
   cpuUsed?: number;
   memoryUsed?: number;
+  hasUsage?: boolean;
   hourlyCost: number;
   dailyCost: number;
   monthlyCost: number;
@@ -100,7 +111,7 @@ export interface PodCost {
   overallEfficiency: number;
   status: string;
   createdAt: string;
-  labels?: Record<string, string>;
+  vclusterNamespace?: string;
 }
 
 export interface NamespaceCost {
@@ -110,13 +121,19 @@ export interface NamespaceCost {
   cpuLimit: number;
   memoryRequest: number;
   memoryLimit: number;
+  cpuUsed?: number;
+  memoryUsed?: number;
+  hasUsage?: boolean;
   hourlyCost: number;
   dailyCost: number;
   monthlyCost: number;
   cpuEfficiency: number;
   memoryEfficiency: number;
   overallEfficiency: number;
+  rightsizingSavings?: number;
   topWorkloads?: WorkloadCost[];
+  /** The vcluster running in this host namespace, if any. */
+  vcluster?: string;
 }
 
 export interface HPAInfo {
@@ -127,77 +144,66 @@ export interface HPAInfo {
   maxMonthlyCost: number;
 }
 
-export interface VPAInfo {
-  targetCpu?: number;
-  targetMemory?: number;
-  hasRecommendation: boolean;
-  potentialSavings: number;
-  savingsPercent: number;
-}
-
 export interface WorkloadCost {
   kind: string;
   name: string;
   namespace: string;
+  vclusterNamespace?: string;
   replicas: number;
   cpuRequest: number;
+  cpuLimit?: number;
   memoryRequest: number;
+  memoryLimit?: number;
+  cpuUsed?: number;
+  memoryUsed?: number;
+  hasUsage?: boolean;
   hourlyCost: number;
   dailyCost: number;
   monthlyCost: number;
   cpuEfficiency: number;
   memoryEfficiency: number;
   overallEfficiency: number;
+  rightsizingSavings?: number;
   pods?: PodCost[];
   hpa?: HPAInfo;
-  vpa?: VPAInfo;
 }
 
+export type RecommendationType = 'rightsize' | 'no-requests' | 'underutilized-node';
+
 export interface CostRecommendation {
-  type: string;
+  type: RecommendationType;
   resource: string;
+  kind?: string;
   namespace?: string;
+  /** Set on host-side recommendations for workloads inside a vcluster. */
+  vclusterNamespace?: string;
   currentCost: number;
   projectedSavings: number;
   recommendation: string;
-  priority: 'critical' | 'high' | 'medium' | 'low';
-  details?: Record<string, unknown>;
+  priority: 'high' | 'medium' | 'low';
 }
 
-export type CostTimeRange = '24h' | '7d' | '30d' | 'mtd';
-
-export type CostAggregation = 'namespace' | 'deployment' | 'node' | 'label' | 'pod';
-
-export interface CostFilter {
-  namespaces?: string[];
-  labels?: Record<string, string>;
-  minCost?: number;
-  maxCost?: number;
-  minEfficiency?: number;
-  maxEfficiency?: number;
-  ownerKinds?: string[];
-  timeRange?: CostTimeRange;
+export interface FinOpsDashboardData {
+  summary: ClusterCostSummary;
+  nodes: NodeCost[];
+  namespaces: NamespaceCost[];
+  recommendations: CostRecommendation[];
 }
 
 export function formatCost(cost: number, decimals = 2): string {
   if (cost >= 1000) {
-    return `$${cost.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `$${cost.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   }
   if (cost >= 1) {
     return `$${cost.toFixed(decimals)}`;
+  }
+  if (cost === 0) {
+    return '$0';
   }
   if (cost >= 0.01) {
     return `$${cost.toFixed(3)}`;
   }
   return `$${cost.toFixed(4)}`;
-}
-
-export function formatCostPerDay(hourlyCost: number): string {
-  return formatCost(hourlyCost * 24);
-}
-
-export function formatCostPerMonth(hourlyCost: number): string {
-  return formatCost(hourlyCost * 24 * 30);
 }
 
 export function getEfficiencyColor(efficiency: number): string {
@@ -208,14 +214,6 @@ export function getEfficiencyColor(efficiency: number): string {
   return 'var(--efficiency-critical)';
 }
 
-export function getEfficiencyLabel(efficiency: number): string {
-  if (efficiency >= 85) return 'Risk';
-  if (efficiency >= 70) return 'Excellent';
-  if (efficiency >= 50) return 'Good';
-  if (efficiency >= 30) return 'Fair';
-  return 'Critical';
-}
-
 export interface EfficiencyBadgeInfo {
   label: string;
   color: string;
@@ -224,57 +222,100 @@ export interface EfficiencyBadgeInfo {
   isSpecialCase?: boolean;
 }
 
-export function getEfficiencyBadge(efficiency: number, hasRequests: boolean = true): EfficiencyBadgeInfo {
-  if (!hasRequests || efficiency === 0) return {
-    label: 'No Requests',
-    color: 'var(--text-muted)',
-    class: 'efficiency-none',
-    description: 'Resource requests not defined',
-    isSpecialCase: true
-  };
-  
-  if (efficiency >= 85) return {
-    label: 'Overcommit',
+/**
+ * Allocation: how much of the cluster's allocatable capacity pods request.
+ * High is good, until there is no headroom left for new pods.
+ */
+export function getAllocationBadge(allocation: number): EfficiencyBadgeInfo {
+  if (allocation >= 85) return {
+    label: 'Tight',
     color: 'var(--efficiency-risk)',
     class: 'efficiency-risk',
-    description: 'Requesting more than available - risky!'
+    description: 'Little headroom left: new pods may wait for nodes to scale up',
   };
-  if (efficiency >= 70) return {
+  if (allocation >= 70) return {
     label: 'Excellent',
     color: 'var(--efficiency-excellent)',
     class: 'efficiency-excellent',
-    description: 'Well optimized'
+    description: 'Nodes are well packed with room to absorb spikes',
+  };
+  if (allocation >= 50) return {
+    label: 'Good',
+    color: 'var(--efficiency-good)',
+    class: 'efficiency-good',
+    description: 'Some capacity is paid for but unclaimed',
+  };
+  if (allocation >= 30) return {
+    label: 'Fair',
+    color: 'var(--efficiency-fair)',
+    class: 'efficiency-fair',
+    description: 'A large share of node capacity is idle',
+  };
+  return {
+    label: 'Low',
+    color: 'var(--efficiency-critical)',
+    class: 'efficiency-critical',
+    description: 'Most node capacity is idle: fewer or smaller nodes would do',
+  };
+}
+
+/**
+ * Usage efficiency: how much of what a workload requests it actually uses.
+ * Low means over-provisioned; above 100% means it runs beyond its requests.
+ */
+export function getUsageBadge(efficiency: number, hasRequests = true, hasUsage = true): EfficiencyBadgeInfo {
+  if (!hasRequests) return {
+    label: 'No requests',
+    color: 'var(--text3)',
+    class: 'efficiency-none',
+    description: 'No CPU or memory requests: the scheduler can’t place it well and its cost can’t be attributed',
+    isSpecialCase: true,
+  };
+  if (!hasUsage) return {
+    label: 'No usage data',
+    color: 'var(--text3)',
+    class: 'efficiency-none',
+    description: 'Install metrics-server to compare usage with requests',
+    isSpecialCase: true,
+  };
+  if (efficiency > 100) return {
+    label: 'Under-requested',
+    color: 'var(--efficiency-risk)',
+    class: 'efficiency-risk',
+    description: 'Uses more than it requests: it can be throttled or evicted under pressure',
+  };
+  if (efficiency >= 70) return {
+    label: 'Right-sized',
+    color: 'var(--efficiency-excellent)',
+    class: 'efficiency-excellent',
+    description: 'Requests closely match usage',
   };
   if (efficiency >= 50) return {
     label: 'Good',
     color: 'var(--efficiency-good)',
     class: 'efficiency-good',
-    description: 'Room for improvement'
+    description: 'Requests are a little above usage',
   };
   if (efficiency >= 30) return {
-    label: 'Fair',
+    label: 'Over-provisioned',
     color: 'var(--efficiency-fair)',
     class: 'efficiency-fair',
-    description: 'Underutilized'
+    description: 'Requests are well above usage',
   };
   return {
-    label: 'Critical',
+    label: 'Idle',
     color: 'var(--efficiency-critical)',
     class: 'efficiency-critical',
-    description: 'Massive waste'
+    description: 'Uses a small fraction of what it requests',
   };
-}
-
-export function getCostTrendIcon(trend?: CostTrend): string {
-  if (!trend) return '→';
-  if (trend.direction === 'up') return '↑';
-  if (trend.direction === 'down') return '↓';
-  return '→';
 }
 
 export function formatBytes(bytes: number): string {
   if (bytes === 0) {
     return 'none';
+  }
+  if (bytes >= 1024 * 1024 * 1024 * 1024) {
+    return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} Ti`;
   }
   if (bytes >= 1024 * 1024 * 1024) {
     const gib = bytes / (1024 * 1024 * 1024);
@@ -293,26 +334,22 @@ export function formatMilliCores(milliCores: number): string {
   }
   if (milliCores >= 1000) {
     const cores = milliCores / 1000;
-    return cores % 1 === 0 ? `${cores.toFixed(0)}` : `${cores.toFixed(1)}`;
+    return cores % 1 === 0 ? `${cores.toFixed(0)} cores` : `${cores.toFixed(1)} cores`;
   }
   return `${milliCores}m`;
+}
+
+export function formatPercent(pct: number): string {
+  if (pct > 0 && pct < 1) return '<1%';
+  return `${pct.toFixed(0)}%`;
 }
 
 export function getPricingSourceLabel(source: PricingInfo['source']): string {
   switch (source) {
     case 'cur': return 'AWS CUR';
-    case 'aws-api': return 'AWS API';
-    case 'azure-api': return 'Azure API';
-    default: return 'Unknown';
-  }
-}
-
-export function getPricingSourceDescription(source: PricingInfo['source']): string {
-  switch (source) {
-    case 'cur': return 'Pricing from AWS Cost and Usage Report';
-    case 'aws-api': return 'Pricing from AWS Pricing API';
-    case 'azure-api': return 'Pricing from Azure Retail Prices API';
-    default: return 'Pricing source unavailable';
+    case 'aws-api': return 'AWS price list';
+    case 'azure-api': return 'Azure retail prices';
+    default: return 'No price source';
   }
 }
 

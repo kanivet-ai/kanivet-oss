@@ -263,8 +263,8 @@ class API {
   }
 
   async getFinOpsDashboard(cluster: string): Promise<any> { return finops.getFinOpsDashboard(cluster); }
-  async streamFinOpsDashboard(cluster: string, onChunk: (type: string, data: any) => void, signal?: AbortSignal): Promise<void> {
-    return finops.streamFinOpsDashboard(cluster, onChunk, signal);
+  async streamFinOpsDashboard(cluster: string, onChunk: (type: string, data: any) => void, signal?: AbortSignal, refresh = false): Promise<void> {
+    return finops.streamFinOpsDashboard(cluster, onChunk, signal, refresh);
   }
   async getFinOpsSummary(cluster: string): Promise<any> { return finops.getFinOpsSummary(cluster); }
   async getFinOpsNodeCosts(cluster: string): Promise<any[]> { return finops.getFinOpsNodeCosts(cluster); }

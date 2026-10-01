@@ -201,47 +201,31 @@ export const PricingSourceBadge: React.FC<PricingSourceBadgeProps> = ({
   pricingInfo,
   className = '',
 }) => {
+  const unsupported = pricingInfo.supported === false;
   const hasError = !!pricingInfo.error;
-  const hasMissingPricing = pricingInfo.nodesMissingPrice > 0;
+  const pending = !unsupported && pricingInfo.nodesMissingPrice > 0;
   const sourceLabel = getPricingSourceLabel(pricingInfo.source);
   const lastUpdated = formatTimeAgo(pricingInfo.lastUpdated);
+  const totalNodes = pricingInfo.nodesWithPricing + pricingInfo.nodesMissingPrice;
 
-  const getStatusClass = () => {
-    if (hasError || !pricingInfo.isAvailable) return 'pricing-error';
-    if (hasMissingPricing) return 'pricing-warning';
-    return 'pricing-ok';
-  };
+  const statusClass = unsupported || hasError ? 'pricing-error' : pending ? 'pricing-warning' : 'pricing-ok';
+  const icon = unsupported || hasError ? <ExclamationTriangleIcon /> : pending ? <InfoCircledIcon /> : <CheckCircledIcon />;
 
-  const getIcon = () => {
-    if (hasError || !pricingInfo.isAvailable) return <ExclamationTriangleIcon />;
-    if (hasMissingPricing) return <InfoCircledIcon />;
-    return <CheckCircledIcon />;
-  };
-
-  const getTooltip = () => {
-    const lines = [];
-    lines.push(`Source: ${sourceLabel}`);
-    lines.push(`Last updated: ${lastUpdated}`);
-    lines.push(`Cached instances: ${pricingInfo.instanceCount}`);
-    lines.push(`Nodes with pricing: ${pricingInfo.nodesWithPricing}/${pricingInfo.nodesWithPricing + pricingInfo.nodesMissingPrice}`);
-    if (pricingInfo.error) {
-      lines.push(`Error: ${pricingInfo.error}`);
-    }
-    return lines.join('\n');
-  };
+  const tooltip = [
+    `Source: ${sourceLabel}`,
+    `Prices fetched: ${lastUpdated}`,
+    `Nodes priced: ${pricingInfo.nodesWithPricing} of ${totalNodes}`,
+    pricingInfo.error ? `Last error: ${pricingInfo.error}` : '',
+  ].filter(Boolean).join('\n');
 
   return (
-    <span
-      className={`pricing-source-badge ${getStatusClass()} ${className}`}
-      title={getTooltip()}
-    >
-      <span className="pricing-icon">{getIcon()}</span>
-      <span className="pricing-source">{sourceLabel}</span>
-      <span className="pricing-updated">{lastUpdated}</span>
-      {hasMissingPricing && !hasError && (
-        <span className="pricing-missing">
-          {pricingInfo.nodesMissingPrice} nodes missing
-        </span>
+    <span className={`pricing-source-badge ${statusClass} ${className}`} title={tooltip}>
+      <span className="pricing-icon">{icon}</span>
+      <span className="pricing-source">{unsupported ? 'No price source' : sourceLabel}</span>
+      {pending ? (
+        <span className="pricing-missing">{pricingInfo.nodesMissingPrice} of {totalNodes} nodes unpriced</span>
+      ) : (
+        !unsupported && <span className="pricing-updated">{lastUpdated}</span>
       )}
     </span>
   );

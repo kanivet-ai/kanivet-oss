@@ -742,7 +742,12 @@ type AzurePricingProvider struct {
 	lastRefresh time.Time
 	lastError   string
 	cacheDir    string
+	// failedAt remembers lookups that failed so a missing SKU does not cost
+	// a 30s HTTP round trip on every dashboard poll.
+	failedAt map[string]time.Time
 }
+
+const azureRetryAfter = 10 * time.Minute
 
 type azureRetailPrice struct {
 	ArmRegionName        string  `json:"armRegionName"`
@@ -769,6 +774,7 @@ func NewAzurePricingProvider() *AzurePricingProvider {
 	p := &AzurePricingProvider{
 		priceCache: make(map[string]*InstancePricing),
 		cacheDir:   cacheDir,
+		failedAt:   make(map[string]time.Time),
 	}
 	p.loadCacheFromDisk()
 	return p
@@ -864,9 +870,16 @@ func (p *AzurePricingProvider) GetInstancePricing(instanceType, region string) (
 		p.mu.RUnlock()
 		return pricing, nil
 	}
+	failed, recent := p.failedAt[key]
 	p.mu.RUnlock()
+	if recent && time.Since(failed) < azureRetryAfter {
+		return nil, fmt.Errorf("pricing unavailable for %s in %s", instanceType, region)
+	}
 
 	if err := p.loadInstancePricing(instanceType, region); err != nil {
+		p.mu.Lock()
+		p.failedAt[key] = time.Now()
+		p.mu.Unlock()
 		return nil, err
 	}
 
@@ -923,25 +936,30 @@ func (p *AzurePricingProvider) loadInstancePricing(instanceType, region string) 
 		return fmt.Errorf("no pricing data found for %s in %s", instanceType, region)
 	}
 
-	var hourlyCost float64
+	var hourlyCost, spotCost float64
 	var vcpu int
 	var memGB float64
 
+	// The same SKU is listed once per OS and purchase option; AKS nodes run
+	// Linux, so skip Windows meters, and keep Spot separately.
 	for _, item := range priceResp.Items {
-		if item.UnitOfMeasure == "1 Hour" && item.Type == "Consumption" && item.IsPrimaryMeterRegion {
+		if item.UnitOfMeasure != "1 Hour" || item.Type != "Consumption" || item.RetailPrice <= 0 {
+			continue
+		}
+		product := strings.ToLower(item.ProductName)
+		meter := strings.ToLower(item.MeterName)
+		if strings.Contains(product, "windows") || strings.Contains(meter, "low priority") {
+			continue
+		}
+		if strings.Contains(meter, "spot") {
+			if spotCost == 0 {
+				spotCost = item.RetailPrice
+			}
+			continue
+		}
+		if hourlyCost == 0 || item.IsPrimaryMeterRegion {
 			hourlyCost = item.RetailPrice
 			vcpu, memGB = p.extractSpecsFromProductName(item.ProductName)
-			break
-		}
-	}
-
-	if hourlyCost == 0 {
-		for _, item := range priceResp.Items {
-			if item.UnitOfMeasure == "1 Hour" && strings.Contains(strings.ToLower(item.MeterName), "compute") {
-				hourlyCost = item.RetailPrice
-				vcpu, memGB = p.extractSpecsFromProductName(item.ProductName)
-				break
-			}
 		}
 	}
 
@@ -955,15 +973,15 @@ func (p *AzurePricingProvider) loadInstancePricing(instanceType, region string) 
 	}
 
 	pricing := &InstancePricing{
-		InstanceType:     instanceType,
-		Region:           region,
-		OnDemandPrice:    hourlyCost,
-		CPUCores:         vcpu,
-		MemoryGB:         memGB,
-		CPUHourlyRate:    hourlyCost * 0.7 / float64(vcpu),
-		MemoryHourlyRate: hourlyCost * 0.3 / memGB,
-		LastUpdated:      time.Now(),
+		InstanceType:  instanceType,
+		Region:        region,
+		OnDemandPrice: hourlyCost,
+		SpotPrice:     spotCost,
+		CPUCores:      vcpu,
+		MemoryGB:      memGB,
+		LastUpdated:   time.Now(),
 	}
+	pricing.CPUHourlyRate, pricing.MemoryHourlyRate = calculateResourceRates(hourlyCost, vcpu, memGB)
 
 	p.mu.Lock()
 	key := fmt.Sprintf("%s:%s", region, instanceType)
@@ -1081,20 +1099,19 @@ func getAzureARMRegion(k8sRegion string) string {
 	return k8sRegion
 }
 
+// HybridPricingProvider routes lookups to CUR data when present, else to the
+// public price list of the cluster's cloud. The provider is passed per call:
+// dashboards for clusters on different clouds are computed concurrently.
 type HybridPricingProvider struct {
 	curProvider   *CURPricingProvider
 	awsProvider   *AWSPricingProvider
 	azureProvider *AzurePricingProvider
-	mu            sync.RWMutex
-	activeSource  PricingSource
-	provider      string
 }
 
 func NewHybridPricingProvider(curConfig *CURConfig) *HybridPricingProvider {
 	h := &HybridPricingProvider{
 		awsProvider:   NewAWSPricingProvider(),
 		azureProvider: NewAzurePricingProvider(),
-		activeSource:  PricingSourceUnknown,
 	}
 	if curConfig != nil && curConfig.DataPath != "" {
 		h.curProvider = NewCURPricingProvider(*curConfig)
@@ -1102,136 +1119,54 @@ func NewHybridPricingProvider(curConfig *CURConfig) *HybridPricingProvider {
 	return h
 }
 
-func (h *HybridPricingProvider) GetStatus() PricingStatus {
-	h.mu.RLock()
-	provider := h.provider
-	h.mu.RUnlock()
-
-	if h.curProvider != nil && h.curProvider.HasData() {
+func (h *HybridPricingProvider) GetStatus(provider string) PricingStatus {
+	if h.curProvider != nil && h.curProvider.HasData() && isAWS(provider) {
 		status := h.curProvider.GetStatus()
 		status.Source = PricingSourceCUR
 		return status
 	}
-
-	if strings.Contains(provider, "Azure") || strings.Contains(provider, "AKS") {
+	if isAzure(provider) {
 		return h.azureProvider.GetStatus()
 	}
-
-	return h.awsProvider.GetStatus()
+	if isAWS(provider) || provider == ProviderUnknown {
+		return h.awsProvider.GetStatus()
+	}
+	return PricingStatus{Source: PricingSourceUnknown}
 }
 
-func (h *HybridPricingProvider) SetProvider(provider string) {
-	h.mu.Lock()
-	h.provider = provider
-	h.mu.Unlock()
-}
-
-func (h *HybridPricingProvider) GetInstancePricing(instanceType, region string) (*InstancePricing, error) {
-	if h.curProvider != nil && h.curProvider.HasData() {
+// GetInstancePricingCached never blocks on the AWS offer-file download: cold
+// regions load in the background. Azure lookups are per-SKU HTTP calls and
+// do block, once per SKU.
+func (h *HybridPricingProvider) GetInstancePricingCached(provider, instanceType, region string) (*InstancePricing, error) {
+	if !isAWS(provider) && !isAzure(provider) && provider != ProviderUnknown {
+		return nil, fmt.Errorf("no price source for %s", provider)
+	}
+	if h.curProvider != nil && h.curProvider.HasData() && !isAzure(provider) {
 		if pricing, err := h.curProvider.GetInstancePricing(instanceType, region); err == nil {
-			h.mu.Lock()
-			h.activeSource = PricingSourceCUR
-			h.mu.Unlock()
 			return pricing, nil
 		}
 	}
-
-	h.mu.RLock()
-	provider := h.provider
-	h.mu.RUnlock()
-
-	if strings.Contains(provider, "Azure") || strings.Contains(provider, "AKS") {
-		pricing, err := h.azureProvider.GetInstancePricing(instanceType, region)
-		if err != nil {
-			return nil, err
-		}
-		h.mu.Lock()
-		h.activeSource = PricingSourceAzureAPI
-		h.mu.Unlock()
-		return pricing, nil
+	if isAzure(provider) {
+		return h.azureProvider.GetInstancePricing(instanceType, region)
 	}
-
-	pricing, err := h.awsProvider.GetInstancePricing(instanceType, region)
-	if err != nil {
-		return nil, err
-	}
-
-	h.mu.Lock()
-	h.activeSource = PricingSourceAWSAPI
-	h.mu.Unlock()
-
-	return pricing, nil
+	return h.awsProvider.GetInstancePricingCached(instanceType, region)
 }
 
-func (h *HybridPricingProvider) GetSpotPricing(instanceType, region, az string) (float64, error) {
-	return h.awsProvider.GetSpotPricing(instanceType, region, az)
-}
-
-func (h *HybridPricingProvider) RefreshPricing() error {
-	if h.curProvider != nil {
-		_ = h.curProvider.RefreshPricing()
-	}
-	return h.awsProvider.RefreshPricing()
-}
-
-// GetInstancePricingCached is GetInstancePricing minus the blocking AWS
-// offer-file download: cold regions load in the background instead.
-func (h *HybridPricingProvider) GetInstancePricingCached(instanceType, region string) (*InstancePricing, error) {
-	if h.curProvider != nil && h.curProvider.HasData() {
-		if pricing, err := h.curProvider.GetInstancePricing(instanceType, region); err == nil {
-			h.mu.Lock()
-			h.activeSource = PricingSourceCUR
-			h.mu.Unlock()
-			return pricing, nil
-		}
-	}
-
-	h.mu.RLock()
-	provider := h.provider
-	h.mu.RUnlock()
-
-	if strings.Contains(provider, "Azure") || strings.Contains(provider, "AKS") {
-		pricing, err := h.azureProvider.GetInstancePricing(instanceType, region)
-		if err != nil {
-			return nil, err
-		}
-		h.mu.Lock()
-		h.activeSource = PricingSourceAzureAPI
-		h.mu.Unlock()
-		return pricing, nil
-	}
-
-	pricing, err := h.awsProvider.GetInstancePricingCached(instanceType, region)
-	if err != nil {
-		return nil, err
-	}
-
-	h.mu.Lock()
-	h.activeSource = PricingSourceAWSAPI
-	h.mu.Unlock()
-
-	return pricing, nil
-}
-
-// EnsureRegions returns true when pricing for every region is already loaded
-// (stale is fine — the background refresh handles it). When cold it starts
-// the multi-hundred-MB offer download in the background, fires onLoaded when
-// it lands, and returns false so callers render without prices instead of
-// blocking the dashboard for minutes on slow links.
-func (h *HybridPricingProvider) EnsureRegions(regions []string, onLoaded func()) bool {
-	h.mu.RLock()
-	provider := h.provider
-	h.mu.RUnlock()
-
-	if strings.Contains(provider, "Azure") || strings.Contains(provider, "AKS") {
+// EnsureRegions returns true when AWS pricing for every region is already
+// loaded (stale is fine; a background refresh handles it). When cold it
+// starts the multi-hundred-MB offer download in the background, fires
+// onLoaded when it lands, and returns false so callers render without prices
+// instead of blocking the dashboard for minutes on slow links.
+func (h *HybridPricingProvider) EnsureRegions(provider string, regions []string, onLoaded func()) bool {
+	if !isAWS(provider) && provider != ProviderUnknown {
 		return true
 	}
 	if h.awsProvider.RegionsLoaded(regions) {
-		go h.PreloadRegions(regions)
+		go h.preloadAWSRegions(regions)
 		return true
 	}
 	go func() {
-		h.PreloadRegions(regions)
+		h.preloadAWSRegions(regions)
 		if onLoaded != nil {
 			onLoaded()
 		}
@@ -1239,15 +1174,7 @@ func (h *HybridPricingProvider) EnsureRegions(regions []string, onLoaded func())
 	return false
 }
 
-func (h *HybridPricingProvider) PreloadRegions(regions []string) {
-	h.mu.RLock()
-	provider := h.provider
-	h.mu.RUnlock()
-
-	if strings.Contains(provider, "Azure") || strings.Contains(provider, "AKS") {
-		return
-	}
-
+func (h *HybridPricingProvider) preloadAWSRegions(regions []string) {
 	var wg sync.WaitGroup
 	for _, region := range regions {
 		wg.Add(1)
