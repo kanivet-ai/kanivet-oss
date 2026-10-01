@@ -94,7 +94,7 @@ func TestService_MissingMetricsServerIsNotFatal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetDashboard: %v", err)
 	}
-	if d.Summary.UsageAvailable || d.Summary.RightsizingSavings != 0 {
+	if d.Summary.UsageAvailable {
 		t.Errorf("usage should be unavailable: %+v", d.Summary)
 	}
 }

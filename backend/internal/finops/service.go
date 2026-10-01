@@ -387,6 +387,20 @@ func parallel(fns ...func() error) error {
 	return nil
 }
 
+// NodeRates returns each node's per-resource rates, from the cached dashboard.
+// For a vcluster these are its host's nodes.
+func (s *Service) NodeRates(ctx context.Context, cluster string) (map[string]Rates, error) {
+	d, err := s.GetDashboard(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]Rates, len(d.rates))
+	for name, r := range d.rates {
+		out[name] = Rates{CPU: r.cpuRate, Memory: r.memRate, Priced: r.priced}
+	}
+	return out, nil
+}
+
 func (s *Service) GetClusterCostSummary(ctx context.Context, cluster string) (*ClusterCostSummary, error) {
 	d, err := s.GetDashboard(ctx, cluster)
 	if err != nil {

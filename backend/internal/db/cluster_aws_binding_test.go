@@ -17,7 +17,7 @@ func newBindingTestDB(t *testing.T) *DB {
 	if err := gdb.AutoMigrate(&ClusterAWSBinding{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
-	return &DB{gdb}
+	return &DB{DB: gdb}
 }
 
 func TestClusterAWSBindingRoundTrip(t *testing.T) {

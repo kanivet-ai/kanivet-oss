@@ -77,49 +77,47 @@ type PodCost struct {
 }
 
 type NamespaceCost struct {
-	Namespace          string         `json:"namespace"`
-	PodCount           int            `json:"podCount"`
-	CPURequest         int64          `json:"cpuRequest"`
-	CPULimit           int64          `json:"cpuLimit"`
-	MemoryRequest      int64          `json:"memoryRequest"`
-	MemoryLimit        int64          `json:"memoryLimit"`
-	CPUUsed            int64          `json:"cpuUsed,omitempty"`
-	MemoryUsed         int64          `json:"memoryUsed,omitempty"`
-	HasUsage           bool           `json:"hasUsage,omitempty"`
-	HourlyCost         float64        `json:"hourlyCost"`
-	DailyCost          float64        `json:"dailyCost"`
-	MonthlyCost        float64        `json:"monthlyCost"`
-	CPUEfficiency      float64        `json:"cpuEfficiency"`
-	MemoryEfficiency   float64        `json:"memoryEfficiency"`
-	OverallEfficiency  float64        `json:"overallEfficiency"`
-	RightsizingSavings float64        `json:"rightsizingSavings,omitempty"`
-	TopWorkloads       []WorkloadCost `json:"topWorkloads,omitempty"`
+	Namespace         string         `json:"namespace"`
+	PodCount          int            `json:"podCount"`
+	CPURequest        int64          `json:"cpuRequest"`
+	CPULimit          int64          `json:"cpuLimit"`
+	MemoryRequest     int64          `json:"memoryRequest"`
+	MemoryLimit       int64          `json:"memoryLimit"`
+	CPUUsed           int64          `json:"cpuUsed,omitempty"`
+	MemoryUsed        int64          `json:"memoryUsed,omitempty"`
+	HasUsage          bool           `json:"hasUsage,omitempty"`
+	HourlyCost        float64        `json:"hourlyCost"`
+	DailyCost         float64        `json:"dailyCost"`
+	MonthlyCost       float64        `json:"monthlyCost"`
+	CPUEfficiency     float64        `json:"cpuEfficiency"`
+	MemoryEfficiency  float64        `json:"memoryEfficiency"`
+	OverallEfficiency float64        `json:"overallEfficiency"`
+	TopWorkloads      []WorkloadCost `json:"topWorkloads,omitempty"`
 	// VCluster names the vcluster running in this host namespace, if any.
 	VCluster string `json:"vcluster,omitempty"`
 }
 
 type WorkloadCost struct {
-	Kind               string    `json:"kind"`
-	Name               string    `json:"name"`
-	Namespace          string    `json:"namespace"`
-	VClusterNamespace  string    `json:"vclusterNamespace,omitempty"`
-	Replicas           int       `json:"replicas"`
-	CPURequest         int64     `json:"cpuRequest"`
-	CPULimit           int64     `json:"cpuLimit"`
-	MemoryRequest      int64     `json:"memoryRequest"`
-	MemoryLimit        int64     `json:"memoryLimit"`
-	CPUUsed            int64     `json:"cpuUsed,omitempty"`
-	MemoryUsed         int64     `json:"memoryUsed,omitempty"`
-	HasUsage           bool      `json:"hasUsage,omitempty"`
-	HourlyCost         float64   `json:"hourlyCost"`
-	DailyCost          float64   `json:"dailyCost"`
-	MonthlyCost        float64   `json:"monthlyCost"`
-	CPUEfficiency      float64   `json:"cpuEfficiency"`
-	MemoryEfficiency   float64   `json:"memoryEfficiency"`
-	OverallEfficiency  float64   `json:"overallEfficiency"`
-	RightsizingSavings float64   `json:"rightsizingSavings,omitempty"`
-	Pods               []PodCost `json:"pods,omitempty"`
-	HPA                *HPAInfo  `json:"hpa,omitempty"`
+	Kind              string    `json:"kind"`
+	Name              string    `json:"name"`
+	Namespace         string    `json:"namespace"`
+	VClusterNamespace string    `json:"vclusterNamespace,omitempty"`
+	Replicas          int       `json:"replicas"`
+	CPURequest        int64     `json:"cpuRequest"`
+	CPULimit          int64     `json:"cpuLimit"`
+	MemoryRequest     int64     `json:"memoryRequest"`
+	MemoryLimit       int64     `json:"memoryLimit"`
+	CPUUsed           int64     `json:"cpuUsed,omitempty"`
+	MemoryUsed        int64     `json:"memoryUsed,omitempty"`
+	HasUsage          bool      `json:"hasUsage,omitempty"`
+	HourlyCost        float64   `json:"hourlyCost"`
+	DailyCost         float64   `json:"dailyCost"`
+	MonthlyCost       float64   `json:"monthlyCost"`
+	CPUEfficiency     float64   `json:"cpuEfficiency"`
+	MemoryEfficiency  float64   `json:"memoryEfficiency"`
+	OverallEfficiency float64   `json:"overallEfficiency"`
+	Pods              []PodCost `json:"pods,omitempty"`
+	HPA               *HPAInfo  `json:"hpa,omitempty"`
 }
 
 type HPAInfo struct {
@@ -162,10 +160,9 @@ type ClusterCostSummary struct {
 	DailyCost   float64 `json:"dailyCost"`
 	MonthlyCost float64 `json:"monthlyCost"`
 	// AllocatedCost is the monthly cost of what pods request (or use, when higher).
-	AllocatedCost      float64 `json:"allocatedCost"`
-	IdleCost           float64 `json:"idleCost"`
-	IdlePercentage     float64 `json:"idlePercentage"`
-	RightsizingSavings float64 `json:"rightsizingSavings"`
+	AllocatedCost  float64 `json:"allocatedCost"`
+	IdleCost       float64 `json:"idleCost"`
+	IdlePercentage float64 `json:"idlePercentage"`
 
 	CPUEfficiency     float64 `json:"cpuEfficiency"`
 	MemoryEfficiency  float64 `json:"memoryEfficiency"`
@@ -230,4 +227,19 @@ type Dashboard struct {
 	Nodes           []NodeCost           `json:"nodes"`
 	Namespaces      []NamespaceCost      `json:"namespaces"`
 	Recommendations []CostRecommendation `json:"recommendations"`
+
+	rates map[string]nodeRate
+}
+
+// Rates is what one node charges per core-hour and per GiB-hour.
+type Rates struct {
+	CPU    float64
+	Memory float64
+	Priced bool
+}
+
+// WorkloadRef is the workload a pod belongs to, as FinOps groups pods.
+type WorkloadRef struct {
+	Namespace, Kind, Name       string
+	VCluster, VClusterNamespace string
 }

@@ -9,6 +9,7 @@ import BottomDock from './BottomDock';
 import { ThemeSettings } from './ThemeSettings';
 import { ComponentLibrary } from './ComponentLibrary';
 import ToastContainer from './ToastContainer';
+import FeatureTour from './onboarding/FeatureTour';
 import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
@@ -546,6 +547,7 @@ const Layout = () => {
         <UpdateBanner />
       </ToastContainer>
       <TabBar onOpenSettings={() => setShowThemeSettings(true)} />
+      <FeatureTour />
       <div className="layout-body">
         <div className="main-content">
           <TreeSidebar />

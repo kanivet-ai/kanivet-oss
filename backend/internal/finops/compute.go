@@ -17,9 +17,6 @@ const (
 	hoursPerMonth = 24 * 30
 	bytesPerGiB   = 1024 * 1024 * 1024
 
-	// rightsizeHeadroom is how far above observed usage a request should sit
-	// before the excess counts as savings.
-	rightsizeHeadroom = 1.3
 	// minRecommendationSavings drops recommendations worth less than this per month.
 	minRecommendationSavings = 5.0
 	maxRecommendations       = 25
@@ -116,6 +113,21 @@ func computeDashboard(in computeInput) *Dashboard {
 		Nodes:           nodes,
 		Namespaces:      namespaces,
 		Recommendations: buildRecommendations(in, nodes, namespaces),
+		rates:           rates,
+	}
+}
+
+// PodWorkload resolves the workload behind a pod. In vcluster scope a synced
+// host pod is named by its virtual namespace and owner; in cluster scope it
+// keeps its host namespace and carries the vcluster it came from.
+func PodWorkload(pod *v1.Pod, vclusterScope bool) WorkloadRef {
+	v := viewPod(pod, vclusterScope, nil)
+	return WorkloadRef{
+		Namespace:         v.namespace,
+		Kind:              v.ownerKind,
+		Name:              v.ownerName,
+		VCluster:          v.vcluster,
+		VClusterNamespace: v.vclusterNamespace,
 	}
 }
 
@@ -340,17 +352,6 @@ func usageEfficiency(cpuUsed, cpuReq, memUsed, memReq int64) (cpu, mem, overall 
 	return
 }
 
-// rightsizingSavings is the monthly cost of requests sitting above observed
-// usage plus headroom.
-func rightsizingSavings(v *podView, rate nodeRate) float64 {
-	if v.usage == nil || !rate.priced {
-		return 0
-	}
-	excessCPU := v.cpuReq - int64(float64(v.usage.cpu)*rightsizeHeadroom)
-	excessMem := v.memReq - int64(float64(v.usage.mem)*rightsizeHeadroom)
-	return resourceCost(max(excessCPU, 0), max(excessMem, 0), rate) * hoursPerMonth
-}
-
 func buildNodeCosts(in computeInput, rates map[string]nodeRate, pods, cpPods []PodCost) []NodeCost {
 	type agg struct {
 		cpu, mem  int64
@@ -461,7 +462,6 @@ func groupWorkloads(views []podView, costs []PodCost, rates map[string]nodeRate,
 		w.HourlyCost += pc.HourlyCost
 		w.DailyCost += pc.DailyCost
 		w.MonthlyCost += pc.MonthlyCost
-		w.RightsizingSavings += rightsizingSavings(v, rates[v.nodeName])
 		w.Pods = append(w.Pods, pc)
 	}
 
@@ -471,7 +471,7 @@ func groupWorkloads(views []podView, costs []PodCost, rates map[string]nodeRate,
 		if w.HasUsage {
 			w.CPUEfficiency, w.MemoryEfficiency, w.OverallEfficiency = usageEfficiency(w.CPUUsed, w.CPURequest, w.MemoryUsed, w.MemoryRequest)
 		} else {
-			w.CPUUsed, w.MemoryUsed, w.RightsizingSavings = 0, 0, 0
+			w.CPUUsed, w.MemoryUsed = 0, 0
 		}
 		if h := hpas[hpaKey{w.Namespace, w.Kind, w.Name}]; h != nil && w.VClusterNamespace == "" {
 			w.HPA = hpaCosts(h, w)
@@ -534,9 +534,6 @@ func buildNamespaces(views []podView, costs []PodCost, rates map[string]nodeRate
 		n.TopWorkloads = groupWorkloads(nv, nc, rates, hpas)
 		if n.HasUsage {
 			n.CPUEfficiency, n.MemoryEfficiency, n.OverallEfficiency = usageEfficiency(n.CPUUsed, n.CPURequest, n.MemoryUsed, n.MemoryRequest)
-			for _, w := range n.TopWorkloads {
-				n.RightsizingSavings += w.RightsizingSavings
-			}
 		} else {
 			n.CPUUsed, n.MemoryUsed = 0, 0
 		}
@@ -608,9 +605,6 @@ func buildSummary(in computeInput, rates map[string]nodeRate, nodes []NodeCost, 
 		s.UsedMemory += pods[i].MemoryUsed
 		allocatedHourly += pods[i].HourlyCost
 	}
-	for _, ns := range namespaces {
-		s.RightsizingSavings += ns.RightsizingSavings
-	}
 
 	if scopeVC {
 		var cpHourly float64
@@ -680,20 +674,6 @@ func buildRecommendations(in computeInput, nodes []NodeCost, namespaces []Namesp
 
 	for _, ns := range namespaces {
 		for _, w := range ns.TopWorkloads {
-			if w.RightsizingSavings >= minRecommendationSavings {
-				cpuPct, memPct := w.CPUEfficiency, w.MemoryEfficiency
-				recs = append(recs, CostRecommendation{
-					Type:              "rightsize",
-					Resource:          w.Name,
-					Kind:              w.Kind,
-					Namespace:         w.Namespace,
-					VClusterNamespace: w.VClusterNamespace,
-					CurrentCost:       w.MonthlyCost,
-					ProjectedSavings:  w.RightsizingSavings,
-					Recommendation:    fmt.Sprintf("Uses %.0f%% of its CPU and %.0f%% of its memory requests. Lower the requests to about 1.3× observed usage.", cpuPct, memPct),
-					Priority:          savingsPriority(w.RightsizingSavings),
-				})
-			}
 			if w.CPURequest == 0 && w.MemoryRequest == 0 {
 				recs = append(recs, CostRecommendation{
 					Type:              "no-requests",

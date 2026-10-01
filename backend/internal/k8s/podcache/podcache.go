@@ -12,6 +12,7 @@ package podcache
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -252,9 +253,32 @@ func slimContainers(in []corev1.Container) []corev1.Container {
 	}
 	out := make([]corev1.Container, len(in))
 	for i, c := range in {
-		out[i] = corev1.Container{Name: c.Name, Resources: c.Resources, RestartPolicy: c.RestartPolicy}
+		out[i] = corev1.Container{Name: c.Name, Image: c.Image, Resources: c.Resources, RestartPolicy: c.RestartPolicy}
+		// Rightsizing tells JVMs apart by how their heap is sized, so the
+		// JVM options survive slimming; nothing else in env or args does.
+		for _, e := range c.Env {
+			if jvmOptionVars[e.Name] && e.Value != "" {
+				out[i].Env = append(out[i].Env, corev1.EnvVar{Name: e.Name, Value: e.Value})
+			}
+		}
+		for _, a := range append(slices.Clone(c.Command), c.Args...) {
+			if isJVMFlag(a) {
+				out[i].Args = append(out[i].Args, a)
+			}
+		}
 	}
 	return out
+}
+
+// jvmOptionVars are the environment variables the JVM, or the common image
+// entrypoints, read options from.
+var jvmOptionVars = map[string]bool{"JAVA_TOOL_OPTIONS": true, "JDK_JAVA_OPTIONS": true, "_JAVA_OPTIONS": true, "JAVA_OPTS": true}
+
+// isJVMFlag keeps the arguments that size a JVM's heap, or mark the process
+// as a JVM.
+func isJVMFlag(a string) bool {
+	return strings.Contains(a, "-Xmx") || strings.Contains(a, "RAMPercentage") || strings.Contains(a, "-XX:MaxRAM") ||
+		a == "java" || strings.HasSuffix(a, "/java")
 }
 
 func slimStatuses(in []corev1.ContainerStatus) []corev1.ContainerStatus {

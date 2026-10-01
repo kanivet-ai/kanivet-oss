@@ -9,4 +9,5 @@ export * from './search';
 export * from './helm';
 export * from './metrics';
 export * from './finops';
+export * from './rightsizing';
 export * from './vclusters';

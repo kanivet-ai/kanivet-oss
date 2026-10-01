@@ -8,6 +8,8 @@ interface Props {
   recommendations: CostRecommendation[];
   onOpenWorkload?: (kind: string, namespace: string, name: string) => void;
   onOpenNode?: (name: string) => void;
+  /** Rightsizing rows open the engine's evidence instead of the workload. */
+  onOpenRightsizing?: (w: NonNullable<CostRecommendation['rightsizing']>) => void;
 }
 
 const TYPE_LABEL: Record<CostRecommendation['type'], string> = {
@@ -18,7 +20,7 @@ const TYPE_LABEL: Record<CostRecommendation['type'], string> = {
 
 const COLLAPSED_COUNT = 5;
 
-export const SavingsOpportunities: React.FC<Props> = ({ recommendations, onOpenWorkload, onOpenNode }) => {
+export const SavingsOpportunities: React.FC<Props> = ({ recommendations, onOpenWorkload, onOpenNode, onOpenRightsizing }) => {
   const [expanded, setExpanded] = useState(false);
   if (recommendations.length === 0) return null;
 
@@ -45,6 +47,9 @@ export const SavingsOpportunities: React.FC<Props> = ({ recommendations, onOpenW
             <span className={`savings-type savings-${r.type}`}>{TYPE_LABEL[r.type] ?? r.type}</span>
             <div className="savings-body">
               <div className="savings-target">
+                {r.rightsizing && onOpenRightsizing && (
+                  <button className="savings-evidence" onClick={() => onOpenRightsizing(r.rightsizing!)}>Evidence</button>
+                )}
                 {r.kind && r.kind !== 'Node' && <span className="wl-kind-badge">{r.kind}</span>}
                 <span className="savings-name">{r.resource}</span>
                 {r.namespace && (

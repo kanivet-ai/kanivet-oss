@@ -33,6 +33,7 @@ import (
 	"github.com/kanivet/backend/internal/k8s/watcher"
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
+	"github.com/kanivet/backend/internal/rightsizing"
 	"github.com/kanivet/backend/internal/search"
 	"github.com/kanivet/backend/internal/terminal/infrastructure"
 	"github.com/kanivet/backend/internal/terminal/service"
@@ -338,6 +339,11 @@ func main() {
 	finopsService.SetPodLister(podCache)
 	finopsHandler := finops.NewHandler(finopsService)
 
+	// Rightsizing reads history through the metrics engine's providers and
+	// prices changes with FinOps rates.
+	rightsizingService := rightsizing.NewService(k8sClient, apiHandler.GetMetricsService(), finopsService, podCache, apiHandler.GetDB())
+	rightsizingHandler := rightsizing.NewHandler(rightsizingService)
+
 	// Setup Incident Timeline service (reuses existing event listener + db)
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())
 	incidentHandler := api.NewIncidentTimelineHandler(incidentService)
@@ -625,6 +631,12 @@ func main() {
 		finops.GET("/pricing-status", finopsHandler.GetPricingStatus)
 		finops.GET("/pricing-debug", finopsHandler.GetPricingDebug)
 		finops.POST("/preload-pricing", finopsHandler.PreloadPricing)
+
+		rs := v1.Group("/rightsizing")
+		rs.GET("/report", rightsizingHandler.GetReport)
+		rs.GET("/workload", rightsizingHandler.GetWorkload)
+		rs.POST("/dismissals", rightsizingHandler.Dismiss)
+		rs.DELETE("/dismissals", rightsizingHandler.Undismiss)
 
 		// Incident Timeline endpoint
 		v1.GET("/incidents/timeline", incidentHandler.GetTimeline)

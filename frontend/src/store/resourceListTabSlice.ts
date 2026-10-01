@@ -4,6 +4,20 @@ import { resolvePaneId } from '../utils/centerPaneLayout';
 import { ResourceListTabSlice, StoreState, ResourceListTab } from './types';
 import { itemsTopic, liveItemsFor } from './realtimeSlice';
 
+/** The tree node of a tab that shows a page rather than a resource list. */
+function pageNode(kind: string, cluster: string | null) {
+  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' }> = {
+    ClusterDashboard: { id: 'cluster-overview', label: 'Overview', type: 'overview' },
+    FinOpsDashboard: { id: 'finops-dashboard', label: 'FinOps', type: 'finops' },
+    RightsizingDashboard: { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing' },
+    IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
+    HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
+    ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
+  };
+  const p = pages[kind];
+  return p ? { ...p, data: { cluster } } : null;
+}
+
 // A tab's items taken from its still-open subscription when there is one, so an
 // activated tab shows current rows at once instead of its last snapshot.
 const withLiveItems = (rt: ResourceListTab): ResourceListTab => {
@@ -24,6 +38,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     const resourceVersion = resource.version || '';
     const title = resourceKind === 'ClusterDashboard' ? 'Overview'
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
+      : resourceKind === 'RightsizingDashboard' ? 'Rightsizing'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
       : resourceKind;
 
@@ -64,8 +79,9 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
         ),
       }));
       let node;
-      if (existingTab.resource.kind === 'ClusterDashboard') {
-        node = { id: 'cluster-overview', label: 'Overview', type: 'overview' as const, data: { cluster } };
+      const page = pageNode(existingTab.resource.kind, cluster);
+      if (page) {
+        node = page;
       } else {
         const category = getResourceCategory(existingTab.resource.group, existingTab.resource.name);
         const nodeId = `${category}-${existingTab.resource.group || 'core'}-${existingTab.resource.version}-${existingTab.resource.name}`;
@@ -166,8 +182,9 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
 
     let selectedNode;
     const resource = resourceListTab.resource;
-    if (resource.kind === 'ClusterDashboard') {
-      selectedNode = { id: 'cluster-overview', label: 'Overview', type: 'overview' as const, data: { cluster: currentTab } };
+    const page = pageNode(resource.kind, currentTab);
+    if (page) {
+      selectedNode = page;
     } else {
       const category = getResourceCategory(resource.group || '', resource.name);
       const nodeId = `${category}-${resource.group || 'core'}-${resource.version}-${resource.name}`;
@@ -188,7 +205,9 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
         } : t
       ),
     }));
-    if (resourceListTab.resource.kind !== 'ClusterDashboard') get().startRealtime(true);
+    // Pages (Overview, FinOps, Rightsizing, ...) aren't Kubernetes resources:
+    // watching them only makes the backend retry a list that can't succeed.
+    if (!page) get().startRealtime(true);
   },
 
   setActiveResourceListTabForPane: (paneId: string, tabId: string | null) => {
@@ -202,8 +221,9 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
 
     if (resourceListTab) {
       let selectedNode;
-      if (resourceListTab.resource.kind === 'ClusterDashboard') {
-        selectedNode = { id: 'cluster-overview', label: 'Overview', type: 'overview' as const, data: { cluster: currentTab } };
+      const page = pageNode(resourceListTab.resource.kind, currentTab);
+      if (page) {
+        selectedNode = page;
       } else {
         const category = getResourceCategory(resourceListTab.resource.group || '', resourceListTab.resource.name);
         const nodeId = `${category}-${resourceListTab.resource.group || 'core'}-${resourceListTab.resource.version}-${resourceListTab.resource.name}`;
@@ -218,7 +238,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
           isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined,
         } : {}),
       });
-      if (resourceListTab.resource.kind !== 'ClusterDashboard') get().startRealtime(true);
+      if (!page) get().startRealtime(true);
     } else {
       get().updateCurrentTabState({ activeResourceListTabByPane: next });
     }

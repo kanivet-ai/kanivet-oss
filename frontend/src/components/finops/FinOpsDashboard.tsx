@@ -28,6 +28,10 @@ import { ClusterNodeTable, VClusterHostNodeTable } from './NodeCostTable';
 import { SavingsOpportunities } from './SavingsOpportunities';
 import { filterNamespaces, filterNodes, isFiltered as filtersActive, totalSavings } from './finopsView';
 import { useFinOpsNavigation } from './useFinOpsNavigation';
+import { EvidenceSheet } from '../rightsizing/EvidenceSheet';
+import { useRightsizingPrefs, useRightsizingReport } from '../rightsizing/useRightsizingReport';
+import { rightsizingRecommendations, rightsizingSavingsIndex } from '../rightsizing/rightsizingView';
+import type { WorkloadReport } from '../../types/rightsizing';
 import './FinOpsDashboard.css';
 
 const POLL_MS = 60_000;
@@ -213,10 +217,21 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
     };
   }, [cluster, load]);
 
+  // Request sizing comes from the rightsizing engine, which reads usage
+  // history; FinOps prices and lists what it found.
+  const rsPrefs = useRightsizingPrefs();
+  const { report: rsReport, reload: reloadRightsizing } = useRightsizingReport(cluster, rsPrefs.profile, rsPrefs.window);
+  const [evidenceFor, setEvidenceFor] = useState<WorkloadReport | null>(null);
+  const rsReady = rsReport?.status === 'ready';
+  const rsIndex = useMemo(() => rightsizingSavingsIndex(rsReady ? rsReport!.workloads : []), [rsReady, rsReport]);
+
   const summary = dashboard?.summary;
   const namespaces = dashboard?.namespaces ?? [];
   const nodes = dashboard?.nodes ?? [];
-  const recommendations = dashboard?.recommendations ?? [];
+  const recommendations = useMemo(
+    () => [...rightsizingRecommendations(rsReady ? rsReport!.workloads : []), ...(dashboard?.recommendations ?? [])],
+    [rsReady, rsReport, dashboard?.recommendations],
+  );
   const isVCluster = summary?.scope === 'vcluster';
   const filtered = filtersActive(filters);
 
@@ -382,15 +397,19 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
                 <div className={`stat-card${savings > 0 ? ' savings' : ''}`}>
                   <div className="stat-label">
                     Potential savings
-                    <Tooltip content={summary.usageAvailable
-                      ? 'Right-sizing requests to usage, plus consolidating underused nodes'
-                      : 'Consolidating underused nodes. Right-sizing estimates need metrics-server.'}>
+                    <Tooltip content={rsReady
+                      ? `Rightsizing requests to ${rsReport!.window} of usage history, plus consolidating underused nodes`
+                      : rsReport?.status === 'no-history-source'
+                        ? 'Consolidating underused nodes. Rightsizing needs Prometheus or Mimir history.'
+                        : 'Consolidating underused nodes. Rightsizing is still reading usage history.'}>
                       <InfoCircledIcon className="stat-info" />
                     </Tooltip>
                   </div>
                   <div className="stat-value">{savings > 0 ? formatCost(savings) : '—'}</div>
                   <div className="stat-sub">
-                    {recommendations.length > 0 ? `${recommendations.length} opportunit${recommendations.length === 1 ? 'y' : 'ies'} below` : 'Nothing obvious to trim'}
+                    {!rsReady && rsReport && (rsReport.status === 'computing' || rsReport.progress)
+                      ? 'Rightsizing is reading usage history…'
+                      : recommendations.length > 0 ? `${recommendations.length} opportunit${recommendations.length === 1 ? 'y' : 'ies'} below` : 'Nothing obvious to trim'}
                   </div>
                 </div>
               </div>
@@ -426,6 +445,7 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
               recommendations={recommendations}
               onOpenWorkload={nav.openWorkload}
               onOpenNode={isVCluster ? undefined : nav.openNode}
+              onOpenRightsizing={setEvidenceFor}
             />
 
             <div className="finops-section">
@@ -445,6 +465,8 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
                   onOpenWorkload={nav.openWorkload}
                   onOpenVCluster={isVCluster ? undefined : nav.openVClusterCosts}
                   showUsage={summary.usageAvailable}
+                  workloadSavings={rsIndex.workload}
+                  namespaceSavings={rsIndex.namespace}
                 />
               </div>
             </div>
@@ -493,6 +515,16 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
         ) : null}
       </div>
 
+      {evidenceFor && (
+        <EvidenceSheet
+          cluster={cluster}
+          workload={evidenceFor}
+          profile={rsPrefs.profile}
+          window={rsPrefs.window}
+          onClose={() => setEvidenceFor(null)}
+          onChanged={reloadRightsizing}
+        />
+      )}
       {showExplainer && summary && (
         <EfficiencyExplainer summary={summary} onClose={() => setShowExplainer(false)} />
       )}

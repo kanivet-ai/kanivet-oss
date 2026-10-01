@@ -206,8 +206,11 @@ func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *Pr
 			MaxIdleConns:        10,
 			MaxIdleConnsPerHost: 10,
 			IdleConnTimeout:     90 * time.Second,
-			DisableCompression:  false,
-			DisableKeepAlives:   false,
+			// History answers run to megabytes over a loopback port-forward:
+			// the default 4KB buffer costs one read syscall per 4KB.
+			ReadBufferSize:     64 << 10,
+			DisableCompression: false,
+			DisableKeepAlives:  false,
 			// Fast failure on connection issues
 			DialContext: (&net.Dialer{
 				Timeout:   1 * time.Second, // Fast connection timeout

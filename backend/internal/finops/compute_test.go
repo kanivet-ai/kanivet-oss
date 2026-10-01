@@ -192,7 +192,7 @@ func TestComputeDashboard_WorkloadsFoldReplicaSetsIntoDeployments(t *testing.T) 
 	}
 }
 
-func TestComputeDashboard_UsageDrivesEfficiencyAndRightsizing(t *testing.T) {
+func TestComputeDashboard_UsageDrivesEfficiency(t *testing.T) {
 	in := clusterInput()
 	in.usage = map[string]podUsage{
 		"shop/web-1":     {cpu: 100, mem: 1 << 30},
@@ -205,16 +205,13 @@ func TestComputeDashboard_UsageDrivesEfficiencyAndRightsizing(t *testing.T) {
 
 	approx(t, "cpu efficiency", w.CPUEfficiency, 10)
 	approx(t, "memory efficiency", w.MemoryEfficiency, 25)
-	// Per pod: (1000m - 130m) × 0.035 + (4 - 1.3) GiB × 0.00375, monthly.
-	perPod := (0.87*0.035 + 2.7*0.00375) * hoursPerMonth
-	approx(t, "rightsizing", w.RightsizingSavings, 2*perPod)
-	approx(t, "summary rightsizing", d.Summary.RightsizingSavings, 2*perPod)
 
-	if len(d.Recommendations) == 0 || d.Recommendations[0].Type != "rightsize" || d.Recommendations[0].Resource != "web" {
-		t.Fatalf("top recommendation = %+v", d.Recommendations)
-	}
-	if d.Recommendations[0].Priority != "medium" {
-		t.Errorf("priority = %s", d.Recommendations[0].Priority)
+	// Request sizing belongs to the rightsizing engine, which has history; a
+	// single usage snapshot must not produce rightsizing advice here.
+	for _, r := range d.Recommendations {
+		if r.Type == "rightsize" {
+			t.Fatalf("snapshot rightsizing recommendation: %+v", r)
+		}
 	}
 }
 
