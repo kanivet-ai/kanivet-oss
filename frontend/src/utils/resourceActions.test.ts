@@ -128,3 +128,29 @@ describe('failed operational actions surface an error toast', () => {
     expect(addToast).not.toHaveBeenCalled();
   });
 });
+
+describe('crossplane trace action', () => {
+  const crossplaneNode = {
+    id: 'crossplane-s3.aws.upbound.io-v1beta1-buckets',
+    data: { group: 's3.aws.upbound.io', version: 'v1beta1', kind: 'Bucket', name: 'buckets' },
+  };
+
+  it('offers Trace for resources under the Crossplane category', () => {
+    expect(getAvailableActions({ name: 'b1' }, crossplaneNode)[0]).toBe('Trace');
+  });
+
+  it('does not offer Trace elsewhere', () => {
+    expect(getAvailableActions({ kind: 'Pod' }, { id: 'workloads-core-v1-pods', data: { kind: 'pods' } })).not.toContain('Trace');
+  });
+
+  it('opens a trace tab built from the selected node when the row lacks apiVersion and kind', async () => {
+    const { openBottomTab, params } = logsRouteParams('Bucket');
+    Object.assign(params, { action: 'Trace', item: { name: 'b1', namespace: '' }, selectedNode: crossplaneNode });
+    await handleActionSelect(params);
+    expect(openBottomTab).toHaveBeenCalledWith(
+      'trace',
+      { apiVersion: 's3.aws.upbound.io/v1beta1', kind: 'Bucket', metadata: { name: 'b1', namespace: '' } },
+      params.currentTab,
+    );
+  });
+});

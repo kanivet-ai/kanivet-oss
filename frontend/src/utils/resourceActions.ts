@@ -153,7 +153,25 @@ export const getAvailableActions = (
   if (!kind) return [];
 
   const config = resourceActionConfigs[kind] || resourceActionConfigs.default;
-  return config.actions;
+  return isCrossplaneNode(selectedNode) ? ['Trace', ...config.actions] : config.actions;
+};
+
+const isCrossplaneNode = (selectedNode?: any): boolean =>
+  typeof selectedNode?.id === 'string' && selectedNode.id.startsWith('crossplane-');
+
+// Rows in the list are flattened and may lack apiVersion/kind, so fall back to
+// the selected tree node's resource definition.
+const toTraceResource = (item: any, selectedNode: any) => {
+  const def = selectedNode?.data || {};
+  const apiVersion = item.apiVersion || (def.group ? `${def.group}/${def.version}` : def.version);
+  return {
+    apiVersion,
+    kind: item.kind || def.kind,
+    metadata: {
+      name: item.metadata?.name || item.name,
+      namespace: item.metadata?.namespace || item.namespace,
+    },
+  };
 };
 
 export const handleActionSelect = async (
@@ -266,6 +284,9 @@ export const handleActionSelect = async (
         const details = (await loadDetails(currentTab, selectedNode.data, item)) || getCurrentTabState()?.detailData;
         if (details) openBottomTab(action.toLowerCase() === 'edit' ? 'edit' : 'shell', details, currentTab);
       }
+      break;
+    case 'trace':
+      if (currentTab) openBottomTab('trace', toTraceResource(item, selectedNode), currentTab);
       break;
     case 'drain':
       setDrainDialog({ item });
