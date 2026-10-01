@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/kanivet/backend/internal/k8s"
+	"github.com/kanivet/backend/internal/k8s/podcache"
 	"github.com/kanivet/backend/internal/topics"
 	"github.com/kanivet/backend/internal/websocket/core"
 	v1 "k8s.io/api/core/v1"
@@ -22,10 +23,13 @@ const clusterInfoTTL = 10 * time.Minute
 type DashboardHandler struct {
 	k8sClient k8s.Interface
 	hub       *core.Hub
-	mu        sync.RWMutex
-	watchers  map[string]*dashboardWatcher
-	infoMu    sync.Mutex
-	info      map[string]clusterInfoEntry
+	// pods, when set, serves pods from a shared watch instead of listing
+	// every pod in the cluster on each refresh.
+	pods     podcache.Lister
+	mu       sync.RWMutex
+	watchers map[string]*dashboardWatcher
+	infoMu   sync.Mutex
+	info     map[string]clusterInfoEntry
 }
 
 type clusterInfoEntry struct {
@@ -134,6 +138,24 @@ func NewDashboardHandler(k8sClient k8s.Interface, hub *core.Hub) *DashboardHandl
 		watchers:  make(map[string]*dashboardWatcher),
 		info:      make(map[string]clusterInfoEntry),
 	}
+}
+
+// SetPodLister makes the dashboard read pods from a shared pod cache.
+func (h *DashboardHandler) SetPodLister(l podcache.Lister) { h.pods = l }
+
+func (h *DashboardHandler) listAllPods(ctx context.Context, cluster string, clientset kubernetes.Interface) (*v1.PodList, error) {
+	if h.pods == nil {
+		return clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+	}
+	cached, err := h.pods.List(ctx, cluster)
+	if err != nil {
+		return nil, err
+	}
+	list := &v1.PodList{Items: make([]v1.Pod, len(cached))}
+	for i, p := range cached {
+		list.Items[i] = *p
+	}
+	return list, nil
 }
 
 func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connection, msg *core.IncomingMessage) error {
@@ -307,7 +329,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 	prefetchWg.Add(2)
 	go func() {
 		defer prefetchWg.Done()
-		pods, podErr = clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+		pods, podErr = h.listAllPods(ctx, cluster, clientset)
 	}()
 	go func() {
 		defer prefetchWg.Done()

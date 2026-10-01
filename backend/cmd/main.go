@@ -29,6 +29,7 @@ import (
 	"github.com/kanivet/backend/internal/helm"
 	"github.com/kanivet/backend/internal/incidents"
 	"github.com/kanivet/backend/internal/k8s"
+	"github.com/kanivet/backend/internal/k8s/podcache"
 	"github.com/kanivet/backend/internal/k8s/watcher"
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
@@ -306,7 +307,12 @@ func main() {
 	wsServer.RegisterHandler("logs", logsHandler)
 
 	// Register dashboard handler
+	// One watch-backed pod cache per cluster, shared by the overview and
+	// FinOps, so neither re-lists every pod on each refresh.
+	podCache := podcache.New(k8sClient.GetClientForCluster, podcache.DefaultIdleTimeout)
+	defer podCache.Close()
 	dashboardHandler := handlers.NewDashboardHandler(k8sClient, wsServer.Hub())
+	dashboardHandler.SetPodLister(podCache)
 	wsServer.RegisterHandler("dashboard", dashboardHandler)
 
 	// Setup themes service
@@ -329,6 +335,7 @@ func main() {
 
 	// Setup FinOps service
 	finopsService := finops.NewService(k8sClient, cacheInstance.Cache)
+	finopsService.SetPodLister(podCache)
 	finopsHandler := finops.NewHandler(finopsService)
 
 	// Setup Incident Timeline service (reuses existing event listener + db)
