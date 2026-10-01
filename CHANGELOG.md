@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.4.0...v0.5.0) (2026-10-01)
+
+
+### Features
+
+* **crossplane:** add Trace to the resource context menu ([#34](https://github.com/kanivet-ai/kanivet-oss/issues/34)) ([8bd25aa](https://github.com/kanivet-ai/kanivet-oss/commit/8bd25aa3bbdba4b9be91fe7673062843febb6f8f))
+* **finops:** rework cost engine, fix accuracy bugs, price vclusters … ([#35](https://github.com/kanivet-ai/kanivet-oss/issues/35)) ([887bfc1](https://github.com/kanivet-ai/kanivet-oss/commit/887bfc1970c4dbe6b27782fcc5e30298c7bfda5e))
+* **frontend:** Perf/fast tab switching ([#30](https://github.com/kanivet-ai/kanivet-oss/issues/30)) ([0dfbe38](https://github.com/kanivet-ai/kanivet-oss/commit/0dfbe38eda9dd4a9bd4b1510235823e6ebc528be))
+* show the real host node and pod for pods inside a vcluster ([#33](https://github.com/kanivet-ai/kanivet-oss/issues/33)) ([6f7bd2b](https://github.com/kanivet-ai/kanivet-oss/commit/6f7bd2bdb6253d0e35ec3590e1699e8f1339a90f))
+
+
+### Bug Fixes
+
+* normalize CRLF when testing workflow files on Windows ([#28](https://github.com/kanivet-ai/kanivet-oss/issues/28)) ([95bef09](https://github.com/kanivet-ai/kanivet-oss/commit/95bef096b9617e91efa54eaf19d4733946b45d7b))
+* resolve Windows release-candidate AWS config test failure ([#31](https://github.com/kanivet-ai/kanivet-oss/issues/31)) ([914195a](https://github.com/kanivet-ai/kanivet-oss/commit/914195a6f2f6ed09e82aaa2b1206cdb1db7a6e7c))
+
 ## [0.4.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.3.0...v0.4.0) (2026-09-22)
 
 
