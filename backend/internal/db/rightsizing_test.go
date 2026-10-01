@@ -81,6 +81,9 @@ func TestRightsizingCacheFileShrinksAfterPrune(t *testing.T) {
 	if err := d.OpenRightsizingCache(path); err != nil {
 		t.Fatal(err)
 	}
+	// Registered after TempDir, so it runs before the directory is removed:
+	// on Windows an open file can't be deleted.
+	t.Cleanup(func() { _ = d.CloseRightsizingCache() })
 	if err := d.MigrateRightsizing(); err != nil {
 		t.Fatal(err)
 	}
