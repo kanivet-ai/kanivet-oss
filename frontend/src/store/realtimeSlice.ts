@@ -270,7 +270,9 @@ export const createRealtimeSlice: StateCreator<StoreState, [], [], RealtimeSlice
   };
 
   const createRuntime = (topic: string, cluster: string, items: any[]): RealtimeRuntime => {
-    const interaction = { last: 0, deferredSince: 0 };
+    // No interaction yet: starting at 0 would read as "the user just did
+    // something" for the first 250ms after load and hold updates back.
+    const interaction = { last: -Infinity, deferredSince: 0 };
     const rt: RealtimeRuntime = {
       interaction,
       topic,
