@@ -2,9 +2,19 @@ import { useEffect, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useStore } from '../store';
 import ClusterMetricsSettings from './ClusterMetricsSettings';
+import type { ConfigurableProvider } from './metrics/clusterMetricsForm';
 import './MonitoringSettingsModal.css';
 
-const MonitoringSettingsModal = ({ onClose, cluster }: { onClose: () => void; cluster?: string }) => {
+interface MonitoringSettingsModalProps {
+  onClose: () => void;
+  cluster?: string;
+  /** Provider whose settings start open, e.g. Mimir when it needs a tenant. */
+  initialExpanded?: ConfigurableProvider | null;
+  /** Focus the Mimir tenant field once it can be edited. */
+  focusTenant?: boolean;
+}
+
+const MonitoringSettingsModal = ({ onClose, cluster, initialExpanded, focusTenant }: MonitoringSettingsModalProps) => {
   const currentTab = useStore((s) => s.currentTab);
   const activeCluster = cluster || currentTab;
   const titleId = useId();
@@ -28,7 +38,14 @@ const MonitoringSettingsModal = ({ onClose, cluster }: { onClose: () => void; cl
           <h3 className="ap-sheet-title" id={titleId}>Metrics</h3>
           <button type="button" className="ap-icon-btn" onClick={onClose} aria-label="Close">×</button>
         </div>
-        <ClusterMetricsSettings key={activeCluster} cluster={activeCluster} onSaved={onClose} onCancel={onClose} />
+        <ClusterMetricsSettings
+          key={activeCluster}
+          cluster={activeCluster}
+          onSaved={onClose}
+          onCancel={onClose}
+          initialExpanded={initialExpanded}
+          focusTenant={focusTenant}
+        />
       </div>
     </div>,
     document.body,

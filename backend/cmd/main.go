@@ -345,6 +345,9 @@ func main() {
 	// prices changes with FinOps rates.
 	rightsizingService := rightsizing.NewService(k8sClient, apiHandler.GetMetricsService(), finopsService, podCache, apiHandler.GetDB())
 	rightsizingHandler := rightsizing.NewHandler(rightsizingService)
+	// Reports name the provider but not the Mimir tenant or instance, so a
+	// settings change must drop the ones computed from the old values.
+	apiHandler.OnMetricsSettingsChanged(rightsizingService.ForgetCluster)
 
 	// Setup Incident Timeline service (reuses existing event listener + db)
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())

@@ -10,6 +10,7 @@ import { useRightsizingProvider } from './useRightsizingReport';
 import { loadEvidence } from './evidenceLoader';
 import type {
   ContainerReport,
+  Distribution,
   Evidence,
   RightsizingProfile,
   RightsizingWindow,
@@ -18,6 +19,8 @@ import type {
 import {
   ChartLegend,
   CPUChart,
+  DurationCurve,
+  durationScale,
   MemoryChart,
   type RefLine,
 } from './EvidenceCharts';
@@ -31,9 +34,12 @@ import {
   choiceFromRec,
   evaluateCandidate,
   formatCores,
+  formatDayTime,
   formatMem,
   formatMoney,
   formatPct,
+  hoursAbove,
+  idleShare,
   kubectlCommands,
   patchYAML,
   primaryContainer,
@@ -144,6 +150,35 @@ const CopyBlock: React.FC<{ text: string; label: string; prose?: boolean }> = ({
   );
 };
 
+/** One sentence that reads the duration curve out loud. */
+function durationSummary(
+  dist: Distribution,
+  current: number,
+  candidate: number,
+): string {
+  const over = (r: number) => {
+    const h = hoursAbove(dist, r);
+    return h < 1 / 60
+      ? 'CPU never goes above it'
+      : `CPU goes above it ${formatDayTime(h)} a day`;
+  };
+  const idle = (r: number) =>
+    `${formatPct(idleShare(dist, r), 0)} of it sits idle`;
+  let out = `With ${formatCores(candidate)}, ${over(candidate)} and ${idle(candidate)}.`;
+  if (current > 0 && Math.abs(current - candidate) > 1e-9) {
+    out += ` Today's ${formatCores(current)}: ${over(current)} and ${idle(current)}.`;
+  }
+  return out;
+}
+
+type OutputFormat = 'yaml' | 'kubectl' | 'ai';
+
+const OUTPUT_TABS: { id: OutputFormat; label: string }[] = [
+  { id: 'ai', label: 'AI prompt' },
+  { id: 'yaml', label: 'Patch YAML' },
+  { id: 'kubectl', label: 'kubectl' },
+];
+
 const DISMISS_REASONS = [
   'Headroom is intentional',
   'Bursty or batch workload',
@@ -169,7 +204,7 @@ export const EvidenceSheet: React.FC<Props> = ({
       '',
   );
   const [candidates, setCandidates] = useState<Record<string, Candidate>>({});
-  const [output, setOutput] = useState<'yaml' | 'kubectl' | 'ai'>('ai');
+  const [output, setOutput] = useState<OutputFormat>('ai');
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState(DISMISS_REASONS[0]);
   const [snooze, setSnooze] = useState(30);
@@ -866,6 +901,51 @@ export const EvidenceSheet: React.FC<Props> = ({
                     multiReplica={c.avgReplicas >= 1.5}
                   />
                 </div>
+                {dist && (
+                  <>
+                    <div className="rs-subhead">
+                      A typical day, busiest hours first
+                    </div>
+                    <ChartLegend
+                      resource="cpu"
+                      items={[
+                        { label: 'CPU used', swatch: 'band' },
+                        { label: 'Needs more than requested', swatch: 'short' },
+                        { label: 'Paid for, unused', swatch: 'idle' },
+                        {
+                          label: 'Candidate',
+                          swatch: 'candidate',
+                          value: formatCores(cand.cpu),
+                        },
+                        ...(c.cpu.request > 0
+                          ? [
+                              {
+                                label: durationScale(
+                                  dist,
+                                  c.cpu.request,
+                                  cand.cpu,
+                                ).currentOnChart
+                                  ? 'Current request'
+                                  : 'Current request (off chart)',
+                                swatch: 'current' as const,
+                                value: formatCores(c.cpu.request),
+                              },
+                            ]
+                          : []),
+                      ]}
+                    />
+                    <div aria-busy={refreshing}>
+                      <DurationCurve
+                        dist={dist}
+                        current={c.cpu.request}
+                        candidate={drawn.cpu}
+                      />
+                    </div>
+                    <p className="rs-duration-note">
+                      {durationSummary(dist, c.cpu.request, cand.cpu)}
+                    </p>
+                  </>
+                )}
               </section>
 
               <section className="rs-section">
@@ -946,34 +1026,36 @@ export const EvidenceSheet: React.FC<Props> = ({
             <div className="rs-section-head">
               <h4>Apply it yourself</h4>
               {availableChoices.length > 0 && (
-                <div className="ap-segmented ap-segmented--sm" role="tablist">
-                  <button
-                    role="tab"
-                    aria-selected={output === 'yaml'}
-                    onClick={() => setOutput('yaml')}
-                  >
-                    Patch YAML
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={output === 'kubectl'}
-                    onClick={() => setOutput('kubectl')}
-                    disabled={!kubectl}
-                  >
-                    kubectl
-                  </button>
-                  <button
-                    role="tab"
-                    aria-selected={output === 'ai'}
-                    onClick={() => setOutput('ai')}
-                  >
-                    AI prompt
-                  </button>
+                <div
+                  className="ap-segmented ap-segmented--sm"
+                  role="tablist"
+                  aria-label="Change format"
+                >
+                  {/* The prompt is selected when the sheet opens, so it comes
+                      first: the first tab is the one a reader expects to be
+                      showing. */}
+                  {OUTPUT_TABS.map((t) => (
+                    <button
+                      key={t.id}
+                      id={`rs-output-tab-${t.id}`}
+                      role="tab"
+                      aria-selected={output === t.id}
+                      aria-controls="rs-output-panel"
+                      onClick={() => setOutput(t.id)}
+                      disabled={t.id === 'kubectl' && !kubectl}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
                 </div>
               )}
             </div>
             {availableChoices.length > 0 ? (
-              <>
+              <div
+                id="rs-output-panel"
+                role="tabpanel"
+                aria-labelledby={`rs-output-tab-${output}`}
+              >
                 {output === 'ai' && (
                   <p className="rs-note">
                     Copy this prompt into your AI coding assistant with your
@@ -993,7 +1075,7 @@ export const EvidenceSheet: React.FC<Props> = ({
                   label={output === 'ai' ? 'AI prompt' : output}
                   prose={output === 'ai'}
                 />
-              </>
+              </div>
             ) : (
               <p className="rs-note">
                 No resource values are available yet. Usage history is needed

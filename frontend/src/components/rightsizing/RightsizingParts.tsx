@@ -141,6 +141,9 @@ export const HistorySourceState: React.FC<{
   const [settings, setSettings] = useState(false);
   const needsTenant = report.status === 'needs-tenant';
   const noData = report.status === 'no-container-data';
+  // Both cases are fixed by the Mimir tenant: one has none, the other has
+  // one that holds no container metrics.
+  const mimirFix = needsTenant || (noData && report.source.type === 'mimir');
   const where = report.source.service ? (
     <strong>
       {report.source.namespace}/{report.source.service}
@@ -205,7 +208,7 @@ export const HistorySourceState: React.FC<{
           className="ap-btn ap-btn--primary"
           onClick={() => setSettings(true)}
         >
-          {needsTenant || (noData && report.source.type === 'mimir')
+          {mimirFix
             ? 'Choose tenant'
             : noData
               ? 'Choose service'
@@ -218,6 +221,10 @@ export const HistorySourceState: React.FC<{
       {settings && (
         <MonitoringSettingsModal
           cluster={cluster}
+          // The button promised a tenant (or a Mimir with data), so open the
+          // form on the Mimir fields instead of behind its gear.
+          initialExpanded={mimirFix ? 'mimir' : null}
+          focusTenant={mimirFix}
           onClose={() => {
             setSettings(false);
             onRetry();

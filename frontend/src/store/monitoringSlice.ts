@@ -1,13 +1,19 @@
 import type { StateCreator } from 'zustand';
 import type { MonitoringSettings, StoreState } from './types';
-import { loadMonitoringSettings } from './utils';
+import { loadMonitoringSettings, normalizeMonitoringSettings } from './utils';
 
 const CLUSTER_SETTINGS_KEY = 'kanivet.monitoringSettingsByCluster';
 
 function loadClusterSettings(): Record<string, MonitoringSettings> {
   try {
     const saved = JSON.parse(localStorage.getItem(CLUSTER_SETTINGS_KEY) || '{}');
-    return saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+    if (!saved || typeof saved !== 'object' || Array.isArray(saved)) return {};
+    return Object.fromEntries(
+      Object.entries(saved as Record<string, MonitoringSettings>).map(([cluster, settings]) => [
+        cluster,
+        normalizeMonitoringSettings(settings),
+      ])
+    );
   } catch {
     return {};
   }

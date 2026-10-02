@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/finops"
@@ -22,13 +23,24 @@ type probeEntry struct {
 
 var probeCache sync.Map // history cluster -> probeEntry
 
+// probeEpoch moves on whenever ForgetCluster clears probes, so a probe that
+// was already running against the old metrics settings isn't cached after.
+var probeEpoch atomic.Uint64
+
+func storeProbe(key string, e probeEntry, epoch uint64) {
+	if probeEpoch.Load() == epoch {
+		probeCache.Store(key, e)
+	}
+}
+
 func (s *Service) cachedProbe(ctx context.Context, cluster string, at time.Time) probe {
 	key := probeKey(ctx, cluster)
 	if e, ok := probeCache.Load(key); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
 		return e.(probeEntry).p
 	}
+	epoch := probeEpoch.Load()
 	p := probeSignals(ctx, newControlled(s.metrics), cluster, at)
-	probeCache.Store(key, probeEntry{p, s.now()})
+	storeProbe(key, probeEntry{p, s.now()}, epoch)
 	return p
 }
 

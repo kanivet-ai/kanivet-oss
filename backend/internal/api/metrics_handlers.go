@@ -76,20 +76,46 @@ func (h *Handler) PutMetricsSettings(c *gin.Context) {
 			svc = *body.MimirService
 		}
 		if err := h.db.SetClusterMimirService(cluster, ns, svc); err != nil {
+			if body.MimirTenant != nil {
+				// The tenant was saved before this failed.
+				h.metricsSettingsChanged(cluster)
+			}
 			h.respond(c, http.StatusInternalServerError, nil, err)
 			return
 		}
 	}
-	// Drop cached metrics + the cached Mimir auto-pick so the next query uses
-	// the new tenant/service immediately.
-	h.cache.DeleteByPrefix("metrics:")
-	h.cache.DeleteByPrefix("mimir-info:")
+	h.metricsSettingsChanged(cluster)
 	settings, _ := h.db.GetClusterMetricsSettings(cluster)
 	if settings == nil {
 		h.respond(c, http.StatusOK, gin.H{"clusterName": cluster}, nil)
 		return
 	}
 	h.respond(c, http.StatusOK, settings, nil)
+}
+
+// metricsSettingsChanged drops what was cached under a cluster's old metrics
+// settings: query results and the Mimir auto-pick, so the next query uses the
+// new tenant or service; detection, since whether Mimir "needs a tenant"
+// depends on the tenant; and, through the registered hooks, results computed
+// from them elsewhere, such as rightsizing reports.
+func (h *Handler) metricsSettingsChanged(cluster string) {
+	if h.cache != nil {
+		h.cache.DeleteByPrefix("metrics:")
+		h.cache.DeleteByPrefix("mimir-info:")
+	}
+	if h.metrics != nil {
+		h.metrics.InvalidateDetection(cluster)
+	}
+	for _, fn := range h.settingsChanged {
+		fn(cluster)
+	}
+}
+
+// OnMetricsSettingsChanged registers fn to run after a cluster's metrics
+// settings are saved, so services that keep results computed from them can
+// drop those results. Call it at startup, before requests are served.
+func (h *Handler) OnMetricsSettingsChanged(fn func(cluster string)) {
+	h.settingsChanged = append(h.settingsChanged, fn)
 }
 
 // ListMimirServices returns every Mimir gateway service discovered in the

@@ -147,6 +147,7 @@ func (evidenceStore) ListRightsizingDismissals(string) ([]db.RightsizingDismissa
 	return nil, nil
 }
 func (evidenceStore) SaveRightsizingDismissal(*db.RightsizingDismissal) error { return nil }
+func (evidenceStore) ForgetRightsizingClusters(func(string) bool) error       { return nil }
 func (evidenceStore) DeleteRightsizingDismissal(string, string, string, string, string, string) error {
 	return nil
 }

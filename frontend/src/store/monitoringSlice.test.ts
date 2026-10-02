@@ -35,4 +35,13 @@ describe('cluster monitoring preferences', () => {
     expect(() => store.getState().setClusterMonitoringSettings('staging', { preferredProvider: 'disabled' })).toThrow('Storage full');
     expect(store.getState().monitoringSettingsByCluster.staging).toBeUndefined();
   });
+
+  it('reads a stored custom-URL choice, which nothing queried, as automatic', () => {
+    localStorage.setItem('kanivet.monitoringSettings', JSON.stringify({ preferredProvider: 'custom', autoRefreshInterval: 30, showMetricsPanel: true, customPrometheusUrl: 'http://p:9090' }));
+    localStorage.setItem('kanivet.monitoringSettingsByCluster', JSON.stringify({ staging: { preferredProvider: 'custom', autoRefreshInterval: 15, showMetricsPanel: false } }));
+    const state = makeStore().getState();
+    expect(state.monitoringSettings.preferredProvider).toBe('auto');
+    expect(state.monitoringSettings.customPrometheusUrl).toBe('http://p:9090');
+    expect(state.monitoringSettingsByCluster.staging).toEqual({ preferredProvider: 'auto', autoRefreshInterval: 15, showMetricsPanel: false });
+  });
 });
