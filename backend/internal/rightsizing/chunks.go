@@ -175,6 +175,9 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 	}
 	wg.Wait()
 	for _, err := range errs {
+		if metrics.CacheOnly(ctx) && errors.Is(err, metrics.ErrCacheMiss) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -188,7 +191,7 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 func (c *chunker) fetchBatch(ctx context.Context, cluster, query string, step time.Duration, spans []daySpan, b []int, parts [][]metrics.HistorySeries) error {
 	first, last := spans[b[0]], spans[b[len(b)-1]]
 	res, err := c.fetchSpan(ctx, cluster, query, first.start, last.end, step)
-	if err != nil && len(b) > 1 && ctx.Err() == nil {
+	if err != nil && len(b) > 1 && ctx.Err() == nil && !metrics.CacheOnly(ctx) {
 		for _, i := range b {
 			if err := c.fetchBatch(ctx, cluster, query, step, spans, []int{i}, parts); err != nil {
 				return err

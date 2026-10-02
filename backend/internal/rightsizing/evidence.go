@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"math"
 	"slices"
-	"sort"
 	"sync"
 	"time"
 
+	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/metrics"
 )
 
@@ -38,24 +38,54 @@ type WorkloadQuery struct {
 	Provider                                          string
 	Profile                                           Profile
 	Window                                            time.Duration
+	CacheOnly, Refresh                                bool
 }
 
-// GetEvidence recomputes one workload's analysis from a narrow query and
+// Only metadata is retained with the report; history stays in the bounded metrics cache.
+type evidenceInputs struct {
+	workloads []*liveWorkload
+	probe     probe
+	hpas      map[string]*hpaTarget
+	rates     map[string]finops.Rates
+}
+
+// GetEvidence recomputes one workload's analysis from shared namespace history and
 // returns everything the evidence drawer shows. It aligns to the cached
 // report's time so its numbers match the row the user clicked.
 func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, error) {
 	ctx = metrics.WithHistoryProvider(ctx, q.Provider)
 	t := resolveTarget(q.Cluster)
-	info, _ := s.metrics.HistorySource(ctx, t.history)
-	if info == nil || !info.Found {
-		return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
+	rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider)
+	var workloads []*liveWorkload
+	var pr probe
+	var hpas map[string]*hpaTarget
+	var rates map[string]finops.Rates
+	asOf := s.now()
+	if !q.Refresh && rep != nil && rep.Status == StatusReady && (q.CacheOnly || s.now().Sub(rep.ComputedAt) < reportTTL) {
+		asOf = rep.AsOf
 	}
-	pods, err := s.listPods(ctx, t)
-	if err != nil {
-		return nil, err
+	g := newGrid(asOf, q.Window, stepFor(q.Window))
+	if q.CacheOnly {
+		if rep == nil || rep.evidenceInputs == nil {
+			return nil, metrics.ErrCacheMiss
+		}
+		ctx = metrics.WithCacheOnly(ctx, true)
+		inputs := rep.evidenceInputs
+		workloads, pr, hpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.rates
+	} else {
+		info, _ := s.metrics.HistorySource(ctx, t.history)
+		if info == nil || !info.Found {
+			return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
+		}
+		pods, err := s.listPods(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		workloads = liveWorkloads(pods, t.vcluster != "")
+		pr = s.cachedProbe(ctx, t.history, g.end)
 	}
 	var w *liveWorkload
-	for _, lw := range liveWorkloads(pods, t.vcluster != "") {
+	for _, lw := range workloads {
 		if lw.ref.Namespace == q.Namespace && lw.ref.VClusterNamespace == q.VClusterNamespace && lw.ref.Kind == q.Kind && lw.ref.Name == q.Name {
 			w = lw
 			break
@@ -64,20 +94,11 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	if w == nil {
 		return nil, fmt.Errorf("workload %s/%s %s not found among running pods", q.Namespace, q.Name, q.Kind)
 	}
+	step := g.step
 
-	asOf := s.now()
-	if rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider); rep != nil && rep.Status == StatusReady && s.now().Sub(rep.ComputedAt) < reportTTL {
-		asOf = rep.AsOf
-	}
-	step := stepFor(q.Window)
-	g := newGrid(asOf, q.Window, step)
-	pr := s.cachedProbe(ctx, t.history, g.end)
-
-	wkSet := map[string]struct{}{}
 	want := map[seriesKey]struct{}{}
 	for _, keys := range w.keys {
 		for k := range keys {
-			wkSet[k.wk] = struct{}{}
 			want[k] = struct{}{}
 		}
 	}
@@ -85,26 +106,25 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	if w.isJob {
 		jobs = want
 	}
-	wks := make([]string, 0, len(wkSet))
-	for wk := range wkSet {
-		wks = append(wks, wk)
-	}
-	sort.Strings(wks)
 	// Someone is waiting on this one: it goes ahead of background reports.
 	ctx = interactive(ctx)
-	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), nil), t.history, scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}, g, pr, q.Window)
+	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), nil), t.history, scope{namespace: w.hostNamespace, want: want, jobs: jobs}, g, pr, q.Window)
 	if err != nil {
 		return nil, err
 	}
 
-	var hpas map[string]*hpaTarget
-	if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
-		hpas = hpaTargets(listHPAs(ctx, cs))
-		pr.inPlace = supportsInPlaceResize(cs)
+	if q.CacheOnly && (len(h.cpu) == 0 || len(h.mem) == 0) {
+		return nil, metrics.ErrCacheMiss
 	}
-	rates, _ := s.rates.NodeRates(ctx, q.Cluster)
+	if !q.CacheOnly {
+		if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
+			hpas = hpaTargets(listHPAs(ctx, cs))
+			pr.inPlace = supportsInPlaceResize(cs)
+		}
+		rates, _ = s.rates.NodeRates(ctx, q.Cluster)
+	}
 	var prev map[recKey]prevRec
-	if rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider); rep != nil {
+	if rep != nil {
 		prev = previousRecs(rep)
 	}
 

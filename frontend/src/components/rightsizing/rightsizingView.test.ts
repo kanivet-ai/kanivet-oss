@@ -4,7 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { EvidenceSheet } from './EvidenceSheet';
 
 vi.mock('../../services/api', () => ({ default: {} }));
-vi.mock('./useRightsizingReport', () => ({ useRightsizingProvider: () => 'auto' }));
+vi.mock('./useRightsizingReport', () => ({
+  useRightsizingProvider: () => 'auto',
+}));
 vi.mock('react-dom', () => ({ createPortal: (node: unknown) => node }));
 vi.mock('./EvidenceCharts', () => ({
   ChartLegend: () => null,
@@ -19,6 +21,7 @@ vi.mock('./RightsizingParts', () => ({
 import type { ContainerReport, WorkloadReport } from '../../types/rightsizing';
 import {
   bulkKubectl,
+  bulkRepositoryPrompt,
   startupBoostYAML,
   formatDayTime,
   hoursAbove,
@@ -256,6 +259,76 @@ describe('copy-ready output', () => {
 });
 
 describe('repository AI prompt', () => {
+  it('combines every selected workload and its container recommendations', () => {
+    const workloads = [
+      workload(),
+      workload({
+        name: 'nightly',
+        kind: 'CronJob',
+        vcluster: 'preview',
+        vclusterNamespace: 'apps',
+        labels: { 'app.kubernetes.io/instance': 'batch-release' },
+        containers: [
+          container({ container: 'scheduler' }),
+          container({
+            container: 'worker',
+            cpu: rec({ recommended: 0.055 }),
+            memory: rec({ recommended: 320 * MI }),
+            hpa: {
+              name: 'worker-hpa',
+              resource: 'cpu',
+              targetUtilization: 60,
+              suggestedTarget: 80,
+              pairedRequest: 0.055,
+            },
+            startupBoost: { request: 1, startupRate: 0.9, inPlace: true },
+          }),
+        ],
+      }),
+    ];
+    const prompt = bulkRepositoryPrompt(workloads, 'staging');
+    expect(prompt.match(/Cluster: staging/g)).toHaveLength(2);
+    expect(prompt).toContain('Workload: Deployment api');
+    expect(prompt).toContain('Workload: CronJob nightly');
+    expect(prompt).toContain('Virtual cluster: preview (host namespace: shop)');
+    expect(prompt).toContain('Helm release label: batch-release');
+    expect(prompt).toContain('Container: scheduler');
+    expect(prompt).toContain('Container: worker');
+    expect(prompt).toContain('cpu: 220m');
+    expect(prompt).toContain('cpu: 55m');
+    expect(prompt).toContain('memory: 640Mi');
+    expect(prompt).toContain('memory: 320Mi');
+    expect(prompt).toContain('HorizontalPodAutoscaler worker-hpa');
+    expect(prompt).toContain('kind: StartupCPUBoost');
+  });
+
+  it('omits unavailable values and keeps recommendations without request changes', () => {
+    const unknown = container({
+      container: 'unknown',
+      cpu: rec(),
+      memory: rec(),
+    });
+    const unchanged = container({
+      cpu: rec({ request: 0.055, recommended: 0.055 }),
+      memory: rec({ request: 320 * MI, recommended: 320 * MI }),
+    });
+    const prompt = bulkRepositoryPrompt(
+      [
+        workload({ containers: [unchanged, unknown] }),
+        workload({ name: 'no-data', containers: [unknown] }),
+      ],
+      'staging',
+    );
+    expect(prompt).toContain('Workload: Deployment api');
+    expect(prompt).toContain('cpu: 55m');
+    expect(prompt).not.toContain('unknown');
+    expect(prompt).not.toContain('no-data');
+    expect(bulkRepositoryPrompt([], 'staging')).toBe('');
+    expect(
+      bulkRepositoryPrompt([workload({ containers: [unknown] })], 'staging'),
+    ).toBe('');
+  });
+
   it('includes the selected values and identifies a CronJob inside a vcluster', () => {
     const w = workload({
       kind: 'CronJob',

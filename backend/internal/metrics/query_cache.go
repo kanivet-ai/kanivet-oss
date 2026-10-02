@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json/jsontext"
 	json "encoding/json/v2"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -28,6 +29,26 @@ const (
 	queryTailTTL     = 15 * time.Second
 	queryBlockPoints = 256
 )
+
+// Cache-only reads never wait for an upstream refresh or fetch missing samples.
+type cacheOnlyKey struct{}
+type cacheOnlyMode struct{ allowStale bool }
+
+var ErrCacheMiss = errors.New("metrics are not cached")
+
+func WithCacheOnly(ctx context.Context, allowStale bool) context.Context {
+	return context.WithValue(ctx, cacheOnlyKey{}, cacheOnlyMode{allowStale})
+}
+
+func CacheOnly(ctx context.Context) bool {
+	_, ok := ctx.Value(cacheOnlyKey{}).(cacheOnlyMode)
+	return ok
+}
+
+func allowStaleCache(ctx context.Context) bool {
+	mode, _ := ctx.Value(cacheOnlyKey{}).(cacheOnlyMode)
+	return mode.allowStale
+}
 
 type QueryCacheStore interface {
 	GetMetricsQuery(key string) ([]byte, error)
@@ -141,6 +162,13 @@ type cachedAnswer struct {
 }
 
 func (c *queryCache) answer(ctx context.Context, key string, ttl time.Duration, fetch func() ([]byte, error)) ([]byte, error) {
+	if CacheOnly(ctx) {
+		var entry cachedAnswer
+		if c != nil && c.read(key, &entry) && (allowStaleCache(ctx) || entry.Expires > c.now().UnixNano()) {
+			return entry.Body, nil
+		}
+		return nil, ErrCacheMiss
+	}
 	if c == nil {
 		return fetch()
 	}
@@ -165,6 +193,9 @@ var rangeDependentQuery = regexp.MustCompile(`\b(start|end|range)\s*\(`)
 
 func (c *queryCache) prom(ctx context.Context, source, path string, params url.Values, fetch func(url.Values) (io.ReadCloser, error)) (io.ReadCloser, error) {
 	if c == nil {
+		if CacheOnly(ctx) {
+			return nil, ErrCacheMiss
+		}
 		return fetch(params)
 	}
 	get := func(p url.Values) ([]byte, error) {
@@ -226,23 +257,28 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 	identity.Del("end")
 	identity.Del("step")
 	key := queryHash("range-v1", source, identity.Encode(), strconv.FormatInt(step, 10), strconv.FormatInt(start%step, 10))
-	unlock, err := c.lock(ctx, key)
-	if err != nil {
-		return nil, err
+	if !CacheOnly(ctx) {
+		unlock, err := c.lock(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		defer unlock()
 	}
-	defer unlock()
 	now := c.now()
 	width := step * queryBlockPoints
 	phase := start % step
 	blocks := make(map[int64]*queryBlock)
 	var bases []int64
 	var missing []querySpan
+	hasCoverage := false
 	for base := (start-phase)/width*width + phase; base <= end; base += width {
 		block := &queryBlock{}
 		if !c.read(queryHash(key, strconv.FormatInt(base, 10)), block) {
 			block = &queryBlock{}
 		}
-		block.Coverage = slices.DeleteFunc(block.Coverage, func(s querySpan) bool { return s.Expires != 0 && s.Expires <= now.UnixNano() })
+		if !allowStaleCache(ctx) {
+			block.Coverage = slices.DeleteFunc(block.Coverage, func(s querySpan) bool { return s.Expires != 0 && s.Expires <= now.UnixNano() })
+		}
 		blocks[base] = block
 		bases = append(bases, base)
 		lo, hi := max(start, base), min(end, base+width-step)
@@ -251,6 +287,7 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 			if covered.End < cursor || covered.Start > hi {
 				continue
 			}
+			hasCoverage = true
 			if covered.Start > cursor {
 				missing = append(missing, querySpan{Start: cursor, End: min(hi, covered.Start-step)})
 			}
@@ -259,6 +296,13 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 		if cursor <= hi {
 			missing = append(missing, querySpan{Start: cursor, End: hi})
 		}
+	}
+	if CacheOnly(ctx) {
+		if !hasCoverage || (len(missing) > 0 && !allowStaleCache(ctx)) {
+			return nil, ErrCacheMiss
+		}
+		// A preview can contain gaps, but never claims those gaps were fetched.
+		missing = nil
 	}
 	missing = mergeQuerySpans(missing, step)
 	for _, span := range missing {

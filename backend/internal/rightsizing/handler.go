@@ -37,12 +37,18 @@ func (h *Handler) GetWorkload(c *gin.Context) {
 		Name:              c.Query("name"),
 		Profile:           ParseProfile(c.Query("profile")),
 		Window:            ParseWindow(c.Query("window")),
+		CacheOnly:         c.Query("cached") == "1",
+		Refresh:           c.Query("refresh") == "1" && c.Query("cached") != "1",
 	}
 	if q.Cluster == "" || q.Namespace == "" || q.Kind == "" || q.Name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster, namespace, kind and name are required"})
 		return
 	}
 	ev, err := h.service.GetEvidence(c.Request.Context(), q)
+	if err != nil && q.CacheOnly {
+		c.Status(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

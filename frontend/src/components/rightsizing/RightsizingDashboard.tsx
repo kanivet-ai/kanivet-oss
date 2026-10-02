@@ -25,6 +25,7 @@ import {
   PROFILE_META,
   VERDICT_META,
   bulkKubectl,
+  bulkRepositoryPrompt,
   bulkYAML,
   emptyFilters,
   facetValues,
@@ -311,6 +312,10 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
     0,
   );
   const selectedChanges = selectedWorkloads.filter(hasChange).length;
+  const selectedPrompt = useMemo(
+    () => bulkRepositoryPrompt(selectedWorkloads, cluster),
+    [selectedWorkloads, cluster],
+  );
 
   const ready = report && report.status === 'ready';
   const s = report?.summary;
@@ -902,6 +907,13 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
             onClick={() => copy('yaml', bulkYAML(selectedWorkloads))}
           >
             {copied === 'yaml' ? 'Copied' : 'Copy patches as YAML'}
+          </button>
+          <button
+            className="ap-btn"
+            disabled={!selectedPrompt}
+            onClick={() => copy('ai', selectedPrompt)}
+          >
+            {copied === 'ai' ? 'Copied' : 'Copy AI prompt'}
           </button>
           <button
             className="ap-btn"

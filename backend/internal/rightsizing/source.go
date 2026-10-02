@@ -125,11 +125,10 @@ func probeSignals(ctx context.Context, q historyQuerier, cluster string, at time
 	return p
 }
 
-// scope narrows queries to one namespace and, for a single workload's
-// evidence, to pods whose names start with its key.
+// Query a whole namespace so reports and evidence share cached history;
+// filter workload keys locally after the provider cache has stored all series.
 type scope struct {
 	namespace string
-	wks       []string
 	// want, if set, is every history key someone will look at; series of
 	// workloads that no longer run are dropped as they are read.
 	want map[seriesKey]struct{}
@@ -149,11 +148,7 @@ func (s scope) keep() func(map[string]string) bool {
 }
 
 func (s scope) matchers() string {
-	m := fmt.Sprintf(`namespace="%s"`, promString(s.namespace))
-	if len(s.wks) > 0 {
-		m += "," + podSelector(s.wks)
-	}
-	return m
+	return fmt.Sprintf(`namespace="%s"`, promString(s.namespace))
 }
 
 // history is everything fetched for one scope, keyed by workload container.

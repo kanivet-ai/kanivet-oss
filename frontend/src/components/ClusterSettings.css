@@ -75,7 +75,13 @@
 .cluster-settings-section-header h3 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
 .cluster-settings-section-header p { margin: 0; color: var(--text2); font-size: 12px; line-height: 1.5; }
 .cluster-settings .ms-body { padding: 0; overflow: visible; }
-.cluster-settings .ms-settings-footer { margin-top: 20px; padding: 14px 0 0; }
+.cluster-settings .ms-settings-footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 1;
+  margin-top: 20px;
+  padding: 14px;
+}
 
 @container (max-width: 680px) {
   .cluster-settings-layout { flex-direction: column; gap: 20px; padding: 18px; }

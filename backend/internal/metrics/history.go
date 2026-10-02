@@ -93,7 +93,7 @@ func (s *Service) HistorySource(ctx context.Context, cluster string) (info *Prov
 		if !ok {
 			continue
 		}
-		pi, err := p.Detect(cluster)
+		pi, err := historyDetection(ctx, p, cluster)
 		if err != nil {
 			if fallback == nil {
 				fallback = &ProviderInfo{Type: name, Reason: "detection failed: " + trimErr(err)}
@@ -107,7 +107,7 @@ func (s *Service) HistorySource(ctx context.Context, cluster string) (info *Prov
 			fallback = pi
 		}
 	}
-	if ms, ok := s.providers["metrics-server"]; ok && HistoryProvider(ctx) == "" {
+	if ms, ok := s.providers["metrics-server"]; ok && HistoryProvider(ctx) == "" && !CacheOnly(ctx) {
 		if pi, err := ms.Detect(cluster); err == nil && pi.Found {
 			metricsServer = true
 		}
@@ -136,6 +136,38 @@ func (s *Service) historyProvider(ctx context.Context, cluster string) (historyA
 		return nil, ErrNoHistorySource
 	}
 	return api, nil
+}
+
+func historyDetection(ctx context.Context, p Provider, cluster string) (*ProviderInfo, error) {
+	if !CacheOnly(ctx) {
+		return p.Detect(cluster)
+	}
+	var entry any
+	var ok bool
+	switch p := p.(type) {
+	case *PrometheusProvider:
+		if p.cache != nil {
+			entry, ok = p.cache.Get(p.cache.BuildKey("prometheus-info", cluster))
+		}
+	case *MimirProvider:
+		if p.cache != nil {
+			entry, ok = p.cache.Get(p.cache.BuildKey("mimir-info", cluster))
+		}
+	}
+	if ok {
+		if e, valid := entry.(*detectEntry); valid {
+			return e.info, nil
+		}
+	}
+	return nil, ErrCacheMiss
+}
+
+func (s *Service) CachedQueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]HistorySeries, error) {
+	return s.QueryRange(WithCacheOnly(ctx, false), cluster, query, start, end, step)
+}
+
+func (s *Service) CachedQueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]HistorySeries, error) {
+	return s.QueryInstant(WithCacheOnly(ctx, false), cluster, query, at)
 }
 
 // QueryRange runs a raw PromQL range query against the cluster's history
@@ -502,7 +534,7 @@ func querySource(cluster string, info *ProviderInfo, tenant string) string {
 }
 
 func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error) {
-	info, err := p.Detect(cluster)
+	info, err := historyDetection(ctx, p, cluster)
 	if err != nil || !info.Found {
 		return nil, fmt.Errorf("prometheus not found in cluster: %w", ErrNoHistorySource)
 	}
@@ -535,7 +567,7 @@ func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, 
 }
 
 func (p *MimirProvider) promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error) {
-	info, err := p.Detect(cluster)
+	info, err := historyDetection(ctx, p, cluster)
 	if err != nil || !info.Found {
 		return nil, fmt.Errorf("mimir not detected in cluster: %w", ErrNoHistorySource)
 	}

@@ -283,8 +283,8 @@ class API {
   async getRightsizingReport(cluster: string, profile: RightsizingProfile, window: RightsizingWindow, refresh = false, known?: string, provider?: string): Promise<RightsizingReport> {
     return rightsizing.getRightsizingReport(cluster, profile, window, refresh, known, provider);
   }
-  async getRightsizingWorkload(cluster: string, ref: rightsizing.WorkloadRef, profile: RightsizingProfile, window: RightsizingWindow, provider?: string): Promise<Evidence> {
-    return rightsizing.getRightsizingWorkload(cluster, ref, profile, window, provider);
+  async getRightsizingWorkload(cluster: string, ref: rightsizing.WorkloadRef, profile: RightsizingProfile, window: RightsizingWindow, provider?: string, mode?: 'cached' | 'refresh'): Promise<Evidence | null> {
+    return rightsizing.getRightsizingWorkload(cluster, ref, profile, window, provider, mode);
   }
   async dismissRightsizing(cluster: string, input: rightsizing.DismissInput): Promise<void> { return rightsizing.dismissRightsizing(cluster, input); }
   async undismissRightsizing(cluster: string, input: rightsizing.WorkloadRef & { container?: string }): Promise<void> {

@@ -43,12 +43,24 @@ export async function getRightsizingWorkload(
   profile: RightsizingProfile,
   window: RightsizingWindow,
   provider?: string,
-): Promise<Evidence> {
+  mode?: 'cached' | 'refresh',
+): Promise<Evidence | null> {
   const response = await apiClient.getAxios().get('/rightsizing/workload', {
-    params: { cluster, profile, window, provider, ...ref },
+    params: {
+      cluster,
+      profile,
+      window,
+      provider,
+      ...ref,
+      ...(mode === 'cached'
+        ? { cached: '1' }
+        : mode === 'refresh'
+          ? { refresh: '1' }
+          : {}),
+    },
     timeout: 120_000,
   });
-  return response.data.data;
+  return response.status === 204 ? null : response.data.data;
 }
 
 export interface DismissInput extends WorkloadRef {

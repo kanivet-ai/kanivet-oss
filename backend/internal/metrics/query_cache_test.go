@@ -291,3 +291,110 @@ func TestMemoryQueryCacheLRUAndBudget(t *testing.T) {
 		t.Fatalf("size=%d count=%d", s.bytes, len(s.items))
 	}
 }
+
+func TestCacheOnlyReturnsStaleWhileUpstreamIsBlocked(t *testing.T) {
+	c := newQueryCache(nil, MetricsCacheBytes)
+	now := time.Unix(1200, 0)
+	c.now = func() time.Time { return now }
+	r := &rangeRecorder{value: "1"}
+	cachedRange(t, c, r, "prom", "up", 1000, 1200, 10)
+	now = now.Add(20 * time.Second)
+	params := url.Values{"query": {"up"}, "start": {"1000"}, "end": {"1200"}, "step": {"10"}}
+	entered, release, finished := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		body, err := c.prom(context.Background(), "prom", "/api/v1/query_range", params, func(p url.Values) (io.ReadCloser, error) {
+			close(entered)
+			<-release
+			return (&rangeRecorder{value: "2"}).fetch(p)
+		})
+		if body != nil {
+			body.Close()
+		}
+		finished <- err
+	}()
+	var once sync.Once
+	releaseRefresh := func() { once.Do(func() { close(release) }) }
+	defer releaseRefresh()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("refresh did not fetch upstream")
+	}
+	ctx, cancel := context.WithTimeout(WithCacheOnly(context.Background(), true), time.Second)
+	defer cancel()
+	neverFetch := func(url.Values) (io.ReadCloser, error) {
+		t.Error("cache-only fetched upstream")
+		return nil, errors.New("unexpected fetch")
+	}
+	body, err := c.prom(ctx, "prom", "/api/v1/query_range", params, neverFetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var result queryEnvelope
+	if err := json.UnmarshalRead(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	body.Close()
+	if len(result.Data.Result) != 1 || len(result.Data.Result[0].Values) != 21 || string(result.Data.Result[0].Values[20][1]) != `"1"` {
+		t.Fatalf("cached result=%+v", result)
+	}
+	if _, err := c.prom(WithCacheOnly(ctx, false), "prom", "/api/v1/query_range", params, neverFetch); !errors.Is(err, ErrCacheMiss) {
+		t.Fatalf("expired tail should miss a fresh cache read: %v", err)
+	}
+	params.Set("start", "900")
+	body, err = c.prom(ctx, "prom", "/api/v1/query_range", params, neverFetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.UnmarshalRead(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	body.Close()
+	if len(result.Data.Result[0].Values) != 21 {
+		t.Fatal("preview invented samples for an uncached range")
+	}
+	params.Set("query", "missing")
+	if _, err := c.prom(ctx, "prom", "/api/v1/query_range", params, neverFetch); !errors.Is(err, ErrCacheMiss) {
+		t.Fatalf("missing query err=%v", err)
+	}
+	params.Set("query", "up")
+
+	releaseRefresh()
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	params.Set("start", "1000")
+	body, err = c.prom(ctx, "prom", "/api/v1/query_range", params, neverFetch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer body.Close()
+	if err := json.UnmarshalRead(body, &result); err != nil {
+		t.Fatal(err)
+	}
+	if string(result.Data.Result[0].Values[20][1]) != `"2"` {
+		t.Fatal("upstream refresh was not cached")
+	}
+}
+
+func TestCacheOnlyInstantAndMiss(t *testing.T) {
+	c := newQueryCache(nil, MetricsCacheBytes)
+	now := time.Unix(1200, 0)
+	c.now = func() time.Time { return now }
+	fetch := func() ([]byte, error) { return []byte("cached"), nil }
+	if _, err := c.answer(context.Background(), "instant", time.Second, fetch); err != nil {
+		t.Fatal(err)
+	}
+	now = now.Add(2 * time.Second)
+	neverFetch := func() ([]byte, error) { t.Error("cache-only fetched upstream"); return nil, nil }
+	got, err := c.answer(WithCacheOnly(context.Background(), true), "instant", time.Second, neverFetch)
+	if err != nil || string(got) != "cached" {
+		t.Fatalf("result=%q err=%v", got, err)
+	}
+	if _, err := c.answer(WithCacheOnly(context.Background(), false), "instant", time.Second, neverFetch); !errors.Is(err, ErrCacheMiss) {
+		t.Fatalf("err=%v", err)
+	}
+	if _, err := c.answer(WithCacheOnly(context.Background(), true), "missing", time.Second, neverFetch); !errors.Is(err, ErrCacheMiss) {
+		t.Fatalf("err=%v", err)
+	}
+}

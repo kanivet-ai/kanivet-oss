@@ -1094,6 +1094,12 @@
   min-width: 0;
 }
 
+.rs-chart-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @container rs-evidence (max-width: 660px) {
   .rs-evidence-charts {
     grid-template-columns: minmax(0, 1fr);

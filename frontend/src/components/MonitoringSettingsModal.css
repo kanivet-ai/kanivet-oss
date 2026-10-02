@@ -12,7 +12,8 @@
   min-height: 0;
 }
 
-.ms-settings-footer { gap: 8px; }
+.ms-settings-footer { flex-shrink: 0; align-items: center; gap: 8px; }
+.ms-settings-footer > button { flex-shrink: 0; }
 .ms-save-status { color: var(--text2); font-size: 12px; }
 .ms-settings-footer > span { margin-right: auto; }
 
@@ -114,8 +115,17 @@
 .ms-provider-settings-spacer { width: 28px; height: 28px; flex: none; }
 
 .ms-provider-settings {
-  border-top: 1px solid var(--hair);
-  padding: 4px 0 6px 18px;
+  margin: 0 14px 12px 30px;
+  border: 1px solid var(--hair);
+  border-left: 3px solid rgba(var(--blue-rgb), 0.45);
+  border-radius: 8px;
+  background: rgba(var(--blue-rgb), 0.08);
+  padding: 4px 0 6px;
+}
+
+.ms-provider-settings-toggle.is-active {
+  background: var(--blue-soft);
+  color: var(--blue);
 }
 
 .ms-provider-settings .ms-row {

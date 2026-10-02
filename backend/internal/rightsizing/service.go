@@ -602,6 +602,8 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		pr.inPlace = supportsInPlaceResize(cs)
 	}
 	rates, _ := s.rates.NodeRates(ctx, cluster)
+	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates}
+	probeCache.Store(t.history+"|provider="+metrics.HistoryProvider(ctx), probeEntry{pr, s.now()})
 	dismissals := s.dismissalIndex(cluster)
 
 	byNS := map[string][]*liveWorkload{}

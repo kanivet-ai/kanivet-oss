@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, useId } from 'react';
+import { useCallback, useEffect, useState, useId } from 'react';
 import { GearIcon } from '@radix-ui/react-icons';
 import { useStore, MonitoringSettings } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import type { MetricsProviderInfo, MetricsProvidersStatus, MimirServiceInfo } from '../services/api/metrics';
 import { getErrorMessage } from '../utils/errorMessage';
-import { providerDetail, providerDisplayName } from './metrics/metricsProvider';
+import { activeProvider, providerDetail, providerDisplayName, requestedProvider } from './metrics/metricsProvider';
 import './MonitoringSettingsModal.css';
 
 interface ClusterMetricsSettingsProps {
@@ -191,11 +191,12 @@ const ClusterMetricsSettings = ({ cluster: activeCluster, onSaved, onCancel }: C
   }, [activeCluster]);
 
   const handleSave = async () => {
+    if (!selectedProvider) return;
     setSaved(false);
     setSaveError(null);
     try {
       if (tenantInput !== mimirTenant) await persistTenant(tenantInput);
-      setClusterMonitoringSettings(activeCluster, settings);
+      setClusterMonitoringSettings(activeCluster, { ...settings, preferredProvider: selectedProvider });
       setSaved(true);
       onSaved?.();
     } catch (err) {
@@ -213,18 +214,11 @@ const ClusterMetricsSettings = ({ cluster: activeCluster, onSaved, onCancel }: C
   const metricsServer = detected?.['metrics-server'];
   const nothingFound = !!detected && !prometheus?.found && !mimir?.found && !metricsServer?.found;
 
-  const autoDetectLabel = useMemo(() => {
-    const first = [prometheus, mimir].find((p) => p?.found && !p.needsTenant) || [prometheus, mimir].find((p) => p?.found);
-    if (first) {
-      const where = first.service ? `${first.service}${first.namespace ? ` in ${first.namespace}` : ''}` : providerDisplayName(first);
-      return `Automatic → ${where}`;
-    }
-    if (metricsServer?.found) return 'Automatic → Metrics server';
-    return detecting && !detected ? 'Automatic' : 'Automatic (nothing found yet)';
-  }, [prometheus, mimir, metricsServer, detecting, detected]);
+  const selectedProvider = settings.preferredProvider === 'auto'
+    ? requestedProvider(activeProvider(detected)?.type) || (metricsServer?.found ? 'metrics-server' : undefined)
+    : settings.preferredProvider;
 
   const providerRows = [
-    { key: 'auto' as const, name: 'Automatic', description: `${autoDetectLabel}. Prometheus-compatible first, then Mimir, then metrics-server.` },
     ...PROVIDER_ROWS.map(({ key, fallbackName, kind }) => ({
       key,
       name: detected?.[key]?.found ? providerDisplayName(detected[key]) || fallbackName : fallbackName,
@@ -257,7 +251,7 @@ const ClusterMetricsSettings = ({ cluster: activeCluster, onSaved, onCancel }: C
                 const info = key === 'prometheus' || key === 'mimir' || key === 'metrics-server' ? detected?.[key] : undefined;
                 const isDetectedProvider = key === 'prometheus' || key === 'mimir' || key === 'metrics-server';
                 const tone = detecting && !detected ? 'muted' : providerTone(info);
-                const selected = settings.preferredProvider === key;
+                const selected = selectedProvider === key;
                 const expanded = expandedProvider === key;
                 const configurable = key === 'mimir' || key === 'custom';
                 return (
@@ -468,7 +462,7 @@ const ClusterMetricsSettings = ({ cluster: activeCluster, onSaved, onCancel }: C
             {saveError || (saved ? 'Saved for this cluster' : '')}
           </span>
           {onCancel && <button type="button" className="ap-btn" onClick={onCancel}>Cancel</button>}
-          <button type="button" className="ap-btn ap-btn--primary" disabled={loadingSettings || !!settingsError || tenantSaving} onClick={() => void handleSave()}>
+          <button type="button" className="ap-btn ap-btn--primary" disabled={!selectedProvider || loadingSettings || !!settingsError || tenantSaving} onClick={() => void handleSave()}>
             {tenantSaving ? 'Saving…' : 'Save'}
           </button>
         </div>

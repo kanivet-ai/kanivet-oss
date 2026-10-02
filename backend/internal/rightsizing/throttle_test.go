@@ -357,3 +357,23 @@ func lockedRand(seed1, seed2 uint64) func() float64 {
 		return r.Float64()
 	}
 }
+
+type cacheHitSource struct{ historyQuerier }
+
+func (cacheHitSource) CachedQueryRange(context.Context, string, string, time.Time, time.Time, time.Duration) ([]metrics.HistorySeries, error) {
+	return []metrics.HistorySeries{{Values: []float32{42}}}, nil
+}
+func (cacheHitSource) CachedQueryInstant(context.Context, string, string, time.Time) ([]metrics.HistorySeries, error) {
+	return []metrics.HistorySeries{{Values: []float32{42}}}, nil
+}
+
+func TestCachedQueriesBypassPausedLimiter(t *testing.T) {
+	q := newControlled(cacheHitSource{})
+	q.lim = func(string) *limiter { t.Fatal("cache hit entered upstream limiter"); return nil }
+	if res, err := q.QueryRange(context.Background(), "cluster", "cpu", time.Now(), time.Now(), time.Minute); err != nil || res[0].Values[0] != 42 {
+		t.Fatalf("result=%v err=%v", res, err)
+	}
+	if res, err := q.QueryInstant(context.Background(), "cluster", "cpu", time.Now()); err != nil || res[0].Values[0] != 42 {
+		t.Fatalf("result=%v err=%v", res, err)
+	}
+}

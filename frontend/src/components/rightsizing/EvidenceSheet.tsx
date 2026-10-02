@@ -7,6 +7,7 @@ import {
 } from '@radix-ui/react-icons';
 import api from '../../services/api';
 import { useRightsizingProvider } from './useRightsizingReport';
+import { loadEvidence } from './evidenceLoader';
 import type {
   ContainerReport,
   Evidence,
@@ -161,6 +162,7 @@ export const EvidenceSheet: React.FC<Props> = ({
   const provider = useRightsizingProvider(cluster);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(true);
   const [active, setActive] = useState(
     primaryContainer(workload)?.container ??
       workload.containers[0]?.container ??
@@ -172,44 +174,38 @@ export const EvidenceSheet: React.FC<Props> = ({
   const [reason, setReason] = useState(DISMISS_REASONS[0]);
   const [snooze, setSnooze] = useState(30);
 
-  useEffect(() => {
-    let live = true;
-    setEvidence(null);
-    setError(null);
-    api
-      .getRightsizingWorkload(
-        cluster,
+  useEffect(
+    () =>
+      loadEvidence(
         {
-          namespace: workload.namespace,
-          kind: workload.kind,
-          name: workload.name,
-          vclusterNamespace: workload.vclusterNamespace,
+          cluster,
+          ref: {
+            namespace: workload.namespace,
+            kind: workload.kind,
+            name: workload.name,
+            vclusterNamespace: workload.vclusterNamespace,
+          },
+          profile,
+          window,
+          provider,
         },
-        profile,
-        window,
-        provider,
-      )
-      .then((ev) => live && setEvidence(ev))
-      .catch(
-        (e) =>
-          live &&
-          setError(
-            e?.response?.data?.error || e?.message || 'Failed to load evidence',
-          ),
-      );
-    return () => {
-      live = false;
-    };
-  }, [
-    cluster,
-    workload.namespace,
-    workload.kind,
-    workload.name,
-    workload.vclusterNamespace,
-    profile,
-    window,
-    provider,
-  ]);
+        (state) => {
+          setEvidence(state.evidence);
+          setError(state.error);
+          setRefreshing(state.refreshing);
+        },
+      ),
+    [
+      cluster,
+      workload.namespace,
+      workload.kind,
+      workload.name,
+      workload.vclusterNamespace,
+      profile,
+      window,
+      provider,
+    ],
+  );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
@@ -803,7 +799,7 @@ export const EvidenceSheet: React.FC<Props> = ({
           {error && (
             <div className="finops-error" role="alert">
               <ExclamationTriangleIcon />
-              <span>{error}</span>
+              <span>{evidence ? `Refresh failed: ${error}` : error}</span>
             </div>
           )}
           {!evidence && !error && (
@@ -817,7 +813,16 @@ export const EvidenceSheet: React.FC<Props> = ({
             <div className="rs-evidence-charts">
               <section className="rs-section">
                 <div className="rs-section-head">
-                  <h4>CPU</h4>
+                  <h4 className="rs-chart-title">
+                    CPU
+                    {refreshing && (
+                      <span
+                        className="ap-spinner"
+                        role="status"
+                        aria-label="Refreshing CPU metrics"
+                      />
+                    )}
+                  </h4>
                 </div>
                 <ChartLegend
                   resource="cpu"
@@ -853,17 +858,28 @@ export const EvidenceSheet: React.FC<Props> = ({
                       : []),
                   ]}
                 />
-                <CPUChart
-                  hourly={hourly}
-                  refs={cpuRefs}
-                  events={events}
-                  multiReplica={c.avgReplicas >= 1.5}
-                />
+                <div aria-busy={refreshing}>
+                  <CPUChart
+                    hourly={hourly}
+                    refs={cpuRefs}
+                    events={events}
+                    multiReplica={c.avgReplicas >= 1.5}
+                  />
+                </div>
               </section>
 
               <section className="rs-section">
                 <div className="rs-section-head">
-                  <h4>Memory</h4>
+                  <h4 className="rs-chart-title">
+                    Memory
+                    {refreshing && (
+                      <span
+                        className="ap-spinner"
+                        role="status"
+                        aria-label="Refreshing memory metrics"
+                      />
+                    )}
+                  </h4>
                 </div>
                 <ChartLegend
                   resource="memory"
@@ -896,7 +912,9 @@ export const EvidenceSheet: React.FC<Props> = ({
                       : []),
                   ]}
                 />
-                <MemoryChart hourly={hourly} refs={memRefs} events={events} />
+                <div aria-busy={refreshing}>
+                  <MemoryChart hourly={hourly} refs={memRefs} events={events} />
+                </div>
               </section>
               {events.length > 0 && (
                 <div

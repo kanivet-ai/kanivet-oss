@@ -393,6 +393,20 @@ export function repositoryPrompt(
   return lines.join('\n');
 }
 
+export function bulkRepositoryPrompt(
+  ws: WorkloadReport[],
+  cluster: string,
+): string {
+  return ws
+    .flatMap((w) => {
+      const choices = w.containers
+        .map((c) => choiceFromRec(c))
+        .filter((c) => c.cpu > 0 || c.memory > 0);
+      return choices.length > 0 ? [repositoryPrompt(w, choices, cluster)] : [];
+    })
+    .join('\n\n---\n\n');
+}
+
 const SET_RESOURCES_KINDS = new Set([
   'Deployment',
   'StatefulSet',
