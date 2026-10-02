@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -221,4 +222,31 @@ func (db *DB) PruneRightsizingChunks() {
 		}
 		db.rsCache.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	}
+}
+
+// ForgetRightsizingClusters deletes the reports and history days stored for
+// every cluster that match accepts. They were read from a metrics source whose
+// settings just changed (another Mimir tenant or instance), so serving them
+// would show one tenant's data under another's name until they expire.
+func (db *DB) ForgetRightsizingClusters(match func(cluster string) bool) error {
+	c := db.cache()
+	var clusters []string
+	for _, model := range []any{&RightsizingReport{}, &RightsizingChunk{}} {
+		var found []string
+		if err := c.Model(model).Distinct("cluster").Pluck("cluster", &found).Error; err != nil {
+			return err
+		}
+		for _, cl := range found {
+			if match(cl) && !slices.Contains(clusters, cl) {
+				clusters = append(clusters, cl)
+			}
+		}
+	}
+	if len(clusters) == 0 {
+		return nil
+	}
+	if err := c.Where("cluster IN ?", clusters).Delete(&RightsizingReport{}).Error; err != nil {
+		return err
+	}
+	return c.Where("cluster IN ?", clusters).Delete(&RightsizingChunk{}).Error
 }

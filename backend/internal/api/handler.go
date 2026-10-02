@@ -123,6 +123,8 @@ type Handler struct {
 	eventListener   *events.EventListener
 	navigation      *NavigationService
 	statusManager   StatusManagerInterface
+	// settingsChanged run after a cluster's metrics settings are saved.
+	settingsChanged []func(cluster string)
 }
 
 type StatusManagerInterface interface {

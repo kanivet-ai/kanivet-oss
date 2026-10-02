@@ -66,6 +66,7 @@ type store interface {
 	ListRightsizingDismissals(cluster string) ([]db.RightsizingDismissal, error)
 	SaveRightsizingDismissal(d *db.RightsizingDismissal) error
 	DeleteRightsizingDismissal(cluster, namespace, vclusterNamespace, kind, name, container string) error
+	ForgetRightsizingClusters(match func(cluster string) bool) error
 }
 
 type Service struct {
@@ -78,10 +79,15 @@ type Service struct {
 
 	mu   sync.Mutex
 	runs map[string]*run
+	// forget orders ForgetCluster against reading and writing persisted
+	// reports, so a report for the old metrics settings can't be loaded or
+	// saved while it is being forgotten. Taken before mu.
+	forget sync.RWMutex
 }
 
 // run is the state of one cluster/profile/window report.
 type run struct {
+	cluster   string
 	ready     *Report // last finished report
 	readyAt   time.Time
 	computing bool
@@ -135,7 +141,7 @@ func (s *Service) GetReport(cluster string, profile Profile, window time.Duratio
 	s.mu.Lock()
 	r := s.runs[key]
 	if r == nil {
-		r = &run{}
+		r = &run{cluster: cluster}
 		s.runs[key] = r
 	}
 	needLoad := !r.loaded
@@ -143,6 +149,7 @@ func (s *Service) GetReport(cluster string, profile Profile, window time.Duratio
 	s.mu.Unlock()
 	// SQLite reads stay outside the lock every poller and progress update takes.
 	if needLoad {
+		s.forget.RLock()
 		if rep := s.loadPersisted(key); rep != nil {
 			s.mu.Lock()
 			if r.ready == nil {
@@ -150,6 +157,7 @@ func (s *Service) GetReport(cluster string, profile Profile, window time.Duratio
 			}
 			s.mu.Unlock()
 		}
+		s.forget.RUnlock()
 	}
 	out := s.snapshot(r, cluster, profile, window, refresh, provider)
 	if out.Status != StatusReady {
@@ -248,12 +256,23 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 	start := s.now()
 	var prev *Report
 	s.mu.Lock()
-	if r := s.runs[key]; r != nil {
-		prev = r.ready
+	// The run this computation belongs to. ForgetCluster replaces it when the
+	// metrics settings change under a running computation, whose result then
+	// describes the old source and is dropped.
+	mine := s.runs[key]
+	if mine != nil {
+		prev = mine.ready
 	}
 	s.mu.Unlock()
 
-	rep := s.compute(ctx, cluster, profile, window, prev, func(p Progress) { s.setProgress(key, p) })
+	rep := s.compute(ctx, cluster, profile, window, prev, func(p Progress) {
+		s.mu.Lock()
+		current := s.runs[key] == mine
+		s.mu.Unlock()
+		if current {
+			s.setProgress(key, p)
+		}
+	})
 	// The step-by-step explanations are a fifth of a report's size and only
 	// the evidence drawer shows them; it computes its own.
 	for i := range rep.Workloads {
@@ -270,8 +289,15 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 	rep.DurationMs = s.now().Sub(start).Milliseconds()
 	log.Printf("[Rightsizing] %s %s/%s: %s, %d workloads in %s", cluster, profile, windowLabel(window), rep.Status, len(rep.Workloads), time.Since(start).Round(time.Millisecond))
 
+	s.forget.RLock()
+	defer s.forget.RUnlock()
 	s.mu.Lock()
 	r := s.runs[key]
+	if r == nil || r != mine {
+		s.mu.Unlock()
+		log.Printf("[Rightsizing] %s: metrics settings changed during the computation; dropping its report", cluster)
+		return
+	}
 	r.computing = false
 	// A failed refresh keeps the last good report rather than replacing it
 	// with an error, and says why the refresh failed.
@@ -293,6 +319,39 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 			if err := s.store.SaveRightsizingReport(key, cluster, data); err != nil {
 				log.Printf("[Rightsizing] persist report: %v", err)
 			}
+		}
+	}
+}
+
+// ForgetCluster drops every report, in memory and on disk, and every signal
+// probe read through the given cluster's metrics source. It is called when
+// that source's settings change (another Mimir tenant or instance): the
+// report key names the provider but not the tenant, so without this a report
+// for the old tenant would be served until it expired, and again after a
+// restart. Virtual clusters read history through their host, so theirs go
+// too.
+func (s *Service) ForgetCluster(cluster string) {
+	history := resolveTarget(cluster).history
+	sameSource := func(c string) bool { return c == cluster || resolveTarget(c).history == history }
+	s.forget.Lock()
+	defer s.forget.Unlock()
+	s.mu.Lock()
+	for key, r := range s.runs {
+		if sameSource(r.cluster) {
+			delete(s.runs, key)
+		}
+	}
+	s.mu.Unlock()
+	probeEpoch.Add(1)
+	probeCache.Range(func(k, _ any) bool {
+		if key, ok := k.(string); ok && strings.HasPrefix(key, history+"|") {
+			probeCache.Delete(k)
+		}
+		return true
+	})
+	if s.store != nil {
+		if err := s.store.ForgetRightsizingClusters(sameSource); err != nil {
+			log.Printf("[Rightsizing] forget reports for %s: %v", cluster, err)
 		}
 	}
 }
@@ -589,6 +648,7 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	}()
 	stopWatch := watchPause(t.history, progress)
 	defer stopWatch()
+	epoch := probeEpoch.Load()
 	pr := probeSignals(ctx, cq, t.history, g.end)
 	rep.Signals = signalsOf(pr)
 	if pr.cpuSeries == 0 {
@@ -603,7 +663,7 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	}
 	rates, _ := s.rates.NodeRates(ctx, cluster)
 	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates}
-	probeCache.Store(t.history+"|provider="+metrics.HistoryProvider(ctx), probeEntry{pr, s.now()})
+	storeProbe(t.history+"|provider="+metrics.HistoryProvider(ctx), probeEntry{pr, s.now()}, epoch)
 	dismissals := s.dismissalIndex(cluster)
 
 	byNS := map[string][]*liveWorkload{}

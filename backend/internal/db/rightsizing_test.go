@@ -110,3 +110,33 @@ func TestRightsizingCacheFileShrinksAfterPrune(t *testing.T) {
 		t.Fatalf("cache file %d bytes before pruning, %d after", before, after)
 	}
 }
+
+func TestForgetRightsizingClusters(t *testing.T) {
+	d := newTestDB(t)
+	if err := d.MigrateRightsizing(); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []string{"a", "b"} {
+		if err := d.SaveRightsizingReport("report-"+c, c, []byte(c)); err != nil {
+			t.Fatal(err)
+		}
+		if err := d.SaveRightsizingChunk("chunk-"+c, c, time.Now().Unix(), []byte(c)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := d.ForgetRightsizingClusters(func(c string) bool { return c == "a" }); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := d.GetRightsizingReport("report-a"); err == nil {
+		t.Fatalf("report for a survived: %q", got)
+	}
+	if got, err := d.GetRightsizingChunk("chunk-a"); err == nil {
+		t.Fatalf("history for a survived: %q", got)
+	}
+	if got, err := d.GetRightsizingReport("report-b"); err != nil || string(got) != "b" {
+		t.Fatalf("report for b must stay: %q, %v", got, err)
+	}
+	if got, err := d.GetRightsizingChunk("chunk-b"); err != nil || string(got) != "b" {
+		t.Fatalf("history for b must stay: %q, %v", got, err)
+	}
+}
