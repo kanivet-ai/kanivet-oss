@@ -26,6 +26,10 @@ func fetchPodUsage(ctx context.Context, dyn dynamic.Interface, namespace string)
 	if err != nil {
 		return nil, err
 	}
+	return podUsageFromList(list), nil
+}
+
+func podUsageFromList(list *unstructured.UnstructuredList) map[string]podUsage {
 	out := make(map[string]podUsage, len(list.Items))
 	for i := range list.Items {
 		item := &list.Items[i]
@@ -46,5 +50,5 @@ func fetchPodUsage(ctx context.Context, dyn dynamic.Interface, namespace string)
 		}
 		out[item.GetNamespace()+"/"+item.GetName()] = u
 	}
-	return out, nil
+	return out
 }

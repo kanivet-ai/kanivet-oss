@@ -23,25 +23,32 @@ func (h *Handler) GetReport(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster parameter required"})
 		return
 	}
-	rep := h.service.GetReport(cluster, ParseProfile(c.Query("profile")), ParseWindow(c.Query("window")), c.Query("refresh") == "1", c.Query("known"))
+	rep := h.service.GetReport(cluster, ParseProfile(c.Query("profile")), ParseWindow(c.Query("window")), c.Query("refresh") == "1", c.Query("known"), c.Query("provider"))
 	c.JSON(http.StatusOK, gin.H{"data": rep})
 }
 
 func (h *Handler) GetWorkload(c *gin.Context) {
 	q := WorkloadQuery{
 		Cluster:           c.Query("cluster"),
+		Provider:          c.Query("provider"),
 		Namespace:         c.Query("namespace"),
 		VClusterNamespace: c.Query("vclusterNamespace"),
 		Kind:              c.Query("kind"),
 		Name:              c.Query("name"),
 		Profile:           ParseProfile(c.Query("profile")),
 		Window:            ParseWindow(c.Query("window")),
+		CacheOnly:         c.Query("cached") == "1",
+		Refresh:           c.Query("refresh") == "1" && c.Query("cached") != "1",
 	}
 	if q.Cluster == "" || q.Namespace == "" || q.Kind == "" || q.Name == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster, namespace, kind and name are required"})
 		return
 	}
 	ev, err := h.service.GetEvidence(c.Request.Context(), q)
+	if err != nil && q.CacheOnly {
+		c.Status(http.StatusNoContent)
+		return
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

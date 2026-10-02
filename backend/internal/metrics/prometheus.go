@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/k8s"
@@ -20,14 +21,16 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
 type PrometheusProvider struct {
 	k8s             k8s.Interface
 	cache           *cache.Cache
-	portForwardPool sync.Map // cluster -> *PortForwardInfo
-	recreateState   sync.Map // cluster -> *recreateTracker
+	queries         *queryCache // chart answers only, never history
+	portForwardPool sync.Map    // cluster -> *PortForwardInfo
+	recreateState   sync.Map    // cluster -> *recreateTracker
 }
 
 type PortForwardInfo struct {
@@ -86,6 +89,9 @@ func NewPrometheusProvider(k8sClient k8s.Interface, cacheInstance *cache.Cache) 
 func isPortForwardLikelyDead(err error) bool {
 	if err == nil {
 		return false
+	}
+	if IsConnRefused(err) || IsConnReset(err) || errors.Is(err, syscall.EPIPE) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
 	}
 	msg := strings.ToLower(err.Error())
 	for _, needle := range []string{
@@ -572,81 +578,39 @@ func (p *PrometheusProvider) Install(cluster string, namespace string) error {
 	return nil
 }
 
+// chartGet runs a chart's range query through the chart cache. Charts have
+// no retry logic of their own, so a query that found its port-forward dead is
+// asked once more over the fresh one; history queries leave that to
+// rightsizing's retry budget.
+func (p *PrometheusProvider) chartGet(ctx context.Context, cluster string, params url.Values) (io.ReadCloser, error) {
+	info, err := p.Detect(cluster)
+	if err != nil || !info.Found {
+		return nil, fmt.Errorf("prometheus not found in cluster: %w", ErrNoHistorySource)
+	}
+	return p.queries.prom(ctx, querySource(cluster, info, ""), "/api/v1/query_range", params, func(params url.Values) (io.ReadCloser, error) {
+		body, err := p.promGet(ctx, cluster, "/api/v1/query_range", params)
+		if errors.Is(err, errPortForwardDropped) {
+			body, err = p.promGet(ctx, cluster, "/api/v1/query_range", params)
+		}
+		return body, err
+	})
+}
+
 func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
-	promInfo, err := p.Detect(cluster)
-	if err != nil || !promInfo.Found {
-		return nil, fmt.Errorf("prometheus not found in cluster")
-	}
-
 	promQL := p.buildPromQL(query)
-
-	timeRange := p.parseTimeRange(query.TimeRange)
-	step := query.Step
-	if step == "" {
-		step = p.calculateStep(timeRange)
+	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
+	if err != nil {
+		return nil, err
 	}
-
-	// Try to use existing port forward first
-	var pfInfo *PortForwardInfo
-	var resp *http.Response
-	var queryErr error
-
-	// Try up to 2 times (once with existing, once with new port forward)
-	for attempt := 0; attempt < 2; attempt++ {
-		pfInfo, err = p.getOrCreatePortForward(cluster, promInfo)
-		if err != nil {
-			return nil, err
-		}
-
-		endTime := time.Now()
-		startTime := endTime.Add(-timeRange)
-
-		log.Printf("[Prometheus] Query params - timeRange: %v, start: %s, end: %s, step: %s",
-			timeRange, startTime.Format("15:04:05"), endTime.Format("15:04:05"), step)
-
-		queryURL := fmt.Sprintf("http://localhost:%d%s/api/v1/query_range", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
-		params := url.Values{}
-		params.Set("query", promQL)
-		params.Set("start", fmt.Sprintf("%d", startTime.Unix()))
-		params.Set("end", fmt.Sprintf("%d", endTime.Unix()))
-		params.Set("step", step)
-
-		fullURL := queryURL + "?" + params.Encode()
-		resp, queryErr = pfInfo.HTTPClient.Get(fullURL)
-		if queryErr == nil {
-			p.recordQuerySuccess(cluster)
-			break
-		}
-
-		// On the first attempt only, treat transport-level failures as a sign
-		// the port-forward may be dead. The recreate is throttled per-cluster
-		// so a misconfigured target can't make us churn port-forwards on every
-		// failed query (the previous behaviour caused ~7 recreates/sec when a
-		// stream was subscribed to a wrong-port prometheus).
-		if attempt == 0 && isPortForwardLikelyDead(queryErr) {
-			if p.shouldRecreate(cluster) {
-				log.Printf("[Prometheus] Recreating port forward for cluster %s (err: %v)", cluster, queryErr)
-				p.portForwardPool.Delete(prometheusPoolKey(cluster, promInfo))
-				_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
-				p.maybeInvalidateProvider(cluster)
-				continue
-			}
-			log.Printf("[Prometheus] Suppressing port-forward recreate for cluster %s (recent recreate within %s)", cluster, minRecreateInterval)
-		}
-
-		return nil, fmt.Errorf("failed to query prometheus: %w", queryErr)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	bodyStream, err := p.chartGet(ctx, cluster, params)
+	if err != nil {
+		return nil, err
 	}
+	defer bodyStream.Close()
 
-	if resp == nil {
-		return nil, fmt.Errorf("failed to query prometheus after retries: %w", queryErr)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			log.Printf("Failed to close response body: %v", err)
-		}
-	}()
-
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(bodyStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
@@ -735,46 +699,23 @@ func (p *PrometheusProvider) QueryWorkloadMetrics(cluster string, query Workload
 	if len(query.PodNames) == 0 {
 		return &WorkloadMetricResponse{Pods: map[string]*MetricResponse{}}, nil
 	}
-
-	promInfo, err := p.Detect(cluster)
-	if err != nil || !promInfo.Found {
-		return nil, fmt.Errorf("prometheus not found in cluster")
-	}
-
-	// Build regex pattern for all pods
-	podRegex := strings.Join(query.PodNames, "|")
+	pods := append([]string(nil), query.PodNames...)
+	sort.Strings(pods)
+	podRegex := strings.Join(pods, "|")
 	promQL := p.buildWorkloadPromQL(query.Namespace, podRegex, query.MetricType)
-
-	timeRange := p.parseTimeRange(query.TimeRange)
-	step := query.Step
-	if step == "" {
-		step = p.calculateStep(timeRange)
-	}
-
-	pfInfo, err := p.getOrCreatePortForward(cluster, promInfo)
+	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
 	if err != nil {
 		return nil, err
 	}
-
-	endTime := time.Now()
-	startTime := endTime.Add(-timeRange)
-
-	queryURL := fmt.Sprintf("http://localhost:%d%s/api/v1/query_range", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", startTime.Format(time.RFC3339))
-	params.Set("end", endTime.Format(time.RFC3339))
-	params.Set("step", step)
-
-	fullURL := queryURL + "?" + params.Encode()
-
-	resp, err := pfInfo.HTTPClient.Get(fullURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	bodyStream, err := p.chartGet(ctx, cluster, params)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query prometheus: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
+	defer bodyStream.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(bodyStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}

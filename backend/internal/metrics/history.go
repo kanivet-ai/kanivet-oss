@@ -50,14 +50,45 @@ func seriesFilter(ctx context.Context) func(map[string]string) bool {
 // only point-in-time metrics (metrics-server) are available.
 var ErrNoHistorySource = errors.New("no Prometheus-compatible metrics store in this cluster")
 
-// HistorySource reports which provider answers history queries for a cluster:
+type historyProviderKey struct{}
+
+// WithHistoryProvider pins history queries to the cluster's selected provider.
+// Auto (or an omitted preference) keeps normal discovery order.
+func WithHistoryProvider(ctx context.Context, provider string) context.Context {
+	if provider == "auto" {
+		provider = ""
+	}
+	return context.WithValue(ctx, historyProviderKey{}, provider)
+}
+
+func HistoryProvider(ctx context.Context) string {
+	provider, _ := ctx.Value(historyProviderKey{}).(string)
+	return provider
+}
+
+// HistorySource honors the provider selected in ctx. Auto tries
 // Prometheus (or Thanos/VictoriaMetrics) first, then Mimir/Cortex, the same
 // order chart queries use. When neither is usable it returns the best
 // not-found info, whose Reason says why, and metricsServer reports whether a
 // point-in-time source exists.
-func (s *Service) HistorySource(cluster string) (info *ProviderInfo, metricsServer bool) {
+func (s *Service) HistorySource(ctx context.Context, cluster string) (info *ProviderInfo, metricsServer bool) {
 	var fallback *ProviderInfo
-	for _, name := range []string{"prometheus", "mimir"} {
+	order := []string{"prometheus", "mimir"}
+	if selected := HistoryProvider(ctx); selected != "" {
+		switch selected {
+		case "prometheus", "mimir":
+			order = []string{selected}
+		case "metrics-server":
+			return &ProviderInfo{Type: selected, Reason: "metrics-server provides current values only, not usage history"}, true
+		case "disabled":
+			return &ProviderInfo{Type: selected, Reason: "metrics are disabled for this cluster"}, false
+		case "custom":
+			return &ProviderInfo{Type: selected, Reason: "custom metrics URLs are not supported by rightsizing"}, false
+		default:
+			return &ProviderInfo{Type: selected, Reason: "unknown metrics provider: " + selected}, false
+		}
+	}
+	for _, name := range order {
 		p, ok := s.providers[name]
 		if !ok {
 			continue
@@ -76,7 +107,7 @@ func (s *Service) HistorySource(cluster string) (info *ProviderInfo, metricsServ
 			fallback = pi
 		}
 	}
-	if ms, ok := s.providers["metrics-server"]; ok {
+	if ms, ok := s.providers["metrics-server"]; ok && HistoryProvider(ctx) == "" {
 		if pi, err := ms.Detect(cluster); err == nil && pi.Found {
 			metricsServer = true
 		}
@@ -92,8 +123,8 @@ type historyAPI interface {
 	promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error)
 }
 
-func (s *Service) historyProvider(cluster string) (historyAPI, error) {
-	info, _ := s.HistorySource(cluster)
+func (s *Service) historyProvider(ctx context.Context, cluster string) (historyAPI, error) {
+	info, _ := s.HistorySource(ctx, cluster)
 	if info == nil || !info.Found {
 		return nil, ErrNoHistorySource
 	}
@@ -110,7 +141,7 @@ func (s *Service) historyProvider(cluster string) (historyAPI, error) {
 // QueryRange runs a raw PromQL range query against the cluster's history
 // store.
 func (s *Service) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]HistorySeries, error) {
-	api, err := s.historyProvider(cluster)
+	api, err := s.historyProvider(ctx, cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +164,7 @@ func (s *Service) QueryRange(ctx context.Context, cluster, query string, start, 
 
 // QueryInstant runs a raw PromQL instant query at the given time.
 func (s *Service) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]HistorySeries, error) {
-	api, err := s.historyProvider(cluster)
+	api, err := s.historyProvider(ctx, cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +457,9 @@ func (e *QueryError) TooLarge() bool {
 
 // historyClient shares the port-forward's transport but allows long queries.
 func historyClient(base *http.Client) *http.Client {
-	return &http.Client{Transport: base.Transport, Timeout: historyTimeout}
+	client := *base
+	client.Timeout = historyTimeout
+	return &client
 }
 
 // promBody hands back the response body to stream, or an error for a status
@@ -441,10 +474,61 @@ func promBody(resp *http.Response, what string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// chartQueryParams aligns the range to the step, so successive refreshes
+// land on the same sample grid and Mimir's results cache can reuse them.
+func chartQueryParams(query, window, stepText string) (url.Values, error) {
+	var p PrometheusProvider
+	rangeDuration := p.parseTimeRange(window)
+	if stepText == "" {
+		stepText = p.calculateStep(rangeDuration)
+	}
+	step, err := time.ParseDuration(stepText)
+	if err != nil {
+		secs, e := strconv.ParseInt(stepText, 10, 64)
+		if e != nil {
+			return nil, fmt.Errorf("invalid metrics step %q", stepText)
+		}
+		step = time.Duration(secs) * time.Second
+	}
+	if step < time.Second || step%time.Second != 0 {
+		return nil, fmt.Errorf("metrics step must be a positive whole number of seconds")
+	}
+	end := time.Now().Unix() / int64(step/time.Second) * int64(step/time.Second)
+	start := end - int64(rangeDuration/step)*int64(step/time.Second)
+	return url.Values{"query": {query}, "start": {strconv.FormatInt(start, 10)}, "end": {strconv.FormatInt(end, 10)}, "step": {strconv.FormatInt(int64(step/time.Second), 10)}}, nil
+}
+
+// querySource keys chart answers by the store they came from.
+func querySource(cluster string, info *ProviderInfo, tenant string) string {
+	return queryHash(cluster, info.Type, info.URL, info.Namespace, info.Service, strconv.Itoa(int(info.Port)), info.Path, tenant)
+}
+
+// errPortForwardDropped marks a query that failed because its port-forward
+// died. The dead tunnel has already been stopped and the next request opens a
+// new one; retrying is left to the caller, so rightsizing's retry budget
+// counts it like any other retry.
+var errPortForwardDropped = errors.New("port-forward dropped")
+
+// HistorySourceKey identifies the store that answers history queries for a
+// cluster: its provider type, the Service and port it reaches and, for Mimir,
+// the tenant. History cached from one store must never be served for another,
+// even when the provider type is the same. Empty when no store is usable.
+func (s *Service) HistorySourceKey(ctx context.Context, cluster string) string {
+	info, _ := s.HistorySource(ctx, cluster)
+	if info == nil || !info.Found {
+		return ""
+	}
+	tenant := ""
+	if mp, ok := s.providers[info.Type].(*MimirProvider); ok && mp.tenantLookup != nil {
+		tenant = mp.tenantLookup(cluster)
+	}
+	return strings.Join([]string{info.Type, info.URL, info.Namespace, info.Service, strconv.Itoa(int(info.Port)), info.Path, tenant}, "|")
+}
+
 func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error) {
 	info, err := p.Detect(cluster)
 	if err != nil || !info.Found {
-		return nil, ErrNoHistorySource
+		return nil, fmt.Errorf("prometheus not found in cluster: %w", ErrNoHistorySource)
 	}
 	pfInfo, err := p.getOrCreatePortForward(cluster, info)
 	if err != nil {
@@ -457,9 +541,14 @@ func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, 
 	}
 	resp, err := historyClient(pfInfo.HTTPClient).Do(req)
 	if err != nil {
+		// The recreate is throttled per cluster so a misconfigured target
+		// can't make us churn port-forwards on every failed query.
 		if isPortForwardLikelyDead(err) && p.shouldRecreate(cluster) {
-			p.portForwardPool.Delete(prometheusPoolKey(cluster, info))
-			_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
+			if p.portForwardPool.CompareAndDelete(prometheusPoolKey(cluster, info), pfInfo) {
+				_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
+				p.maybeInvalidateProvider(cluster)
+			}
+			return nil, fmt.Errorf("failed to query prometheus: %w: %w", errPortForwardDropped, err)
 		}
 		return nil, fmt.Errorf("failed to query prometheus: %w", err)
 	}
@@ -470,7 +559,7 @@ func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, 
 func (p *MimirProvider) promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error) {
 	info, err := p.Detect(cluster)
 	if err != nil || !info.Found {
-		return nil, ErrNoHistorySource
+		return nil, fmt.Errorf("mimir not detected in cluster: %w", ErrNoHistorySource)
 	}
 	pfInfo, err := p.getOrCreatePortForward(cluster, info)
 	if err != nil {
@@ -488,7 +577,17 @@ func (p *MimirProvider) promGet(ctx context.Context, cluster, path string, param
 	}
 	resp, err := historyClient(pfInfo.HTTPClient).Do(req)
 	if err != nil {
-		p.portForwardPool.Delete(mimirPoolKey(cluster, info))
+		// Only a dead tunnel is dropped, and it is stopped first: deleting a
+		// live one from the pool would leave it running with nothing to reap
+		// it. Missing gateway credentials or a slow query say nothing about
+		// the tunnel.
+		var authErr *MimirAuthError
+		if !errors.As(err, &authErr) && isPortForwardLikelyDead(err) {
+			if p.portForwardPool.CompareAndDelete(mimirPoolKey(cluster, info), pfInfo) {
+				_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
+			}
+			return nil, fmt.Errorf("failed to query mimir: %w: %w", errPortForwardDropped, err)
+		}
 		return nil, fmt.Errorf("failed to query mimir: %w", err)
 	}
 	return promBody(resp, "mimir")

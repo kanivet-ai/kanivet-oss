@@ -25,6 +25,7 @@ import {
   PROFILE_META,
   VERDICT_META,
   bulkKubectl,
+  bulkRepositoryPrompt,
   bulkYAML,
   emptyFilters,
   facetValues,
@@ -185,7 +186,9 @@ const Progress: React.FC<{
   return (
     <div
       className={`rs-progress-card${p?.paused ? ' paused' : ''}`}
-      data-tour="rs-progress"
+      // Only a report actually computing: before the first answer the
+      // dashboard doesn't yet know whether the cluster has metrics.
+      data-tour={report ? 'rs-progress' : undefined}
       role="status"
     >
       <div className="rs-progress-title">Analysing usage history</div>
@@ -311,6 +314,10 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
     0,
   );
   const selectedChanges = selectedWorkloads.filter(hasChange).length;
+  const selectedPrompt = useMemo(
+    () => bulkRepositoryPrompt(selectedWorkloads, cluster),
+    [selectedWorkloads, cluster],
+  );
 
   const ready = report && report.status === 'ready';
   const s = report?.summary;
@@ -517,7 +524,7 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
       </div>
 
       {error && !report && (
-        <div className="finops-error" role="alert">
+        <div className="finops-error" role="alert" data-tour="rs-error">
           <ExclamationTriangleIcon />
           <span>{error}</span>
           <button className="finops-banner-action" onClick={reload}>
@@ -526,7 +533,7 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
         </div>
       )}
       {report?.status === 'error' && (
-        <div className="finops-error" role="alert">
+        <div className="finops-error" role="alert" data-tour="rs-error">
           <ExclamationTriangleIcon />
           <span>Couldn't compute recommendations: {report.error}</span>
           <button className="finops-banner-action" onClick={refresh}>
@@ -902,6 +909,13 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
             onClick={() => copy('yaml', bulkYAML(selectedWorkloads))}
           >
             {copied === 'yaml' ? 'Copied' : 'Copy patches as YAML'}
+          </button>
+          <button
+            className="ap-btn"
+            disabled={!selectedPrompt}
+            onClick={() => copy('ai', selectedPrompt)}
+          >
+            {copied === 'ai' ? 'Copied' : 'Copy AI prompt'}
           </button>
           <button
             className="ap-btn"

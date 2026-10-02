@@ -357,3 +357,27 @@ func lockedRand(seed1, seed2 uint64) func() float64 {
 		return r.Float64()
 	}
 }
+
+// Day chunks are served above the limiter: a cache hit takes no slot and
+// feeds no latency into its baseline, and a chunks-only read never queries.
+func TestCachedDaysBypassLimiter(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	chunks := &memChunks{data: map[string][]byte{}}
+	g := newGrid(now.Add(-2*day), day, time.Hour) // finished days only
+	warm := newChunker(&countingStore{}, chunks)
+	warm.now = func() time.Time { return now }
+	if _, err := warm.rangeQuery(context.Background(), "cluster", "cpu", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	q := newControlled(&countingStore{})
+	q.lim = func(string) *limiter { t.Fatal("cache hit entered upstream limiter"); return nil }
+	c := newChunker(q, chunks)
+	c.now = warm.now
+	res, err := c.rangeQuery(context.Background(), "cluster", "cpu", g, nil)
+	if err != nil || len(res) == 0 || c.hits.Load() == 0 {
+		t.Fatalf("result=%v err=%v hits=%d", res, err, c.hits.Load())
+	}
+	if _, err := q.QueryInstant(withChunksOnly(context.Background()), "cluster", "cpu", now); err != errNotCached {
+		t.Fatalf("chunks-only instant query: %v", err)
+	}
+}

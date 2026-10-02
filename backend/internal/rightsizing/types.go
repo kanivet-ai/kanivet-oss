@@ -326,6 +326,8 @@ const (
 )
 
 type Report struct {
+	evidenceInputs *evidenceInputs
+
 	Cluster     string           `json:"cluster"`
 	Status      string           `json:"status"`
 	Source      SourceInfo       `json:"source"`

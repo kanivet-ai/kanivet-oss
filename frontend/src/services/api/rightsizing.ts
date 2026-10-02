@@ -18,8 +18,10 @@ export async function getRightsizingReport(
   window: RightsizingWindow,
   refresh = false,
   known?: string,
+  provider?: string,
 ): Promise<RightsizingReport> {
   const params: Record<string, string> = { cluster, profile, window };
+  if (provider) params.provider = provider;
   if (refresh) params.refresh = '1';
   if (known) params.known = known;
   const response = await apiClient
@@ -40,12 +42,25 @@ export async function getRightsizingWorkload(
   ref: WorkloadRef,
   profile: RightsizingProfile,
   window: RightsizingWindow,
-): Promise<Evidence> {
+  provider?: string,
+  mode?: 'cached' | 'refresh',
+): Promise<Evidence | null> {
   const response = await apiClient.getAxios().get('/rightsizing/workload', {
-    params: { cluster, profile, window, ...ref },
+    params: {
+      cluster,
+      profile,
+      window,
+      provider,
+      ...ref,
+      ...(mode === 'cached'
+        ? { cached: '1' }
+        : mode === 'refresh'
+          ? { refresh: '1' }
+          : {}),
+    },
     timeout: 120_000,
   });
-  return response.data.data;
+  return response.status === 204 ? null : response.data.data;
 }
 
 export interface DismissInput extends WorkloadRef {

@@ -3,11 +3,15 @@ package rightsizing
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
-	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"github.com/kanivet/backend/internal/finops"
+	"github.com/kanivet/backend/internal/metrics"
 )
 
 // probeTTL is how long a cluster's optional-signal probe is reused.
@@ -20,37 +24,128 @@ type probeEntry struct {
 
 var probeCache sync.Map // history cluster -> probeEntry
 
+// probeEpoch moves on whenever ForgetCluster clears probes, so a probe that
+// was already running against the old metrics settings isn't cached after.
+var probeEpoch atomic.Uint64
+
+func storeProbe(key string, e probeEntry, epoch uint64) {
+	if probeEpoch.Load() == epoch {
+		probeCache.Store(key, e)
+	}
+}
+
 func (s *Service) cachedProbe(ctx context.Context, cluster string, at time.Time) probe {
-	if e, ok := probeCache.Load(cluster); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
+	key := probeKey(ctx, cluster)
+	if e, ok := probeCache.Load(key); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
 		return e.(probeEntry).p
 	}
+	epoch := probeEpoch.Load()
 	p := probeSignals(ctx, newControlled(s.metrics), cluster, at)
-	probeCache.Store(cluster, probeEntry{p, s.now()})
+	storeProbe(key, probeEntry{p, s.now()}, epoch)
 	return p
+}
+
+// probeKey keeps each history store's signals apart.
+func probeKey(ctx context.Context, cluster string) string {
+	return cluster + "|source=" + historySource(ctx)
+}
+
+// withSourceOf records in ctx which store answers the cluster's history, so
+// cached days are keyed by it.
+func (s *Service) withSourceOf(ctx context.Context, cluster string) context.Context {
+	if k, ok := s.metrics.(interface {
+		HistorySourceKey(ctx context.Context, cluster string) string
+	}); ok {
+		return withHistorySource(ctx, k.HistorySourceKey(ctx, cluster))
+	}
+	return ctx
 }
 
 // WorkloadQuery names one workload as reports do.
 type WorkloadQuery struct {
 	Cluster, Namespace, VClusterNamespace, Kind, Name string
+	Provider                                          string
 	Profile                                           Profile
 	Window                                            time.Duration
+	CacheOnly, Refresh                                bool
 }
 
-// GetEvidence recomputes one workload's analysis from a narrow query and
-// returns everything the evidence drawer shows. It aligns to the cached
-// report's time so its numbers match the row the user clicked.
-func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, error) {
-	t := resolveTarget(q.Cluster)
-	info, _ := s.metrics.HistorySource(t.history)
-	if info == nil || !info.Found {
-		return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
+// evidenceInputs is what a report knew besides history, kept with it so the
+// evidence drawer can show its numbers straight from the day-chunk cache
+// without asking Kubernetes or the metrics store anything.
+type evidenceInputs struct {
+	workloads []*liveWorkload
+	probe     probe
+	hpas      map[string]*hpaTarget
+	rates     map[string]finops.Rates
+	source    string // history store the report's chunks are keyed by
+
+	mu     sync.Mutex
+	starts map[string]map[string]int64 // pod start times per host namespace
+}
+
+func (e *evidenceInputs) setStarts(namespace string, starts map[string]int64) {
+	if starts == nil {
+		return
 	}
-	pods, err := s.listPods(ctx, t)
-	if err != nil {
-		return nil, err
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.starts == nil {
+		e.starts = map[string]map[string]int64{}
+	}
+	e.starts[namespace] = starts
+}
+
+func (e *evidenceInputs) startsIn(namespace string) map[string]int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.starts[namespace]
+}
+
+// GetEvidence recomputes one workload's analysis from its namespace's history
+// and returns everything the evidence drawer shows. It aligns to the cached
+// report's time so its numbers match the row the user clicked.
+//
+// With CacheOnly it reads nothing but the report's stored days, including the
+// day in progress the report stored for its own grid, and fails with
+// errNotCached when they're missing; the drawer shows that at once and then
+// asks again without it for fresh numbers.
+func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, error) {
+	ctx = metrics.WithHistoryProvider(ctx, q.Provider)
+	t := resolveTarget(q.Cluster)
+	rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider)
+	var workloads []*liveWorkload
+	var pr probe
+	var hpas map[string]*hpaTarget
+	var rates map[string]finops.Rates
+	var inputs *evidenceInputs
+	asOf := s.now()
+	if !q.Refresh && rep != nil && rep.Status == StatusReady && (q.CacheOnly || s.now().Sub(rep.ComputedAt) < reportTTL) {
+		asOf = rep.AsOf
+	}
+	g := newGrid(asOf, q.Window, stepFor(q.Window))
+	if q.CacheOnly {
+		if rep == nil || rep.Status != StatusReady || rep.evidenceInputs == nil {
+			return nil, errNotCached
+		}
+		inputs = rep.evidenceInputs
+		ctx = withChunksOnly(withHistorySource(ctx, inputs.source))
+		workloads, pr, hpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.rates
+	} else {
+		info, _ := s.metrics.HistorySource(ctx, t.history)
+		if info == nil || !info.Found {
+			return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
+		}
+		ctx = s.withSourceOf(ctx, t.history)
+		pods, err := s.listPods(ctx, t)
+		if err != nil {
+			return nil, err
+		}
+		workloads = liveWorkloads(pods, t.vcluster != "")
+		pr = s.cachedProbe(ctx, t.history, g.end)
 	}
 	var w *liveWorkload
-	for _, lw := range liveWorkloads(pods, t.vcluster != "") {
+	for _, lw := range workloads {
 		if lw.ref.Namespace == q.Namespace && lw.ref.VClusterNamespace == q.VClusterNamespace && lw.ref.Kind == q.Kind && lw.ref.Name == q.Name {
 			w = lw
 			break
@@ -59,14 +154,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	if w == nil {
 		return nil, fmt.Errorf("workload %s/%s %s not found among running pods", q.Namespace, q.Name, q.Kind)
 	}
-
-	asOf := s.now()
-	if rep := s.Cached(q.Cluster, q.Profile, q.Window); rep != nil && rep.Status == StatusReady && s.now().Sub(rep.ComputedAt) < reportTTL {
-		asOf = rep.AsOf
-	}
-	step := stepFor(q.Window)
-	g := newGrid(asOf, q.Window, step)
-	pr := s.cachedProbe(ctx, t.history, g.end)
+	step := g.step
 
 	wkSet := map[string]struct{}{}
 	want := map[seriesKey]struct{}{}
@@ -76,30 +164,34 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 			want[k] = struct{}{}
 		}
 	}
+	wks := slices.Sorted(maps.Keys(wkSet))
 	var jobs map[seriesKey]struct{}
 	if w.isJob {
 		jobs = want
 	}
-	wks := make([]string, 0, len(wkSet))
-	for wk := range wkSet {
-		wks = append(wks, wk)
-	}
-	sort.Strings(wks)
 	// Someone is waiting on this one: it goes ahead of background reports.
 	ctx = interactive(ctx)
-	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), s.chunks()), t.history, scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}, g, pr, q.Window)
+	sc := scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}
+	if inputs != nil {
+		sc.starts = inputs.startsIn(w.hostNamespace)
+	}
+	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), s.chunks()), t.history, sc, g, pr, q.Window)
 	if err != nil {
 		return nil, err
 	}
 
-	var hpas map[string]*hpaTarget
-	if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
-		hpas = hpaTargets(listHPAs(ctx, cs))
-		pr.inPlace = supportsInPlaceResize(cs)
+	if q.CacheOnly && (len(h.cpu) == 0 || len(h.mem) == 0) {
+		return nil, errNotCached
 	}
-	rates, _ := s.rates.NodeRates(ctx, q.Cluster)
+	if !q.CacheOnly {
+		if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
+			hpas = hpaTargets(listHPAs(ctx, cs))
+			pr.inPlace = supportsInPlaceResize(cs)
+		}
+		rates, _ = s.rates.NodeRates(ctx, q.Cluster)
+	}
 	var prev map[recKey]prevRec
-	if rep := s.Cached(q.Cluster, q.Profile, q.Window); rep != nil {
+	if rep != nil {
 		prev = previousRecs(rep)
 	}
 

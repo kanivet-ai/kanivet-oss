@@ -6,7 +6,8 @@ import { itemsTopic, liveItemsFor } from './realtimeSlice';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 function pageNode(kind: string, cluster: string | null) {
-  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' }> = {
+  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' | 'cluster-settings' }> = {
+    ClusterSettings: { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings' },
     ClusterDashboard: { id: 'cluster-overview', label: 'Overview', type: 'overview' },
     FinOpsDashboard: { id: 'finops-dashboard', label: 'FinOps', type: 'finops' },
     RightsizingDashboard: { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing' },
@@ -36,7 +37,8 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     const resourceKind = resource.kind || resource.name || 'Unknown';
     const resourceGroup = resource.group || '';
     const resourceVersion = resource.version || '';
-    const title = resourceKind === 'ClusterDashboard' ? 'Overview'
+    const title = resourceKind === 'ClusterSettings' ? 'Cluster settings'
+      : resourceKind === 'ClusterDashboard' ? 'Overview'
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
       : resourceKind === 'RightsizingDashboard' ? 'Rightsizing'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
@@ -148,8 +150,9 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
         const newIndex = Math.min(currentIndex, newTabs.length - 1);
         newActiveTab = newTabs[newIndex].id;
         const newTab = newTabs[newIndex];
-        if (newTab.resource.kind === 'ClusterDashboard') {
-          selectedNode = { id: 'cluster-overview', label: 'Overview', type: 'overview' as const, data: { cluster: currentTab } };
+        const page = pageNode(newTab.resource.kind, currentTab);
+        if (page) {
+          selectedNode = page;
         } else {
           const category = getResourceCategory(newTab.resource.group || '', newTab.resource.name);
           const nodeId = `${category}-${newTab.resource.group || 'core'}-${newTab.resource.version}-${newTab.resource.name}`;

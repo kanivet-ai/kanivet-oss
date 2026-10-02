@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/kanivet/backend/internal/metrics"
@@ -125,17 +126,24 @@ func probeSignals(ctx context.Context, q historyQuerier, cluster string, at time
 	return p
 }
 
-// scope narrows queries to one namespace and, for a single workload's
-// evidence, to pods whose names start with its key.
+// scope is one namespace. Evidence for a single workload queries the whole
+// namespace too, the same queries its report ran, so it is answered from the
+// report's cached days; other workloads' series are dropped as they're read.
 type scope struct {
 	namespace string
-	wks       []string
+	// wks, if set, are the workload keys someone asked about. Nothing cached
+	// can answer the day in progress or the pod start times, so those are
+	// asked for these workloads' pods alone instead of the whole namespace.
+	wks []string
 	// want, if set, is every history key someone will look at; series of
 	// workloads that no longer run are dropped as they are read.
 	want map[seriesKey]struct{}
 	// jobs are the keys of Jobs and CronJobs. Their pods get no startup
 	// exclusion: a run often lasts minutes, so its start is the work.
 	jobs map[seriesKey]struct{}
+	// starts, if set, are pod start times already known, from the report
+	// whose cached history is being read.
+	starts map[string]int64
 }
 
 func (s scope) keep() func(map[string]string) bool {
@@ -149,11 +157,16 @@ func (s scope) keep() func(map[string]string) bool {
 }
 
 func (s scope) matchers() string {
-	m := fmt.Sprintf(`namespace="%s"`, promString(s.namespace))
-	if len(s.wks) > 0 {
-		m += "," + podSelector(s.wks)
+	return fmt.Sprintf(`namespace="%s"`, promString(s.namespace))
+}
+
+// liveMatchers narrows matchers to the asked-about workloads' pods, for
+// queries that are never cached.
+func (s scope) liveMatchers() string {
+	if len(s.wks) == 0 {
+		return s.matchers()
 	}
-	return m
+	return s.matchers() + "," + podSelector(s.wks)
 }
 
 // history is everything fetched for one scope, keyed by workload container.
@@ -171,6 +184,8 @@ type history struct {
 	// requests is hourly; requestsGrid is its axis.
 	cpuReq, memReq map[seriesKey][]float64
 	requestsGrid   grid
+	// starts are the pod start times startup was split by.
+	starts map[string]int64
 }
 
 // fetchHistory runs every query for a scope. Required series fail the whole
@@ -180,6 +195,9 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 	q := c.q
 	sel := sc.matchers()
 	keep := sc.keep()
+	if live := sc.liveMatchers(); live != sel {
+		c.live = func(query string) string { return strings.ReplaceAll(query, sel, live) }
+	}
 	stepS := fmt.Sprintf("%ds", int(g.step.Seconds()))
 	h := &history{}
 
@@ -187,10 +205,11 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 	// Startup is split from steady state in Go with each pod's start time,
 	// one cheap instant query, instead of joining kube_pod_start_time into
 	// every step of the CPU query, which is far heavier on the store.
-	var starts map[string]int64
-	if pr.startTime {
-		starts = podStarts(ctx, q, cluster, sel, g.end, window)
+	starts := sc.starts
+	if starts == nil && pr.startTime {
+		starts = podStarts(ctx, q, cluster, sc.liveMatchers(), g.end, window)
 	}
+	h.starts = starts
 	memPod := fmt.Sprintf(`max by (namespace, pod, container) (max_over_time(%s{%s,container!="",container!="POD"}[%s]))`, pr.memMetric, sel, stepS)
 
 	type job struct {

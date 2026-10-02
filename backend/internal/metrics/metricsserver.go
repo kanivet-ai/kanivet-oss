@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	json "encoding/json/v2"
 	"fmt"
 	"log"
 	"time"
@@ -9,12 +10,40 @@ import (
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/k8s"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// ListPodMetrics keeps metrics-server's current snapshot in memory for a
+// couple of seconds; it has no history worth putting on disk.
+func (s *Service) ListPodMetrics(ctx context.Context, cluster, namespace string) (*unstructured.UnstructuredList, error) {
+	b, err := s.queries.answer(ctx, queryHash("metrics-server-list", cluster, namespace), 2*time.Second, func() ([]byte, error) {
+		dyn, err := s.k8s.GetDynamicClient(cluster)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		list, err := dyn.Resource(schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}).Namespace(namespace).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(list)
+	})
+	if err != nil {
+		return nil, err
+	}
+	var list unstructured.UnstructuredList
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
 type MetricsServerProvider struct {
-	k8s   k8s.Interface
-	cache *cache.Cache
+	k8s     k8s.Interface
+	cache   *cache.Cache
+	queries *queryCache
 }
 
 func NewMetricsServerProvider(k8sClient k8s.Interface, cacheInstance *cache.Cache) *MetricsServerProvider {
@@ -102,32 +131,49 @@ func (m *MetricsServerProvider) Install(cluster string, namespace string) error 
 }
 
 func (m *MetricsServerProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
-	dynamicClient, err := m.k8s.GetDynamicClient(cluster)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get dynamic client: %w", err)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-
-	gvr := schema.GroupVersionResource{
-		Group:    "metrics.k8s.io",
-		Version:  "v1beta1",
-		Resource: "pods",
+	type snapshot struct {
+		Pod       *unstructured.Unstructured
+		FetchedAt time.Time
 	}
-
-	podMetrics, err := dynamicClient.Resource(gvr).Namespace(query.Namespace).Get(ctx, query.PodName, metav1.GetOptions{})
+	key := queryHash("metrics-server-pod", cluster, query.Namespace, query.PodName)
+	b, err := m.queries.answer(ctx, key, 2*time.Second, func() ([]byte, error) {
+		dynamicClient, err := m.k8s.GetDynamicClient(cluster)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get dynamic client: %w", err)
+		}
+		gvr := schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}
+		pod, err := dynamicClient.Resource(gvr).Namespace(query.Namespace).Get(ctx, query.PodName, metav1.GetOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get pod metrics: %w", err)
+		}
+		return json.Marshal(snapshot{Pod: pod, FetchedAt: time.Now()})
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pod metrics: %w", err)
+		return nil, err
 	}
+	var cached snapshot
+	if err := json.Unmarshal(b, &cached); err != nil {
+		return nil, err
+	}
+	podMetrics := cached.Pod
 
 	containers, found, err := unstructuredNestedSlice(podMetrics.Object, "containers")
 	if err != nil || !found {
 		return nil, fmt.Errorf("no container metrics found")
 	}
 
+	// Label the point with when metrics-server sampled it, not when it was
+	// fetched: the API serves the same sample until its next scrape.
+	sampledAt := cached.FetchedAt
+	if ts, ok := podMetrics.Object["timestamp"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			sampledAt = t.Local()
+		}
+	}
 	response := &MetricResponse{
-		Labels: []string{time.Now().Format("15:04:05")},
+		Labels: []string{sampledAt.Format("15:04:05")},
 		Values: []float64{0},
 		Unit:   m.getMetricUnit(query.MetricType),
 	}

@@ -127,9 +127,11 @@ export interface NavigationEntry {
 }
 
 export interface MonitoringSettings {
-  preferredProvider: 'auto' | 'prometheus' | 'mimir' | 'metrics-server' | 'custom' | 'disabled';
+  preferredProvider: 'auto' | 'prometheus' | 'mimir' | 'metrics-server' | 'disabled';
+  /** Stored but not read yet; the settings form no longer offers it. */
   autoRefreshInterval: number;
   showMetricsPanel: boolean;
+  /** Left over from a custom-URL option that was never wired up; ignored. */
   customPrometheusUrl?: string;
 }
 
@@ -211,6 +213,8 @@ export interface StoreState extends
   CloudAuthSlice,
   ConnectionSlice {
   monitoringSettings: MonitoringSettings;
+  monitoringSettingsByCluster: Record<string, MonitoringSettings>;
+  setClusterMonitoringSettings: (cluster: string, settings: Partial<MonitoringSettings>) => void;
   setMonitoringSettings: (settings: Partial<MonitoringSettings>) => void;
   getDefaultColumns: (resourceKind: string, isNamespaced?: boolean, printerColumns?: import('../utils/resourceListColumns').PrinterColumnCell[] | null) => string[];
   hydrateFromStorage: () => void;

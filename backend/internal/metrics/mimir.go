@@ -22,6 +22,7 @@ import (
 type MimirProvider struct {
 	k8s             k8s.Interface
 	cache           *cache.Cache
+	queries         *queryCache // chart answers only, never history
 	portForwardPool sync.Map
 	// tenantLookup returns the X-Scope-OrgID to send for a given cluster.
 	// Multi-tenant Mimir silently returns empty results when this header is
@@ -195,23 +196,6 @@ func lastSegment(s string) string {
 	return s
 }
 
-// doMimirRequest performs a GET against the cluster's Mimir port-forward,
-// applying the configured X-Scope-OrgID tenant header when one is set. All
-// Mimir HTTP calls in this package go through here so adding the header is
-// a single place to maintain.
-func (p *MimirProvider) doMimirRequest(cluster string, pfInfo *PortForwardInfo, fullURL string) (*http.Response, error) {
-	req, err := http.NewRequest(http.MethodGet, fullURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	if p.tenantLookup != nil {
-		if tenant := p.tenantLookup(cluster); tenant != "" {
-			req.Header.Set("X-Scope-OrgID", tenant)
-		}
-	}
-	return pfInfo.HTTPClient.Do(req)
-}
-
 // mimirPoolKey identifies a port-forward by the Service it reaches.
 func mimirPoolKey(cluster string, info *ProviderInfo) string {
 	return "mimir|" + cluster + "|" + info.Namespace + "/" + info.Service
@@ -266,6 +250,7 @@ func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInf
 			}).DialContext,
 		},
 	}
+	p.authenticateClient(httpClient, cluster, info)
 
 	pfInfo := &PortForwardInfo{
 		PortForward: pf,
@@ -415,7 +400,9 @@ func (p *MimirProvider) detectInternal(cluster string) (*ProviderInfo, error) {
 		}
 
 		port := resolvePodPort(ctx, clientset, d.info.Namespace, backends.ReadyPod, d.svcPort, 8080)
-		outcome := probePrometheusAPI(p.k8s, cluster, d.info.Namespace, backends.ReadyPod, port, "/prometheus", headers)
+		client := &http.Client{Timeout: 10 * time.Second}
+		p.authenticateClient(client, cluster, d.info)
+		outcome := probePrometheusAPIWithClient(p.k8s, cluster, d.info.Namespace, backends.ReadyPod, port, "/prometheus", headers, client)
 
 		info := *d.info
 		info.Port = port
@@ -602,52 +589,38 @@ func (p *MimirProvider) Install(cluster string, namespace string) error {
 	return fmt.Errorf("mimir installation is not supported - please install via Helm chart: helm install mimir grafana/mimir-distributed")
 }
 
-func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
+// chartGet runs a chart's range query through the chart cache.
+func (p *MimirProvider) chartGet(ctx context.Context, cluster string, params url.Values) (io.ReadCloser, error) {
 	info, err := p.Detect(cluster)
 	if err != nil || !info.Found {
-		return nil, fmt.Errorf("mimir not detected in cluster")
+		return nil, fmt.Errorf("mimir not detected in cluster: %w", ErrNoHistorySource)
 	}
-
-	pfInfo, err := p.getOrCreatePortForward(cluster, info)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get port forward: %w", err)
+	tenant := ""
+	if p.tenantLookup != nil {
+		tenant = p.tenantLookup(cluster)
 	}
+	return p.queries.prom(ctx, querySource(cluster, info, tenant), "/api/v1/query_range", params, func(params url.Values) (io.ReadCloser, error) {
+		return p.promGet(ctx, cluster, "/api/v1/query_range", params)
+	})
+}
 
+func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
 	promQL := p.buildPromQuery(query)
-	timeRange := p.parseTimeRange(query.TimeRange)
-	step := query.Step
-	if step == "" {
-		step = p.calculateStep(timeRange)
-	}
-
-	endTime := time.Now()
-	startTime := endTime.Add(-timeRange)
-
-	queryURL := fmt.Sprintf("http://localhost:%d/prometheus/api/v1/query_range", pfInfo.PortForward.LocalPort)
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", fmt.Sprintf("%d", startTime.Unix()))
-	params.Set("end", fmt.Sprintf("%d", endTime.Unix()))
-	params.Set("step", step)
-
-	fullURL := queryURL + "?" + params.Encode()
-	resp, err := p.doMimirRequest(cluster, pfInfo, fullURL)
+	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
 	if err != nil {
-		p.portForwardPool.Delete(mimirPoolKey(cluster, info))
-		return nil, fmt.Errorf("failed to query mimir: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	bodyStream, err := p.chartGet(ctx, cluster, params)
+	if err != nil {
+		return nil, err
+	}
+	defer bodyStream.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(bodyStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mimir returned http %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "json") {
-		return nil, fmt.Errorf("mimir returned non-JSON response (content-type %q)", ct)
 	}
 
 	var promResponse struct {
@@ -732,52 +705,28 @@ func (p *MimirProvider) buildPromQuery(query MetricQuery) string {
 }
 
 func (p *MimirProvider) QueryWorkloadMetrics(cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
-	info, err := p.Detect(cluster)
-	if err != nil || !info.Found {
-		return nil, fmt.Errorf("mimir not detected in cluster")
+	if len(query.PodNames) == 0 {
+		return &WorkloadMetricResponse{Pods: map[string]*MetricResponse{}}, nil
 	}
-
-	pfInfo, err := p.getOrCreatePortForward(cluster, info)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get port forward: %w", err)
-	}
-
-	podRegex := strings.Join(query.PodNames, "|")
+	pods := append([]string(nil), query.PodNames...)
+	sort.Strings(pods)
+	podRegex := strings.Join(pods, "|")
 	promQL := p.buildWorkloadPromQuery(query.Namespace, podRegex, query.MetricType)
-	timeRange := p.parseTimeRange(query.TimeRange)
-	step := query.Step
-	if step == "" {
-		step = p.calculateStep(timeRange)
-	}
-
-	endTime := time.Now()
-	startTime := endTime.Add(-timeRange)
-
-	queryURL := fmt.Sprintf("http://localhost:%d/prometheus/api/v1/query_range", pfInfo.PortForward.LocalPort)
-	params := url.Values{}
-	params.Set("query", promQL)
-	params.Set("start", fmt.Sprintf("%d", startTime.Unix()))
-	params.Set("end", fmt.Sprintf("%d", endTime.Unix()))
-	params.Set("step", step)
-
-	fullURL := queryURL + "?" + params.Encode()
-	resp, err := p.doMimirRequest(cluster, pfInfo, fullURL)
+	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
 	if err != nil {
-		p.portForwardPool.Delete(mimirPoolKey(cluster, info))
-		return nil, fmt.Errorf("failed to query mimir: %w", err)
+		return nil, err
 	}
-	defer resp.Body.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	bodyStream, err := p.chartGet(ctx, cluster, params)
+	if err != nil {
+		return nil, err
+	}
+	defer bodyStream.Close()
 
-	body, err := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(bodyStream)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("mimir returned http %d: %s", resp.StatusCode, http.StatusText(resp.StatusCode))
-	}
-	if ct := resp.Header.Get("Content-Type"); ct != "" && !strings.Contains(ct, "json") {
-		return nil, fmt.Errorf("mimir returned non-JSON response (content-type %q)", ct)
 	}
 
 	var promResponse struct {
@@ -856,52 +805,6 @@ func (p *MimirProvider) buildWorkloadPromQuery(namespace, podRegex, metricType s
 	default:
 		return fmt.Sprintf(`sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s",container!=""}[5m])) * 1000`, namespace, podRegex)
 	}
-}
-
-func (p *MimirProvider) parseTimeRange(timeRange string) time.Duration {
-	switch timeRange {
-	case "5m":
-		return 5 * time.Minute
-	case "15m":
-		return 15 * time.Minute
-	case "1h":
-		return time.Hour
-	case "6h":
-		return 6 * time.Hour
-	case "24h":
-		return 24 * time.Hour
-	}
-	if len(timeRange) > 1 {
-		unit := timeRange[len(timeRange)-1]
-		valueStr := timeRange[:len(timeRange)-1]
-		var value int
-		if _, err := fmt.Sscanf(valueStr, "%d", &value); err == nil && value > 0 {
-			switch unit {
-			case 'm':
-				return time.Duration(value) * time.Minute
-			case 'h':
-				return time.Duration(value) * time.Hour
-			case 'd':
-				return time.Duration(value) * 24 * time.Hour
-			}
-		}
-	}
-	return 15 * time.Minute
-}
-
-func (p *MimirProvider) calculateStep(duration time.Duration) string {
-	points := 50
-	stepSeconds := int(duration.Seconds() / float64(points))
-	if stepSeconds < 15 {
-		return "15s"
-	} else if stepSeconds < 30 {
-		return "30s"
-	} else if stepSeconds < 60 {
-		return "1m"
-	} else if stepSeconds < 300 {
-		return "5m"
-	}
-	return "15m"
 }
 
 func (p *MimirProvider) getMetricUnit(metricType string) string {

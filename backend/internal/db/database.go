@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -15,7 +16,9 @@ type DB struct {
 	*gorm.DB
 	// rsCache holds rightsizing's history chunks and reports in a file of
 	// their own; nil means they live in the main database (tests).
-	rsCache *gorm.DB
+	rsCache        *gorm.DB
+	metricsCache   *gorm.DB
+	metricsCacheMu sync.Mutex
 }
 
 type ClusterGroup struct {
@@ -131,6 +134,9 @@ func New() (*DB, error) {
 	}
 	if err := dbInstance.MigrateRightsizing(); err != nil {
 		log.Printf("[DB] rightsizing table migration failed, reports will not persist: %v", err)
+	}
+	if err := dbInstance.OpenMetricsCache(filepath.Join(dbDir, "cache", "metrics.db")); err != nil {
+		log.Printf("[DB] metrics disk cache unavailable, using bounded memory cache: %v", err)
 	}
 
 	// One-time schema steps for databases created by earlier releases.

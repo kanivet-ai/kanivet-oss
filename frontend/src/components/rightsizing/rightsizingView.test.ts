@@ -1,7 +1,27 @@
-import { describe, expect, it } from 'vitest';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
+import { EvidenceSheet } from './EvidenceSheet';
+
+vi.mock('../../services/api', () => ({ default: {} }));
+vi.mock('./useRightsizingReport', () => ({
+  useRightsizingProvider: () => 'auto',
+}));
+vi.mock('react-dom', () => ({ createPortal: (node: unknown) => node }));
+vi.mock('./EvidenceCharts', () => ({
+  ChartLegend: () => null,
+  CPUChart: () => null,
+  MemoryChart: () => null,
+}));
+vi.mock('./RightsizingParts', () => ({
+  ChangeSummary: () => null,
+  ConfidenceMeter: () => null,
+  VerdictBadge: () => null,
+}));
 import type { ContainerReport, WorkloadReport } from '../../types/rightsizing';
 import {
   bulkKubectl,
+  bulkRepositoryPrompt,
   startupBoostYAML,
   formatDayTime,
   hoursAbove,
@@ -21,6 +41,7 @@ import {
   groupByNamespace,
   kubectlCommands,
   patchYAML,
+  repositoryPrompt,
   quantileAt,
   quantity,
   snapCPU,
@@ -99,6 +120,51 @@ const workload = (over: Partial<WorkloadReport> = {}): WorkloadReport => ({
   savingsHigh: 30,
   riskScore: 1e6 + 28,
   ...over,
+});
+
+describe('evidence sheet apply section', () => {
+  const render = (c: ContainerReport) => {
+    vi.stubGlobal('document', { body: {} });
+    try {
+      return renderToStaticMarkup(
+        createElement(EvidenceSheet, {
+          cluster: 'staging',
+          workload: workload({ containers: [c] }),
+          profile: 'balanced',
+          window: '14d',
+          onClose: () => {},
+        }),
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  };
+
+  it.each(['no-requests', 'insufficient-data'] as const)(
+    'shows available resource settings for %s workloads without requests',
+    (verdict) => {
+      const html = render(
+        container({
+          verdict,
+          cpu: rec({ recommended: 0.055 }),
+          memory: rec({ recommended: 320 * MI }),
+        }),
+      );
+      expect(html).toContain('Apply it yourself');
+      expect(html).toContain('Copy AI prompt');
+      expect(html).toContain('cpu: 55m');
+      expect(html).toContain('memory: 320Mi');
+    },
+  );
+
+  it('shows an empty state instead of zero-valued output without usage data', () => {
+    const html = render(
+      container({ verdict: 'insufficient-data', cpu: rec(), memory: rec() }),
+    );
+    expect(html).toContain('Apply it yourself');
+    expect(html).toContain('No resource values are available yet.');
+    expect(html).not.toContain('Copy AI prompt');
+  });
 });
 
 describe('formatting', () => {
@@ -192,7 +258,166 @@ describe('copy-ready output', () => {
   });
 });
 
+describe('repository AI prompt', () => {
+  it('combines every selected workload and its container recommendations', () => {
+    const workloads = [
+      workload(),
+      workload({
+        name: 'nightly',
+        kind: 'CronJob',
+        vcluster: 'preview',
+        vclusterNamespace: 'apps',
+        labels: { 'app.kubernetes.io/instance': 'batch-release' },
+        containers: [
+          container({ container: 'scheduler' }),
+          container({
+            container: 'worker',
+            cpu: rec({ recommended: 0.055 }),
+            memory: rec({ recommended: 320 * MI }),
+            hpa: {
+              name: 'worker-hpa',
+              resource: 'cpu',
+              targetUtilization: 60,
+              suggestedTarget: 80,
+              pairedRequest: 0.055,
+            },
+            startupBoost: { request: 1, startupRate: 0.9, inPlace: true },
+          }),
+        ],
+      }),
+    ];
+    const prompt = bulkRepositoryPrompt(workloads, 'staging');
+    expect(prompt.match(/Cluster: staging/g)).toHaveLength(2);
+    expect(prompt).toContain('Workload: Deployment api');
+    expect(prompt).toContain('Workload: CronJob nightly');
+    expect(prompt).toContain('Virtual cluster: preview (host namespace: shop)');
+    expect(prompt).toContain('Helm release label: batch-release');
+    expect(prompt).toContain('Container: scheduler');
+    expect(prompt).toContain('Container: worker');
+    expect(prompt).toContain('cpu: 220m');
+    expect(prompt).toContain('cpu: 55m');
+    expect(prompt).toContain('memory: 640Mi');
+    expect(prompt).toContain('memory: 320Mi');
+    expect(prompt).toContain('HorizontalPodAutoscaler worker-hpa');
+    expect(prompt).toContain('kind: StartupCPUBoost');
+  });
+
+  it('omits unavailable values and keeps recommendations without request changes', () => {
+    const unknown = container({
+      container: 'unknown',
+      cpu: rec(),
+      memory: rec(),
+    });
+    const unchanged = container({
+      cpu: rec({ request: 0.055, recommended: 0.055 }),
+      memory: rec({ request: 320 * MI, recommended: 320 * MI }),
+    });
+    const prompt = bulkRepositoryPrompt(
+      [
+        workload({ containers: [unchanged, unknown] }),
+        workload({ name: 'no-data', containers: [unknown] }),
+      ],
+      'staging',
+    );
+    expect(prompt).toContain('Workload: Deployment api');
+    expect(prompt).toContain('cpu: 55m');
+    expect(prompt).not.toContain('unknown');
+    expect(prompt).not.toContain('no-data');
+    expect(bulkRepositoryPrompt([], 'staging')).toBe('');
+    expect(
+      bulkRepositoryPrompt([workload({ containers: [unknown] })], 'staging'),
+    ).toBe('');
+  });
+
+  it('includes the selected values and identifies a CronJob inside a vcluster', () => {
+    const w = workload({
+      kind: 'CronJob',
+      vcluster: 'preview',
+      vclusterNamespace: 'apps',
+      labels: { 'app.kubernetes.io/instance': 'shop-release' },
+    });
+    const prompt = repositoryPrompt(
+      w,
+      [choiceFromRec(w.containers[0], 0.055, 320 * MI)],
+      'staging',
+    );
+    expect(prompt).toContain('Cluster: staging');
+    expect(prompt).toContain('Workload: CronJob api');
+    expect(prompt).toContain('Namespace: apps');
+    expect(prompt).toContain('Virtual cluster: preview (host namespace: shop)');
+    expect(prompt).toContain('Helm release label: shop-release');
+    expect(prompt).toContain('Recommended resources:\n\n```yaml\nresources:');
+    expect(prompt).not.toContain('jobTemplate:');
+    expect(prompt).toContain('cpu: 55m');
+    expect(prompt.match(/memory: 320Mi/g)).toHaveLength(2);
+    expect(prompt).not.toContain('cpu: 220m');
+    expect(prompt).not.toContain('strategic-merge patch');
+    expect(prompt).not.toContain('Run the relevant repository validation');
+  });
+
+  it('includes coupled changes for all containers, including startup prerequisites', () => {
+    const w = workload({
+      containers: [
+        container(),
+        container({
+          container: 'worker',
+          hpa: {
+            name: 'worker-hpa',
+            resource: 'cpu',
+            targetUtilization: 60,
+            suggestedTarget: 80,
+            pairedRequest: 0.22,
+          },
+          startupBoost: { request: 1, startupRate: 0.9, inPlace: true },
+        }),
+      ],
+    });
+    const prompt = repositoryPrompt(
+      w,
+      w.containers.map((c) => choiceFromRec(c)),
+      'staging',
+    );
+    expect(prompt).toContain('Container: app');
+    expect(prompt).toContain('Container: worker');
+    expect(prompt).toContain('HorizontalPodAutoscaler worker-hpa');
+    expect(prompt).toContain('80% paired with a request of 220m');
+    expect(prompt).toContain('Verify the target against the selected request');
+    expect(prompt).toContain('kind: StartupCPUBoost');
+    expect(prompt).toContain('keep the startup request');
+    const raised = repositoryPrompt(
+      w,
+      w.containers.map((c) => choiceFromRec(c, 1)),
+      'staging',
+    );
+    expect(raised).not.toContain('kind: StartupCPUBoost');
+  });
+});
+
 describe('patch with values that are not known', () => {
+  it('omits unknown resources from kubectl commands', () => {
+    const cmd = kubectlCommands(workload(), [
+      { container: 'app', cpu: 0.2, memory: 0, cpuLimit: 0, memoryLimit: 0 },
+      { container: 'unknown', cpu: 0, memory: 0, cpuLimit: 0, memoryLimit: 0 },
+    ]);
+    expect(cmd).toBe(
+      'kubectl -n shop set resources deployment/api -c app \\\n  --requests=cpu=200m',
+    );
+  });
+
+  it('omits unknown resources from injected sidecar annotations', () => {
+    const cmd = kubectlCommands(workload(), [
+      {
+        container: 'istio-proxy',
+        cpu: 0,
+        memory: 320 * MI,
+        cpuLimit: 0,
+        memoryLimit: 320 * MI,
+      },
+    ]);
+    expect(cmd).toContain('sidecar.istio.io/proxyMemory');
+    expect(cmd).not.toContain('proxyCPU');
+  });
+
   it('leaves out a resource with no request and no data instead of writing 0', () => {
     const yaml = patchYAML('Deployment', [
       { container: 'app', cpu: 0.2, memory: 0, cpuLimit: 0, memoryLimit: 0 },

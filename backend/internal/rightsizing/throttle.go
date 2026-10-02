@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/kanivet/backend/internal/metrics"
@@ -387,7 +386,7 @@ func overloaded(err error) (bool, time.Duration) {
 	if errors.As(err, &se) {
 		return se.Retryable(), se.RetryAfter
 	}
-	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || strings.Contains(err.Error(), "unexpected EOF") {
+	if errors.Is(err, io.ErrUnexpectedEOF) || metrics.IsConnReset(err) || strings.Contains(err.Error(), "unexpected EOF") {
 		return true, 0
 	}
 	var ne net.Error
@@ -458,12 +457,18 @@ func (c *controlled) do(ctx context.Context, cluster, class string, call func() 
 }
 
 func (c *controlled) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if chunksOnly(ctx) {
+		return nil, errNotCached
+	}
 	return c.do(ctx, cluster, queryClass(query), func() ([]metrics.HistorySeries, error) {
 		return c.q.QueryRange(ctx, cluster, query, start, end, step)
 	})
 }
 
 func (c *controlled) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error) {
+	if chunksOnly(ctx) {
+		return nil, errNotCached
+	}
 	return c.do(ctx, cluster, "instant:"+queryClass(query), func() ([]metrics.HistorySeries, error) {
 		return c.q.QueryInstant(ctx, cluster, query, at)
 	})
