@@ -13,6 +13,7 @@ out/
 *.dylib
 kanivet
 kanivet-backend
+kanivet-backend-*
 
 # Logs
 *.log
