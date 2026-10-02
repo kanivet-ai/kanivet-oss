@@ -21,6 +21,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -88,6 +89,9 @@ func NewPrometheusProvider(k8sClient k8s.Interface, cacheInstance *cache.Cache) 
 func isPortForwardLikelyDead(err error) bool {
 	if err == nil {
 		return false
+	}
+	if IsConnRefused(err) || IsConnReset(err) || errors.Is(err, syscall.EPIPE) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
 	}
 	msg := strings.ToLower(err.Error())
 	for _, needle := range []string{

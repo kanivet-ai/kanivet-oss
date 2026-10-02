@@ -11,7 +11,6 @@ import (
 	"regexp"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/kanivet/backend/internal/metrics"
@@ -387,7 +386,7 @@ func overloaded(err error) (bool, time.Duration) {
 	if errors.As(err, &se) {
 		return se.Retryable(), se.RetryAfter
 	}
-	if errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, syscall.ECONNRESET) || strings.Contains(err.Error(), "unexpected EOF") {
+	if errors.Is(err, io.ErrUnexpectedEOF) || metrics.IsConnReset(err) || strings.Contains(err.Error(), "unexpected EOF") {
 		return true, 0
 	}
 	var ne net.Error
