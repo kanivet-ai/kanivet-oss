@@ -123,7 +123,8 @@ func TestQueryCacheSourceQueryStepAndPhaseIsolation(t *testing.T) {
 }
 
 func TestQueryCacheLateSamplesAndDisappearingSeries(t *testing.T) {
-	now := time.Unix(1200, 0)
+	// Samples up to 1080 are final at the start, and the tail after it is live.
+	now := time.Unix(1080, 0).Add(queryTailLag)
 	c := newQueryCache(nil, MetricsCacheBytes)
 	c.now = func() time.Time { return now }
 	r := &rangeRecorder{value: "1.23456789012345"}
@@ -396,5 +397,118 @@ func TestCacheOnlyInstantAndMiss(t *testing.T) {
 	}
 	if _, err := c.answer(WithCacheOnly(context.Background(), true), "missing", time.Second, neverFetch); !errors.Is(err, ErrCacheMiss) {
 		t.Fatalf("err=%v", err)
+	}
+}
+
+// countingStore records disk writes.
+type countingStore struct {
+	*memoryQueryStore
+	writes atomic.Int32
+}
+
+func (s *countingStore) SaveMetricsQuery(key string, data []byte, maxBytes int64) error {
+	s.writes.Add(1)
+	return s.memoryQueryStore.SaveMetricsQuery(key, data, maxBytes)
+}
+
+func TestQueryCacheLiveTailStaysOffDisk(t *testing.T) {
+	disk := &countingStore{memoryQueryStore: newMemoryQueryStore()}
+	c := newQueryCache(disk, MetricsCacheBytes)
+	now := time.Unix(1200, 0)
+	c.now = func() time.Time { return now }
+	r := &rangeRecorder{}
+	for range 4 {
+		cachedRange(t, c, r, "prom", "up", 1000, 1200, 10)
+		now = now.Add(queryTailTTL + time.Second)
+	}
+	if len(r.calls) != 4 {
+		t.Fatalf("live tail was not refreshed: %v", r.calls)
+	}
+	if n := disk.writes.Load(); n != 0 {
+		t.Fatalf("refreshing a live chart wrote to disk %d times", n)
+	}
+	now = time.Unix(1200, 0).Add(queryTailLag + time.Minute)
+	cachedRange(t, c, r, "prom", "up", 1000, 1200, 10)
+	cachedRange(t, c, r, "prom", "up", 1000, 1200, 10)
+	if n := disk.writes.Load(); n != 1 {
+		t.Fatalf("finished block written %d times, want once", n)
+	}
+	// A restart keeps finished data and nothing else.
+	fresh := newQueryCache(disk, MetricsCacheBytes)
+	fresh.now = c.now
+	before := len(r.calls)
+	cachedRange(t, fresh, r, "prom", "up", 1000, 1200, 10)
+	if len(r.calls) != before {
+		t.Fatalf("finished data was refetched after restart: %v", r.calls[before:])
+	}
+}
+
+func TestQueryCacheRecentSamplesAreNotFinal(t *testing.T) {
+	now := time.Unix(10000, 0)
+	c := newQueryCache(nil, MetricsCacheBytes)
+	c.now = func() time.Time { return now }
+	r := &rangeRecorder{}
+	// Ends five minutes ago: remote write can still deliver samples for it.
+	end := now.Add(-5 * time.Minute).Unix()
+	cachedRange(t, c, r, "prom", "up", end-200, end, 10)
+	now = now.Add(queryTailTTL + time.Second)
+	cachedRange(t, c, r, "prom", "up", end-200, end, 10)
+	if len(r.calls) != 2 {
+		t.Fatalf("a range five minutes old was treated as final: %v", r.calls)
+	}
+}
+
+func TestQueryCacheRangesOfOneQueryDoNotWaitOnEachOther(t *testing.T) {
+	c := newQueryCache(nil, MetricsCacheBytes)
+	c.now = func() time.Time { return time.Unix(100000, 0) }
+	release := make(chan struct{})
+	defer close(release)
+	entered := make(chan struct{})
+	slow := func(p url.Values) (io.ReadCloser, error) {
+		close(entered)
+		<-release
+		return (&rangeRecorder{}).fetch(p)
+	}
+	go func() {
+		p := url.Values{"query": {"up"}, "start": {"1000"}, "end": {"1200"}, "step": {"10"}}
+		if b, err := c.prom(context.Background(), "prom", "/api/v1/query_range", p, slow); err == nil {
+			b.Close()
+		}
+	}()
+	<-entered
+	done := make(chan error, 1)
+	go func() {
+		p := url.Values{"query": {"up"}, "start": {"5000"}, "end": {"5200"}, "step": {"10"}}
+		b, err := c.prom(context.Background(), "prom", "/api/v1/query_range", p, (&rangeRecorder{}).fetch)
+		if err == nil {
+			b.Close()
+		}
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second range waited for another range's fetch")
+	}
+}
+
+func TestShortLivedAnswersStayInMemory(t *testing.T) {
+	disk := &countingStore{memoryQueryStore: newMemoryQueryStore()}
+	c := newQueryCache(disk, MetricsCacheBytes)
+	calls := 0
+	fetch := func() ([]byte, error) { calls++; return []byte("snapshot"), nil }
+	for range 3 {
+		if _, err := c.answer(context.Background(), "k", time.Minute, fetch); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("answer fetched %d times within its TTL", calls)
+	}
+	if n := disk.writes.Load(); n != 0 {
+		t.Fatalf("short-lived answer written to disk %d times", n)
 	}
 }

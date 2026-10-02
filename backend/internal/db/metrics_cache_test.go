@@ -23,6 +23,8 @@ func TestMetricsCachePersistenceLRUAndBudget(t *testing.T) {
 	}
 	put("a", []byte("1"), 260)
 	put("b", []byte("2"), 260)
+	// Age both entries past the refresh interval so the read below counts.
+	d.metricsCache.Exec("UPDATE metrics_queries SET last_used = last_used - ?", int64(2*metricsLastUsedEvery))
 	if _, err := d.GetMetricsQuery("a"); err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +50,37 @@ func TestMetricsCachePersistenceLRUAndBudget(t *testing.T) {
 	d.metricsCache.Model(&MetricsQuery{}).Select("SUM(bytes)").Scan(&size)
 	if size > 260 {
 		t.Fatalf("cache grew to %d", size)
+	}
+}
+
+func TestMetricsCacheReadsDoNotWriteEveryTime(t *testing.T) {
+	d := &DB{}
+	if err := d.OpenMetricsCache(filepath.Join(t.TempDir(), "metrics.db")); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.CloseMetricsCache() })
+	if err := d.SaveMetricsQuery("a", []byte("1"), 1<<20); err != nil {
+		t.Fatal(err)
+	}
+	lastUsed := func() (v int64) {
+		d.metricsCache.Model(&MetricsQuery{}).Where("key = ?", "a").Select("last_used").Scan(&v)
+		return v
+	}
+	before := lastUsed()
+	for range 5 {
+		if _, err := d.GetMetricsQuery("a"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if lastUsed() != before {
+		t.Fatal("a recent entry's read rewrote last_used")
+	}
+	d.metricsCache.Exec("UPDATE metrics_queries SET last_used = ?", before-int64(2*metricsLastUsedEvery))
+	if _, err := d.GetMetricsQuery("a"); err != nil {
+		t.Fatal(err)
+	}
+	if lastUsed() <= before {
+		t.Fatal("an old entry's read did not refresh last_used")
 	}
 }
 

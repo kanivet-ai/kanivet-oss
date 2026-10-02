@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 )
 
 // MetricsCacheBytes bounds stored data, including keys and per-entry overhead.
@@ -25,9 +27,14 @@ import (
 const MetricsCacheBytes int64 = 128 << 20
 
 const (
-	queryTailLag     = 2 * time.Minute
+	// Remote-write samples keep arriving for minutes after their timestamp
+	// (agent queues, retries, out-of-order ingestion), so a span only counts as
+	// final once it is this old. Anything newer is refetched when it expires.
+	queryTailLag     = 10 * time.Minute
 	queryTailTTL     = 15 * time.Second
 	queryBlockPoints = 256
+	// hotBytes bounds the in-memory copy of live blocks and short-lived answers.
+	hotBytes int64 = 16 << 20
 )
 
 // Cache-only reads never wait for an upstream refresh or fetch missing samples.
@@ -55,22 +62,30 @@ type QueryCacheStore interface {
 	SaveMetricsQuery(key string, data []byte, maxBytes int64) error
 }
 
+// queryCache keeps finished chart data on disk and everything that will
+// change soon (the live tail, short-lived answers) in memory, so a chart that
+// refreshes every few seconds doesn't rewrite SQLite each time.
 type queryCache struct {
 	store    QueryCacheStore
+	hot      *memoryQueryStore
 	maxBytes int64
 	now      func() time.Time
-	locks    [64]chan struct{}
+	// flight shares one fetch between identical requests. Different ranges of
+	// the same query run side by side; only the merge into a block is serial,
+	// and it never waits on the network.
+	flight singleflight.Group
+	blocks [64]sync.Mutex
 }
 
 func newQueryCache(store QueryCacheStore, maxBytes int64) *queryCache {
 	if store == nil {
-		store = &memoryQueryStore{items: make(map[string]*list.Element)}
+		store = newMemoryQueryStore()
 	}
-	c := &queryCache{store: store, maxBytes: maxBytes, now: time.Now}
-	for i := range c.locks {
-		c.locks[i] = make(chan struct{}, 1)
-	}
-	return c
+	return &queryCache{store: store, hot: newMemoryQueryStore(), maxBytes: maxBytes, now: time.Now}
+}
+
+func newMemoryQueryStore() *memoryQueryStore {
+	return &memoryQueryStore{items: make(map[string]*list.Element)}
 }
 
 func queryHash(parts ...string) string {
@@ -79,18 +94,31 @@ func queryHash(parts ...string) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (c *queryCache) lock(ctx context.Context, key string) (func(), error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
+// shared runs fn once for every concurrent caller with the same key. A caller
+// whose own context ends stops waiting; the others still get the result. A
+// result that failed only because the caller that ran it gave up is retried
+// for the callers still waiting.
+func (c *queryCache) shared(ctx context.Context, key string, fn func() (any, error)) (any, error) {
+	for {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		ch := c.flight.DoChan(key, fn)
+		select {
+		case r := <-ch:
+			if r.Err != nil && ctx.Err() == nil && (errors.Is(r.Err, context.Canceled) || errors.Is(r.Err, context.DeadlineExceeded)) && r.Shared {
+				continue
+			}
+			return r.Val, r.Err
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
+}
+
+func (c *queryCache) blockLock(key string) *sync.Mutex {
 	h := sha256.Sum256([]byte(key))
-	l := c.locks[int(h[0])%len(c.locks)]
-	select {
-	case l <- struct{}{}:
-		return func() { <-l }, nil
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
+	return &c.blocks[int(h[0])%len(c.blocks)]
 }
 
 // Samples retain the provider's original numeric strings and precision.
@@ -131,6 +159,7 @@ type queryBlock struct {
 	Series   []querySeries
 }
 
+// read and write go to disk, compressed.
 func (c *queryCache) read(key string, dst any) bool {
 	b, err := c.store.GetMetricsQuery(key)
 	if err != nil {
@@ -156,15 +185,64 @@ func (c *queryCache) write(key string, value any) {
 	}
 }
 
+// readHot and writeHot keep a value in memory only.
+func (c *queryCache) readHot(key string, dst any) bool {
+	b, err := c.hot.GetMetricsQuery(key)
+	return err == nil && json.Unmarshal(b, dst) == nil
+}
+
+func (c *queryCache) writeHot(key string, value any) {
+	if b, err := json.Marshal(value); err == nil {
+		_ = c.hot.SaveMetricsQuery(key, b, hotBytes)
+	}
+}
+
+// readBlock prefers the in-memory copy, which is never older than the disk one.
+func (c *queryCache) readBlock(key string) *queryBlock {
+	block := &queryBlock{}
+	if c.readHot(key, block) {
+		return block
+	}
+	block = &queryBlock{}
+	if c.read(key, block) {
+		return block
+	}
+	return &queryBlock{}
+}
+
+// writeBlock always refreshes memory, and touches disk only when the block's
+// finished coverage grew. The disk copy drops live coverage, so a restart
+// refetches the tail instead of trusting it.
+func (c *queryCache) writeBlock(key string, block *queryBlock, finalBefore []querySpan) {
+	c.writeHot(key, block)
+	final := finalSpans(block.Coverage)
+	if slices.Equal(final, finalBefore) {
+		return
+	}
+	c.write(key, &queryBlock{Coverage: final, Series: block.Series})
+}
+
+func finalSpans(spans []querySpan) []querySpan {
+	var out []querySpan
+	for _, s := range spans {
+		if s.Expires == 0 {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 type cachedAnswer struct {
 	Expires int64
 	Body    []byte
 }
 
+// answer caches a short-lived answer in memory only: it is stale within
+// seconds, so writing it to disk would cost more than refetching it.
 func (c *queryCache) answer(ctx context.Context, key string, ttl time.Duration, fetch func() ([]byte, error)) ([]byte, error) {
 	if CacheOnly(ctx) {
 		var entry cachedAnswer
-		if c != nil && c.read(key, &entry) && (allowStaleCache(ctx) || entry.Expires > c.now().UnixNano()) {
+		if c != nil && c.readHot(key, &entry) && (allowStaleCache(ctx) || entry.Expires > c.now().UnixNano()) {
 			return entry.Body, nil
 		}
 		return nil, ErrCacheMiss
@@ -172,20 +250,21 @@ func (c *queryCache) answer(ctx context.Context, key string, ttl time.Duration, 
 	if c == nil {
 		return fetch()
 	}
-	unlock, err := c.lock(ctx, key)
+	v, err := c.shared(ctx, "answer|"+key, func() (any, error) {
+		var entry cachedAnswer
+		if c.readHot(key, &entry) && entry.Expires > c.now().UnixNano() {
+			return entry.Body, nil
+		}
+		b, err := fetch()
+		if err == nil {
+			c.writeHot(key, cachedAnswer{Expires: c.now().Add(ttl).UnixNano(), Body: b})
+		}
+		return b, err
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer unlock()
-	var entry cachedAnswer
-	if c.read(key, &entry) && entry.Expires > c.now().UnixNano() {
-		return entry.Body, nil
-	}
-	b, err := fetch()
-	if err == nil {
-		c.write(key, cachedAnswer{Expires: c.now().Add(ttl).UnixNano(), Body: b})
-	}
-	return b, err
+	return v.([]byte), nil
 }
 
 // Expressions whose values depend on the enclosing range cannot be split.
@@ -198,30 +277,6 @@ func (c *queryCache) prom(ctx context.Context, source, path string, params url.V
 		}
 		return fetch(params)
 	}
-	get := func(p url.Values) ([]byte, error) {
-		body, err := fetch(p)
-		if err != nil {
-			return nil, err
-		}
-		defer body.Close()
-		b, err := io.ReadAll(body)
-		if err != nil {
-			return nil, err
-		}
-		var status struct {
-			Status, ErrorType, Error string
-			Warnings                 []string
-		}
-		if err := json.Unmarshal(b, &status, json.MatchCaseInsensitiveNames(true)); err != nil {
-			return nil, err
-		}
-		if status.Status != "success" {
-			return nil, &QueryError{Type: status.ErrorType, Message: status.Error}
-		}
-		return b, nil
-	}
-	var b []byte
-	var err error
 	start, e1 := strconv.ParseInt(params.Get("start"), 10, 64)
 	end, e2 := strconv.ParseInt(params.Get("end"), 10, 64)
 	stepDuration, e3 := time.ParseDuration(params.Get("step"))
@@ -232,14 +287,66 @@ func (c *queryCache) prom(ctx context.Context, source, path string, params url.V
 	}
 	step := int64(stepDuration / time.Second)
 	if path == "/api/v1/query_range" && e1 == nil && e2 == nil && e3 == nil && step > 0 && stepDuration%time.Second == 0 && start >= 0 && end >= start && !rangeDependentQuery.MatchString(params.Get("query")) {
-		b, err = c.rangeQuery(ctx, source, params, start, end, step, get)
-	} else {
-		b, err = c.answer(ctx, queryHash(source, path, params.Encode()), queryTailTTL, func() ([]byte, error) { return get(params) })
+		out, err := c.rangeQuery(ctx, source, params, start, end, step, func(p url.Values) (*queryEnvelope, error) {
+			body, err := fetch(p)
+			if err != nil {
+				return nil, err
+			}
+			defer body.Close()
+			return decodeEnvelope(body)
+		})
+		if err != nil {
+			return nil, err
+		}
+		return streamJSON(out), nil
 	}
+	// A query that can't be split into blocks is kept whole, briefly, in
+	// memory. These are rare (instant queries, start()/end()/range()).
+	b, err := c.answer(ctx, queryHash(source, path, params.Encode()), queryTailTTL, func() ([]byte, error) {
+		body, err := fetch(params)
+		if err != nil {
+			return nil, err
+		}
+		defer body.Close()
+		b, err := io.ReadAll(body)
+		if err != nil {
+			return nil, err
+		}
+		var status struct {
+			Status, ErrorType, Error string
+		}
+		if err := json.Unmarshal(b, &status, json.MatchCaseInsensitiveNames(true)); err != nil {
+			return nil, err
+		}
+		if status.Status != "success" {
+			return nil, &QueryError{Type: status.ErrorType, Message: status.Error}
+		}
+		return b, nil
+	})
 	if err != nil {
 		return nil, err
 	}
 	return io.NopCloser(bytes.NewReader(b)), nil
+}
+
+// decodeEnvelope reads a range answer in one pass, straight off the wire.
+func decodeEnvelope(r io.Reader) (*queryEnvelope, error) {
+	var out queryEnvelope
+	if err := json.UnmarshalRead(r, &out); err != nil {
+		return nil, err
+	}
+	if out.Status != "success" {
+		return nil, &QueryError{Type: out.ErrorType, Message: out.Error}
+	}
+	return &out, nil
+}
+
+// streamJSON encodes v as the caller reads it, so the answer is never held
+// as one more buffer next to the decoded series.
+func streamJSON(v any) io.ReadCloser {
+	r, w := io.Pipe()
+	go func() { w.CloseWithError(json.MarshalWrite(w, v)) }()
+	return r
 }
 
 func copyParams(p url.Values) url.Values {
@@ -250,20 +357,26 @@ func copyParams(p url.Values) url.Values {
 	return out
 }
 
-func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.Values, start, end, step int64, fetch func(url.Values) ([]byte, error)) ([]byte, error) {
+func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.Values, start, end, step int64, fetch func(url.Values) (*queryEnvelope, error)) (*queryEnvelope, error) {
 	end = start + (end-start)/step*step
 	identity := copyParams(params)
 	identity.Del("start")
 	identity.Del("end")
 	identity.Del("step")
 	key := queryHash("range-v1", source, identity.Encode(), strconv.FormatInt(step, 10), strconv.FormatInt(start%step, 10))
-	if !CacheOnly(ctx) {
-		unlock, err := c.lock(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-		defer unlock()
+	if CacheOnly(ctx) {
+		return c.assembleRange(ctx, key, params, start, end, step, nil)
 	}
+	v, err := c.shared(ctx, key+"|"+strconv.FormatInt(start, 10)+"|"+strconv.FormatInt(end, 10), func() (any, error) {
+		return c.assembleRange(ctx, key, params, start, end, step, fetch)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.(*queryEnvelope), nil
+}
+
+func (c *queryCache) assembleRange(ctx context.Context, key string, params url.Values, start, end, step int64, fetch func(url.Values) (*queryEnvelope, error)) (*queryEnvelope, error) {
 	now := c.now()
 	width := step * queryBlockPoints
 	phase := start % step
@@ -272,10 +385,7 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 	var missing []querySpan
 	hasCoverage := false
 	for base := (start-phase)/width*width + phase; base <= end; base += width {
-		block := &queryBlock{}
-		if !c.read(queryHash(key, strconv.FormatInt(base, 10)), block) {
-			block = &queryBlock{}
-		}
+		block := c.readBlock(queryHash(key, strconv.FormatInt(base, 10)))
 		if !allowStaleCache(ctx) {
 			block.Coverage = slices.DeleteFunc(block.Coverage, func(s querySpan) bool { return s.Expires != 0 && s.Expires <= now.UnixNano() })
 		}
@@ -297,7 +407,7 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 			missing = append(missing, querySpan{Start: cursor, End: hi})
 		}
 	}
-	if CacheOnly(ctx) {
+	if fetch == nil {
 		if !hasCoverage || (len(missing) > 0 && !allowStaleCache(ctx)) {
 			return nil, ErrCacheMiss
 		}
@@ -309,28 +419,31 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 		p := copyParams(params)
 		p.Set("start", strconv.FormatInt(span.Start, 10))
 		p.Set("end", strconv.FormatInt(span.End, 10))
-		b, err := fetch(p)
+		response, err := fetch(p)
 		if err != nil {
-			return nil, err
-		}
-		var response queryEnvelope
-		if err := json.Unmarshal(b, &response); err != nil {
 			return nil, err
 		}
 		// Partial responses and native histograms must not be marked complete.
 		if response.Data.ResultType != "matrix" || len(response.Warnings) > 0 || len(response.Infos) > 0 || slices.ContainsFunc(response.Data.Result, func(s querySeries) bool { return len(s.Histograms) > 0 }) {
 			if span.Start == start && span.End == end {
-				return b, nil
+				return response, nil
 			}
 			return fetch(params)
 		}
 		stableEnd := (now.Add(-queryTailLag).Unix()-phase)/step*step + phase
 		for _, base := range bases {
-			block := blocks[base]
 			lo, hi := max(span.Start, base), min(span.End, base+width-step)
 			if lo > hi {
 				continue
 			}
+			// Merge into the latest copy: another range of this query may have
+			// written the block while this one was fetching.
+			blockKey := queryHash(key, strconv.FormatInt(base, 10))
+			mu := c.blockLock(blockKey)
+			mu.Lock()
+			block := c.readBlock(blockKey)
+			block.Coverage = slices.DeleteFunc(block.Coverage, func(s querySpan) bool { return s.Expires != 0 && s.Expires <= now.UnixNano() })
+			finalBefore := finalSpans(block.Coverage)
 			block.Series = replaceQuerySeries(block.Series, response.Data.Result, lo, hi)
 			if lo <= min(hi, stableEnd) {
 				block.Coverage = append(block.Coverage, querySpan{Start: lo, End: min(hi, stableEnd)})
@@ -339,16 +452,18 @@ func (c *queryCache) rangeQuery(ctx context.Context, source string, params url.V
 				block.Coverage = append(block.Coverage, querySpan{Start: max(lo, stableEnd+step), End: hi, Expires: now.Add(queryTailTTL).UnixNano()})
 			}
 			block.Coverage = mergeQuerySpans(block.Coverage, step)
-			c.write(queryHash(key, strconv.FormatInt(base, 10)), block)
+			c.writeBlock(blockKey, block, finalBefore)
+			mu.Unlock()
+			blocks[base] = block
 		}
 	}
-	var out queryEnvelope
-	out.Status, out.Data.ResultType = "success", "matrix"
+	out := &queryEnvelope{Status: "success"}
+	out.Data.ResultType = "matrix"
 	out.Data.Result = []querySeries{}
 	for _, base := range bases {
 		out.Data.Result = replaceQuerySeries(out.Data.Result, blocks[base].Series, max(start, base), min(end, base+width-step))
 	}
-	return json.Marshal(out)
+	return out, nil
 }
 
 func mergeQuerySpans(spans []querySpan, step int64) []querySpan {

@@ -11,6 +11,8 @@ import (
 	"gorm.io/gorm/logger"
 )
 
+const metricsLastUsedEvery = time.Hour
+
 type MetricsQuery struct {
 	Key      string `gorm:"primaryKey"`
 	Data     []byte
@@ -63,8 +65,12 @@ func (db *DB) GetMetricsQuery(key string) ([]byte, error) {
 	if err := db.metricsCache.Where("key = ?", key).First(&row).Error; err != nil {
 		return nil, err
 	}
-	if err := db.metricsCache.Model(&MetricsQuery{}).Where("key = ?", key).Update("last_used", time.Now().UnixNano()).Error; err != nil {
-		return nil, err
+	// Eviction only needs a rough age, so a read refreshes it at most once per
+	// metricsLastUsedEvery instead of turning every chart load into a write.
+	if now := time.Now(); now.Sub(time.Unix(0, row.LastUsed)) >= metricsLastUsedEvery {
+		if err := db.metricsCache.Model(&MetricsQuery{}).Where("key = ?", key).Update("last_used", now.UnixNano()).Error; err != nil {
+			return nil, err
+		}
 	}
 	return row.Data, nil
 }

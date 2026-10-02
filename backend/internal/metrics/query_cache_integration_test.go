@@ -115,11 +115,12 @@ func TestHistoryBypassesChartCache(t *testing.T) {
 	}
 }
 
-func TestMetricsServerQueriesUseSharedBoundedCache(t *testing.T) {
+func TestMetricsServerSnapshotsCachedBriefly(t *testing.T) {
 	gvr := schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "pods"}
 	obj := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "metrics.k8s.io/v1beta1", "kind": "PodMetrics",
 		"metadata":   map[string]any{"namespace": "apps", "name": "a"},
+		"timestamp":  "2026-10-02T09:15:30Z",
 		"containers": []any{map[string]any{"name": "main", "usage": map[string]any{"cpu": "100m", "memory": "64Mi"}}},
 	}}
 	dyn := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "PodMetricsList"})
@@ -137,6 +138,9 @@ func TestMetricsServerQueriesUseSharedBoundedCache(t *testing.T) {
 		got, err := p.QueryMetrics("cluster", query)
 		if err != nil || len(got.Values) != 1 || got.Values[0] != 100 {
 			t.Fatalf("pod=%+v,%v", got, err)
+		}
+		if want := time.Date(2026, 10, 2, 9, 15, 30, 0, time.UTC).Local().Format("15:04:05"); got.Labels[0] != want {
+			t.Fatalf("point labelled %s, want the sample time %s", got.Labels[0], want)
 		}
 		memoryQuery := query
 		memoryQuery.MetricType = "memory"

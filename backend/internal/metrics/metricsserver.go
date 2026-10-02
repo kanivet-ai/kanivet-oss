@@ -14,8 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
-// ListPodMetrics shares the bounded query cache with charts and history.
-// metrics-server has no historical API, so only its current snapshot is cached.
+// ListPodMetrics keeps metrics-server's current snapshot in memory for a
+// couple of seconds; it has no history worth putting on disk.
 func (s *Service) ListPodMetrics(ctx context.Context, cluster, namespace string) (*unstructured.UnstructuredList, error) {
 	b, err := s.queries.answer(ctx, queryHash("metrics-server-list", cluster, namespace), 2*time.Second, func() ([]byte, error) {
 		dyn, err := s.k8s.GetDynamicClient(cluster)
@@ -164,8 +164,16 @@ func (m *MetricsServerProvider) QueryMetrics(cluster string, query MetricQuery) 
 		return nil, fmt.Errorf("no container metrics found")
 	}
 
+	// Label the point with when metrics-server sampled it, not when it was
+	// fetched: the API serves the same sample until its next scrape.
+	sampledAt := cached.FetchedAt
+	if ts, ok := podMetrics.Object["timestamp"].(string); ok {
+		if t, err := time.Parse(time.RFC3339, ts); err == nil {
+			sampledAt = t.Local()
+		}
+	}
 	response := &MetricResponse{
-		Labels: []string{cached.FetchedAt.Format("15:04:05")},
+		Labels: []string{sampledAt.Format("15:04:05")},
 		Values: []float64{0},
 		Unit:   m.getMetricUnit(query.MetricType),
 	}
