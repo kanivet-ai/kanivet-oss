@@ -278,6 +278,12 @@ export const FeatureTour: React.FC = () => {
   const cardRef = useRef<HTMLDivElement>(null);
   const primaryRef = useRef<HTMLButtonElement>(null);
   const run = useRef(0); // bumped on close, so a pending wait stops
+  // Set while the tour clicks something itself (opening the view), so the
+  // click isn't mistaken for the user clicking the spotlighted element.
+  const selfClick = useRef(false);
+  // Set from the moment Next is pressed until the step changes: a second
+  // press, or a click arriving in between, must not advance twice.
+  const advancing = useRef(false);
 
   // Start once the app is ready for it: a cluster connected (its sidebar
   // shows Rightsizing and no error or login pane covers it), no dialog
@@ -304,6 +310,7 @@ export const FeatureTour: React.FC = () => {
 
   const close = useCallback(() => {
     run.current++;
+    advancing.current = false;
     markTourSeen(storage(), TOUR_ID);
     setStep(null);
     setOpening(false);
@@ -313,10 +320,18 @@ export const FeatureTour: React.FC = () => {
   // did what onNext would.
   const next = useCallback(
     async (clicked = false) => {
-      if (step === null || opening) return;
+      if (step === null || opening || advancing.current) return;
+      advancing.current = true;
       const token = ++run.current;
       const opens = !!STEPS[step].onNext;
-      if (!clicked) STEPS[step].onNext?.();
+      if (!clicked) {
+        selfClick.current = true;
+        try {
+          STEPS[step].onNext?.();
+        } finally {
+          selfClick.current = false;
+        }
+      }
       if (opens) {
         // Give the view time to decide: no metrics, an error, computing, or
         // results. A cold start detects the metrics store first.
@@ -327,13 +342,20 @@ export const FeatureTour: React.FC = () => {
           visibleRect([SETTLED]) === null
         ) {
           await new Promise((r) => setTimeout(r, 200));
-          if (run.current !== token) return;
+          if (run.current !== token) {
+            advancing.current = false;
+            return;
+          }
         }
         // Let what just appeared lay out before measuring it.
         await new Promise((r) => setTimeout(r, 250));
-        if (run.current !== token) return;
+        if (run.current !== token) {
+          advancing.current = false;
+          return;
+        }
         setOpening(false);
       }
+      advancing.current = false;
       const k = nextApplicable(step);
       if (k < 0) {
         close();
@@ -426,6 +448,7 @@ export const FeatureTour: React.FC = () => {
   useEffect(() => {
     if (step === null || paused) return;
     const onClick = (e: MouseEvent) => {
+      if (selfClick.current) return;
       const t = e.target as Node | null;
       for (const sel of STEPS[step].target ?? []) {
         const el = document.querySelector(sel);
