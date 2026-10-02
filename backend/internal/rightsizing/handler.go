@@ -23,13 +23,14 @@ func (h *Handler) GetReport(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "cluster parameter required"})
 		return
 	}
-	rep := h.service.GetReport(cluster, ParseProfile(c.Query("profile")), ParseWindow(c.Query("window")), c.Query("refresh") == "1", c.Query("known"))
+	rep := h.service.GetReport(cluster, ParseProfile(c.Query("profile")), ParseWindow(c.Query("window")), c.Query("refresh") == "1", c.Query("known"), c.Query("provider"))
 	c.JSON(http.StatusOK, gin.H{"data": rep})
 }
 
 func (h *Handler) GetWorkload(c *gin.Context) {
 	q := WorkloadQuery{
 		Cluster:           c.Query("cluster"),
+		Provider:          c.Query("provider"),
 		Namespace:         c.Query("namespace"),
 		VClusterNamespace: c.Query("vclusterNamespace"),
 		Kind:              c.Query("kind"),

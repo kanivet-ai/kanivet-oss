@@ -62,9 +62,9 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
   resourceLimits,
   resourceRequests,
 }) => {
-  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettings })));
+  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettingsByCluster[cluster] || s.monitoringSettings })));
   const theme = useChartTheme();
-  const providerState = useMetricsProvider(cluster);
+  const providerState = useMetricsProvider(cluster, monitoringSettings.preferredProvider);
   const { phase, provider, reason, revision, markUnavailable } = providerState;
 
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('cpu');
@@ -143,11 +143,11 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
     markUnavailable,
   ]);
 
-  // A new pod means a new series; do not show the previous pod's numbers under its name.
+  // Clear the previous source's data when the pod or provider changes.
   useEffect(() => {
     setMetricsData(null);
     setIsZoomed(false);
-  }, [cluster, namespace, podName]);
+  }, [cluster, namespace, podName, preferred, revision]);
 
   const handleRefresh = () => {
     setMetricsData(null);

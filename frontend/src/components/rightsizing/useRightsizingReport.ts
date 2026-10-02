@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import api from '../../services/api';
+import { useStore } from '../../store';
 import type {
   RightsizingProfile,
   RightsizingReport,
@@ -75,6 +76,13 @@ export function useRightsizingPrefs() {
   return { profile, window, setProfile, setWindow };
 }
 
+export function useRightsizingProvider(cluster: string | undefined) {
+  return useStore((s) =>
+    (cluster && s.monitoringSettingsByCluster[cluster]?.preferredProvider)
+      || s.monitoringSettings.preferredProvider,
+  );
+}
+
 /** Last full report per cluster/profile/window, shared by every view that
  * shows one, so the dashboard, the FinOps tab and the workload card neither
  * fetch it separately nor start empty. Bounded: a few keys at most. */
@@ -86,8 +94,9 @@ function reportKey(
   cluster: string,
   profile: RightsizingProfile,
   window: RightsizingWindow,
+  provider = 'auto',
 ) {
-  return `${cluster}|${profile}|${window}`;
+  return `${cluster}|${profile}|${window}|${provider}`;
 }
 
 /** Fetches a report, sending the version already held so an unchanged report
@@ -98,13 +107,14 @@ export function loadReport(
   profile: RightsizingProfile,
   window: RightsizingWindow,
   refresh: boolean,
+  provider = 'auto',
 ): Promise<RightsizingReport> {
-  const key = reportKey(cluster, profile, window);
+  const key = reportKey(cluster, profile, window, provider);
   const pending = inflight.get(key);
   if (pending && !refresh) return pending;
   const prev = held.get(key);
   const p = api
-    .getRightsizingReport(cluster, profile, window, refresh, prev?.version)
+    .getRightsizingReport(cluster, profile, window, refresh, prev?.version, provider)
     .then((r) => {
       const next = mergeReport(prev, r);
       held.delete(key);
@@ -149,8 +159,9 @@ export function useRightsizingReport(
   profile: RightsizingProfile,
   window: RightsizingWindow,
 ) {
+  const provider = useRightsizingProvider(cluster);
   const [report, setReport] = useState<RightsizingReport | null>(
-    () => (cluster && held.get(reportKey(cluster, profile, window))) || null,
+    () => (cluster && held.get(reportKey(cluster, profile, window, provider))) || null,
   );
   const [error, setError] = useState<string | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -169,7 +180,7 @@ export function useRightsizingReport(
       const mine = ++gen.current;
       if (timer.current) clearTimeout(timer.current);
       try {
-        const r = await loadReport(cluster, profile, window, refresh);
+        const r = await loadReport(cluster, profile, window, refresh, provider);
         if (mine !== gen.current) return;
         setReport(r);
         setError(null);
@@ -188,12 +199,12 @@ export function useRightsizingReport(
         timer.current = setTimeout(() => fetchReport(false), POLL_READY_MS);
       }
     },
-    [cluster, profile, window],
+    [cluster, profile, window, provider],
   );
 
   useEffect(() => {
     setReport(
-      (cluster && held.get(reportKey(cluster, profile, window))) || null,
+      (cluster && held.get(reportKey(cluster, profile, window, provider))) || null,
     );
     setError(null);
     fetchReport(false);

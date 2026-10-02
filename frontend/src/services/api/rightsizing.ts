@@ -18,8 +18,10 @@ export async function getRightsizingReport(
   window: RightsizingWindow,
   refresh = false,
   known?: string,
+  provider?: string,
 ): Promise<RightsizingReport> {
   const params: Record<string, string> = { cluster, profile, window };
+  if (provider) params.provider = provider;
   if (refresh) params.refresh = '1';
   if (known) params.known = known;
   const response = await apiClient
@@ -40,9 +42,10 @@ export async function getRightsizingWorkload(
   ref: WorkloadRef,
   profile: RightsizingProfile,
   window: RightsizingWindow,
+  provider?: string,
 ): Promise<Evidence> {
   const response = await apiClient.getAxios().get('/rightsizing/workload', {
-    params: { cluster, profile, window, ...ref },
+    params: { cluster, profile, window, provider, ...ref },
     timeout: 120_000,
   });
   return response.data.data;

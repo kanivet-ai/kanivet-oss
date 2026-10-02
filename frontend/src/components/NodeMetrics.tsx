@@ -43,9 +43,9 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
   resourceCapacity,
   resourceAllocatable,
 }) => {
-  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettings })));
+  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettingsByCluster[cluster] || s.monitoringSettings })));
   const theme = useChartTheme();
-  const providerState = useMetricsProvider(cluster);
+  const providerState = useMetricsProvider(cluster, monitoringSettings.preferredProvider);
   const { phase, provider, reason, revision, markUnavailable } = providerState;
 
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('cpu');
@@ -113,7 +113,7 @@ export const NodeMetrics: React.FC<NodeMetricsProps> = ({
   useEffect(() => {
     setMetricsData(null);
     setIsZoomed(false);
-  }, [cluster, nodeName]);
+  }, [cluster, nodeName, preferred, revision]);
 
   const handleRefresh = () => {
     setMetricsData(null);

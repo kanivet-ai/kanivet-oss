@@ -25,6 +25,7 @@ type Service struct {
 	invalidationBus *cache.InvalidationBus
 	providers       map[string]Provider
 	lastCacheClear  atomic.Int64
+	queries         *queryCache
 }
 
 // ProviderInfo is the result of detecting one provider in one cluster. Found
@@ -59,6 +60,7 @@ func NewService(k8sClient k8s.Interface, cacheInstance *cache.Cache, invalidatio
 		cache:           cacheInstance,
 		invalidationBus: invalidationBus,
 		providers:       make(map[string]Provider),
+		queries:         newQueryCache(nil, MetricsCacheBytes),
 	}
 
 	prometheusProvider := NewPrometheusProvider(k8sClient, cacheInstance)
@@ -119,6 +121,22 @@ func (s *Service) OnInvalidate(pattern string) {
 
 func (s *Service) RegisterProvider(name string, provider Provider) {
 	s.providers[name] = provider
+	switch p := provider.(type) {
+	case *PrometheusProvider:
+		p.queries = s.queries
+	case *MimirProvider:
+		p.queries = s.queries
+	case *MetricsServerProvider:
+		p.queries = s.queries
+	}
+}
+
+// SetQueryCacheStore is called at startup, before queries are accepted.
+func (s *Service) SetQueryCacheStore(store QueryCacheStore) {
+	s.queries = newQueryCache(store, MetricsCacheBytes)
+	for name, provider := range s.providers {
+		s.RegisterProvider(name, provider)
+	}
 }
 
 func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, error) {

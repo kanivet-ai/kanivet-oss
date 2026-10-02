@@ -288,14 +288,26 @@ function sidecarAnnotations(choices: ContainerChoice[]): [string, string][] {
   for (const c of choices) {
     const a = SIDECAR_ANNOTATIONS[c.container];
     if (!a) continue;
-    out.push([a.cpu, quantity('cpu', c.cpu)]);
+    if (c.cpu > 0) out.push([a.cpu, quantity('cpu', c.cpu)]);
     if (c.cpuLimit > 0) out.push([a.cpuLimit, quantity('cpu', c.cpuLimit)]);
-    out.push(
-      [a.mem, quantity('memory', c.memory)],
-      [a.memLimit, quantity('memory', c.memoryLimit)],
-    );
+    if (c.memory > 0) out.push([a.mem, quantity('memory', c.memory)]);
+    if (c.memoryLimit > 0)
+      out.push([a.memLimit, quantity('memory', c.memoryLimit)]);
   }
   return out;
+}
+
+function resourceLines(c: ContainerChoice): string[] {
+  const lines = ['resources:', '  requests:'];
+  if (c.cpu > 0) lines.push(`    cpu: ${quantity('cpu', c.cpu)}`);
+  if (c.memory > 0) lines.push(`    memory: ${quantity('memory', c.memory)}`);
+  if (c.cpuLimit > 0 || c.memoryLimit > 0) {
+    lines.push('  limits:');
+    if (c.cpuLimit > 0) lines.push(`    cpu: ${quantity('cpu', c.cpuLimit)}`);
+    if (c.memoryLimit > 0)
+      lines.push(`    memory: ${quantity('memory', c.memoryLimit)}`);
+  }
+  return lines;
 }
 
 /** A strategic-merge patch for the workload's pod template. Injected mesh
@@ -318,19 +330,64 @@ export function patchYAML(kind: string, choices: ContainerChoice[]): string {
   // A value of 0 means "not set, and no data to set it from": leave it out.
   for (const c of regular.filter((x) => x.cpu > 0 || x.memory > 0)) {
     lines.push(`${ind}  - name: ${c.container}`);
-    lines.push(`${ind}    resources:`);
-    lines.push(`${ind}      requests:`);
-    if (c.cpu > 0) lines.push(`${ind}        cpu: ${quantity('cpu', c.cpu)}`);
-    if (c.memory > 0)
-      lines.push(`${ind}        memory: ${quantity('memory', c.memory)}`);
-    if (c.cpuLimit > 0 || c.memoryLimit > 0) {
-      lines.push(`${ind}      limits:`);
-      if (c.cpuLimit > 0)
-        lines.push(`${ind}        cpu: ${quantity('cpu', c.cpuLimit)}`);
-      if (c.memoryLimit > 0)
+    lines.push(...resourceLines(c).map((line) => `${ind}    ${line}`));
+  }
+  return lines.join('\n');
+}
+
+export function repositoryPrompt(
+  w: WorkloadReport,
+  choices: ContainerChoice[],
+  cluster: string,
+): string {
+  const lines = [
+    'Update this repository to use the following resource settings',
+    '',
+    `Cluster: ${cluster}`,
+    `Workload: ${w.kind} ${w.name}`,
+    `Namespace: ${w.vclusterNamespace || w.namespace}`,
+    ...(w.vclusterNamespace
+      ? [
+          `Virtual cluster: ${w.vcluster || 'unknown'} (host namespace: ${w.namespace}). Target the workload inside the virtual cluster.`,
+        ]
+      : []),
+    ...(releaseOf(w) ? [`Helm release label: ${releaseOf(w)}`] : []),
+    '',
+    'Find the source configuration for this workload and environment (Helm values/templates, Kustomize overlays, or Kubernetes manifests). Follow the repository conventions and change only the relevant resource settings. Preserve unrelated settings and other environments. If the target is ambiguous or missing, ask me before editing.',
+    '',
+    'Recommended resources:',
+    '',
+    ...choices.flatMap((choice) => [
+      ...(choices.length > 1 ? [`Container: ${choice.container}`, ''] : []),
+      '```yaml',
+      resourceLines(choice).join('\n'),
+      '```',
+    ]),
+  ];
+  for (const choice of choices) {
+    const c = w.containers.find((row) => row.container === choice.container);
+    if (!c) continue;
+    if (c.hpa) {
+      lines.push(
+        '',
+        `Container ${c.container} is coupled to HorizontalPodAutoscaler ${c.hpa.name}: its ${c.hpa.resource} utilization target is ${c.hpa.targetUtilization}%. Kanivet suggests ${c.hpa.suggestedTarget}% paired with a request of ${quantity(c.hpa.resource, c.hpa.pairedRequest)}. Verify the target against the selected request and update the HPA together with the request to preserve scaling behavior.`,
+      );
+    }
+    const boost = c.startupBoost;
+    if (boost && choice.cpu < boost.request) {
+      lines.push(
+        '',
+        `Container ${c.container} needs ${quantity('cpu', boost.request)} CPU during startup. Before lowering its request, verify in-place resize support, the startup boost controller, and a selector scoped to this workload${w.vclusterNamespace ? ', including vcluster support for forwarding resizes to host pods' : ''}. If these prerequisites are missing, keep the startup request and explain what is needed.`,
+      );
+      if (!boost.floor) {
         lines.push(
-          `${ind}        memory: ${quantity('memory', c.memoryLimit)}`,
+          '',
+          'Startup boost configuration:',
+          '```yaml',
+          startupBoostYAML(w, c.container, boost, c.cpu.limit),
+          '```',
         );
+      }
     }
   }
   return lines.join('\n');
@@ -361,15 +418,29 @@ export function kubectlCommands(
     : [];
   return [
     ...choices
-      .filter((c) => !isInjectedSidecar(c.container))
+      .filter(
+        (c) => !isInjectedSidecar(c.container) && (c.cpu > 0 || c.memory > 0),
+      )
       .map((c) => {
-        const limits = [
-          c.cpuLimit > 0 ? `cpu=${quantity('cpu', c.cpuLimit)}` : '',
-          `memory=${quantity('memory', c.memoryLimit)}`,
+        const requests = [
+          c.cpu > 0 ? `cpu=${quantity('cpu', c.cpu)}` : '',
+          c.memory > 0 ? `memory=${quantity('memory', c.memory)}` : '',
         ]
           .filter(Boolean)
           .join(',');
-        return `kubectl -n ${ns} set resources ${w.kind.toLowerCase()}/${w.name} -c ${c.container} \\\n  --requests=cpu=${quantity('cpu', c.cpu)},memory=${quantity('memory', c.memory)} \\\n  --limits=${limits}`;
+        const limits = [
+          c.cpuLimit > 0 ? `cpu=${quantity('cpu', c.cpuLimit)}` : '',
+          c.memoryLimit > 0
+            ? `memory=${quantity('memory', c.memoryLimit)}`
+            : '',
+        ]
+          .filter(Boolean)
+          .join(',');
+        return [
+          `kubectl -n ${ns} set resources ${w.kind.toLowerCase()}/${w.name} -c ${c.container}`,
+          `--requests=${requests}`,
+          ...(limits ? [`--limits=${limits}`] : []),
+        ].join(' \\\n  ');
       }),
     ...patch,
   ].join('\n');

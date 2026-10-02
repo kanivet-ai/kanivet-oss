@@ -1,0 +1,92 @@
+.cluster-settings {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  container-type: inline-size;
+  color: var(--text);
+}
+
+.cluster-settings-header {
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.cluster-settings-header h2 {
+  margin: 0 0 5px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.cluster-settings-header > span {
+  color: var(--text2);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.cluster-settings-layout {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  padding: 24px;
+}
+
+.cluster-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 0 0 150px;
+}
+
+.cluster-settings-nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cluster-settings-nav button[aria-current='page'] {
+  background: var(--ctrl);
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cluster-settings-nav button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.cluster-settings-nav svg { width: 16px; height: 16px; }
+
+.cluster-settings-content {
+  flex: 1;
+  min-width: 0;
+  max-width: 760px;
+}
+
+.cluster-settings-section-header { margin-bottom: 20px; }
+.cluster-settings-section-header h3 { margin: 0 0 6px; font-size: 16px; font-weight: 600; }
+.cluster-settings-section-header p { margin: 0; color: var(--text2); font-size: 12px; line-height: 1.5; }
+.cluster-settings .ms-body { padding: 0; overflow: visible; }
+.cluster-settings .ms-settings-footer { margin-top: 20px; padding: 14px 0 0; }
+
+@container (max-width: 680px) {
+  .cluster-settings-layout { flex-direction: column; gap: 20px; padding: 18px; }
+  .cluster-settings-header { padding: 18px; }
+  .cluster-settings-nav { flex: none; flex-direction: row; flex-wrap: wrap; }
+  .cluster-settings-content { width: 100%; }
+}
+
+@container (max-width: 420px) {
+  .cluster-settings .ms-row { align-items: stretch; flex-direction: column; gap: 8px; }
+  .cluster-settings .ms-select { flex: none; max-width: 100%; width: 100%; }
+  .cluster-settings .ms-switch { align-self: flex-start; }
+  .cluster-settings .ms-provider-footer { align-items: flex-start; flex-direction: column; }
+}

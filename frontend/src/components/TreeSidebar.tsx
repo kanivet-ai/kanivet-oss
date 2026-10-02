@@ -352,6 +352,16 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
+      } else if (node.type === 'cluster-settings') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(
+            { name: 'cluster-settings', group: '', version: 'v1', kind: 'ClusterSettings', namespaced: false },
+            currentTab,
+            isPinned,
+            freshPaneId || undefined,
+          );
+        }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');
         selectNode(node);

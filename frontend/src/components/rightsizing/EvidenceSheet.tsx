@@ -6,9 +6,9 @@ import {
   ExclamationTriangleIcon,
 } from '@radix-ui/react-icons';
 import api from '../../services/api';
+import { useRightsizingProvider } from './useRightsizingReport';
 import type {
   ContainerReport,
-  Distribution,
   Evidence,
   RightsizingProfile,
   RightsizingWindow,
@@ -17,15 +17,12 @@ import type {
 import {
   ChartLegend,
   CPUChart,
-  DurationCurve,
-  durationScale,
   MemoryChart,
   type RefLine,
 } from './EvidenceCharts';
 import {
   ChangeSummary,
   ConfidenceMeter,
-  FindingTags,
   VerdictBadge,
 } from './RightsizingParts';
 import {
@@ -33,16 +30,14 @@ import {
   choiceFromRec,
   evaluateCandidate,
   formatCores,
-  formatDayTime,
   formatMem,
   formatMoney,
   formatPct,
-  hoursAbove,
-  idleShare,
   kubectlCommands,
   patchYAML,
   primaryContainer,
   quantileAt,
+  repositoryPrompt,
   snapCPU,
   snapMem,
   startupBoostYAML,
@@ -68,13 +63,68 @@ const toLog = (v: number, lo: number, hi: number) =>
 const fromLog = (p: number, lo: number, hi: number) =>
   lo * Math.pow(hi / lo, p / 1000);
 
-const CopyBlock: React.FC<{ text: string; label: string }> = ({
+const toSlider = (v: number, lo: number, hi: number, recommended: number) => {
+  if (recommended <= lo || recommended >= hi) return toLog(v, lo, hi);
+  return v <= recommended
+    ? toLog(v, lo, recommended) / 2
+    : 500 + toLog(v, recommended, hi) / 2;
+};
+const fromSlider = (p: number, lo: number, hi: number, recommended: number) => {
+  if (recommended <= lo || recommended >= hi) return fromLog(p, lo, hi);
+  return p <= 500
+    ? fromLog(p * 2, lo, recommended)
+    : fromLog((p - 500) * 2, recommended, hi);
+};
+
+const sliderPosition = (fraction: number) =>
+  `calc(${fraction * 100}% + ${8 - 16 * fraction}px)`;
+
+const CurrentRequestMarker: React.FC<{
+  value: number;
+  lo: number;
+  hi: number;
+  recommended: number;
+  label: string;
+}> = ({ value, lo, hi, recommended, label }) => {
+  if (value <= 0) return null;
+  const fraction = toSlider(value, lo, hi, recommended) / 1000;
+  return (
+    <span
+      className="rs-range-current"
+      style={{ left: sliderPosition(fraction) }}
+    >
+      <span style={{ transform: `translateX(-${fraction * 100}%)` }}>
+        Current {label}
+      </span>
+    </span>
+  );
+};
+
+function rangeStyle(
+  recommended: number,
+  cautionFloor: number,
+  lo: number,
+  hi: number,
+): React.CSSProperties {
+  // Match the thumb's travel, which is inset by half its 16px width.
+  const stop = (value: number) => {
+    const fraction = toSlider(value, lo, hi, recommended) / 1000;
+    return sliderPosition(fraction);
+  };
+  return {
+    '--rs-caution-start': stop(Math.min(cautionFloor, recommended)),
+    '--rs-recommended-start': stop(recommended),
+  } as React.CSSProperties;
+}
+
+const CopyBlock: React.FC<{ text: string; label: string; prose?: boolean }> = ({
   text,
   label,
+  prose = false,
 }) => {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="rs-code">
+    <div className={`rs-code${prose ? ' rs-code--prose' : ''}`}>
       <button
         className="ap-btn ap-btn--sm rs-code-copy"
         onClick={() =>
@@ -93,27 +143,6 @@ const CopyBlock: React.FC<{ text: string; label: string }> = ({
   );
 };
 
-/** One sentence that reads the duration curve out loud. */
-function durationSummary(
-  dist: Distribution,
-  current: number,
-  candidate: number,
-): string {
-  const over = (r: number) => {
-    const h = hoursAbove(dist, r);
-    return h < 1 / 60
-      ? 'CPU never goes above it'
-      : `CPU goes above it ${formatDayTime(h)} a day`;
-  };
-  const idle = (r: number) =>
-    `${formatPct(idleShare(dist, r), 0)} of it sits idle`;
-  let out = `With ${formatCores(candidate)}, ${over(candidate)} and ${idle(candidate)}.`;
-  if (current > 0 && Math.abs(current - candidate) > 1e-9) {
-    out += ` Today's ${formatCores(current)}: ${over(current)} and ${idle(current)}.`;
-  }
-  return out;
-}
-
 const DISMISS_REASONS = [
   'Headroom is intentional',
   'Bursty or batch workload',
@@ -129,6 +158,7 @@ export const EvidenceSheet: React.FC<Props> = ({
   onClose,
   onChanged,
 }) => {
+  const provider = useRightsizingProvider(cluster);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [active, setActive] = useState(
@@ -137,7 +167,7 @@ export const EvidenceSheet: React.FC<Props> = ({
       '',
   );
   const [candidates, setCandidates] = useState<Record<string, Candidate>>({});
-  const [output, setOutput] = useState<'yaml' | 'kubectl'>('yaml');
+  const [output, setOutput] = useState<'yaml' | 'kubectl' | 'ai'>('ai');
   const [dismissing, setDismissing] = useState(false);
   const [reason, setReason] = useState(DISMISS_REASONS[0]);
   const [snooze, setSnooze] = useState(30);
@@ -157,6 +187,7 @@ export const EvidenceSheet: React.FC<Props> = ({
         },
         profile,
         window,
+        provider,
       )
       .then((ev) => live && setEvidence(ev))
       .catch(
@@ -177,6 +208,7 @@ export const EvidenceSheet: React.FC<Props> = ({
     workload.vclusterNamespace,
     profile,
     window,
+    provider,
   ]);
 
   useEffect(() => {
@@ -281,6 +313,18 @@ export const EvidenceSheet: React.FC<Props> = ({
       ...presetMem,
       memLo * 2,
     ) * 1.15;
+  const cpuCautionFloor = c.cpu.recommended * 0.8;
+  const memCautionFloor = Math.max(
+    c.memory.recommended * 0.8,
+    c.memory.peak,
+    c.oomKills > 0 ? c.memory.limit + 1 : 0,
+  );
+  const rangeStatus = (value: number, recommended: number, floor: number) =>
+    value >= recommended
+      ? 'Recommended or higher'
+      : value >= floor
+        ? 'Reduced headroom'
+        : 'Too low';
 
   // A limit far above everything else would flatten the usage into the
   // floor; it stays in the legend, marked off chart.
@@ -333,8 +377,11 @@ export const EvidenceSheet: React.FC<Props> = ({
   const isRec =
     Math.abs(cand.cpu - c.cpu.recommended) < 1e-9 &&
     Math.abs(cand.mem - c.memory.recommended) < 1;
-  const yaml = patchYAML(w.kind, choices);
-  const kubectl = kubectlCommands(w, choices);
+  const availableChoices = choices.filter(
+    (choice) => choice.cpu > 0 || choice.memory > 0,
+  );
+  const yaml = patchYAML(w.kind, availableChoices);
+  const kubectl = kubectlCommands(w, availableChoices);
   const dismissedHere = (w.dismissed ?? []).find(
     (d) => !d.container || d.container === c.container,
   );
@@ -461,7 +508,6 @@ export const EvidenceSheet: React.FC<Props> = ({
           )}
 
           <ChangeSummary c={c} />
-          <FindingTags findings={c.findings} />
 
           {w.change && (
             <div className={`rs-change ${w.change.healthy ? 'ok' : 'bad'}`}>
@@ -505,6 +551,14 @@ export const EvidenceSheet: React.FC<Props> = ({
                 </div>
               </div>
 
+              <div className="rs-range-legend">
+                <span className="rs-range-low">Too low</span>
+                <span className="rs-range-caution">Reduced headroom</span>
+                <span className="rs-range-recommended">
+                  Recommended or higher
+                </span>
+              </div>
+
               <div className="rs-slider-row">
                 <div className="rs-slider-label">
                   <span>CPU request</span>
@@ -515,22 +569,45 @@ export const EvidenceSheet: React.FC<Props> = ({
                     </span>
                   )}
                 </div>
-                <input
-                  type="range"
-                  className="rs-range rs-range-cpu"
-                  min={0}
-                  max={1000}
-                  value={drag.cpu ?? toLog(cand.cpu, cpuLo, cpuHi)}
-                  onChange={(e) => {
-                    const pos = Number(e.target.value);
-                    setDrag({ cpu: pos });
-                    setCand({ cpu: snapCPU(fromLog(pos, cpuLo, cpuHi)) });
-                  }}
-                  onPointerUp={endDrag}
-                  onKeyUp={endDrag}
-                  onBlur={endDrag}
-                  aria-label="CPU request"
-                />
+                <div className="rs-range-control">
+                  <input
+                    type="range"
+                    className="rs-range rs-range-cpu"
+                    style={rangeStyle(
+                      c.cpu.recommended,
+                      cpuCautionFloor,
+                      cpuLo,
+                      cpuHi,
+                    )}
+                    min={0}
+                    max={1000}
+                    value={
+                      drag.cpu ??
+                      toSlider(cand.cpu, cpuLo, cpuHi, c.cpu.recommended)
+                    }
+                    onChange={(e) => {
+                      const pos = Number(e.target.value);
+                      setDrag({ cpu: pos });
+                      setCand({
+                        cpu: snapCPU(
+                          fromSlider(pos, cpuLo, cpuHi, c.cpu.recommended),
+                        ),
+                      });
+                    }}
+                    onPointerUp={endDrag}
+                    onKeyUp={endDrag}
+                    onBlur={endDrag}
+                    aria-label="CPU request"
+                    aria-valuetext={`${formatCores(cand.cpu)}: ${rangeStatus(cand.cpu, c.cpu.recommended, cpuCautionFloor)}`}
+                  />
+                  <CurrentRequestMarker
+                    value={c.cpu.request}
+                    lo={cpuLo}
+                    hi={cpuHi}
+                    recommended={c.cpu.recommended}
+                    label={formatCores(c.cpu.request)}
+                  />
+                </div>
                 <div className="rs-readouts">
                   <span className={ev.cpuTimeAbove > 2 * target ? 'warn' : ''}>
                     Above it <strong>{formatPct(ev.cpuTimeAbove)}</strong> of
@@ -624,22 +701,45 @@ export const EvidenceSheet: React.FC<Props> = ({
                     </span>
                   )}
                 </div>
-                <input
-                  type="range"
-                  className="rs-range rs-range-mem"
-                  min={0}
-                  max={1000}
-                  value={drag.mem ?? toLog(cand.mem, memLo, memHi)}
-                  onChange={(e) => {
-                    const pos = Number(e.target.value);
-                    setDrag({ mem: pos });
-                    setCand({ mem: snapMem(fromLog(pos, memLo, memHi)) });
-                  }}
-                  onPointerUp={endDrag}
-                  onKeyUp={endDrag}
-                  onBlur={endDrag}
-                  aria-label="Memory request and limit"
-                />
+                <div className="rs-range-control">
+                  <input
+                    type="range"
+                    className="rs-range rs-range-mem"
+                    style={rangeStyle(
+                      c.memory.recommended,
+                      memCautionFloor,
+                      memLo,
+                      memHi,
+                    )}
+                    min={0}
+                    max={1000}
+                    value={
+                      drag.mem ??
+                      toSlider(cand.mem, memLo, memHi, c.memory.recommended)
+                    }
+                    onChange={(e) => {
+                      const pos = Number(e.target.value);
+                      setDrag({ mem: pos });
+                      setCand({
+                        mem: snapMem(
+                          fromSlider(pos, memLo, memHi, c.memory.recommended),
+                        ),
+                      });
+                    }}
+                    onPointerUp={endDrag}
+                    onKeyUp={endDrag}
+                    onBlur={endDrag}
+                    aria-label="Memory request and limit"
+                    aria-valuetext={`${formatMem(cand.mem)}: ${rangeStatus(cand.mem, c.memory.recommended, memCautionFloor)}`}
+                  />
+                  <CurrentRequestMarker
+                    value={c.memory.request}
+                    lo={memLo}
+                    hi={memHi}
+                    recommended={c.memory.recommended}
+                    label={formatMem(c.memory.request)}
+                  />
+                </div>
                 <div className="rs-readouts">
                   {ev.memPeakHeadroom < 0 ? (
                     <span className="danger">
@@ -700,10 +800,134 @@ export const EvidenceSheet: React.FC<Props> = ({
             </section>
           )}
 
-          {c.verdict !== 'insufficient-data' && (
-            <section className="rs-section">
-              <div className="rs-section-head">
-                <h4>Apply it yourself</h4>
+          {error && (
+            <div className="finops-error" role="alert">
+              <ExclamationTriangleIcon />
+              <span>{error}</span>
+            </div>
+          )}
+          {!evidence && !error && (
+            <div className="rs-sheet-loading">
+              <div className="ap-spinner" /> Loading {parseInt(window, 10)} days
+              of history…
+            </div>
+          )}
+
+          {hourly && (
+            <div className="rs-evidence-charts">
+              <section className="rs-section">
+                <div className="rs-section-head">
+                  <h4>CPU</h4>
+                </div>
+                <ChartLegend
+                  resource="cpu"
+                  items={[
+                    { label: 'Median–P95 across replicas', swatch: 'band' },
+                    ...(c.avgReplicas >= 1.5
+                      ? [{ label: 'Busiest replica', swatch: 'thin' as const }]
+                      : []),
+                    ...(c.cpu.request > 0
+                      ? [
+                          {
+                            label: 'Current request',
+                            swatch: 'current' as const,
+                            value: formatCores(c.cpu.request),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: 'Candidate',
+                      swatch: 'candidate',
+                      value: formatCores(cand.cpu),
+                    },
+                    ...(c.cpu.limit > 0
+                      ? [
+                          {
+                            label: cpuLimitOnChart
+                              ? 'Limit'
+                              : 'Limit (off chart)',
+                            swatch: 'limit' as const,
+                            value: formatCores(c.cpu.limit),
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+                <CPUChart
+                  hourly={hourly}
+                  refs={cpuRefs}
+                  events={events}
+                  multiReplica={c.avgReplicas >= 1.5}
+                />
+              </section>
+
+              <section className="rs-section">
+                <div className="rs-section-head">
+                  <h4>Memory</h4>
+                </div>
+                <ChartLegend
+                  resource="memory"
+                  items={[
+                    { label: 'Peak', swatch: 'line' },
+                    ...(c.memory.request > 0
+                      ? [
+                          {
+                            label: 'Current request',
+                            swatch: 'current' as const,
+                            value: formatMem(c.memory.request),
+                          },
+                        ]
+                      : []),
+                    {
+                      label: 'Candidate',
+                      swatch: 'candidate',
+                      value: formatMem(cand.mem),
+                    },
+                    ...(memLimitShown
+                      ? [
+                          {
+                            label: memLimitOnChart
+                              ? 'Current limit'
+                              : 'Current limit (off chart)',
+                            swatch: 'limit' as const,
+                            value: formatMem(c.memory.limit),
+                          },
+                        ]
+                      : []),
+                  ]}
+                />
+                <MemoryChart hourly={hourly} refs={memRefs} events={events} />
+              </section>
+              {events.length > 0 && (
+                <div
+                  className="rs-event-key"
+                  role="group"
+                  aria-label="Events on CPU and memory charts"
+                >
+                  <span>
+                    <span className="rs-mark oom" /> OOM kill
+                  </span>
+                  <span>
+                    <span className="rs-mark restart" /> Restart
+                  </span>
+                  <span>
+                    <span className="rs-mark shift" /> Behaviour changed
+                  </span>
+                  {events.some((e) => e.kind === 'request-change') && (
+                    <span>
+                      <span className="rs-mark request-change" /> Request
+                      changed
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          <section className="rs-section">
+            <div className="rs-section-head">
+              <h4>Apply it yourself</h4>
+              {availableChoices.length > 0 && (
                 <div className="ap-segmented ap-segmented--sm" role="tablist">
                   <button
                     role="tab"
@@ -720,246 +944,115 @@ export const EvidenceSheet: React.FC<Props> = ({
                   >
                     kubectl
                   </button>
+                  <button
+                    role="tab"
+                    aria-selected={output === 'ai'}
+                    onClick={() => setOutput('ai')}
+                  >
+                    AI prompt
+                  </button>
                 </div>
-              </div>
-              <CopyBlock
-                text={output === 'kubectl' && kubectl ? kubectl : yaml}
-                label={output}
-              />
-              {c.hpa && (
-                <>
-                  <div className="rs-subhead">
-                    And in HorizontalPodAutoscaler {c.hpa.name}, together with
-                    the request
-                  </div>
-                  <CopyBlock
-                    label="HPA target"
-                    text={`# spec.metrics, the ${c.hpa.resource} entry (now ${c.hpa.targetUtilization}%)
+              )}
+            </div>
+            {availableChoices.length > 0 ? (
+              <>
+                {output === 'ai' && (
+                  <p className="rs-note">
+                    Copy this prompt into your AI coding assistant with your
+                    repository open. It includes the selected values and asks
+                    the AI to update the source configuration.
+                  </p>
+                )}
+                <CopyBlock
+                  key={output}
+                  text={
+                    output === 'ai'
+                      ? repositoryPrompt(w, availableChoices, cluster)
+                      : output === 'kubectl' && kubectl
+                        ? kubectl
+                        : yaml
+                  }
+                  label={output === 'ai' ? 'AI prompt' : output}
+                  prose={output === 'ai'}
+                />
+              </>
+            ) : (
+              <p className="rs-note">
+                No resource values are available yet. Usage history is needed
+                before Kanivet can suggest requests and limits.
+              </p>
+            )}
+            {c.hpa && (
+              <>
+                <div className="rs-subhead">
+                  And in HorizontalPodAutoscaler {c.hpa.name}, together with the
+                  request
+                </div>
+                <CopyBlock
+                  label="HPA target"
+                  text={`# spec.metrics, the ${c.hpa.resource} entry (now ${c.hpa.targetUtilization}%)
 target:
   type: Utilization
   averageUtilization: ${c.hpa.suggestedTarget}`}
-                  />
-                </>
-              )}
-              {c.startupBoost &&
-                !c.startupBoost.floor &&
-                cand.cpu < c.startupBoost.request && (
-                  <>
-                    <div className="rs-subhead">
-                      And a startup boost, so starting keeps its CPU
-                    </div>
-                    <p className="rs-note">
-                      It uses about {formatCores(c.startupBoost.startupRate)} in
-                      its first minutes, more than the new{' '}
-                      {formatCores(cand.cpu)} request. On a busy node a request
-                      is the CPU share a container gets, so with the new one
-                      startup could take long enough for probes to give up. This
-                      gives it {formatCores(c.startupBoost.request)} while it
-                      starts and returns it to {formatCores(cand.cpu)} once the
-                      pod is Ready, resized in place
-                      {c.startupBoost.inPlace
-                        ? ' (Kubernetes 1.33+, which this cluster runs)'
-                        : ' (needs Kubernetes 1.33+)'}
-                      . Install the controller once with{' '}
-                      <code>{STARTUP_BOOST_INSTALL}</code>. If you run the VPA
-                      (1.7+), its <code>startupBoost</code> setting does the
-                      same.
-                      {w.vclusterNamespace
-                        ? ' This workload runs in a vcluster: the controller and this object go inside it, and the vcluster must pass in-place resizes through to the host pod, so check that your vcluster version supports it.'
-                        : ''}
-                    </p>
-                    <CopyBlock
-                      label="StartupCPUBoost"
-                      text={startupBoostYAML(
-                        w,
-                        c.container,
-                        c.startupBoost,
-                        c.cpu.limit,
-                      )}
-                    />
-                  </>
-                )}
-              {c.startupBoost?.floor && (
-                <p className="rs-note">
-                  CPU stays at {formatCores(c.cpu.recommended)}, its startup
-                  rate, rather than{' '}
-                  {formatCores(c.startupBoost.steadyRecommended ?? 0)}: this
-                  cluster can't resize pods in place (that needs Kubernetes
-                  1.33+), so there is no way to give it more CPU only while it
-                  starts. After an upgrade, a startup boost lets the request go
-                  down to the steady-state value.
-                </p>
-              )}
-              <p className="rs-note">
-                Kanivet never changes the cluster. If this workload is deployed
-                by Helm or GitOps, put these values there, or the next sync puts
-                the old ones back.
-                {w.vclusterNamespace
-                  ? ' This workload lives inside a vcluster: run the command against the vcluster, not the host.'
-                  : ''}
-              </p>
-            </section>
-          )}
-          {error && (
-            <div className="finops-error" role="alert">
-              <ExclamationTriangleIcon />
-              <span>{error}</span>
-            </div>
-          )}
-          {!evidence && !error && (
-            <div className="rs-sheet-loading">
-              <div className="ap-spinner" /> Loading {parseInt(window, 10)} days
-              of history…
-            </div>
-          )}
-
-          {hourly && (
-            <section className="rs-section">
-              <div className="rs-section-head">
-                <h4>CPU</h4>
-                <span className="rs-muted">hourly, all replicas pooled</span>
-              </div>
-              <ChartLegend
-                resource="cpu"
-                items={[
-                  { label: 'Median–P95 across replicas', swatch: 'band' },
-                  ...(c.avgReplicas >= 1.5
-                    ? [{ label: 'Busiest replica', swatch: 'thin' as const }]
-                    : []),
-                  ...(c.cpu.request > 0
-                    ? [
-                        {
-                          label: 'Current request',
-                          swatch: 'current' as const,
-                          value: formatCores(c.cpu.request),
-                        },
-                      ]
-                    : []),
-                  {
-                    label: 'Candidate',
-                    swatch: 'candidate',
-                    value: formatCores(cand.cpu),
-                  },
-                  ...(c.cpu.limit > 0
-                    ? [
-                        {
-                          label: cpuLimitOnChart
-                            ? 'Limit'
-                            : 'Limit (off chart)',
-                          swatch: 'limit' as const,
-                          value: formatCores(c.cpu.limit),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-              <CPUChart
-                hourly={hourly}
-                refs={cpuRefs}
-                events={events}
-                multiReplica={c.avgReplicas >= 1.5}
-              />
-              {dist && (
+                />
+              </>
+            )}
+            {c.startupBoost &&
+              !c.startupBoost.floor &&
+              cand.cpu < c.startupBoost.request && (
                 <>
                   <div className="rs-subhead">
-                    A typical day, busiest hours first
+                    And a startup boost, so starting keeps its CPU
                   </div>
-                  <ChartLegend
-                    resource="cpu"
-                    items={[
-                      { label: 'CPU used', swatch: 'band' },
-                      { label: 'Needs more than requested', swatch: 'short' },
-                      { label: 'Paid for, unused', swatch: 'idle' },
-                      {
-                        label: 'Candidate',
-                        swatch: 'candidate',
-                        value: formatCores(cand.cpu),
-                      },
-                      ...(c.cpu.request > 0
-                        ? [
-                            {
-                              label: durationScale(
-                                dist,
-                                c.cpu.request,
-                                cand.cpu,
-                              ).currentOnChart
-                                ? 'Current request'
-                                : 'Current request (off chart)',
-                              swatch: 'current' as const,
-                              value: formatCores(c.cpu.request),
-                            },
-                          ]
-                        : []),
-                    ]}
-                  />
-                  <DurationCurve
-                    dist={dist}
-                    current={c.cpu.request}
-                    candidate={drawn.cpu}
-                  />
-                  <p className="rs-duration-note">
-                    {durationSummary(dist, c.cpu.request, cand.cpu)}
+                  <p className="rs-note">
+                    It uses about {formatCores(c.startupBoost.startupRate)} in
+                    its first minutes, more than the new {formatCores(cand.cpu)}{' '}
+                    request. On a busy node a request is the CPU share a
+                    container gets, so with the new one startup could take long
+                    enough for probes to give up. This gives it{' '}
+                    {formatCores(c.startupBoost.request)} while it starts and
+                    returns it to {formatCores(cand.cpu)} once the pod is Ready,
+                    resized in place
+                    {c.startupBoost.inPlace
+                      ? ' (Kubernetes 1.33+, which this cluster runs)'
+                      : ' (needs Kubernetes 1.33+)'}
+                    . Install the controller once with{' '}
+                    <code>{STARTUP_BOOST_INSTALL}</code>. If you run the VPA
+                    (1.7+), its <code>startupBoost</code> setting does the same.
+                    {w.vclusterNamespace
+                      ? ' This workload runs in a vcluster: the controller and this object go inside it, and the vcluster must pass in-place resizes through to the host pod, so check that your vcluster version supports it.'
+                      : ''}
                   </p>
+                  <CopyBlock
+                    label="StartupCPUBoost"
+                    text={startupBoostYAML(
+                      w,
+                      c.container,
+                      c.startupBoost,
+                      c.cpu.limit,
+                    )}
+                  />
                 </>
               )}
-            </section>
-          )}
-
-          {hourly && (
-            <section className="rs-section">
-              <div className="rs-section-head">
-                <h4>Memory</h4>
-                <span className="rs-muted">
-                  hourly peak of the busiest replica
-                </span>
-              </div>
-              <ChartLegend
-                resource="memory"
-                items={[
-                  { label: 'Peak', swatch: 'line' },
-                  ...(c.memory.request > 0
-                    ? [
-                        {
-                          label: 'Current request',
-                          swatch: 'current' as const,
-                          value: formatMem(c.memory.request),
-                        },
-                      ]
-                    : []),
-                  {
-                    label: 'Candidate',
-                    swatch: 'candidate',
-                    value: formatMem(cand.mem),
-                  },
-                  ...(memLimitShown
-                    ? [
-                        {
-                          label: memLimitOnChart
-                            ? 'Current limit'
-                            : 'Current limit (off chart)',
-                          swatch: 'limit' as const,
-                          value: formatMem(c.memory.limit),
-                        },
-                      ]
-                    : []),
-                ]}
-              />
-              <MemoryChart hourly={hourly} refs={memRefs} events={events} />
-              {events.some((e) => e.kind === 'oom' || e.kind === 'restart') && (
-                <div className="rs-event-key">
-                  <span>
-                    <span className="rs-mark oom" /> OOM kill
-                  </span>
-                  <span>
-                    <span className="rs-mark restart" /> Restart
-                  </span>
-                  <span>
-                    <span className="rs-mark shift" /> Behaviour changed
-                  </span>
-                </div>
-              )}
-            </section>
-          )}
+            {c.startupBoost?.floor && (
+              <p className="rs-note">
+                CPU stays at {formatCores(c.cpu.recommended)}, its startup rate,
+                rather than {formatCores(c.startupBoost.steadyRecommended ?? 0)}
+                : this cluster can't resize pods in place (that needs Kubernetes
+                1.33+), so there is no way to give it more CPU only while it
+                starts. After an upgrade, a startup boost lets the request go
+                down to the steady-state value.
+              </p>
+            )}
+            <p className="rs-note">
+              Kanivet never changes the cluster. If this workload is deployed by
+              Helm or GitOps, put these values there, or the next sync puts the
+              old ones back.
+              {w.vclusterNamespace
+                ? ' This workload lives inside a vcluster: run the command against the vcluster, not the host.'
+                : ''}
+            </p>
+          </section>
 
           {c.verdict !== 'insufficient-data' && (
             <details className="rs-section rs-details">
@@ -973,88 +1066,116 @@ target:
                     : 'method and data'}
                 </span>
               </summary>
-              <div className="rs-why-grid">
-                <div>
-                  <div className="rs-why-title">
-                    CPU · {formatCores(c.cpu.recommended)}
+              <div className="rs-why-content">
+                <div className="rs-why-grid">
+                  <div className="rs-why-resource">
+                    <div className="rs-why-title">
+                      <span>CPU</span>
+                      <strong>{formatCores(c.cpu.recommended)}</strong>
+                    </div>
+                    <ol className="rs-steps">
+                      {(c.cpu.explain ?? []).map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ol>
                   </div>
-                  <ol className="rs-steps">
-                    {(c.cpu.explain ?? []).map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ol>
-                </div>
-                <div>
-                  <div className="rs-why-title">
-                    Memory · {formatMem(c.memory.recommended)}
+                  <div className="rs-why-resource">
+                    <div className="rs-why-title">
+                      <span>Memory</span>
+                      <strong>{formatMem(c.memory.recommended)}</strong>
+                    </div>
+                    <ol className="rs-steps">
+                      {(c.memory.explain ?? []).map((s, i) => (
+                        <li key={i}>{s}</li>
+                      ))}
+                    </ol>
                   </div>
-                  <ol className="rs-steps">
-                    {(c.memory.explain ?? []).map((s, i) => (
-                      <li key={i}>{s}</li>
-                    ))}
-                  </ol>
                 </div>
-              </div>
-              {bt && (
-                <div className={`rs-backtest ${bt.calibrated ? 'ok' : 'bad'}`}>
-                  <div className="rs-backtest-title">
-                    {bt.calibrated ? (
-                      <CheckIcon />
+                {bt && (
+                  <div
+                    className={`rs-backtest ${bt.calibrated ? 'ok' : 'bad'}`}
+                  >
+                    <div className="rs-backtest-title">
+                      {bt.calibrated ? (
+                        <CheckIcon />
+                      ) : (
+                        <ExclamationTriangleIcon />
+                      )}
+                      Tested on days it never saw
+                    </div>
+                    {bt.folds > 1 ? (
+                      <p>
+                        Replayed week by week: for each of the last {bt.folds}{' '}
+                        weeks, re-fitted on every day before it, then scored on
+                        that week. CPU sat above what it would have recommended{' '}
+                        <strong>{formatPct(bt.cpuExceedance)}</strong> of the{' '}
+                        {bt.bursty ? 'busy ' : ''}time (target{' '}
+                        {formatPct(bt.cpuTarget, 0)}). Memory went over in{' '}
+                        <strong>
+                          {bt.memBreaches} of {bt.folds}
+                        </strong>{' '}
+                        weeks; the closest week peaked at{' '}
+                        {formatMem(bt.memTestPeak)} against{' '}
+                        {formatMem(bt.memRecommended)}.
+                        {!bt.calibrated &&
+                          ' Some weeks looked different from the ones before, so treat this one with care.'}
+                      </p>
                     ) : (
-                      <ExclamationTriangleIcon />
+                      <p>
+                        Re-fitted on the first {bt.trainDays} days, then
+                        replayed over the next {bt.testDays}: CPU sat above the{' '}
+                        {formatCores(bt.cpuRecommended)} it would have
+                        recommended{' '}
+                        <strong>{formatPct(bt.cpuExceedance)}</strong> of the{' '}
+                        {bt.bursty ? 'busy ' : ''}time (target{' '}
+                        {formatPct(bt.cpuTarget, 0)}), and memory peaked at{' '}
+                        {formatMem(bt.memTestPeak)} against{' '}
+                        {formatMem(bt.memRecommended)}
+                        {bt.memBreached ? ', over the line.' : ', under it.'}
+                        {!bt.calibrated &&
+                          ' The recent days looked different from the earlier ones, so treat this one with care.'}
+                      </p>
                     )}
-                    Tested on days it never saw
                   </div>
-                  {bt.folds > 1 ? (
-                    <p>
-                      Replayed week by week: for each of the last {bt.folds}{' '}
-                      weeks, re-fitted on every day before it, then scored on
-                      that week. CPU sat above what it would have recommended{' '}
-                      <strong>{formatPct(bt.cpuExceedance)}</strong> of the{' '}
-                      {bt.bursty ? 'busy ' : ''}time (target{' '}
-                      {formatPct(bt.cpuTarget, 0)}). Memory went over in{' '}
-                      <strong>
-                        {bt.memBreaches} of {bt.folds}
-                      </strong>{' '}
-                      weeks; the closest week peaked at{' '}
-                      {formatMem(bt.memTestPeak)} against{' '}
-                      {formatMem(bt.memRecommended)}.
-                      {!bt.calibrated &&
-                        ' Some weeks looked different from the ones before, so treat this one with care.'}
+                )}
+                <div className="rs-quality">
+                  <div className="rs-subhead">
+                    Data behind the recommendation
+                  </div>
+                  <dl className="rs-quality-stats">
+                    <div>
+                      <dt>Observed</dt>
+                      <dd>{c.data.days.toFixed(1)} days</dd>
+                    </div>
+                    <div>
+                      <dt>Coverage</dt>
+                      <dd>{formatPct(c.data.coverage, 0)}</dd>
+                    </div>
+                    <div>
+                      <dt>Samples</dt>
+                      <dd>{c.data.samples.toLocaleString()}</dd>
+                    </div>
+                    {c.data.runs ? (
+                      <div>
+                        <dt>Runs</dt>
+                        <dd>{c.data.runs}</dd>
+                      </div>
+                    ) : null}
+                  </dl>
+                  {c.data.newPeakChance ? (
+                    <p className="rs-quality-note">
+                      <strong>Memory outlook</strong>
+                      {formatPct(c.data.newPeakChance, 0)} chance the next 30
+                      days beat the past memory peak (the headroom covers it)
                     </p>
-                  ) : (
-                    <p>
-                      Re-fitted on the first {bt.trainDays} days, then replayed
-                      over the next {bt.testDays}: CPU sat above the{' '}
-                      {formatCores(bt.cpuRecommended)} it would have recommended{' '}
-                      <strong>{formatPct(bt.cpuExceedance)}</strong> of the{' '}
-                      {bt.bursty ? 'busy ' : ''}time (target{' '}
-                      {formatPct(bt.cpuTarget, 0)}), and memory peaked at{' '}
-                      {formatMem(bt.memTestPeak)} against{' '}
-                      {formatMem(bt.memRecommended)}
-                      {bt.memBreached ? ', over the line.' : ', under it.'}
-                      {!bt.calibrated &&
-                        ' The recent days looked different from the earlier ones, so treat this one with care.'}
+                  ) : null}
+                  {c.imbalance && c.imbalance > 1.2 ? (
+                    <p className="rs-quality-note">
+                      <strong>Replica balance</strong>
+                      Busiest pod at {c.imbalance.toFixed(1)}× the typical
                     </p>
-                  )}
+                  ) : null}
                 </div>
-              )}
-              <div className="rs-quality">
-                <span>{c.data.days.toFixed(1)} days</span>
-                <span>{formatPct(c.data.coverage, 0)} coverage</span>
-                <span>{c.data.samples.toLocaleString()} samples</span>
-                {c.data.runs ? <span>{c.data.runs} runs</span> : null}
-                {c.data.newPeakChance ? (
-                  <span>
-                    {formatPct(c.data.newPeakChance, 0)} chance the next 30 days
-                    beat the past memory peak (the headroom covers it)
-                  </span>
-                ) : null}
-                {c.imbalance && c.imbalance > 1.2 ? (
-                  <span>
-                    busiest pod at {c.imbalance.toFixed(1)}× the typical
-                  </span>
-                ) : null}
               </div>
             </details>
           )}

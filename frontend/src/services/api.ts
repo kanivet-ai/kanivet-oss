@@ -280,11 +280,11 @@ class API {
   async getFinOpsPricingDebug(cluster: string): Promise<any> { return finops.getFinOpsPricingDebug(cluster); }
   async preloadFinOpsPricing(cluster: string): Promise<void> { return finops.preloadFinOpsPricing(cluster); }
 
-  async getRightsizingReport(cluster: string, profile: RightsizingProfile, window: RightsizingWindow, refresh = false, known?: string): Promise<RightsizingReport> {
-    return rightsizing.getRightsizingReport(cluster, profile, window, refresh, known);
+  async getRightsizingReport(cluster: string, profile: RightsizingProfile, window: RightsizingWindow, refresh = false, known?: string, provider?: string): Promise<RightsizingReport> {
+    return rightsizing.getRightsizingReport(cluster, profile, window, refresh, known, provider);
   }
-  async getRightsizingWorkload(cluster: string, ref: rightsizing.WorkloadRef, profile: RightsizingProfile, window: RightsizingWindow): Promise<Evidence> {
-    return rightsizing.getRightsizingWorkload(cluster, ref, profile, window);
+  async getRightsizingWorkload(cluster: string, ref: rightsizing.WorkloadRef, profile: RightsizingProfile, window: RightsizingWindow, provider?: string): Promise<Evidence> {
+    return rightsizing.getRightsizingWorkload(cluster, ref, profile, window, provider);
   }
   async dismissRightsizing(cluster: string, input: rightsizing.DismissInput): Promise<void> { return rightsizing.dismissRightsizing(cluster, input); }
   async undismissRightsizing(cluster: string, input: rightsizing.WorkloadRef & { container?: string }): Promise<void> {

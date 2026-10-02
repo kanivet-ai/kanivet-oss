@@ -237,13 +237,16 @@ type probeOutcome struct {
 // Prometheus-compatible API under basePath to identify itself. It is the
 // ground truth for "found".
 func probePrometheusAPI(k8sClient k8s.Interface, cluster, namespace, pod string, port int32, basePath string, headers map[string]string) probeOutcome {
+	return probePrometheusAPIWithClient(k8sClient, cluster, namespace, pod, port, basePath, headers, &http.Client{Timeout: 4 * time.Second})
+}
+
+func probePrometheusAPIWithClient(k8sClient k8s.Interface, cluster, namespace, pod string, port int32, basePath string, headers map[string]string, client *http.Client) probeOutcome {
 	pf, err := k8sClient.CreatePortForward(cluster, namespace, pod, int(port))
 	if err != nil {
 		return probeOutcome{Detail: fmt.Sprintf("port-forward to pod %s:%d failed: %s", pod, port, trimErr(err))}
 	}
 	defer func() { _ = k8sClient.StopPortForward(pf.ID) }()
 
-	client := &http.Client{Timeout: 4 * time.Second}
 	base := fmt.Sprintf("http://localhost:%d%s", pf.LocalPort, strings.TrimSuffix(basePath, "/"))
 
 	// buildinfo carries the version; labels is the fallback for proxies that
@@ -284,6 +287,8 @@ func probeOnce(client *http.Client, url string, headers map[string]string) probe
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 
 	switch {
+	case requiresBasicAuth(resp):
+		return probeOutcome{Detail: "Basic authentication credentials were rejected (401)"}
 	case resp.StatusCode == http.StatusUnauthorized:
 		return probeOutcome{NeedsTenant: true, Detail: "needs a tenant (X-Scope-OrgID) or credentials"}
 	case resp.StatusCode == http.StatusForbidden:

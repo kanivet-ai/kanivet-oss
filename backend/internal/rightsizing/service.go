@@ -53,7 +53,7 @@ const (
 // metricsSource is the slice of metrics.Service rightsizing needs.
 type metricsSource interface {
 	historyQuerier
-	HistorySource(cluster string) (*metrics.ProviderInfo, bool)
+	HistorySource(ctx context.Context, cluster string) (*metrics.ProviderInfo, bool)
 }
 
 type rateSource interface {
@@ -118,16 +118,20 @@ func ParseWindow(s string) time.Duration {
 
 func windowLabel(w time.Duration) string { return fmt.Sprintf("%dd", int(w/day)) }
 
-func runKey(cluster string, p Profile, w time.Duration) string {
-	return cluster + "|" + string(p) + "|" + windowLabel(w)
+func runKey(cluster string, p Profile, w time.Duration, provider ...string) string {
+	key := cluster + "|" + string(p) + "|" + windowLabel(w)
+	if len(provider) > 0 && provider[0] != "" && provider[0] != "auto" {
+		key += "|provider=" + provider[0]
+	}
+	return key
 }
 
 // GetReport returns the newest report for a cluster without waiting on a
 // computation. A missing or old report starts one in the background; until it
 // finishes the last report (marked stale) or a progress-only report is
 // returned, and the caller polls.
-func (s *Service) GetReport(cluster string, profile Profile, window time.Duration, refresh bool, known string) *Report {
-	key := runKey(cluster, profile, window)
+func (s *Service) GetReport(cluster string, profile Profile, window time.Duration, refresh bool, known string, provider string) *Report {
+	key := runKey(cluster, profile, window, provider)
 	s.mu.Lock()
 	r := s.runs[key]
 	if r == nil {
@@ -147,7 +151,7 @@ func (s *Service) GetReport(cluster string, profile Profile, window time.Duratio
 			s.mu.Unlock()
 		}
 	}
-	out := s.snapshot(r, cluster, profile, window, refresh)
+	out := s.snapshot(r, cluster, profile, window, refresh, provider)
 	if out.Status != StatusReady {
 		return out
 	}
@@ -174,8 +178,8 @@ func reportVersion(r *Report, list []db.RightsizingDismissal) string {
 }
 
 // snapshot starts a computation when one is due and copies the run's state.
-func (s *Service) snapshot(r *run, cluster string, profile Profile, window time.Duration, refresh bool) *Report {
-	key := runKey(cluster, profile, window)
+func (s *Service) snapshot(r *run, cluster string, profile Profile, window time.Duration, refresh bool, provider string) *Report {
+	key := runKey(cluster, profile, window, provider)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	ttl := reportTTL
@@ -196,7 +200,7 @@ func (s *Service) snapshot(r *run, cluster string, profile Profile, window time.
 		}
 		go func() {
 			time.Sleep(delay)
-			s.computeAndStore(key, cluster, profile, window)
+			s.computeAndStore(key, cluster, profile, window, provider)
 		}()
 	}
 	if r.ready == nil {
@@ -214,9 +218,9 @@ func (s *Service) snapshot(r *run, cluster string, profile Profile, window time.
 }
 
 // Cached returns the last finished report without starting anything.
-func (s *Service) Cached(cluster string, profile Profile, window time.Duration) *Report {
+func (s *Service) Cached(cluster string, profile Profile, window time.Duration, provider ...string) *Report {
 	s.mu.Lock()
-	r := s.runs[runKey(cluster, profile, window)]
+	r := s.runs[runKey(cluster, profile, window, provider...)]
 	if r == nil || r.ready == nil {
 		s.mu.Unlock()
 		return nil
@@ -238,8 +242,8 @@ func (s *Service) setProgress(key string, p Progress) {
 	}
 }
 
-func (s *Service) computeAndStore(key, cluster string, profile Profile, window time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), computeTimeout)
+func (s *Service) computeAndStore(key, cluster string, profile Profile, window time.Duration, provider string) {
+	ctx, cancel := context.WithTimeout(metrics.WithHistoryProvider(context.Background(), provider), computeTimeout)
 	defer cancel()
 	start := s.now()
 	var prev *Report
@@ -547,7 +551,7 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		Workloads: []WorkloadReport{},
 	}
 
-	info, metricsServer := s.metrics.HistorySource(t.history)
+	info, metricsServer := s.metrics.HistorySource(ctx, t.history)
 	rep.Source = SourceInfo{MetricsServer: metricsServer}
 	if info != nil {
 		rep.Source.Type, rep.Source.Flavor, rep.Source.Namespace, rep.Source.Service, rep.Source.Reason = info.Type, info.Flavor, info.Namespace, info.Service, info.Reason
@@ -575,16 +579,13 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 
 	progress(Progress{Stage: "Checking which signals the metrics store has"})
 	// Every query goes through the cluster's adaptive limiter; range queries
-	// also through the day-chunk cache.
+	// also through the shared metrics cache below the limiter.
 	cq := newControlled(s.metrics)
-	ch := newChunker(cq, s.chunks())
+	ch := newChunker(cq, nil)
 	defer func() {
 		st := limiterFor(t.history).state()
-		log.Printf("[Rightsizing] %s: %d queries to the metrics store, %d day chunks from cache, %d fetched, limit %.1f (grew %d, queue cuts %d, overload cuts %d, max latency ratio %.1f)",
-			cluster, cq.count(), ch.hits.Load(), ch.misses.Load(), st.Limit, st.Grows, st.QueueCuts, st.OverloadCuts, st.MaxRatio)
-		if p, ok := s.store.(interface{ PruneRightsizingChunks() }); ok && s.store != nil {
-			p.PruneRightsizingChunks()
-		}
+		log.Printf("[Rightsizing] %s: %d queries through the metrics cache, limit %.1f (grew %d, queue cuts %d, overload cuts %d, max latency ratio %.1f)",
+			cluster, cq.count(), st.Limit, st.Grows, st.QueueCuts, st.OverloadCuts, st.MaxRatio)
 	}()
 	stopWatch := watchPause(t.history, progress)
 	defer stopWatch()
@@ -1272,17 +1273,6 @@ func (s *Service) Undismiss(req DismissRequest) error {
 		return errNoStore
 	}
 	return s.store.DeleteRightsizingDismissal(req.Cluster, req.Namespace, req.VClusterNamespace, req.Kind, req.Name, req.Container)
-}
-
-// chunks is the day-chunk cache, or nil without a database.
-func (s *Service) chunks() chunkStore {
-	if s.store == nil {
-		return nil
-	}
-	if c, ok := s.store.(chunkStore); ok {
-		return c
-	}
-	return nil
 }
 
 // watchPause keeps the report's progress line honest while the circuit

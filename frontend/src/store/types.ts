@@ -211,6 +211,8 @@ export interface StoreState extends
   CloudAuthSlice,
   ConnectionSlice {
   monitoringSettings: MonitoringSettings;
+  monitoringSettingsByCluster: Record<string, MonitoringSettings>;
+  setClusterMonitoringSettings: (cluster: string, settings: Partial<MonitoringSettings>) => void;
   setMonitoringSettings: (settings: Partial<MonitoringSettings>) => void;
   getDefaultColumns: (resourceKind: string, isNamespaced?: boolean, printerColumns?: import('../utils/resourceListColumns').PrinterColumnCell[] | null) => string[];
   hydrateFromStorage: () => void;

@@ -50,14 +50,45 @@ func seriesFilter(ctx context.Context) func(map[string]string) bool {
 // only point-in-time metrics (metrics-server) are available.
 var ErrNoHistorySource = errors.New("no Prometheus-compatible metrics store in this cluster")
 
-// HistorySource reports which provider answers history queries for a cluster:
+type historyProviderKey struct{}
+
+// WithHistoryProvider pins history queries to the cluster's selected provider.
+// Auto (or an omitted preference) keeps normal discovery order.
+func WithHistoryProvider(ctx context.Context, provider string) context.Context {
+	if provider == "auto" {
+		provider = ""
+	}
+	return context.WithValue(ctx, historyProviderKey{}, provider)
+}
+
+func HistoryProvider(ctx context.Context) string {
+	provider, _ := ctx.Value(historyProviderKey{}).(string)
+	return provider
+}
+
+// HistorySource honors the provider selected in ctx. Auto tries
 // Prometheus (or Thanos/VictoriaMetrics) first, then Mimir/Cortex, the same
 // order chart queries use. When neither is usable it returns the best
 // not-found info, whose Reason says why, and metricsServer reports whether a
 // point-in-time source exists.
-func (s *Service) HistorySource(cluster string) (info *ProviderInfo, metricsServer bool) {
+func (s *Service) HistorySource(ctx context.Context, cluster string) (info *ProviderInfo, metricsServer bool) {
 	var fallback *ProviderInfo
-	for _, name := range []string{"prometheus", "mimir"} {
+	order := []string{"prometheus", "mimir"}
+	if selected := HistoryProvider(ctx); selected != "" {
+		switch selected {
+		case "prometheus", "mimir":
+			order = []string{selected}
+		case "metrics-server":
+			return &ProviderInfo{Type: selected, Reason: "metrics-server provides current values only, not usage history"}, true
+		case "disabled":
+			return &ProviderInfo{Type: selected, Reason: "metrics are disabled for this cluster"}, false
+		case "custom":
+			return &ProviderInfo{Type: selected, Reason: "custom metrics URLs are not supported by rightsizing"}, false
+		default:
+			return &ProviderInfo{Type: selected, Reason: "unknown metrics provider: " + selected}, false
+		}
+	}
+	for _, name := range order {
 		p, ok := s.providers[name]
 		if !ok {
 			continue
@@ -76,7 +107,7 @@ func (s *Service) HistorySource(cluster string) (info *ProviderInfo, metricsServ
 			fallback = pi
 		}
 	}
-	if ms, ok := s.providers["metrics-server"]; ok {
+	if ms, ok := s.providers["metrics-server"]; ok && HistoryProvider(ctx) == "" {
 		if pi, err := ms.Detect(cluster); err == nil && pi.Found {
 			metricsServer = true
 		}
@@ -92,8 +123,8 @@ type historyAPI interface {
 	promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error)
 }
 
-func (s *Service) historyProvider(cluster string) (historyAPI, error) {
-	info, _ := s.HistorySource(cluster)
+func (s *Service) historyProvider(ctx context.Context, cluster string) (historyAPI, error) {
+	info, _ := s.HistorySource(ctx, cluster)
 	if info == nil || !info.Found {
 		return nil, ErrNoHistorySource
 	}
@@ -110,7 +141,7 @@ func (s *Service) historyProvider(cluster string) (historyAPI, error) {
 // QueryRange runs a raw PromQL range query against the cluster's history
 // store.
 func (s *Service) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]HistorySeries, error) {
-	api, err := s.historyProvider(cluster)
+	api, err := s.historyProvider(ctx, cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -133,7 +164,7 @@ func (s *Service) QueryRange(ctx context.Context, cluster, query string, start, 
 
 // QueryInstant runs a raw PromQL instant query at the given time.
 func (s *Service) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]HistorySeries, error) {
-	api, err := s.historyProvider(cluster)
+	api, err := s.historyProvider(ctx, cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -426,7 +457,9 @@ func (e *QueryError) TooLarge() bool {
 
 // historyClient shares the port-forward's transport but allows long queries.
 func historyClient(base *http.Client) *http.Client {
-	return &http.Client{Transport: base.Transport, Timeout: historyTimeout}
+	client := *base
+	client.Timeout = historyTimeout
+	return &client
 }
 
 // promBody hands back the response body to stream, or an error for a status
@@ -441,55 +474,93 @@ func promBody(resp *http.Response, what string) (io.ReadCloser, error) {
 	return resp.Body, nil
 }
 
+// chartQueryParams keeps successive refreshes on the same sample grid.
+func chartQueryParams(query, window, stepText string) (url.Values, error) {
+	var p PrometheusProvider
+	rangeDuration := p.parseTimeRange(window)
+	if stepText == "" {
+		stepText = p.calculateStep(rangeDuration)
+	}
+	step, err := time.ParseDuration(stepText)
+	if err != nil {
+		secs, e := strconv.ParseInt(stepText, 10, 64)
+		if e != nil {
+			return nil, fmt.Errorf("invalid metrics step %q", stepText)
+		}
+		step = time.Duration(secs) * time.Second
+	}
+	if step < time.Second || step%time.Second != 0 {
+		return nil, fmt.Errorf("metrics step must be a positive whole number of seconds")
+	}
+	end := time.Now().Unix() / int64(step/time.Second) * int64(step/time.Second)
+	start := end - int64(rangeDuration/step)*int64(step/time.Second)
+	return url.Values{"query": {query}, "start": {strconv.FormatInt(start, 10)}, "end": {strconv.FormatInt(end, 10)}, "step": {strconv.FormatInt(int64(step/time.Second), 10)}}, nil
+}
+
+func querySource(cluster string, info *ProviderInfo, tenant string) string {
+	return queryHash(cluster, info.Type, info.URL, info.Namespace, info.Service, strconv.Itoa(int(info.Port)), info.Path, tenant)
+}
+
 func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error) {
 	info, err := p.Detect(cluster)
 	if err != nil || !info.Found {
-		return nil, ErrNoHistorySource
+		return nil, fmt.Errorf("prometheus not found in cluster: %w", ErrNoHistorySource)
 	}
-	pfInfo, err := p.getOrCreatePortForward(cluster, info)
-	if err != nil {
-		return nil, err
-	}
-	u := fmt.Sprintf("http://localhost:%d%s%s?%s", pfInfo.PortForward.LocalPort, pfInfo.BasePath, path, params.Encode())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
-	resp, err := historyClient(pfInfo.HTTPClient).Do(req)
-	if err != nil {
-		if isPortForwardLikelyDead(err) && p.shouldRecreate(cluster) {
-			p.portForwardPool.Delete(prometheusPoolKey(cluster, info))
-			_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
+	return p.queries.prom(ctx, querySource(cluster, info, ""), path, params, func(params url.Values) (io.ReadCloser, error) {
+		for attempt := 0; attempt < 2; attempt++ {
+			pfInfo, err := p.getOrCreatePortForward(cluster, info)
+			if err != nil {
+				return nil, err
+			}
+			u := fmt.Sprintf("http://localhost:%d%s%s?%s", pfInfo.PortForward.LocalPort, pfInfo.BasePath, path, params.Encode())
+			req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+			if err != nil {
+				return nil, err
+			}
+			resp, err := historyClient(pfInfo.HTTPClient).Do(req)
+			if err == nil {
+				p.recordQuerySuccess(cluster)
+				return promBody(resp, "prometheus")
+			}
+			if attempt == 0 && isPortForwardLikelyDead(err) && p.shouldRecreate(cluster) {
+				p.portForwardPool.Delete(prometheusPoolKey(cluster, info))
+				_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
+				p.maybeInvalidateProvider(cluster)
+				continue
+			}
+			return nil, fmt.Errorf("failed to query prometheus: %w", err)
 		}
-		return nil, fmt.Errorf("failed to query prometheus: %w", err)
-	}
-	p.recordQuerySuccess(cluster)
-	return promBody(resp, "prometheus")
+		return nil, fmt.Errorf("failed to query prometheus after retry")
+	})
 }
 
 func (p *MimirProvider) promGet(ctx context.Context, cluster, path string, params url.Values) (io.ReadCloser, error) {
 	info, err := p.Detect(cluster)
 	if err != nil || !info.Found {
-		return nil, ErrNoHistorySource
+		return nil, fmt.Errorf("mimir not detected in cluster: %w", ErrNoHistorySource)
 	}
-	pfInfo, err := p.getOrCreatePortForward(cluster, info)
-	if err != nil {
-		return nil, err
-	}
-	u := fmt.Sprintf("http://localhost:%d/prometheus%s?%s", pfInfo.PortForward.LocalPort, path, params.Encode())
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
-	if err != nil {
-		return nil, err
-	}
+	tenant := ""
 	if p.tenantLookup != nil {
-		if tenant := p.tenantLookup(cluster); tenant != "" {
+		tenant = p.tenantLookup(cluster)
+	}
+	return p.queries.prom(ctx, querySource(cluster, info, tenant), path, params, func(params url.Values) (io.ReadCloser, error) {
+		pfInfo, err := p.getOrCreatePortForward(cluster, info)
+		if err != nil {
+			return nil, err
+		}
+		u := fmt.Sprintf("http://localhost:%d/prometheus%s?%s", pfInfo.PortForward.LocalPort, path, params.Encode())
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return nil, err
+		}
+		if tenant != "" {
 			req.Header.Set("X-Scope-OrgID", tenant)
 		}
-	}
-	resp, err := historyClient(pfInfo.HTTPClient).Do(req)
-	if err != nil {
-		p.portForwardPool.Delete(mimirPoolKey(cluster, info))
-		return nil, fmt.Errorf("failed to query mimir: %w", err)
-	}
-	return promBody(resp, "mimir")
+		resp, err := historyClient(pfInfo.HTTPClient).Do(req)
+		if err != nil {
+			p.portForwardPool.Delete(mimirPoolKey(cluster, info))
+			return nil, fmt.Errorf("failed to query mimir: %w", err)
+		}
+		return promBody(resp, "mimir")
+	})
 }

@@ -29,6 +29,7 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   const m: Record<string, IconRenderer> = {};
 
   register(m, <K.OverviewIcon />, 'clusterdashboard', 'overview');
+  register(m, <K.ConfigIcon />, 'clustersettings');
   register(m, <K.FinOpsIcon />, 'finopsdashboard', 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
   register(m, <K.EventIcon />, 'event');
@@ -365,7 +366,7 @@ const buildCategoryIcons = (): Record<string, IconRenderer> => {
   register(m, <KanivetMark size={15} />, 'kanivetide', 'kakauide');
   register(m, <K.OverviewIcon />, 'overview');
   register(m, <K.WorkloadsIcon />, 'workloads');
-  register(m, <K.ConfigIcon />, 'config', 'configuration');
+  register(m, <K.ConfigIcon />, 'config', 'configuration', 'cluster-settings');
   register(m, <K.NetworkIcon />, 'network', 'networking');
   register(m, <K.StorageIcon />, 'storage');
   register(m, <K.RbacIcon />, 'rbac');

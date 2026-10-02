@@ -11,6 +11,7 @@ import {
 import CrossplaneIcon from './icons/CrossplaneIcon';
 import ResourceTable from './ResourceTable';
 import ClusterDashboard from './ClusterDashboard';
+import ClusterSettings from './ClusterSettings';
 import ArgoApplicationsPage from './ArgoApplicationsPage';
 import HelmPage from './HelmPage';
 import FinOpsDashboard from './finops/FinOpsDashboard';
@@ -34,7 +35,7 @@ import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
 import './ResourceList.css';
 
 // Resource-list tabs that show a full page rather than a resource table.
-const PAGE_KINDS = new Set(['ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);
+const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);
 
 interface ResourceListProps {
   paneId?: string;
@@ -972,6 +973,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                   <div style={{ display: isActive || isListTab ? 'flex' : 'none', flexDirection: 'column', height: '100%', minHeight: 0, overflow: 'hidden' }}>
                     {tab.resource?.kind === 'ClusterDashboard' ? (
                       null
+                    ) : tab.resource?.kind === 'ClusterSettings' ? (
+                      <ClusterSettings key={`cluster-settings-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'FinOpsDashboard' ? (
                       <FinOpsDashboard key={`finops-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'RightsizingDashboard' ? (

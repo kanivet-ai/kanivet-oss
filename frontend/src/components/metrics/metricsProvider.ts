@@ -12,31 +12,39 @@ export type { MetricsProviderInfo, MetricsProvidersStatus };
  */
 export type ProviderPhase = 'detecting' | 'ready' | 'needs-tenant' | 'unreachable' | 'none';
 
-const rangeProviders = (status: MetricsProvidersStatus): MetricsProviderInfo[] =>
-  [status.prometheus, status.mimir].filter((p): p is MetricsProviderInfo => !!p && p.found);
-
-/** The provider the charts will stream from (Prometheus-compatible first, then Mimir). */
-export const activeProvider = (status: MetricsProvidersStatus | null): MetricsProviderInfo | null => {
-  if (!status) return null;
-  const usable = rangeProviders(status).filter((p) => !p.needsTenant);
-  if (usable.length > 0) return usable[0];
-  return rangeProviders(status)[0] || null;
+const rangeProviders = (status: MetricsProvidersStatus, preferred?: string): MetricsProviderInfo[] => {
+  const choice = requestedProvider(preferred);
+  const candidates = choice === 'metrics-server' ? [] : choice ? [status[choice]] : [status.prometheus, status.mimir];
+  return candidates.filter((p): p is MetricsProviderInfo => !!p && p.found);
 };
 
-export const providerPhase = (status: MetricsProvidersStatus | null): ProviderPhase => {
+/** The provider the charts will stream from (Prometheus-compatible first, then Mimir). */
+export const activeProvider = (status: MetricsProvidersStatus | null, preferred?: string): MetricsProviderInfo | null => {
+  if (!status) return null;
+  const usable = rangeProviders(status, preferred).filter((p) => !p.needsTenant);
+  if (usable.length > 0) return usable[0];
+  return rangeProviders(status, preferred)[0] || null;
+};
+
+export const providerPhase = (status: MetricsProvidersStatus | null, preferred?: string): ProviderPhase => {
   if (status === null) return 'detecting';
   if (status.unavailable) return 'unreachable';
-  const found = rangeProviders(status);
+  const found = rangeProviders(status, preferred);
   if (found.length === 0) return 'none';
   if (found.every((p) => p.needsTenant)) return 'needs-tenant';
   return 'ready';
 };
 
 /** Why there is nothing to chart, in the backend's words when it gave any. */
-export const providerReason = (status: MetricsProvidersStatus | null): string | undefined => {
+export const providerReason = (status: MetricsProvidersStatus | null, preferred?: string): string | undefined => {
   if (!status) return undefined;
   if (status.unavailable && status.unavailableReason) return status.unavailableReason;
-  const found = rangeProviders(status);
+  const choice = requestedProvider(preferred);
+  if (choice === 'metrics-server' && status[choice]?.found) {
+    return 'Metrics server has no history, so charts need Prometheus, Thanos, VictoriaMetrics or Mimir.';
+  }
+  if (choice) return status[choice]?.reason;
+  const found = rangeProviders(status, preferred);
   if (found.length > 0) return found.find((p) => p.reason)?.reason;
   const reasons = [status.prometheus?.reason, status.mimir?.reason].filter(
     (r, i, all): r is string => !!r && all.indexOf(r) === i,
@@ -86,7 +94,7 @@ export const providerDetail = (info: MetricsProviderInfo | null | undefined): st
  * compatible, then Mimir, then metrics-server) applies, so a stale local
  * detection can never pin a stream to the wrong provider.
  */
-export const requestedProvider = (preferred: string | undefined): string | undefined => {
+export const requestedProvider = (preferred: string | undefined): 'prometheus' | 'mimir' | 'metrics-server' | undefined => {
   if (preferred === 'prometheus' || preferred === 'mimir' || preferred === 'metrics-server') return preferred;
   return undefined;
 };

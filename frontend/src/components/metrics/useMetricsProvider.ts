@@ -31,13 +31,14 @@ export interface MetricsProviderState {
  * the `metrics-provider-availability` event, re-checked when the cached
  * negative expires, and restarted when Monitoring settings change.
  */
-export function useMetricsProvider(cluster: string): MetricsProviderState {
+export function useMetricsProvider(cluster: string, preferred?: string): MetricsProviderState {
   const [status, setStatus] = useState<MetricsProvidersStatus | null>(() => api.getCachedMetricsProviderStatus(cluster));
   const [detecting, setDetecting] = useState(false);
   const [installing, setInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const mounted = useRef(true);
+  const previousPreference = useRef(preferred);
 
   useEffect(() => {
     mounted.current = true;
@@ -66,9 +67,13 @@ export function useMetricsProvider(cluster: string): MetricsProviderState {
 
   // Initial detection (served from the local cache when fresh).
   useEffect(() => {
+    if (previousPreference.current !== preferred) {
+      previousPreference.current = preferred;
+      api.clearMetricsProviderAvailabilityCache(cluster);
+    }
     setStatus(api.getCachedMetricsProviderStatus(cluster));
     void detect();
-  }, [cluster, detect]);
+  }, [cluster, preferred, detect]);
 
   // Keep every card on this cluster in step: when one marks the provider
   // unavailable (or a detection lands) the others pick up the same status.
@@ -99,7 +104,7 @@ export function useMetricsProvider(cluster: string): MetricsProviderState {
 
   // A negative answer is only trusted for a minute; while the card is on
   // screen, ask again when it lapses so a provider that comes back is noticed.
-  const phase = providerPhase(status);
+  const phase = providerPhase(status, preferred);
   useEffect(() => {
     if (phase !== 'none' && phase !== 'unreachable') return;
     const remaining = getMetricsProviderCacheRemainingMs(cluster) || METRICS_PROVIDER_NEGATIVE_TTL_MS;
@@ -131,8 +136,8 @@ export function useMetricsProvider(cluster: string): MetricsProviderState {
   return {
     status,
     phase,
-    reason: providerReason(status),
-    provider: activeProvider(status),
+    reason: providerReason(status, preferred),
+    provider: activeProvider(status, preferred),
     detecting,
     detect,
     install,

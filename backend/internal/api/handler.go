@@ -186,6 +186,9 @@ func NewHandlerWithDeps(k8sClient k8s.Interface, cacheInstance *cache.Cache, inv
 	}
 	eventListener := events.NewEventListener(k8sClient, database)
 	metricsService := metrics.NewService(k8sClient, cacheInstance, invalidationBus)
+	if database.MetricsCacheAvailable() {
+		metricsService.SetQueryCacheStore(database)
+	}
 
 	return &Handler{
 		k8s:             k8sClient,

@@ -13,6 +13,7 @@ import (
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -35,15 +36,22 @@ type pricingSource interface {
 	EnsureRegions(provider string, regions []string, onLoaded func()) bool
 }
 
+type metricsSource interface {
+	ListPodMetrics(context.Context, string, string) (*unstructured.UnstructuredList, error)
+}
+
 type Service struct {
 	k8s     k8s.Interface
 	cache   *cache.Cache
 	pricing pricingSource
 	// pods, when set, serves pods from a shared watch instead of listing
 	// every pod on each computation.
-	pods podcache.Lister
-	now  func() time.Time
+	pods    podcache.Lister
+	now     func() time.Time
+	metrics metricsSource
 }
+
+func (s *Service) SetMetricsSource(source metricsSource) { s.metrics = source }
 
 // SetPodLister makes the service read pods from a shared pod cache.
 func (s *Service) SetPodLister(l podcache.Lister) { s.pods = l }
@@ -313,11 +321,21 @@ func (s *Service) podUsage(ctx context.Context, cluster, namespace string) map[s
 	if _, failed := s.cache.Get(failKey); failed {
 		return nil
 	}
-	dyn, err := s.k8s.GetDynamicClient(cluster)
-	if err != nil {
-		return nil
+	var usage map[string]podUsage
+	var err error
+	if s.metrics != nil {
+		var list *unstructured.UnstructuredList
+		list, err = s.metrics.ListPodMetrics(ctx, cluster, namespace)
+		if err == nil {
+			usage = podUsageFromList(list)
+		}
+	} else {
+		dyn, e := s.k8s.GetDynamicClient(cluster)
+		if e != nil {
+			return nil
+		}
+		usage, err = fetchPodUsage(ctx, dyn, namespace)
 	}
-	usage, err := fetchPodUsage(ctx, dyn, namespace)
 	if err != nil {
 		log.Printf("[FinOps] pod usage unavailable for %s: %v", cluster, err)
 		s.cache.Set(failKey, true, usageRetryAfter)

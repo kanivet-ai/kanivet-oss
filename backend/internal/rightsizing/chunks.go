@@ -85,7 +85,10 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
-func chunkKey(cluster, query string, step time.Duration, d time.Time) string {
+func chunkKey(cluster, query string, step time.Duration, d time.Time, provider ...string) string {
+	if len(provider) > 0 && provider[0] != "" {
+		cluster += "|provider=" + provider[0]
+	}
 	h := sha256.Sum256([]byte(cluster + "\x00" + query + "\x00" + step.String() + "\x00" + strconv.FormatInt(d.Unix(), 10)))
 	return hex.EncodeToString(h[:])
 }
@@ -125,7 +128,7 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 			continue
 		}
 		if c.store != nil {
-			if data, err := c.store.GetRightsizingChunk(chunkKey(cluster, query, g.step, sp.day)); err == nil && len(data) > 0 {
+			if data, err := c.store.GetRightsizingChunk(chunkKey(cluster, query, g.step, sp.day, metrics.HistoryProvider(ctx))); err == nil && len(data) > 0 {
 				if res, err := decodeSeries(data, keep); err == nil {
 					parts[i] = res
 					c.hits.Add(1)
@@ -201,7 +204,7 @@ func (c *chunker) fetchBatch(ctx context.Context, cluster, query string, step ti
 	for k, i := range b {
 		if c.store != nil {
 			if data, err := encodeSeries(byDay[k]); err == nil {
-				_ = c.store.SaveRightsizingChunk(chunkKey(cluster, query, step, spans[i].day), cluster, spans[i].day.Unix(), data)
+				_ = c.store.SaveRightsizingChunk(chunkKey(cluster, query, step, spans[i].day, metrics.HistoryProvider(ctx)), cluster, spans[i].day.Unix(), data)
 			}
 		}
 		parts[i] = byDay[k]

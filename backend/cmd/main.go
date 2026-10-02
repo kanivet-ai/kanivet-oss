@@ -238,6 +238,7 @@ func main() {
 
 	// Create API handler with dependencies
 	apiHandler := api.NewHandlerWithDeps(k8sClient, cacheInstance.Cache, invalidationBus)
+	defer apiHandler.GetDB().CloseMetricsCache()
 
 	// Create and start cluster status manager for background monitoring
 	statusManager := cluster.NewStatusManager(k8sClient)
@@ -337,6 +338,7 @@ func main() {
 	// Setup FinOps service
 	finopsService := finops.NewService(k8sClient, cacheInstance.Cache)
 	finopsService.SetPodLister(podCache)
+	finopsService.SetMetricsSource(apiHandler.GetMetricsService())
 	finopsHandler := finops.NewHandler(finopsService)
 
 	// Rightsizing reads history through the metrics engine's providers and

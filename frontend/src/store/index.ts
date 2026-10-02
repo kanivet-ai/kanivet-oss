@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { StoreState, BottomTab, MonitoringSettings, ClusterError, ConnectionState, ClusterConnectionState } from './types';
-import { loadMonitoringSettings, rebuildTabIndex, createInitialTabState } from './utils';
+import { rebuildTabIndex, createInitialTabState } from './utils';
 import { resolveListColumns, PrinterColumnCell } from '../utils/resourceListColumns';
 import { createClusterSlice } from './clusterSlice';
 import { createTabSlice } from './tabSlice';
@@ -14,6 +14,7 @@ import { createHelmSlice } from './helmSlice';
 import { createToastSlice } from './toastSlice';
 import { createCloudAuthSlice } from './cloudAuthSlice';
 import { createConnectionSlice } from './connectionSlice';
+import { createMonitoringSlice } from './monitoringSlice';
 import api from '../services/api';
 
 export type { BottomTab, MonitoringSettings, ClusterError, ConnectionState, ClusterConnectionState };
@@ -32,15 +33,7 @@ const useStore = create<StoreState>()((...a) => ({
   ...createCloudAuthSlice(...a),
   ...createConnectionSlice(...a),
 
-  monitoringSettings: loadMonitoringSettings(),
-
-  setMonitoringSettings: (settings: Partial<MonitoringSettings>) => {
-    const [set, get] = a;
-    const current = get().monitoringSettings;
-    const updated = { ...current, ...settings };
-    set({ monitoringSettings: updated });
-    try { localStorage.setItem('kanivet.monitoringSettings', JSON.stringify(updated)); } catch {}
-  },
+  ...createMonitoringSlice(...a),
 
   getDefaultColumns: (resourceKind: string, isNamespaced: boolean = true, printerColumns?: PrinterColumnCell[] | null) => {
     return resolveListColumns({ kind: resourceKind, namespaced: isNamespaced, printerColumns });

@@ -8,6 +8,8 @@ import (
 	"sort"
 	"sync"
 	"time"
+
+	"github.com/kanivet/backend/internal/metrics"
 )
 
 // probeTTL is how long a cluster's optional-signal probe is reused.
@@ -21,17 +23,19 @@ type probeEntry struct {
 var probeCache sync.Map // history cluster -> probeEntry
 
 func (s *Service) cachedProbe(ctx context.Context, cluster string, at time.Time) probe {
-	if e, ok := probeCache.Load(cluster); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
+	key := cluster + "|provider=" + metrics.HistoryProvider(ctx)
+	if e, ok := probeCache.Load(key); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
 		return e.(probeEntry).p
 	}
 	p := probeSignals(ctx, newControlled(s.metrics), cluster, at)
-	probeCache.Store(cluster, probeEntry{p, s.now()})
+	probeCache.Store(key, probeEntry{p, s.now()})
 	return p
 }
 
 // WorkloadQuery names one workload as reports do.
 type WorkloadQuery struct {
 	Cluster, Namespace, VClusterNamespace, Kind, Name string
+	Provider                                          string
 	Profile                                           Profile
 	Window                                            time.Duration
 }
@@ -40,8 +44,9 @@ type WorkloadQuery struct {
 // returns everything the evidence drawer shows. It aligns to the cached
 // report's time so its numbers match the row the user clicked.
 func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, error) {
+	ctx = metrics.WithHistoryProvider(ctx, q.Provider)
 	t := resolveTarget(q.Cluster)
-	info, _ := s.metrics.HistorySource(t.history)
+	info, _ := s.metrics.HistorySource(ctx, t.history)
 	if info == nil || !info.Found {
 		return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
 	}
@@ -61,7 +66,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	}
 
 	asOf := s.now()
-	if rep := s.Cached(q.Cluster, q.Profile, q.Window); rep != nil && rep.Status == StatusReady && s.now().Sub(rep.ComputedAt) < reportTTL {
+	if rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider); rep != nil && rep.Status == StatusReady && s.now().Sub(rep.ComputedAt) < reportTTL {
 		asOf = rep.AsOf
 	}
 	step := stepFor(q.Window)
@@ -87,7 +92,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	sort.Strings(wks)
 	// Someone is waiting on this one: it goes ahead of background reports.
 	ctx = interactive(ctx)
-	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), s.chunks()), t.history, scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}, g, pr, q.Window)
+	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), nil), t.history, scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}, g, pr, q.Window)
 	if err != nil {
 		return nil, err
 	}
@@ -99,7 +104,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	}
 	rates, _ := s.rates.NodeRates(ctx, q.Cluster)
 	var prev map[recKey]prevRec
-	if rep := s.Cached(q.Cluster, q.Profile, q.Window); rep != nil {
+	if rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider); rep != nil {
 		prev = previousRecs(rep)
 	}
 

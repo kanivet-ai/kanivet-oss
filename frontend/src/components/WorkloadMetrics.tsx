@@ -61,9 +61,9 @@ const shortPodName = (fullName: string): string => {
 };
 
 export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind, namespace, name }) => {
-  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettings })));
+  const { monitoringSettings } = useStore(useShallow((s) => ({ monitoringSettings: s.monitoringSettingsByCluster[cluster] || s.monitoringSettings })));
   const theme = useChartTheme();
-  const providerState = useMetricsProvider(cluster);
+  const providerState = useMetricsProvider(cluster, monitoringSettings.preferredProvider);
   const { phase, provider, reason, revision, markUnavailable } = providerState;
 
   const [pods, setPods] = useState<PodInfo[]>([]);
@@ -148,7 +148,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
   useEffect(() => {
     setPodMetricsData({});
     setIsZoomed(false);
-  }, [selectedMetric, selectedTimeRange]);
+  }, [selectedMetric, selectedTimeRange, preferred, revision]);
 
   const handleRefresh = () => {
     setPodMetricsData({});

@@ -340,6 +340,7 @@ const MemoryChartImpl: React.FC<{
       eventsPlugin(
         toEventPoints(events, labels, [
           'oom',
+          'restart',
           'shift-memory',
           'request-change',
         ]),
