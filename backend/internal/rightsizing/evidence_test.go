@@ -3,11 +3,14 @@ package rightsizing
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/metrics"
@@ -135,29 +138,39 @@ func TestEvidenceReusesReportQueriesAndFiltersWorkload(t *testing.T) {
 	}
 }
 
-type cachedEvidenceSource struct {
-	metricsSource
-	fixture *evidenceHistory
-	t       *testing.T
+// evidenceStore persists day chunks in memory and nothing else.
+type evidenceStore struct{ *memChunks }
+
+func (evidenceStore) SaveRightsizingReport(string, string, []byte) error { return nil }
+func (evidenceStore) GetRightsizingReport(string) ([]byte, error)        { return nil, errNoStore }
+func (evidenceStore) ListRightsizingDismissals(string) ([]db.RightsizingDismissal, error) {
+	return nil, nil
+}
+func (evidenceStore) SaveRightsizingDismissal(*db.RightsizingDismissal) error { return nil }
+func (evidenceStore) DeleteRightsizingDismissal(string, string, string, string, string, string) error {
+	return nil
 }
 
-func (s cachedEvidenceSource) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
-	if !metrics.CacheOnly(ctx) {
-		s.t.Error("cached evidence attempted upstream history")
-	}
-	return s.fixture.QueryRange(ctx, cluster, query, start, end, step)
+// offlineSource fails the test on any query: cached evidence must be served
+// from stored chunks alone.
+type offlineSource struct {
+	metricsSource
+	t *testing.T
 }
-func (s cachedEvidenceSource) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error) {
-	if !metrics.CacheOnly(ctx) {
-		s.t.Error("cached evidence attempted upstream probe")
-	}
-	return s.fixture.QueryInstant(ctx, cluster, query, at)
+
+func (s offlineSource) QueryRange(context.Context, string, string, time.Time, time.Time, time.Duration) ([]metrics.HistorySeries, error) {
+	s.t.Error("cached evidence attempted upstream history")
+	return nil, nil
+}
+func (s offlineSource) QueryInstant(context.Context, string, string, time.Time) ([]metrics.HistorySeries, error) {
+	s.t.Error("cached evidence attempted upstream probe")
+	return nil, nil
 }
 
 func TestEvidenceCachedSnapshotThenFreshGrid(t *testing.T) {
 	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
 	h := &evidenceHistory{calls: map[string]int{}}
-	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, nil)
+	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
 	s.now = func() time.Time { return now }
 	cluster := t.Name()
 	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
@@ -165,7 +178,7 @@ func TestEvidenceCachedSnapshotThenFreshGrid(t *testing.T) {
 	rep.ComputedAt = now
 	s.runs[runKey(cluster, ProfileBalanced, defaultWindow, "mimir")] = &run{ready: rep, loaded: true}
 	// Cached evidence must not touch pod listing, discovery, rates or Kubernetes.
-	s.metrics = cachedEvidenceSource{fixture: h, t: t}
+	s.metrics = offlineSource{t: t}
 	s.k8s, s.rates, s.pods = nil, nil, nil
 	now = now.Add(10 * time.Minute)
 	q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
@@ -173,8 +186,16 @@ func TestEvidenceCachedSnapshotThenFreshGrid(t *testing.T) {
 	if err != nil || !cached.AsOf.Equal(rep.AsOf) {
 		t.Fatalf("cached=%v err=%v", cached, err)
 	}
-	if cached.Workload.Containers[0].CPU.P95 != 0.25 {
-		t.Fatal("incorrect cached workload")
+	// Stored days are quantised to 0.1%.
+	if p95 := cached.Workload.Containers[0].CPU.P95; math.Abs(p95-0.25) > 0.001 {
+		t.Fatalf("incorrect cached workload: CPU p95 %v", p95)
+	}
+	// The day in progress came from the report's stored tail, so the drawer
+	// counts the same samples as the row the user clicked.
+	for _, w := range rep.Workloads {
+		if w.Name == "api" && w.Containers[0].Data.Samples != cached.Workload.Containers[0].Data.Samples {
+			t.Fatalf("cached evidence has %d samples, its report row %d", cached.Workload.Containers[0].Data.Samples, w.Containers[0].Data.Samples)
+		}
 	}
 	s.metrics, s.k8s, s.rates, s.pods = h, &k8s.MockClient{}, evidenceFixtures{}, evidenceFixtures{}
 	q.CacheOnly, q.Refresh = false, true
@@ -183,7 +204,70 @@ func TestEvidenceCachedSnapshotThenFreshGrid(t *testing.T) {
 		t.Fatalf("fresh=%v err=%v", fresh, err)
 	}
 	q.CacheOnly, q.Refresh, q.Provider = true, false, "prometheus"
-	if _, err := s.GetEvidence(ctx, q); err != metrics.ErrCacheMiss {
+	if _, err := s.GetEvidence(ctx, q); err != errNotCached {
 		t.Fatalf("provider switch reused snapshot: %v", err)
+	}
+}
+
+// With a chunk store, evidence reads the report's finished days from it and
+// asks the store only for the day in progress.
+func TestEvidenceReadsReportChunks(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	h := &evidenceHistory{calls: map[string]int{}}
+	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
+	s.now = func() time.Time { return now }
+	cluster := t.Name()
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	rep := s.compute(ctx, cluster, ProfileBalanced, defaultWindow, nil, func(Progress) {})
+	rep.ComputedAt = now
+	s.runs[runKey(cluster, ProfileBalanced, defaultWindow, "mimir")] = &run{ready: rep, readyAt: now, loaded: true}
+	before := map[string]int{}
+	for k, v := range h.calls {
+		before[k] = v
+	}
+	if _, err := s.GetEvidence(ctx, WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow}); err != nil {
+		t.Fatal(err)
+	}
+	today := now.Truncate(day).Unix()
+	for key, n := range h.calls {
+		if n == before[key] {
+			continue
+		}
+		parts := strings.Split(key, "|")
+		start, _ := strconv.ParseInt(parts[len(parts)-3], 10, 64)
+		if start < today {
+			t.Errorf("evidence re-fetched a finished day the report cached: %s", key)
+		}
+	}
+}
+
+// A second report reads finished days from the chunk store and asks the
+// metrics store only for the day in progress.
+func TestReportReadsCachedDays(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	h := &evidenceHistory{calls: map[string]int{}}
+	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
+	s.now = func() time.Time { return now }
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	if rep := s.compute(ctx, t.Name(), ProfileBalanced, defaultWindow, nil, func(Progress) {}); rep.Status != StatusReady {
+		t.Fatalf("first report: %s %s", rep.Status, rep.Error)
+	}
+	before := map[string]int{}
+	for k, v := range h.calls {
+		before[k] = v
+	}
+	now = now.Add(time.Hour)
+	if rep := s.compute(ctx, t.Name(), ProfileBalanced, defaultWindow, nil, func(Progress) {}); rep.Status != StatusReady {
+		t.Fatalf("second report: %s %s", rep.Status, rep.Error)
+	}
+	today := now.Truncate(day).Unix()
+	for key, n := range h.calls {
+		if n == before[key] {
+			continue
+		}
+		parts := strings.Split(key, "|")
+		if start, _ := strconv.ParseInt(parts[len(parts)-3], 10, 64); start < today {
+			t.Errorf("second report re-fetched a cached day: %s", key)
+		}
 	}
 }

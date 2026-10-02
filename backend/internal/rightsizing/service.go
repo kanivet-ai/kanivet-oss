@@ -579,13 +579,19 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 
 	progress(Progress{Stage: "Checking which signals the metrics store has"})
 	// Every query goes through the cluster's adaptive limiter; range queries
-	// also through the shared metrics cache below the limiter.
+	// also through the day-chunk cache, above it, so a cached day takes no
+	// slot.
+	ctx = s.withSourceOf(ctx, t.history)
 	cq := newControlled(s.metrics)
-	ch := newChunker(cq, nil)
+	ch := newChunker(cq, s.chunks())
+	ch.tails = true
 	defer func() {
 		st := limiterFor(t.history).state()
-		log.Printf("[Rightsizing] %s: %d queries through the metrics cache, limit %.1f (grew %d, queue cuts %d, overload cuts %d, max latency ratio %.1f)",
-			cluster, cq.count(), st.Limit, st.Grows, st.QueueCuts, st.OverloadCuts, st.MaxRatio)
+		log.Printf("[Rightsizing] %s: %d queries to the metrics store, %d day chunks from cache, %d fetched, limit %.1f (grew %d, queue cuts %d, overload cuts %d, max latency ratio %.1f)",
+			cluster, cq.count(), ch.hits.Load(), ch.misses.Load(), st.Limit, st.Grows, st.QueueCuts, st.OverloadCuts, st.MaxRatio)
+		if p, ok := s.store.(interface{ PruneRightsizingChunks() }); ok && s.store != nil {
+			p.PruneRightsizingChunks()
+		}
 	}()
 	stopWatch := watchPause(t.history, progress)
 	defer stopWatch()
@@ -602,8 +608,8 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		pr.inPlace = supportsInPlaceResize(cs)
 	}
 	rates, _ := s.rates.NodeRates(ctx, cluster)
-	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates}
-	probeCache.Store(t.history+"|provider="+metrics.HistoryProvider(ctx), probeEntry{pr, s.now()})
+	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates, source: historySource(ctx)}
+	probeCache.Store(probeKey(ctx, t.history), probeEntry{pr, s.now()})
 	dismissals := s.dismissalIndex(cluster)
 
 	byNS := map[string][]*liveWorkload{}
@@ -644,6 +650,7 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 			h, err := fetchHistory(ctx, ch, t.history, scope{namespace: ns, want: want, jobs: jobs}, g, pr, window)
 			var out []WorkloadReport
 			if err == nil {
+				rep.evidenceInputs.setStarts(ns, h.starts)
 				for _, w := range byNS[ns] {
 					wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, rates, prevRecs)
 					if wr != nil {
@@ -1275,6 +1282,17 @@ func (s *Service) Undismiss(req DismissRequest) error {
 		return errNoStore
 	}
 	return s.store.DeleteRightsizingDismissal(req.Cluster, req.Namespace, req.VClusterNamespace, req.Kind, req.Name, req.Container)
+}
+
+// chunks is the day-chunk cache, or nil without a database.
+func (s *Service) chunks() chunkStore {
+	if s.store == nil {
+		return nil
+	}
+	if c, ok := s.store.(chunkStore); ok {
+		return c
+	}
+	return nil
 }
 
 // watchPause keeps the report's progress line honest while the circuit

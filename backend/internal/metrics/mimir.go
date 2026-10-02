@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -21,7 +22,7 @@ import (
 type MimirProvider struct {
 	k8s             k8s.Interface
 	cache           *cache.Cache
-	queries         *queryCache
+	queries         *queryCache // chart answers only, never history
 	portForwardPool sync.Map
 	// tenantLookup returns the X-Scope-OrgID to send for a given cluster.
 	// Multi-tenant Mimir silently returns empty results when this header is
@@ -588,6 +589,21 @@ func (p *MimirProvider) Install(cluster string, namespace string) error {
 	return fmt.Errorf("mimir installation is not supported - please install via Helm chart: helm install mimir grafana/mimir-distributed")
 }
 
+// chartGet runs a chart's range query through the chart cache.
+func (p *MimirProvider) chartGet(ctx context.Context, cluster string, params url.Values) (io.ReadCloser, error) {
+	info, err := p.Detect(cluster)
+	if err != nil || !info.Found {
+		return nil, fmt.Errorf("mimir not detected in cluster: %w", ErrNoHistorySource)
+	}
+	tenant := ""
+	if p.tenantLookup != nil {
+		tenant = p.tenantLookup(cluster)
+	}
+	return p.queries.prom(ctx, querySource(cluster, info, tenant), "/api/v1/query_range", params, func(params url.Values) (io.ReadCloser, error) {
+		return p.promGet(ctx, cluster, "/api/v1/query_range", params)
+	})
+}
+
 func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
 	promQL := p.buildPromQuery(query)
 	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
@@ -596,7 +612,7 @@ func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*Metric
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	bodyStream, err := p.promGet(ctx, cluster, "/api/v1/query_range", params)
+	bodyStream, err := p.chartGet(ctx, cluster, params)
 	if err != nil {
 		return nil, err
 	}
@@ -702,7 +718,7 @@ func (p *MimirProvider) QueryWorkloadMetrics(cluster string, query WorkloadMetri
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	bodyStream, err := p.promGet(ctx, cluster, "/api/v1/query_range", params)
+	bodyStream, err := p.chartGet(ctx, cluster, params)
 	if err != nil {
 		return nil, err
 	}

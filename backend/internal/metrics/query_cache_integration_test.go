@@ -46,7 +46,10 @@ func TestQueryCacheReusesSeriesAfterRestart(t *testing.T) {
 	}
 }
 
-func TestChartsAndHistoryShareProviderCache(t *testing.T) {
+// History is read by rightsizing, which caches finished days itself above
+// its load limiter; a second cache below the limiter would skew it, so
+// history queries must always reach the store.
+func TestHistoryBypassesChartCache(t *testing.T) {
 	for _, kind := range []string{"prometheus", "mimir"} {
 		t.Run(kind, func(t *testing.T) {
 			var mu sync.Mutex
@@ -105,7 +108,7 @@ func TestChartsAndHistoryShareProviderCache(t *testing.T) {
 			}
 			mu.Lock()
 			defer mu.Unlock()
-			if len(calls) != 2 || calls[1] != [2]int64{span[1] + 60, span[1] + 60} {
+			if len(calls) != 3 || calls[1] != span || calls[2] != [2]int64{span[0], span[1] + 60} {
 				t.Fatalf("chart/history queries=%v", calls)
 			}
 		})

@@ -106,3 +106,33 @@ func (s *probeSource) QueryInstant(ctx context.Context, _, _ string, _ time.Time
 	s.seen[metrics.HistoryProvider(ctx)] = true
 	return nil, nil
 }
+
+// Two stores of the same provider type, such as two Mimir tenants, must not
+// share cached days.
+func TestChunksKeyedByHistorySource(t *testing.T) {
+	now := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	q := &countingStore{}
+	c := newChunker(q, &memChunks{data: map[string][]byte{}})
+	c.now = func() time.Time { return now }
+	g := newGrid(now.Add(-2*day), day, time.Hour)
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	teamA := withHistorySource(ctx, "mimir|http://mimir-nginx.mimir:80|mimir|mimir-nginx|80|/prometheus|team-a")
+	teamB := withHistorySource(ctx, "mimir|http://mimir-nginx.mimir:80|mimir|mimir-nginx|80|/prometheus|team-b")
+	if _, err := c.rangeQuery(teamA, "cluster", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	calls := q.calls
+	if _, err := c.rangeQuery(teamB, "cluster", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	if q.calls == calls {
+		t.Fatal("tenant B was served tenant A's cached days")
+	}
+	calls = q.calls
+	if _, err := c.rangeQuery(teamA, "cluster", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	if q.calls != calls {
+		t.Fatal("same-source history was not cached")
+	}
+}

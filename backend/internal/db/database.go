@@ -137,8 +137,6 @@ func New() (*DB, error) {
 	}
 	if err := dbInstance.OpenMetricsCache(filepath.Join(dbDir, "cache", "metrics.db")); err != nil {
 		log.Printf("[DB] metrics disk cache unavailable, using bounded memory cache: %v", err)
-	} else if err := dbInstance.RetireRightsizingChunks(); err != nil {
-		log.Printf("[DB] could not remove superseded rightsizing history cache: %v", err)
 	}
 
 	// One-time schema steps for databases created by earlier releases.

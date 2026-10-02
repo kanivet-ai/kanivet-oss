@@ -458,15 +458,8 @@ func (c *controlled) do(ctx context.Context, cluster, class string, call func() 
 }
 
 func (c *controlled) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
-	if metrics.CacheOnly(ctx) {
-		return c.q.QueryRange(ctx, cluster, query, start, end, step)
-	}
-	if q, ok := c.q.(interface {
-		CachedQueryRange(context.Context, string, string, time.Time, time.Time, time.Duration) ([]metrics.HistorySeries, error)
-	}); ok {
-		if res, err := q.CachedQueryRange(ctx, cluster, query, start, end, step); err == nil {
-			return res, nil
-		}
+	if chunksOnly(ctx) {
+		return nil, errNotCached
 	}
 	return c.do(ctx, cluster, queryClass(query), func() ([]metrics.HistorySeries, error) {
 		return c.q.QueryRange(ctx, cluster, query, start, end, step)
@@ -474,15 +467,8 @@ func (c *controlled) QueryRange(ctx context.Context, cluster, query string, star
 }
 
 func (c *controlled) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error) {
-	if metrics.CacheOnly(ctx) {
-		return c.q.QueryInstant(ctx, cluster, query, at)
-	}
-	if q, ok := c.q.(interface {
-		CachedQueryInstant(context.Context, string, string, time.Time) ([]metrics.HistorySeries, error)
-	}); ok {
-		if res, err := q.CachedQueryInstant(ctx, cluster, query, at); err == nil {
-			return res, nil
-		}
+	if chunksOnly(ctx) {
+		return nil, errNotCached
 	}
 	return c.do(ctx, cluster, "instant:"+queryClass(query), func() ([]metrics.HistorySeries, error) {
 		return c.q.QueryInstant(ctx, cluster, query, at)
