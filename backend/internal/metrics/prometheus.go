@@ -3,6 +3,7 @@ package metrics
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/k8s"
@@ -16,6 +17,7 @@ import (
 	"math"
 	"net"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -25,9 +27,9 @@ import (
 type PrometheusProvider struct {
 	k8s             k8s.Interface
 	cache           *cache.Cache
-	queries         *queryCache
-	portForwardPool sync.Map // cluster -> *PortForwardInfo
-	recreateState   sync.Map // cluster -> *recreateTracker
+	queries         *queryCache // chart answers only, never history
+	portForwardPool sync.Map    // cluster -> *PortForwardInfo
+	recreateState   sync.Map    // cluster -> *recreateTracker
 }
 
 type PortForwardInfo struct {
@@ -572,6 +574,24 @@ func (p *PrometheusProvider) Install(cluster string, namespace string) error {
 	return nil
 }
 
+// chartGet runs a chart's range query through the chart cache. Charts have
+// no retry logic of their own, so a query that found its port-forward dead is
+// asked once more over the fresh one; history queries leave that to
+// rightsizing's retry budget.
+func (p *PrometheusProvider) chartGet(ctx context.Context, cluster string, params url.Values) (io.ReadCloser, error) {
+	info, err := p.Detect(cluster)
+	if err != nil || !info.Found {
+		return nil, fmt.Errorf("prometheus not found in cluster: %w", ErrNoHistorySource)
+	}
+	return p.queries.prom(ctx, querySource(cluster, info, ""), "/api/v1/query_range", params, func(params url.Values) (io.ReadCloser, error) {
+		body, err := p.promGet(ctx, cluster, "/api/v1/query_range", params)
+		if errors.Is(err, errPortForwardDropped) {
+			body, err = p.promGet(ctx, cluster, "/api/v1/query_range", params)
+		}
+		return body, err
+	})
+}
+
 func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
 	promQL := p.buildPromQL(query)
 	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
@@ -580,7 +600,7 @@ func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*M
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	bodyStream, err := p.promGet(ctx, cluster, "/api/v1/query_range", params)
+	bodyStream, err := p.chartGet(ctx, cluster, params)
 	if err != nil {
 		return nil, err
 	}
@@ -685,7 +705,7 @@ func (p *PrometheusProvider) QueryWorkloadMetrics(cluster string, query Workload
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	bodyStream, err := p.promGet(ctx, cluster, "/api/v1/query_range", params)
+	bodyStream, err := p.chartGet(ctx, cluster, params)
 	if err != nil {
 		return nil, err
 	}

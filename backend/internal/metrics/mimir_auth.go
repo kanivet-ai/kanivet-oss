@@ -2,7 +2,7 @@ package metrics
 
 import (
 	"context"
-	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -48,6 +48,28 @@ func requiresBasicAuth(resp *http.Response) bool {
 	return false
 }
 
+const (
+	// credentialsTTL is how long discovered credentials are reused before
+	// the collector configuration is read again.
+	credentialsTTL = 5 * time.Minute
+	// missingCredentialsTTL is how long a failed discovery is remembered, so
+	// a cluster without readable credentials isn't listed on every request.
+	missingCredentialsTTL = time.Minute
+	// credentialDiscoveryTimeout bounds one discovery, which runs apart from
+	// any caller's request so one cancelled caller can't fail the others
+	// waiting on it.
+	credentialDiscoveryTimeout = 15 * time.Second
+)
+
+// MimirAuthError means the gateway asked for Basic credentials and none could
+// be found or the ones found were rejected. It says nothing about the
+// port-forward, which stays usable.
+type MimirAuthError struct{ Problem string }
+
+func (e *MimirAuthError) Error() string {
+	return "Mimir requires Basic authentication; " + e.Problem
+}
+
 func (t *mimirAuthTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	key := "mimir-auth:" + mimirPoolKey(t.cluster, &t.info)
 	send := func(credentials *mimirCredentials) (*http.Response, error) {
@@ -65,35 +87,72 @@ func (t *mimirAuthTransport) RoundTrip(req *http.Request) (*http.Response, error
 	if err != nil || !requiresBasicAuth(resp) {
 		return resp, err
 	}
+	// Read what is left of the challenge so the connection is reused.
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
 	resp.Body.Close()
 	if credentials != nil {
+		// Resolve again after a rejection so a rotated Secret works immediately.
 		t.provider.cache.Delete(key)
 	}
-	// Resolve again after a rejection so a rotated Secret works immediately.
-	cached, err := t.provider.cache.GetOrSet(key, 5*time.Minute, func() (any, error) {
-		return t.provider.discoverCredentials(req.Context(), t.cluster, &t.info)
-	})
+	credentials, err = t.credentials(req.Context(), key)
 	if err != nil {
 		return nil, err
 	}
-	resp, err = send(cached.(*mimirCredentials))
+	resp, err = send(credentials)
 	if err == nil && requiresBasicAuth(resp) {
 		t.provider.cache.Delete(key)
+		t.provider.cache.Set(key+":missing", &MimirAuthError{Problem: "the collector's credentials were rejected"}, missingCredentialsTTL)
 	}
 	return resp, err
+}
+
+// credentials returns the gateway's credentials, discovering them at most
+// once at a time per gateway. The caller stops waiting when its own request
+// ends; the discovery carries on for the others.
+func (t *mimirAuthTransport) credentials(ctx context.Context, key string) (*mimirCredentials, error) {
+	if missing, ok := t.provider.cache.Get(key + ":missing"); ok {
+		return nil, missing.(*MimirAuthError)
+	}
+	type result struct {
+		credentials any
+		err         error
+	}
+	done := make(chan result, 1)
+	go func() {
+		v, err := t.provider.cache.GetOrSet(key, credentialsTTL, func() (any, error) {
+			dctx, cancel := context.WithTimeout(context.Background(), credentialDiscoveryTimeout)
+			defer cancel()
+			credentials, err := t.provider.discoverCredentials(dctx, t.cluster, &t.info)
+			if err != nil {
+				t.provider.cache.Set(key+":missing", err, missingCredentialsTTL)
+				return nil, err
+			}
+			return credentials, nil
+		})
+		done <- result{v, err}
+	}()
+	select {
+	case r := <-done:
+		if r.err != nil {
+			return nil, r.err
+		}
+		return r.credentials.(*mimirCredentials), nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
 
 // Read only Secret keys explicitly referenced by collectors writing to this
 // Service. A similarly named Secret or another Mimir instance is not evidence
 // that credentials belong to the selected gateway.
-func (p *MimirProvider) discoverCredentials(ctx context.Context, cluster string, info *ProviderInfo) (*mimirCredentials, error) {
+func (p *MimirProvider) discoverCredentials(ctx context.Context, cluster string, info *ProviderInfo) (*mimirCredentials, *MimirAuthError) {
 	dynamicClient, err := p.k8s.GetDynamicClient(cluster)
 	if err != nil {
-		return nil, fmt.Errorf("Mimir requires Basic authentication; cannot inspect collector configuration")
+		return nil, &MimirAuthError{Problem: "cannot inspect collector configuration"}
 	}
 	client, err := p.k8s.GetClientForCluster(cluster)
 	if err != nil {
-		return nil, fmt.Errorf("Mimir requires Basic authentication; cannot read credential Secrets")
+		return nil, &MimirAuthError{Problem: "cannot read credential Secrets"}
 	}
 	var problem string
 	for _, resource := range []schema.GroupVersionResource{
@@ -148,7 +207,7 @@ func (p *MimirProvider) discoverCredentials(ctx context.Context, cluster string,
 	if problem == "" {
 		problem = "no collector references Basic-auth credentials for the selected Service"
 	}
-	return nil, fmt.Errorf("Mimir requires Basic authentication; %s", problem)
+	return nil, &MimirAuthError{Problem: problem}
 }
 
 func mimirWriteTargetsService(endpoint, collectorNamespace string, info *ProviderInfo) bool {
