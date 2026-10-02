@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"container/list"
 	"context"
@@ -489,19 +490,19 @@ func mergeQuerySpans(spans []querySpan, step int64) []querySpan {
 
 // Replace the fetched interval, including absent/stale series, rather than
 // appending over old samples. Label identity is independent of map order.
+// Samples are in time order on both sides (Prometheus answers that way and
+// blocks are stored that way), so each series is old samples before the
+// interval, fresh ones inside it, then old ones after it: no sort needed.
 func replaceQuerySeries(old, fresh []querySeries, start, end int64) []querySeries {
+	type parts struct{ before, inside, after []querySample }
 	out := make([]querySeries, 0, len(old)+len(fresh))
+	pieces := make([]parts, 0, len(old)+len(fresh))
 	index := make(map[string]int)
 	for _, s := range old {
-		values := make([]querySample, 0, len(s.Values))
-		for _, v := range s.Values {
-			if t := v.timestamp(); t < start || t > end {
-				values = append(values, v)
-			}
-		}
-		s.Values = values
+		lo, hi := sampleRange(s.Values, start, end)
 		index[labelKey(s.Metric)] = len(out)
-		out = append(out, s)
+		out = append(out, querySeries{Metric: s.Metric, Histograms: s.Histograms})
+		pieces = append(pieces, parts{before: s.Values[:lo], after: s.Values[hi:]})
 	}
 	for _, s := range fresh {
 		key := labelKey(s.Metric)
@@ -509,26 +510,31 @@ func replaceQuerySeries(old, fresh []querySeries, start, end int64) []querySerie
 		if !ok {
 			i = len(out)
 			index[key] = i
-			out = append(out, querySeries{Metric: s.Metric, Values: []querySample{}})
+			out = append(out, querySeries{Metric: s.Metric})
+			pieces = append(pieces, parts{})
 		}
-		for _, v := range s.Values {
-			if t := v.timestamp(); t >= start && t <= end {
-				out[i].Values = append(out[i].Values, v)
-			}
+		lo, hi := sampleRange(s.Values, start, end)
+		pieces[i].inside = s.Values[lo:hi]
+	}
+	kept := out[:0]
+	for i, s := range out {
+		p := pieces[i]
+		n := len(p.before) + len(p.inside) + len(p.after)
+		if n == 0 {
+			continue
 		}
+		// A fresh copy: the inputs' arrays belong to cached blocks and answers.
+		s.Values = slices.Concat(p.before, p.inside, p.after)
+		kept = append(kept, s)
 	}
-	for i := range out {
-		slices.SortFunc(out[i].Values, func(a, b querySample) int {
-			if a.timestamp() < b.timestamp() {
-				return -1
-			}
-			if a.timestamp() > b.timestamp() {
-				return 1
-			}
-			return 0
-		})
-	}
-	return slices.DeleteFunc(out, func(s querySeries) bool { return len(s.Values) == 0 })
+	return kept
+}
+
+// sampleRange returns the indexes [lo, hi) of the samples within [start, end].
+func sampleRange(values []querySample, start, end int64) (int, int) {
+	lo, _ := slices.BinarySearchFunc(values, start, func(v querySample, t int64) int { return cmp.Compare(v.timestamp(), t) })
+	hi, _ := slices.BinarySearchFunc(values, end+1, func(v querySample, t int64) int { return cmp.Compare(v.timestamp(), t) })
+	return lo, hi
 }
 
 func labelKey(labels map[string]string) string {
