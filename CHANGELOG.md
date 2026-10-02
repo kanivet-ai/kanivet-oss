@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.5.0...v0.6.0) (2026-10-02)
+
+
+### Features
+
+* improve cluster metrics settings and rightsizing ([#40](https://github.com/kanivet-ai/kanivet-oss/issues/40)) ([300af92](https://github.com/kanivet-ai/kanivet-oss/commit/300af92bf85b1d3ea07930a7e204eed6b3fbb4eb))
+* rightsizing ([#38](https://github.com/kanivet-ai/kanivet-oss/issues/38)) ([c5ad944](https://github.com/kanivet-ai/kanivet-oss/commit/c5ad94472c339ab2eb67ace8032b0ec8fa49c357))
+
+
+### Bug Fixes
+
+* **db:** close the rightsizing cache before the test removes its dire… ([#39](https://github.com/kanivet-ai/kanivet-oss/issues/39)) ([ba8d871](https://github.com/kanivet-ai/kanivet-oss/commit/ba8d8713bb9fa2038b36d8d4bfe1ec32f0ccd269))
+
+
+### Performance
+
+* share one watch-backed pod cache between the overview and FinOps ([#36](https://github.com/kanivet-ai/kanivet-oss/issues/36)) ([f0031d6](https://github.com/kanivet-ai/kanivet-oss/commit/f0031d68a243030eefb6ef183042a18c4fdd4cb3))
+
 ## [0.5.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.4.0...v0.5.0) (2026-10-01)
 
 
