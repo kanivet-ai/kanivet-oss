@@ -86,6 +86,16 @@ func keyOf(labels map[string]string) seriesKey {
 	return seriesKey{labels["namespace"], labels["vns"], labels["wk"], labels["container"]}
 }
 
+// podSelector restricts a query to pods that could belong to the given
+// workloads: every pod name starts with its workload key.
+func podSelector(wks []string) string {
+	alts := make([]string, len(wks))
+	for i, wk := range wks {
+		alts[i] = regexp.QuoteMeta(wk)
+	}
+	return fmt.Sprintf(`pod=~"(%s).*"`, promString(strings.Join(alts, "|")))
+}
+
 // promString escapes a value for use inside a PromQL double-quoted string.
 func promString(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s)

@@ -48,6 +48,10 @@ type chunker struct {
 	// grid. Only a report sets it: evidence asks about one workload, and its
 	// narrower answer must not replace the report's.
 	tails bool
+	// live, if set, rewrites the query for the day in progress, which no
+	// cache answers: evidence narrows it to one workload's pods. Its answer
+	// is never stored, as it isn't the query the key names.
+	live func(query string) string
 
 	hits, misses atomic.Int64
 }
@@ -225,8 +229,12 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 			if keep != nil {
 				lctx = metrics.WithSeriesFilter(ctx, keep)
 			}
-			parts[i], errs[len(batches)+li] = c.fetchSpan(lctx, cluster, query, spans[i].start, spans[i].end, g.step)
-			if errs[len(batches)+li] == nil {
+			q := query
+			if c.live != nil {
+				q = c.live(query)
+			}
+			parts[i], errs[len(batches)+li] = c.fetchSpan(lctx, cluster, q, spans[i].start, spans[i].end, g.step)
+			if errs[len(batches)+li] == nil && c.live == nil {
 				c.saveTail(cluster, query, g.step, spans[i], source, parts[i])
 			}
 		}()

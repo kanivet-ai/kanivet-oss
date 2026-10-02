@@ -3,6 +3,7 @@ package rightsizing
 import (
 	"context"
 	"fmt"
+	"maps"
 	"math"
 	"slices"
 	"sync"
@@ -155,19 +156,22 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	}
 	step := g.step
 
+	wkSet := map[string]struct{}{}
 	want := map[seriesKey]struct{}{}
 	for _, keys := range w.keys {
 		for k := range keys {
+			wkSet[k.wk] = struct{}{}
 			want[k] = struct{}{}
 		}
 	}
+	wks := slices.Sorted(maps.Keys(wkSet))
 	var jobs map[seriesKey]struct{}
 	if w.isJob {
 		jobs = want
 	}
 	// Someone is waiting on this one: it goes ahead of background reports.
 	ctx = interactive(ctx)
-	sc := scope{namespace: w.hostNamespace, want: want, jobs: jobs}
+	sc := scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}
 	if inputs != nil {
 		sc.starts = inputs.startsIn(w.hostNamespace)
 	}

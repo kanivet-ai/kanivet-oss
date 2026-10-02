@@ -117,12 +117,34 @@ func TestEvidenceReusesReportQueriesAndFiltersWorkload(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			// Finished days are the report's own queries. The day in progress,
+			// which nothing caches, is asked for the workload's pods alone.
+			const narrow = `,pod=~"(api).*"`
+			today := now.UTC().Truncate(day).Unix()
+			narrowed := 0
 			for key, count := range h.calls {
-				if !reportQueries[key] {
-					t.Errorf("evidence issued a query the report did not cache: %s", key)
-				} else if count != 2 {
+				parts := strings.Split(key, "|")
+				start, _ := strconv.ParseInt(parts[len(parts)-3], 10, 64)
+				live := start >= today
+				switch {
+				case strings.Contains(key, narrow):
+					narrowed++
+					if !live {
+						t.Errorf("a finished day was narrowed, so it can't come from the report's days: %s", key)
+					}
+					if !reportQueries[strings.ReplaceAll(key, narrow, "")] {
+						t.Errorf("narrowed query is not one the report ran: %s", key)
+					}
+				case !reportQueries[key]:
+					t.Errorf("evidence issued a query the report did not run: %s", key)
+				case live && count != 1:
+					t.Errorf("evidence asked for the whole namespace's day in progress: %s", key)
+				case !live && count != 2:
 					t.Errorf("report query not reused by evidence (calls=%d): %s", count, key)
 				}
+			}
+			if narrowed == 0 {
+				t.Error("evidence did not ask for its day in progress")
 			}
 			if len(ev.Workload.Containers) != 1 {
 				t.Fatalf("containers=%d", len(ev.Workload.Containers))
