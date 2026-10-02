@@ -166,24 +166,6 @@ func (db *DB) GetRightsizingChunk(key string) ([]byte, error) {
 	return c.Data, nil
 }
 
-// RetireRightsizingChunks releases the old, separate time-series budget.
-// Computed reports and dismissals stay in their existing tables.
-func (db *DB) RetireRightsizingChunks() error {
-	result := db.cache().Where("1 = 1").Delete(&RightsizingChunk{})
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected > 0 && db.rsCache != nil {
-		if rows, err := db.rsCache.Raw("PRAGMA incremental_vacuum").Rows(); err == nil {
-			for rows.Next() {
-			}
-			rows.Close()
-		}
-		db.rsCache.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
-	}
-	return nil
-}
-
 func (db *DB) SaveRightsizingChunk(key, cluster string, day int64, data []byte) error {
 	c := RightsizingChunk{Key: key, Cluster: cluster, Day: day, Data: data, Bytes: len(data), LastUsed: time.Now().Unix()}
 	return db.cache().Clauses(clause.OnConflict{

@@ -79,31 +79,3 @@ func TestMetricsCacheConcurrentWritesStayBounded(t *testing.T) {
 		t.Fatalf("concurrent cache size=%d", size)
 	}
 }
-
-func TestRetireRightsizingChunksPreservesReportsAndDismissals(t *testing.T) {
-	d := newTestDB(t)
-	if err := d.MigrateRightsizing(); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.SaveRightsizingChunk("chunk", "cluster", 1, []byte("old")); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.SaveRightsizingReport("report", "cluster", []byte("report")); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.SaveRightsizingDismissal(&RightsizingDismissal{Cluster: "cluster", Namespace: "apps", Kind: "Deployment", Name: "api"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.RetireRightsizingChunks(); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := d.GetRightsizingChunk("chunk"); err == nil {
-		t.Fatal("legacy chunks not removed")
-	}
-	if _, err := d.GetRightsizingReport("report"); err != nil {
-		t.Fatal(err)
-	}
-	if got, err := d.ListRightsizingDismissals("cluster"); err != nil || len(got) != 1 {
-		t.Fatalf("dismissals=%v, %v", got, err)
-	}
-}

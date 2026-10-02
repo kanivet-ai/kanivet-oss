@@ -23,13 +23,29 @@ type probeEntry struct {
 var probeCache sync.Map // history cluster -> probeEntry
 
 func (s *Service) cachedProbe(ctx context.Context, cluster string, at time.Time) probe {
-	key := cluster + "|provider=" + metrics.HistoryProvider(ctx)
+	key := probeKey(ctx, cluster)
 	if e, ok := probeCache.Load(key); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
 		return e.(probeEntry).p
 	}
 	p := probeSignals(ctx, newControlled(s.metrics), cluster, at)
 	probeCache.Store(key, probeEntry{p, s.now()})
 	return p
+}
+
+// probeKey keeps each history store's signals apart.
+func probeKey(ctx context.Context, cluster string) string {
+	return cluster + "|source=" + historySource(ctx)
+}
+
+// withSourceOf records in ctx which store answers the cluster's history, so
+// cached days are keyed by it.
+func (s *Service) withSourceOf(ctx context.Context, cluster string) context.Context {
+	if k, ok := s.metrics.(interface {
+		HistorySourceKey(ctx context.Context, cluster string) string
+	}); ok {
+		return withHistorySource(ctx, k.HistorySourceKey(ctx, cluster))
+	}
+	return ctx
 }
 
 // WorkloadQuery names one workload as reports do.
@@ -41,17 +57,46 @@ type WorkloadQuery struct {
 	CacheOnly, Refresh                                bool
 }
 
-// Only metadata is retained with the report; history stays in the bounded metrics cache.
+// evidenceInputs is what a report knew besides history, kept with it so the
+// evidence drawer can show its numbers straight from the day-chunk cache
+// without asking Kubernetes or the metrics store anything.
 type evidenceInputs struct {
 	workloads []*liveWorkload
 	probe     probe
 	hpas      map[string]*hpaTarget
 	rates     map[string]finops.Rates
+	source    string // history store the report's chunks are keyed by
+
+	mu     sync.Mutex
+	starts map[string]map[string]int64 // pod start times per host namespace
 }
 
-// GetEvidence recomputes one workload's analysis from shared namespace history and
-// returns everything the evidence drawer shows. It aligns to the cached
+func (e *evidenceInputs) setStarts(namespace string, starts map[string]int64) {
+	if starts == nil {
+		return
+	}
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.starts == nil {
+		e.starts = map[string]map[string]int64{}
+	}
+	e.starts[namespace] = starts
+}
+
+func (e *evidenceInputs) startsIn(namespace string) map[string]int64 {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.starts[namespace]
+}
+
+// GetEvidence recomputes one workload's analysis from its namespace's history
+// and returns everything the evidence drawer shows. It aligns to the cached
 // report's time so its numbers match the row the user clicked.
+//
+// With CacheOnly it reads nothing but the report's stored days, including the
+// day in progress the report stored for its own grid, and fails with
+// errNotCached when they're missing; the drawer shows that at once and then
+// asks again without it for fresh numbers.
 func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, error) {
 	ctx = metrics.WithHistoryProvider(ctx, q.Provider)
 	t := resolveTarget(q.Cluster)
@@ -60,23 +105,25 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	var pr probe
 	var hpas map[string]*hpaTarget
 	var rates map[string]finops.Rates
+	var inputs *evidenceInputs
 	asOf := s.now()
 	if !q.Refresh && rep != nil && rep.Status == StatusReady && (q.CacheOnly || s.now().Sub(rep.ComputedAt) < reportTTL) {
 		asOf = rep.AsOf
 	}
 	g := newGrid(asOf, q.Window, stepFor(q.Window))
 	if q.CacheOnly {
-		if rep == nil || rep.evidenceInputs == nil {
-			return nil, metrics.ErrCacheMiss
+		if rep == nil || rep.Status != StatusReady || rep.evidenceInputs == nil {
+			return nil, errNotCached
 		}
-		ctx = metrics.WithCacheOnly(ctx, true)
-		inputs := rep.evidenceInputs
+		inputs = rep.evidenceInputs
+		ctx = withChunksOnly(withHistorySource(ctx, inputs.source))
 		workloads, pr, hpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.rates
 	} else {
 		info, _ := s.metrics.HistorySource(ctx, t.history)
 		if info == nil || !info.Found {
 			return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
 		}
+		ctx = s.withSourceOf(ctx, t.history)
 		pods, err := s.listPods(ctx, t)
 		if err != nil {
 			return nil, err
@@ -108,13 +155,17 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	}
 	// Someone is waiting on this one: it goes ahead of background reports.
 	ctx = interactive(ctx)
-	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), nil), t.history, scope{namespace: w.hostNamespace, want: want, jobs: jobs}, g, pr, q.Window)
+	sc := scope{namespace: w.hostNamespace, want: want, jobs: jobs}
+	if inputs != nil {
+		sc.starts = inputs.startsIn(w.hostNamespace)
+	}
+	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), s.chunks()), t.history, sc, g, pr, q.Window)
 	if err != nil {
 		return nil, err
 	}
 
 	if q.CacheOnly && (len(h.cpu) == 0 || len(h.mem) == 0) {
-		return nil, metrics.ErrCacheMiss
+		return nil, errNotCached
 	}
 	if !q.CacheOnly {
 		if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
