@@ -98,3 +98,7 @@ export const requestedProvider = (preferred: string | undefined): 'prometheus' |
   if (preferred === 'prometheus' || preferred === 'mimir' || preferred === 'metrics-server') return preferred;
   return undefined;
 };
+
+/** Whether the cards should look for a provider at all. "Disabled" means no
+ * metrics queries, detection included. */
+export const detectionEnabled = (preferred: string | undefined): boolean => preferred !== 'disabled';

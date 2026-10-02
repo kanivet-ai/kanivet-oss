@@ -5,7 +5,7 @@ import {
   getMetricsProviderCacheRemainingMs,
   type MetricsProvidersStatus,
 } from '../../services/api/metrics';
-import { activeProvider, providerPhase, providerReason, type ProviderPhase } from './metricsProvider';
+import { activeProvider, detectionEnabled, providerPhase, providerReason, type ProviderPhase } from './metricsProvider';
 
 export interface MetricsProviderState {
   status: MetricsProvidersStatus | null;
@@ -39,6 +39,7 @@ export function useMetricsProvider(cluster: string, preferred?: string): Metrics
   const [revision, setRevision] = useState(0);
   const mounted = useRef(true);
   const previousPreference = useRef(preferred);
+  const enabled = detectionEnabled(preferred);
 
   useEffect(() => {
     mounted.current = true;
@@ -65,15 +66,22 @@ export function useMetricsProvider(cluster: string, preferred?: string): Metrics
     }
   }, [cluster]);
 
-  // Initial detection (served from the local cache when fresh).
+  // Initial detection (served from the local cache when fresh). With metrics
+  // disabled the cards call this hook only to keep hook order before they
+  // return nothing, so it must not query the cluster or drop the cache the
+  // other clusters' cards share.
   useEffect(() => {
+    if (!enabled) {
+      previousPreference.current = preferred;
+      return;
+    }
     if (previousPreference.current !== preferred) {
       previousPreference.current = preferred;
       api.clearMetricsProviderAvailabilityCache(cluster);
     }
     setStatus(api.getCachedMetricsProviderStatus(cluster));
     void detect();
-  }, [cluster, preferred, detect]);
+  }, [cluster, preferred, enabled, detect]);
 
   // Keep every card on this cluster in step: when one marks the provider
   // unavailable (or a detection lands) the others pick up the same status.
@@ -91,6 +99,7 @@ export function useMetricsProvider(cluster: string, preferred?: string): Metrics
   // Monitoring settings changed (tenant, Mimir instance…): forget what we
   // knew, detect again and tell the card to restart its stream.
   useEffect(() => {
+    if (!enabled) return;
     const onSettingsChanged = (event: Event) => {
       const changed = (event as CustomEvent).detail?.cluster;
       if (changed && changed !== cluster) return;
@@ -100,20 +109,20 @@ export function useMetricsProvider(cluster: string, preferred?: string): Metrics
     };
     window.addEventListener('metrics-settings-changed', onSettingsChanged);
     return () => window.removeEventListener('metrics-settings-changed', onSettingsChanged);
-  }, [cluster, detect]);
+  }, [cluster, enabled, detect]);
 
   // A negative answer is only trusted for a minute; while the card is on
   // screen, ask again when it lapses so a provider that comes back is noticed.
   const phase = providerPhase(status, preferred);
   useEffect(() => {
-    if (phase !== 'none' && phase !== 'unreachable') return;
+    if (!enabled || (phase !== 'none' && phase !== 'unreachable')) return;
     const remaining = getMetricsProviderCacheRemainingMs(cluster) || METRICS_PROVIDER_NEGATIVE_TTL_MS;
     const timer = window.setTimeout(() => {
       if (document.visibilityState === 'hidden') return;
       void detect();
     }, remaining + 250);
     return () => window.clearTimeout(timer);
-  }, [cluster, phase, status, detect]);
+  }, [cluster, enabled, phase, status, detect]);
 
   const markUnavailable = useCallback((reason?: string) => {
     setStatus(api.markMetricsProviderUnavailable(cluster, reason));

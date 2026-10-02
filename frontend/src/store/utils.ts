@@ -42,10 +42,17 @@ export const createInitialTabState = (): TabState => ({
   scrollPositions: {},
 });
 
+/** Older builds offered a custom Prometheus URL that nothing queried. A
+ * stored choice of it falls back to automatic detection, so it neither
+ * selects nothing in the form nor reaches the backend as a provider it
+ * rejects. */
+export const normalizeMonitoringSettings = <T extends { preferredProvider?: string }>(settings: T): T =>
+  settings.preferredProvider === 'custom' ? { ...settings, preferredProvider: 'auto' } : settings;
+
 export const loadMonitoringSettings = (): MonitoringSettings => {
   try {
     const saved = localStorage.getItem('kanivet.monitoringSettings');
-    if (saved) return JSON.parse(saved);
+    if (saved) return normalizeMonitoringSettings(JSON.parse(saved));
   } catch {}
   return { preferredProvider: 'auto', autoRefreshInterval: 30, showMetricsPanel: true };
 };

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activeProvider, providerChipLabel, providerPhase, providerReason, requestedProvider } from './metricsProvider';
+import { activeProvider, detectionEnabled, providerChipLabel, providerPhase, providerReason, requestedProvider } from './metricsProvider';
 import type { MetricsProvidersStatus } from './metricsProvider';
 
 const detected: MetricsProvidersStatus = {
@@ -45,5 +45,17 @@ describe('chart provider selection', () => {
     expect(activeProvider(status)).toBe(status.mimir);
     expect(providerPhase(null, 'mimir')).toBe('detecting');
     expect(providerPhase({ ...detected, unavailable: true }, 'mimir')).toBe('unreachable');
+  });
+});
+
+describe('detection when metrics are disabled', () => {
+  it('does not look for a provider at all', () => {
+    // requestedProvider maps "disabled" to undefined, the same as "auto", so
+    // the hook needs its own check or it would detect for every provider.
+    expect(requestedProvider('disabled')).toBeUndefined();
+    expect(detectionEnabled('disabled')).toBe(false);
+    expect(detectionEnabled('auto')).toBe(true);
+    expect(detectionEnabled('mimir')).toBe(true);
+    expect(detectionEnabled(undefined)).toBe(true);
   });
 });
