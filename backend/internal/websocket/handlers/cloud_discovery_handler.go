@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	stderrors "errors"
 	"fmt"
 	"log"
 	"sync"
@@ -10,8 +11,13 @@ import (
 	"github.com/kanivet/backend/internal/websocket/core"
 )
 
+// clusterDiscoverer is the part of cloud.Service the handler uses.
+type clusterDiscoverer interface {
+	DiscoverClustersStreaming(ctx context.Context, req cloud.DiscoverRequest, eventCh chan<- cloud.DiscoveryEvent)
+}
+
 type CloudDiscoveryHandler struct {
-	cloudService  *cloud.Service
+	cloudService  clusterDiscoverer
 	activeStreams *sync.Map
 }
 
@@ -36,11 +42,16 @@ type discoverPayload struct {
 type discoveryStream struct {
 	cancel context.CancelFunc
 	done   chan struct{}
+	conn   *fencedConn
 }
 
 func NewCloudDiscoveryHandler(cloudService *cloud.Service) core.MessageHandler {
+	return newCloudDiscoveryHandler(cloudService)
+}
+
+func newCloudDiscoveryHandler(d clusterDiscoverer) *CloudDiscoveryHandler {
 	return &CloudDiscoveryHandler{
-		cloudService:  cloudService,
+		cloudService:  d,
 		activeStreams: &sync.Map{},
 	}
 }
@@ -66,27 +77,20 @@ func (h *CloudDiscoveryHandler) HandleMessage(ctx context.Context, conn *core.Co
 	}
 }
 
-func (h *CloudDiscoveryHandler) handleStart(ctx context.Context, conn *core.Connection, payload struct {
-	Action       string   `json:"action"`
-	Key          string   `json:"key"`
-	Provider     string   `json:"provider"`
-	SSOStartURL  string   `json:"ssoStartUrl,omitempty"`
-	Profile      string   `json:"profile,omitempty"`
-	AccountIDs   []string `json:"accountIds,omitempty"`
-	Region       string   `json:"region,omitempty"`
-	AllRegions   bool     `json:"allRegions,omitempty"`
-	ProjectID    string   `json:"projectId,omitempty"`
-	Subscription string   `json:"subscription,omitempty"`
-}) error {
+func (h *CloudDiscoveryHandler) handleStart(ctx context.Context, conn *core.Connection, payload discoverPayload) error {
 	streamKey := discoveryStreamKey{
 		connectionID: string(conn.ID()),
 		key:          payload.Key,
 	}
 
+	// A start for a key that is already running (the client replays it after
+	// a reconnect) replaces that discovery. The old one is fenced, so it can
+	// send nothing more, and cancelled; the connection's read loop does not
+	// wait for it to wind down.
 	if existing, exists := h.activeStreams.Load(streamKey); exists {
 		if stream, ok := existing.(*discoveryStream); ok {
+			stream.conn.fence()
 			stream.cancel()
-			<-stream.done
 		}
 	}
 
@@ -94,32 +98,23 @@ func (h *CloudDiscoveryHandler) handleStart(ctx context.Context, conn *core.Conn
 	stream := &discoveryStream{
 		cancel: cancel,
 		done:   make(chan struct{}),
+		conn:   &fencedConn{conn: conn},
 	}
 	h.activeStreams.Store(streamKey, stream)
 
 	go func() {
 		defer close(stream.done)
-		defer h.activeStreams.Delete(streamKey)
+		// Only the stream's own entry: a newer start may have replaced it.
+		defer h.activeStreams.CompareAndDelete(streamKey, stream)
 		defer cancel()
 
-		h.runDiscovery(streamCtx, conn, payload)
+		h.runDiscovery(streamCtx, stream.conn, payload)
 	}()
 
 	return nil
 }
 
-func (h *CloudDiscoveryHandler) runDiscovery(ctx context.Context, conn *core.Connection, payload struct {
-	Action       string   `json:"action"`
-	Key          string   `json:"key"`
-	Provider     string   `json:"provider"`
-	SSOStartURL  string   `json:"ssoStartUrl,omitempty"`
-	Profile      string   `json:"profile,omitempty"`
-	AccountIDs   []string `json:"accountIds,omitempty"`
-	Region       string   `json:"region,omitempty"`
-	AllRegions   bool     `json:"allRegions,omitempty"`
-	ProjectID    string   `json:"projectId,omitempty"`
-	Subscription string   `json:"subscription,omitempty"`
-}) {
+func (h *CloudDiscoveryHandler) runDiscovery(ctx context.Context, conn logSender, payload discoverPayload) {
 	req := cloud.DiscoverRequest{
 		Provider:     cloud.Provider(payload.Provider),
 		SSOStartURL:  payload.SSOStartURL,
@@ -146,7 +141,7 @@ func (h *CloudDiscoveryHandler) runDiscovery(ctx context.Context, conn *core.Con
 	}
 }
 
-func (h *CloudDiscoveryHandler) sendEvent(conn *core.Connection, key string, event cloud.DiscoveryEvent) {
+func (h *CloudDiscoveryHandler) sendEvent(conn logSender, key string, event cloud.DiscoveryEvent) {
 	payload := map[string]interface{}{
 		"type": string(event.Type),
 		"key":  key,
@@ -163,7 +158,7 @@ func (h *CloudDiscoveryHandler) sendEvent(conn *core.Connection, key string, eve
 
 	msg := core.NewOutgoingMessage("cloud.discover", payload)
 	if data, err := msg.Marshal(); err == nil {
-		if err := conn.Send(data); err != nil {
+		if err := conn.Send(data); err != nil && !stderrors.Is(err, errStreamSuperseded) {
 			log.Printf("Failed to send cloud discovery event: %v", err)
 		}
 	}
