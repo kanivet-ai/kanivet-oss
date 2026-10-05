@@ -32,6 +32,7 @@ type Service struct {
 	providers       map[string]Provider
 	lastCacheClear  atomic.Int64
 	queries         *queryCache
+	hostPods        hostPodCache
 }
 
 // ProviderInfo is the result of detecting one provider in one cluster. Found
@@ -154,7 +155,7 @@ func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, 
 		wg.Add(1)
 		go func(n string, p Provider) {
 			defer wg.Done()
-			info, err := p.Detect(cluster)
+			info, err := p.Detect(providerCluster(cluster, p))
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -173,8 +174,15 @@ func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, 
 // the next DetectAllProviders call probes again. Used by the UI's "Detect
 // again" and after an install.
 func (s *Service) InvalidateDetection(cluster string) {
-	for _, name := range []string{"prometheus-info", "mimir-info", "mimir-candidates", "metrics-server-info"} {
-		s.cache.Delete(s.cache.BuildKey(name, cluster))
+	// A vcluster's Prometheus and Mimir are its host's.
+	clusters := []string{cluster}
+	if host := StoreCluster(cluster); host != cluster {
+		clusters = append(clusters, host)
+	}
+	for _, c := range clusters {
+		for _, name := range []string{"prometheus-info", "mimir-info", "mimir-candidates", "metrics-server-info"} {
+			s.cache.Delete(s.cache.BuildKey(name, c))
+		}
 	}
 }
 
@@ -184,7 +192,7 @@ func (s *Service) DetectProvider(cluster string, providerType string) (*Provider
 		return nil, fmt.Errorf("provider %s not registered", providerType)
 	}
 
-	return provider.Detect(cluster)
+	return provider.Detect(providerCluster(cluster, provider))
 }
 
 func (s *Service) InstallProvider(cluster string, providerType string, namespace string) error {
@@ -206,7 +214,7 @@ func (s *Service) chartProvider(cluster, providerType string) (Provider, error) 
 	if providerType == "" {
 		providerOrder := []string{"prometheus", "mimir", "metrics-server"}
 		for _, name := range providerOrder {
-			if provider, exists := s.providers[name]; exists && provider.IsInstalled(cluster) {
+			if provider, exists := s.providers[name]; exists && provider.IsInstalled(providerCluster(cluster, provider)) {
 				providerType = name
 				break
 			}
@@ -229,6 +237,16 @@ func (s *Service) QueryMetrics(ctx context.Context, cluster string, providerType
 	if err != nil {
 		return nil, err
 	}
+	if host := providerCluster(cluster, provider); host != cluster {
+		hostQuery, ok, err := s.hostQuery(cluster, query)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return emptyChart(query.MetricType), nil
+		}
+		return provider.QueryMetrics(ctx, host, hostQuery)
+	}
 	return provider.QueryMetrics(ctx, cluster, query)
 }
 
@@ -241,6 +259,9 @@ func (s *Service) QueryWorkloadMetrics(ctx context.Context, cluster string, prov
 		return nil, err
 	}
 	if wp, ok := provider.(workloadProvider); ok {
+		if providerCluster(cluster, provider) != cluster {
+			return s.queryVClusterWorkload(ctx, wp, cluster, query)
+		}
 		return wp.QueryWorkloadMetrics(ctx, cluster, query)
 	}
 	response := &WorkloadMetricResponse{Pods: map[string]*MetricResponse{}}
@@ -272,7 +293,7 @@ func (s *Service) GetWorkingProvider(cluster string) (*ProviderInfo, error) {
 	providerOrder := []string{"prometheus", "mimir", "metrics-server"}
 	for _, name := range providerOrder {
 		if provider, exists := s.providers[name]; exists {
-			info, err := provider.Detect(cluster)
+			info, err := provider.Detect(providerCluster(cluster, provider))
 			if err == nil && info.Found {
 				return info, nil
 			}
