@@ -2,6 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { DrawingPinIcon, Pencil2Icon, ReaderIcon } from '@radix-ui/react-icons';
 import ResourceDetailView from '../detailView/ResourceDetailView';
 import HelmReleaseDetailView from '../detailView/resourceTypes/HelmReleaseDetailView';
+import NatsStreamDetailView from '../detailView/resourceTypes/NatsStreamDetailView';
+import NatsLiveTailView from '../detailView/resourceTypes/NatsLiveTailView';
+import NatsKVView from '../detailView/resourceTypes/NatsKVView';
+import NatsObjectStoreView from '../detailView/resourceTypes/NatsObjectStoreView';
 import ResourceDetailSkeleton from '../ResourceDetailSkeleton';
 import ContainerSelector from '../ContainerSelector';
 import CrossplaneIcon from '../icons/CrossplaneIcon';
@@ -150,6 +154,51 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
 
   const hasBasicInfo = item && typeof item === 'object' && (item.metadata?.name || item.name);
   const isHelmRelease = item?.kind === 'HelmRelease' && item?.chart;
+  const isNatsStream = item?.kind === 'NatsStream';
+  const isNatsLiveTail = item?.kind === 'NatsLiveTail';
+  const isNatsKV = item?.kind === 'NatsKV';
+  const isNatsObjectStore = item?.kind === 'NatsObjectStore';
+
+  if (isNatsLiveTail || isNatsKV || isNatsObjectStore) {
+    return (
+      <div className={`tab-content-inner tab-content-${mode}`}>
+        <div className="view-content-root">
+          <div className="view-tab-content">
+            <div className="tab-content-body">
+              <div className="tab-content-pretty">
+                {isNatsLiveTail && <NatsLiveTailView cluster={cluster} item={item} />}
+                {isNatsKV && <NatsKVView cluster={cluster} item={item} />}
+                {isNatsObjectStore && <NatsObjectStoreView cluster={cluster} item={item} />}
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (isNatsStream) {
+    const streamKey = `${cluster}-${item.accountName}-${item.streamName}`;
+    return (
+      <div className={`tab-content-inner tab-content-${mode}`}>
+        {isDeleted && (
+          <div className="tab-content-deleted-banner">
+            <span className="deleted-icon">⚠</span>
+            <span>This resource no longer exists</span>
+          </div>
+        )}
+        <div className="view-content-root">
+          <div className="view-tab-content">
+            <div className="tab-content-body">
+              <div className="tab-content-pretty">
+                <NatsStreamDetailView key={streamKey} cluster={cluster} item={item} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isHelmRelease) {
     const releaseKey = `${cluster}-${item.namespace}-${item.name}`;

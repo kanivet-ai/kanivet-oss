@@ -86,6 +86,7 @@ type natsOverview struct {
 	Healthz *natspkg.Healthz `json:"healthz,omitempty"`
 	Connz   *natsConnzView   `json:"connz,omitempty"`
 	Rates   *natsRates       `json:"rates,omitempty"`
+	RttMs   *int64           `json:"rttMs,omitempty"`
 }
 
 type natsRateSample struct {
@@ -135,6 +136,9 @@ func (h *Handler) fetchNatsOverview(cluster string) (*natsOverview, error) {
 	}
 	if connz, err := client.Connz(ctx); err == nil {
 		overview.Connz = h.annotateNatsConnections(ctx, cluster, connz)
+	}
+	if rtt, ok := h.natsLive.RTTIfConnected(cluster); ok {
+		overview.RttMs = new(rtt.Milliseconds())
 	}
 	return overview, nil
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/metrics"
 	"github.com/kanivet/backend/internal/models"
+	natspkg "github.com/kanivet/backend/internal/nats"
 	"github.com/kanivet/backend/internal/search"
 	"github.com/kanivet/backend/internal/topics"
 	"github.com/kanivet/backend/internal/websocket/core"
@@ -125,6 +126,7 @@ type Handler struct {
 	statusManager   StatusManagerInterface
 	// settingsChanged run after a cluster's metrics settings are saved.
 	settingsChanged []func(cluster string)
+	natsLive        *natspkg.LivePool
 }
 
 type StatusManagerInterface interface {
@@ -191,6 +193,8 @@ func NewHandlerWithDeps(k8sClient k8s.Interface, cacheInstance *cache.Cache, inv
 	if database.MetricsCacheAvailable() {
 		metricsService.SetQueryCacheStore(database)
 	}
+	natsLive := natspkg.NewLivePool(k8sClient)
+	go natsLive.RunIdleSweep(context.Background(), time.Minute, 5*time.Minute)
 
 	return &Handler{
 		k8s:             k8sClient,
@@ -202,11 +206,19 @@ func NewHandlerWithDeps(k8sClient k8s.Interface, cacheInstance *cache.Cache, inv
 		metrics:         metricsService,
 		eventListener:   eventListener,
 		navigation:      NewNavigationService(),
+		natsLive:        natsLive,
 	}
 }
 
 func (h *Handler) AttachHub(hub *core.Hub) {
 	h.wsHub = hub
+}
+
+// NatsLivePool exposes the tier-2 NATS connection pool so the websocket
+// setup in cmd/main.go can wire the Live Tail handler to the same pool the
+// REST endpoints use, instead of creating a second one.
+func (h *Handler) NatsLivePool() *natspkg.LivePool {
+	return h.natsLive
 }
 
 func (h *Handler) broadcastClusterError(cluster, errorMsg string) {

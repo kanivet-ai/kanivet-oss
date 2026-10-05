@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useShallow } from 'zustand/react/shallow';
+import { useStore } from '../store';
 import api from '../services/api';
 import {
   formatBytes,
@@ -36,6 +38,7 @@ interface Issue {
   accountName: string;
   streamName: string;
   consumerName: string;
+  consumers: string[];
   reason: string;
 }
 
@@ -75,6 +78,7 @@ const findIssues = (accounts: NatsAccountDetail[]): Issue[] => {
   const issues: Issue[] = [];
   for (const account of accounts) {
     for (const stream of account.stream_detail ?? []) {
+      const consumerNames = (stream.consumer_detail ?? []).map((c) => c.name);
       for (const consumer of stream.consumer_detail ?? []) {
         if (consumer.num_ack_pending > ACK_PENDING_WARN) {
           issues.push({
@@ -82,6 +86,7 @@ const findIssues = (accounts: NatsAccountDetail[]): Issue[] => {
             accountName: account.name,
             streamName: stream.name,
             consumerName: consumer.name,
+            consumers: consumerNames,
             reason: `${consumer.num_ack_pending.toLocaleString()} messages awaiting ack`,
           });
         }
@@ -91,6 +96,7 @@ const findIssues = (accounts: NatsAccountDetail[]): Issue[] => {
             accountName: account.name,
             streamName: stream.name,
             consumerName: consumer.name,
+            consumers: consumerNames,
             reason: `${consumer.num_redelivered.toLocaleString()} messages redelivered`,
           });
         }
@@ -101,6 +107,25 @@ const findIssues = (accounts: NatsAccountDetail[]): Issue[] => {
 };
 
 const NatsOverview = ({ cluster }: NatsOverviewProps) => {
+  const { openDetailTab } = useStore(useShallow((s) => ({ openDetailTab: s.openDetailTab })));
+  const openStreamDetail = useCallback(
+    (accountName: string, streamName: string, consumers: string[], focusConsumer?: string) => {
+      const item = {
+        kind: 'NatsStream',
+        apiVersion: 'nats.io/v1',
+        name: streamName,
+        namespace: accountName,
+        cluster,
+        accountName,
+        streamName,
+        consumers,
+        focusConsumer,
+      };
+      openDetailTab({ kind: 'NatsStream' }, item, cluster);
+    },
+    [cluster, openDetailTab],
+  );
+
   const [detection, setDetection] = useState<NatsDetection | null>(null);
   const [overview, setOverview] = useState<NatsOverviewData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -256,7 +281,31 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
             {varz?.version && <span>v{varz.version}</span>}
             {varz?.uptime && <span>up {varz.uptime}</span>}
             {varz?.cluster?.name && <span>cluster {varz.cluster.name}</span>}
+            {overview?.rttMs !== undefined && <span>rtt {overview.rttMs}ms</span>}
           </div>
+        </div>
+        <div className="nats-header-actions">
+          <button
+            type="button"
+            className="nats-live-tail-button"
+            onClick={() => openDetailTab({ kind: 'NatsKV' }, { kind: 'NatsKV', apiVersion: 'nats.io/v1', name: 'KV Buckets', cluster }, cluster)}
+          >
+            KV Buckets
+          </button>
+          <button
+            type="button"
+            className="nats-live-tail-button"
+            onClick={() => openDetailTab({ kind: 'NatsObjectStore' }, { kind: 'NatsObjectStore', apiVersion: 'nats.io/v1', name: 'Object Stores', cluster }, cluster)}
+          >
+            Object Stores
+          </button>
+          <button
+            type="button"
+            className="nats-live-tail-button"
+            onClick={() => openDetailTab({ kind: 'NatsLiveTail' }, { kind: 'NatsLiveTail', apiVersion: 'nats.io/v1', name: 'Live Tail', cluster }, cluster)}
+          >
+            Live Tail
+          </button>
         </div>
       </div>
 
@@ -267,7 +316,12 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
           </div>
           <div className="nats-issue-list">
             {issues.slice(0, 5).map((issue) => (
-              <div key={issue.key} className="nats-issue-row">
+              <div
+                key={issue.key}
+                className="nats-issue-row clickable"
+                onClick={() => openStreamDetail(issue.accountName, issue.streamName, issue.consumers, issue.consumerName)}
+                title="Open this message in the Message Browser"
+              >
                 <span className="nats-issue-dot" />
                 <span className="nats-issue-target">
                   {issue.streamName} <span className="nats-issue-sep">→</span>{' '}
@@ -415,7 +469,17 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
                                   className="nats-stream-name-cell"
                                   title={subjectsTitle || undefined}
                                 >
-                                  <span className="nats-stream-name">
+                                  <span
+                                    className="nats-stream-name clickable-link"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openStreamDetail(
+                                        account.name,
+                                        stream.name,
+                                        consumers.map((c) => c.name),
+                                      );
+                                    }}
+                                  >
                                     {parsed.displayName}
                                   </span>
                                   {kindLabel && (
