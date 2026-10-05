@@ -594,6 +594,7 @@ func (p *PrometheusProvider) promGet(ctx context.Context, cluster, path string, 
 		return nil, fmt.Errorf("failed to query prometheus: %w", err)
 	}
 	p.recordQuerySuccess(cluster)
+	RecordResponse(ctx, resp)
 	return promBody(resp, "prometheus")
 }
 
@@ -631,5 +632,6 @@ func (p *MimirProvider) promGet(ctx context.Context, cluster, path string, param
 		}
 		return nil, fmt.Errorf("failed to query mimir: %w", err)
 	}
+	RecordResponse(ctx, resp)
 	return promBody(resp, "mimir")
 }
