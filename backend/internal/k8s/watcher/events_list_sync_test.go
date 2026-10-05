@@ -40,6 +40,13 @@ func TestEventsListSyncListsTheClusterNotTheStore(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	sqlDB, err := g.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Registered after TempDir, so it runs before the directory is removed:
+	// on Windows an open file can't be deleted.
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	database := &db.DB{DB: g}
 	if err := database.MigrateEvents(); err != nil {
 		t.Fatal(err)
