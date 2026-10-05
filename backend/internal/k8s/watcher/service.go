@@ -83,6 +83,83 @@ type Service struct {
 	epochs            map[string]uint64
 	snapshotMu        sync.Mutex
 	snapshotSavedAt   map[string]time.Time
+
+	vcRecMu sync.Mutex
+	vcRec   map[string]*vclusterRecovery
+	// vcEvict and vcWait replace the vcluster cache eviction and health wait
+	// (tests only; nil means the real client).
+	vcEvict func(cluster string)
+	vcWait  func(ctx context.Context, cluster string) bool
+}
+
+// vclusterRecovery is one eviction-and-wait round for a vcluster, shared by
+// every topic of the cluster that failed in it.
+type vclusterRecovery struct {
+	done       chan struct{}
+	healthy    bool
+	finishedAt time.Time
+}
+
+const (
+	vclusterRecoveryWait = 30 * time.Second
+	// vclusterRecoveryReuse is how long a finished round still answers
+	// topics that fail right after it, so they do not start another.
+	vclusterRecoveryReuse = 5 * time.Second
+)
+
+// recoverVCluster evicts the vcluster's cached clients and waits for it to be
+// healthy, once for all the topics that fail together. It reports whether the
+// cluster became healthy; a caller whose ctx ends first gets false.
+func (s *Service) recoverVCluster(ctx context.Context, cluster string) bool {
+	s.vcRecMu.Lock()
+	if s.vcRec == nil {
+		s.vcRec = make(map[string]*vclusterRecovery)
+	}
+	if r := s.vcRec[cluster]; r != nil {
+		select {
+		case <-r.done:
+			if time.Since(r.finishedAt) < vclusterRecoveryReuse {
+				s.vcRecMu.Unlock()
+				return r.healthy
+			}
+		default:
+			s.vcRecMu.Unlock()
+			select {
+			case <-r.done:
+				return r.healthy
+			case <-ctx.Done():
+				return false
+			}
+		}
+	}
+	r := &vclusterRecovery{done: make(chan struct{})}
+	s.vcRec[cluster] = r
+	s.vcRecMu.Unlock()
+
+	// The round belongs to every waiting topic, not to the one that started
+	// it, so it runs on its own and does not end with that topic's context.
+	go func() {
+		defer func() {
+			r.finishedAt = time.Now()
+			close(r.done)
+		}()
+		if s.vcEvict != nil {
+			s.vcEvict(cluster)
+		} else {
+			s.client.EvictVClusterCaches(cluster)
+		}
+		if s.vcWait != nil {
+			r.healthy = s.vcWait(context.Background(), cluster)
+		} else {
+			r.healthy = waitForVClusterHealthy(context.Background(), s.client, cluster, vclusterRecoveryWait)
+		}
+	}()
+	select {
+	case <-r.done:
+		return r.healthy
+	case <-ctx.Done():
+		return false
+	}
 }
 
 func (s *Service) nextEpoch(topic string) uint64 {
@@ -477,6 +554,10 @@ func (s *Service) Resync(topic string) {
 	s.sendCachedData(topic, sortBy, sortOrder)
 }
 
+// cachedDataSyncWait is how long a late subscriber waits for the topic's first
+// list before it is told to stop loading.
+var cachedDataSyncWait = 30 * time.Second
+
 func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	t0 := time.Now()
 	s.syncStateMu.RLock()
@@ -486,9 +567,18 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 		select {
 		case <-status.done:
 			if status.err != nil {
+				// The first list failed: there is no snapshot to replay, but
+				// the subscriber must still leave its loading state. This is
+				// the same signal a failing list sends to the first one.
+				if s.manager.HasWatch(topic) {
+					s.sendInitialSyncComplete(topic, 0, 0)
+				}
 				return
 			}
-		case <-time.After(30 * time.Second):
+		case <-time.After(cachedDataSyncWait):
+			if s.manager.HasWatch(topic) {
+				s.sendInitialSyncComplete(topic, 0, 0)
+			}
 			return
 		}
 	}
@@ -789,17 +879,62 @@ func (s *Service) resourceForGVR(cluster string, gvr schema.GroupVersionResource
 	return newDynamicLister(dyn.Resource(gvr)), nil
 }
 
+const maxPanicRestarts = 5
+
+// panicRestartBackoff is the first wait before a panicked loop restarts; it
+// doubles per consecutive panic.
+var panicRestartBackoff = time.Second
+
+// runWatchLoop keeps one topic's watch going. A panic in it is logged and the
+// loop restarted with backoff, a bounded number of times in a row, instead of
+// crashing the process and with it every other cluster's watches.
 func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) {
+	delay := panicRestartBackoff
+	for restarts := 0; ; {
+		started := time.Now()
+		panicked := s.runWatchLoopGuarded(ctx, cluster, gvr, namespace, topic, resource)
+		if !panicked || ctx.Err() != nil {
+			return
+		}
+		if time.Since(started) > time.Minute {
+			// It ran for a while before failing: not a crash loop.
+			restarts, delay = 0, panicRestartBackoff
+		}
+		restarts++
+		if restarts >= maxPanicRestarts {
+			log.Printf("k8s watcher: giving up on %s after %d panics", topic, restarts)
+			err := fmt.Errorf("watch for %s keeps failing", topic)
+			s.finishSync(ctx, s.pendingSync(ctx, topic), err)
+			s.sendInitialSyncComplete(topic, 0, 0)
+			return
+		}
+		log.Printf("k8s watcher: restarting %s in %v after a panic", topic, delay)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+		delay = min(delay*2, 30*time.Second)
+	}
+}
+
+// runWatchLoopGuarded runs the loop once, reporting whether it panicked.
+func (s *Service) runWatchLoopGuarded(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) (panicked bool) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[PANIC] runWatchLoop for %s: %v", topic, r)
+			panicked = true
+			log.Printf("[PANIC] runWatchLoop for %s: %v\n%s", topic, r, debug.Stack())
 			faults.CaptureExceptionWithContext(
 				fmt.Errorf("panic in runWatchLoop: %v", r),
 				map[string]any{"topic": topic, "cluster": cluster, "panic": r, "stack": string(debug.Stack())},
 			)
-			panic(r) // Re-panic to crash
 		}
 	}()
+	s.watchLoop(ctx, cluster, gvr, namespace, topic, resource)
+	return false
+}
+
+func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) {
 	var latestRV string
 	consecutiveFailures := 0
 	s.preloadSnapshot(topic)
@@ -844,8 +979,7 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 			if listErr != nil {
 				log.Printf("k8s watcher: list failed for %s: %v", topic, listErr)
 				if isVClusterTransient(listErr, cluster) {
-					s.client.EvictVClusterCaches(cluster)
-					if !waitForVClusterHealthy(ctx, s.client, cluster, 30*time.Second) {
+					if !s.recoverVCluster(ctx, cluster) {
 						if isCredErr, code, msg := isCredentialError(listErr); isCredErr {
 							s.sendClusterErrorWithDetails(cluster, code, msg, listErr.Error(), true)
 						}
@@ -870,17 +1004,23 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 			s.saveSnapshotSoon(topic)
 		}
 
-		watchOpts := metav1.ListOptions{Watch: true, ResourceVersion: latestRV, AllowWatchBookmarks: true}
+		// A half-open connection delivers nothing and never errors, so each
+		// watch asks the server to end it after a jittered 5-10 minutes (the
+		// loop resumes from latestRV, no relist), and a client side deadline
+		// just past that recycles it when the server cannot answer.
+		watchSeconds := watchTimeoutSeconds()
+		watchOpts := metav1.ListOptions{Watch: true, ResourceVersion: latestRV, AllowWatchBookmarks: true, TimeoutSeconds: &watchSeconds}
 		scoped := resource
 		if namespace != "" {
 			scoped = resource.Namespace(namespace)
 		}
-		w, err := scoped.Watch(ctx, watchOpts)
+		watchCtx, cancelWatch := context.WithTimeout(ctx, time.Duration(watchSeconds)*time.Second+watchClientGrace)
+		w, err := scoped.Watch(watchCtx, watchOpts)
 		if err != nil {
+			cancelWatch()
 			log.Printf("k8s watcher: watch failed for %s: %v", topic, err)
 			if isVClusterTransient(err, cluster) {
-				s.client.EvictVClusterCaches(cluster)
-				if !waitForVClusterHealthy(ctx, s.client, cluster, 30*time.Second) {
+				if !s.recoverVCluster(ctx, cluster) {
 					if isCredErr, code, msg := isCredentialError(err); isCredErr {
 						s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
 					}
@@ -907,6 +1047,7 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 		watchStart := time.Now()
 		events, expired, watchErr := s.processWatchEvents(ctx, w, cluster, gvr, topic, &latestRV)
 		w.Stop()
+		cancelWatch()
 
 		if watchErr != nil {
 			if isCredErr, code, msg := isCredentialError(watchErr); isCredErr {
@@ -936,6 +1077,20 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 		}
 		consecutiveFailures = 0
 	}
+}
+
+const (
+	watchClientGrace = 30 * time.Second
+	// A list that takes longer is a stuck connection, not a big list: the
+	// first page is 25 items, the full list is served from the watch cache.
+	firstPageListTimeout = time.Minute
+	fullListTimeout      = 5 * time.Minute
+)
+
+// watchTimeoutSeconds is a watch's server side lifetime: 5-10 minutes, so the
+// watches of a cluster do not all end (and reconnect) together.
+func watchTimeoutSeconds() int64 {
+	return 300 + rand.Int64N(301)
 }
 
 func sleepBackoff(ctx context.Context, attempts *int) bool {
@@ -1043,19 +1198,34 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 	}
 	// Returning early (the first page failed) cancels the full list
 	// instead of downloading a whole list nobody reads.
-	listCtx, cancelList := context.WithCancel(ctx)
+	listCtx, cancelList := context.WithTimeout(ctx, fullListTimeout)
 	defer cancelList()
 	fullCh := make(chan fullListResult, 1)
 	go func() {
+		// A panic here is in a goroutine the loop's recover does not cover.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] full list for %s: %v\n%s", topic, r, debug.Stack())
+				fullCh <- fullListResult{nil, fmt.Errorf("list for %s panicked: %v", topic, r)}
+			}
+		}()
 		list, err := scoped.List(listCtx, metav1.ListOptions{ResourceVersion: "0"})
 		fullCh <- fullListResult{list, err}
 	}()
 	colsCh := make(chan []printercolumns.Column, 1)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] printer columns for %s: %v\n%s", topic, r, debug.Stack())
+				colsCh <- nil
+			}
+		}()
 		colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
 	}()
 
-	firstList, err := scoped.List(ctx, metav1.ListOptions{Limit: firstPageSize})
+	firstCtx, cancelFirst := context.WithTimeout(ctx, firstPageListTimeout)
+	firstList, err := scoped.List(firstCtx, metav1.ListOptions{Limit: firstPageSize})
+	cancelFirst()
 	if err != nil {
 		log.Printf("k8s watcher: failed to list %s: %v", topic, err)
 		if isCredErr, code, msg := isCredentialError(err); isCredErr {

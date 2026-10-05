@@ -48,6 +48,10 @@ type DashboardHandler struct {
 	infoMu        sync.Mutex
 	info          map[string]clusterInfoEntry
 	metricsProbes map[string]metricsProbeEntry
+	// last is each cluster's most recent update. Sections that fail to load
+	// keep their value from it instead of showing as empty or zero.
+	lastMu sync.Mutex
+	last   map[string]*DashboardMetrics
 }
 
 type clusterInfoEntry struct {
@@ -148,6 +152,9 @@ type DashboardMessage struct {
 	core.BaseMessage
 	Cluster string            `json:"cluster"`
 	Data    *DashboardMetrics `json:"data"`
+	// Error is set, with a null Data, when the cluster could not be read, so
+	// a client that wants to can tell it is down.
+	Error string `json:"error,omitempty"`
 }
 
 func (m *DashboardMessage) Marshal() ([]byte, error) {
@@ -161,6 +168,7 @@ func NewDashboardHandler(k8sClient k8s.Interface, hub *core.Hub) *DashboardHandl
 		watchers:      make(map[string]*dashboardWatcher),
 		info:          make(map[string]clusterInfoEntry),
 		metricsProbes: make(map[string]metricsProbeEntry),
+		last:          make(map[string]*DashboardMetrics),
 	}
 }
 
@@ -233,9 +241,7 @@ func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connect
 		if _, err := h.hub.Unsubscribe(topic, conn); err != nil {
 			return err
 		}
-		if len(h.hub.Subscribers(topic)) == 0 {
-			h.stopDashboardStream(cluster)
-		}
+		h.stopDashboardStreamIfIdle(cluster, topic, "")
 		return nil
 
 	default:
@@ -265,15 +271,8 @@ func (h *DashboardHandler) OnConnectionClose(conn *core.Connection) {
 	}
 	h.mu.RUnlock()
 	for _, cluster := range clusters {
-		remaining := 0
-		for _, sub := range h.hub.Subscribers(topics.BuildDashboardTopic(cluster)) {
-			if sub.ID() != conn.ID() {
-				remaining++
-			}
-		}
-		if remaining == 0 {
-			log.Printf("[Dashboard] Last subscriber for %s disconnected, stopping stream", cluster)
-			h.stopDashboardStream(cluster)
+		if h.stopDashboardStreamIfIdle(cluster, topics.BuildDashboardTopic(cluster), conn.ID()) {
+			log.Printf("[Dashboard] Last subscriber for %s disconnected, stopped stream", cluster)
 		}
 	}
 }
@@ -302,16 +301,32 @@ func (h *DashboardHandler) startDashboardStream(cluster, topic string) {
 	go h.streamDashboard(ctx, cluster, topic, watcher.stopChan, watcher.refreshChan)
 }
 
-func (h *DashboardHandler) stopDashboardStream(cluster string) {
+// stopDashboardStreamIfIdle stops the cluster's stream when nobody but the
+// excluded connection is subscribed. The check and the stop happen under the
+// lock a start takes, so a start that subscribes in between is never handed a
+// stream that is then stopped under it: either it subscribed before the check
+// (the stream stays) or it takes the lock after (and starts a new one).
+func (h *DashboardHandler) stopDashboardStreamIfIdle(cluster, topic string, exclude core.ConnectionID) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if watcher, exists := h.watchers[cluster]; exists {
-		watcher.cancelFunc()
-		close(watcher.stopChan)
-		delete(h.watchers, cluster)
-		log.Printf("[Dashboard] Stopped streaming for cluster: %s", cluster)
+	watcher, exists := h.watchers[cluster]
+	if !exists {
+		return false
 	}
+	for _, sub := range h.hub.Subscribers(topic) {
+		if sub.ID() != exclude {
+			return false
+		}
+	}
+	watcher.cancelFunc()
+	close(watcher.stopChan)
+	delete(h.watchers, cluster)
+	h.lastMu.Lock()
+	delete(h.last, cluster)
+	h.lastMu.Unlock()
+	log.Printf("[Dashboard] Stopped streaming for cluster: %s", cluster)
+	return true
 }
 
 func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic string, stopChan, refreshChan chan struct{}) {
@@ -321,7 +336,20 @@ func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic s
 	sendUpdate := func() {
 		metrics, err := h.fetchDashboardMetrics(ctx, cluster)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			log.Printf("[Dashboard] Error fetching metrics for %s: %v", cluster, err)
+			// Tell the clients: they keep what they show, but can see the
+			// cluster could not be read.
+			errMsg := &DashboardMessage{
+				BaseMessage: core.BaseMessage{MessageType: "dashboard", Timestamp: time.Now()},
+				Cluster:     cluster,
+				Error:       err.Error(),
+			}
+			if berr := h.hub.Broadcast(topic, errMsg); berr != nil {
+				log.Printf("[Dashboard] Error broadcasting dashboard error: %v", berr)
+			}
 			return
 		}
 
@@ -364,6 +392,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 	if err != nil {
 		return nil, err
 	}
+	prev := h.lastMetrics(cluster)
 
 	// The metrics-server probe runs alongside everything else: it is cached,
 	// but when it is not, its discovery call should not delay the update.
@@ -384,6 +413,12 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		nodes, nodeErr = clientset.CoreV1().Nodes().List(ctx, fromWatchCache)
 	}()
 	prefetchWg.Wait()
+
+	// Neither pods nor nodes could be read: the cluster is down, which is
+	// not an update to broadcast as authoritative.
+	if podErr != nil && nodeErr != nil {
+		return nil, fmt.Errorf("cluster unreachable: %w", podErr)
+	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
@@ -431,7 +466,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 
 	go func() {
 		defer wg.Done()
-		if err := h.fetchWorkloadStatus(ctx, cluster, metrics, &mu); err != nil {
+		if err := h.fetchWorkloadStatus(ctx, cluster, metrics, &mu, prev); err != nil {
 			log.Printf("[Dashboard] Failed to fetch workload status: %v", err)
 		}
 	}()
@@ -465,6 +500,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 
 	wg.Wait()
 	metrics.MetricsAvailable = <-metricsDone
+	carryForward(metrics, prev)
 
 	if info, ok := h.clusterInfo(ctx, cluster, clientset, nodes); ok {
 		mu.Lock()
@@ -482,7 +518,49 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		mu.Unlock()
 	}
 
+	h.lastMu.Lock()
+	h.last[cluster] = metrics
+	h.lastMu.Unlock()
 	return metrics, nil
+}
+
+func (h *DashboardHandler) lastMetrics(cluster string) *DashboardMetrics {
+	h.lastMu.Lock()
+	defer h.lastMu.Unlock()
+	return h.last[cluster]
+}
+
+// carryForward fills what failed to load this round from the previous
+// update. A section that loads always sets its value (empty slices
+// included), so a nil section or an absent count means its fetch failed; the
+// previous value is a better answer than an empty one.
+func carryForward(m, prev *DashboardMetrics) {
+	if prev == nil {
+		return
+	}
+	for k, v := range prev.ResourceCounts {
+		if _, ok := m.ResourceCounts[k]; !ok {
+			m.ResourceCounts[k] = v
+		}
+	}
+	if m.PodStatus == nil {
+		m.PodStatus = prev.PodStatus
+	}
+	if m.NodeStatus == nil {
+		m.NodeStatus = prev.NodeStatus
+	}
+	if m.WorkloadStatus == nil {
+		m.WorkloadStatus = prev.WorkloadStatus
+	}
+	if m.Events == nil {
+		m.Events = prev.Events
+	}
+	if m.CriticalAlerts == nil {
+		m.CriticalAlerts = prev.CriticalAlerts
+	}
+	if m.ResourceCapacity == nil {
+		m.ResourceCapacity = prev.ResourceCapacity
+	}
 }
 
 // clusterInfo returns version/platform/provider/arch, refreshed at most every
@@ -545,7 +623,8 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 
 			count, err := h.k8sClient.GetResourceCount(ctx, cluster, gvr)
 			if err != nil {
-				count = 0
+				// No count is better than a zero: the previous one is kept.
+				return
 			}
 
 			key := fmt.Sprintf("%s:%s", group, name)
@@ -606,7 +685,7 @@ func (h *DashboardHandler) computeNodeStatus(nodes *v1.NodeList, metrics *Dashbo
 	mu.Unlock()
 }
 
-func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex) error {
+func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex, prev *DashboardMetrics) error {
 	clientset, err := h.k8sClient.GetClientForCluster(cluster)
 	if err != nil {
 		return err
@@ -614,9 +693,25 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 
 	workloadStatus := &WorkloadStatusMetrics{}
 	counts := map[string]int{}
+	var prevWorkloads *WorkloadStatusMetrics
+	if prev != nil {
+		prevWorkloads = prev.WorkloadStatus
+	}
+	// A kind that fails to list keeps its previous health, or, with none,
+	// leaves the whole section out rather than report zero workloads.
+	incomplete := false
+	failed := func(keep func(*WorkloadStatusMetrics)) {
+		if prevWorkloads == nil {
+			incomplete = true
+			return
+		}
+		keep(prevWorkloads)
+	}
 
 	deployments, err := clientset.AppsV1().Deployments("").List(ctx, fromWatchCache)
-	if err == nil {
+	if err != nil {
+		failed(func(p *WorkloadStatusMetrics) { workloadStatus.Deployments = p.Deployments })
+	} else {
 		workloadStatus.Deployments.Total = len(deployments.Items)
 		counts["apps:deployments"] = len(deployments.Items)
 		for _, d := range deployments.Items {
@@ -627,7 +722,9 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 	}
 
 	statefulSets, err := clientset.AppsV1().StatefulSets("").List(ctx, fromWatchCache)
-	if err == nil {
+	if err != nil {
+		failed(func(p *WorkloadStatusMetrics) { workloadStatus.StatefulSets = p.StatefulSets })
+	} else {
 		workloadStatus.StatefulSets.Total = len(statefulSets.Items)
 		counts["apps:statefulsets"] = len(statefulSets.Items)
 		for _, s := range statefulSets.Items {
@@ -638,7 +735,9 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 	}
 
 	daemonSets, err := clientset.AppsV1().DaemonSets("").List(ctx, fromWatchCache)
-	if err == nil {
+	if err != nil {
+		failed(func(p *WorkloadStatusMetrics) { workloadStatus.DaemonSets = p.DaemonSets })
+	} else {
 		workloadStatus.DaemonSets.Total = len(daemonSets.Items)
 		counts["apps:daemonsets"] = len(daemonSets.Items)
 		for _, d := range daemonSets.Items {
@@ -649,7 +748,9 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 	}
 
 	mu.Lock()
-	metrics.WorkloadStatus = workloadStatus
+	if !incomplete {
+		metrics.WorkloadStatus = workloadStatus
+	}
 	for k, n := range counts {
 		metrics.ResourceCounts[k] = n
 	}
@@ -892,8 +993,13 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 		}
 	}
 
+	// Alerts built from a partial view would make real ones look resolved: if
+	// any list fails, the previous alerts stay.
+	var listErr error
 	jobs, err := clientset.BatchV1().Jobs("").List(ctx, fromWatchCache)
-	if err == nil {
+	if err != nil {
+		listErr = err
+	} else {
 		for _, job := range jobs.Items {
 			if job.Status.Failed > 0 {
 				age := formatTimeAgo(now.Sub(job.CreationTimestamp.Time))
@@ -911,7 +1017,9 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 	}
 
 	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, fromWatchCache)
-	if err == nil {
+	if err != nil {
+		listErr = err
+	} else {
 		for _, pvc := range pvcs.Items {
 			if pvc.Status.Phase == v1.ClaimPending {
 				age := formatTimeAgo(now.Sub(pvc.CreationTimestamp.Time))
@@ -929,7 +1037,9 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 	}
 
 	services, err := clientset.CoreV1().Services("").List(ctx, fromWatchCache)
-	if err == nil {
+	if err != nil {
+		listErr = err
+	} else {
 		mu.Lock()
 		metrics.ResourceCounts[":services"] = len(services.Items)
 		mu.Unlock()
@@ -949,6 +1059,10 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 				}
 			}
 		}
+	}
+
+	if listErr != nil {
+		return listErr
 	}
 
 	sort.Slice(alerts, func(i, j int) bool {

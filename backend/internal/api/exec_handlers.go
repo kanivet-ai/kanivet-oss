@@ -16,12 +16,251 @@ import (
 	"k8s.io/client-go/tools/remotecommand"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 )
 
+// execCheckOrigin allows the origins the Electron app really sends: none, the
+// opaque "null" and "file://" origins of packaged builds, and the localhost dev
+// server. It mirrors the main websocket transport.
+func execCheckOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" || origin == "file://" || origin == "null" {
+		return true
+	}
+	return strings.HasPrefix(origin, "http://localhost:")
+}
+
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: execCheckOrigin,
+}
+
+const (
+	execWriteTimeout = 10 * time.Second
+	execPingInterval = 30 * time.Second
+	execPongWait     = 60 * time.Second
+)
+
+// execConn serializes writes to a websocket connection: gorilla panics on
+// concurrent writers, and several goroutines write to the terminal.
+type execConn struct {
+	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+func (c *execConn) write(messageType int, data []byte) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(execWriteTimeout))
+	return c.conn.WriteMessage(messageType, data)
+}
+
+func (c *execConn) writeText(s string) error {
+	return c.write(websocket.TextMessage, []byte(s))
+}
+
+// closeNormally sends a close frame and closes the connection, which also
+// unblocks the reader.
+func (c *execConn) closeNormally() {
+	_ = c.conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""),
+		time.Now().Add(time.Second))
+	_ = c.conn.Close()
+}
+
+type execMessage struct {
+	messageType int
+	data        []byte
+}
+
+// recoverExec keeps a panic in a session goroutine from killing the backend.
+func recoverExec(what string) {
+	if r := recover(); r != nil {
+		log.Printf("panic in %s: %v\n%s", what, r, debug.Stack())
+	}
+}
+
+// startExecReader reads the client's messages on its own goroutine so that a
+// departed client is noticed (ctx is cancelled) even while the handler is
+// busy detecting a shell or waiting on the pod. It also pings the client and
+// enforces a read deadline that pongs and messages extend.
+func startExecReader(conn *websocket.Conn) (context.Context, context.CancelFunc, <-chan execMessage) {
+	ctx, cancel := context.WithCancel(context.Background())
+	msgs := make(chan execMessage, 64)
+
+	_ = conn.SetReadDeadline(time.Now().Add(execPongWait))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(execPongWait))
+	})
+
+	go func() {
+		defer close(msgs)
+		defer cancel()
+		defer recoverExec("exec reader")
+		for {
+			messageType, data, err := conn.ReadMessage()
+			if err != nil {
+				log.Printf("Read message error: %v", err)
+				return
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(execPongWait))
+			select {
+			case msgs <- execMessage{messageType, data}:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	go func() {
+		defer recoverExec("exec ping")
+		ticker := time.NewTicker(execPingInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if err := conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(execWriteTimeout)); err != nil {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	return ctx, cancel, msgs
+}
+
+// runExecSession pipes the client's messages to the executor and its output
+// back until either side ends. When the remote process ends the connection is
+// closed, so the handler never waits on a dead shell.
+func runExecSession(ctx context.Context, cancel context.CancelFunc, ec *execConn, msgs <-chan execMessage, exec remotecommand.Executor) {
+	stdinReader, stdinWriter := io.Pipe()
+	stdoutReader, stdoutWriter := io.Pipe()
+	defer func() {
+		cancel()
+		_ = stdinWriter.Close()
+		_ = stdoutReader.Close()
+	}()
+
+	resizeChan := make(chan remotecommand.TerminalSize, 10)
+
+	// Unblock any stdin writer as soon as the session is over.
+	go func() {
+		<-ctx.Done()
+		_ = stdinReader.Close()
+	}()
+
+	streamDone := make(chan struct{})
+	go func() {
+		defer close(streamDone)
+		defer recoverExec("exec stream")
+		defer func() {
+			_ = stdinReader.Close()
+			_ = stdoutWriter.Close()
+		}()
+		err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+			Stdin:             stdinReader,
+			Stdout:            stdoutWriter,
+			Stderr:            stdoutWriter,
+			Tty:               true,
+			TerminalSizeQueue: &terminalSizeQueue{resizeChan: resizeChan},
+		})
+		if err != nil && ctx.Err() == nil {
+			log.Printf("Exec stream error: %v", err)
+			_ = ec.writeText(fmt.Sprintf("Exec error: %v", err))
+		}
+	}()
+
+	go func() {
+		defer recoverExec("exec prompt init")
+		for i, line := range []string{
+			"export PS1='$ ' && export PROMPT='$ '\r",
+			"PS1='$ '\r",
+			"clear\r",
+		} {
+			wait := 50 * time.Millisecond
+			if i == 0 {
+				wait = 500 * time.Millisecond
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			if _, err := stdinWriter.Write([]byte(line)); err != nil {
+				return
+			}
+		}
+	}()
+
+	pumpDone := make(chan struct{})
+	go func() {
+		defer close(pumpDone)
+		defer recoverExec("exec output")
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdoutReader.Read(buf)
+			if n > 0 {
+				if werr := ec.write(websocket.BinaryMessage, buf[:n]); werr != nil {
+					log.Printf("Write error: %v", werr)
+					cancel()
+					return
+				}
+			}
+			if err != nil {
+				if err != io.EOF && err != io.ErrClosedPipe {
+					log.Printf("Read error: %v", err)
+				}
+				return
+			}
+		}
+	}()
+
+	// Once the remote side is done and its output is flushed, end the
+	// connection so the client learns the shell exited.
+	go func() {
+		<-streamDone
+		<-pumpDone
+		ec.closeNormally()
+	}()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case m, ok := <-msgs:
+			if !ok {
+				return
+			}
+			switch m.messageType {
+			case websocket.TextMessage:
+				var msg map[string]interface{}
+				if err := jsonv2.Unmarshal(m.data, &msg); err == nil {
+					if msg["type"] == "resize" {
+						if cols, ok := msg["cols"].(float64); ok {
+							if rows, ok := msg["rows"].(float64); ok {
+								select {
+								case resizeChan <- remotecommand.TerminalSize{
+									Width:  uint16(cols),
+									Height: uint16(rows),
+								}:
+								default:
+								}
+							}
+						}
+					}
+				} else {
+					_, _ = stdinWriter.Write(m.data)
+				}
+			case websocket.BinaryMessage:
+				_, _ = stdinWriter.Write(m.data)
+			}
+		}
+	}
 }
 
 type terminalSizeQueue struct {
@@ -36,7 +275,7 @@ func (t *terminalSizeQueue) Next() *remotecommand.TerminalSize {
 	return &size
 }
 
-func (h *Handler) detectAndCreateShellExecutor(clientset kubernetes.Interface, config *rest.Config, namespace, pod, container string, conn *websocket.Conn) (remotecommand.Executor, error) {
+func (h *Handler) detectAndCreateShellExecutor(ctx context.Context, clientset kubernetes.Interface, config *rest.Config, namespace, pod, container string, conn *execConn) (remotecommand.Executor, error) {
 	shellCommands := [][]string{
 		{"/bin/bash", "-i"},
 		{"/bin/sh", "-i"},
@@ -71,9 +310,12 @@ func (h *Handler) detectAndCreateShellExecutor(clientset kubernetes.Interface, c
 	var lastErr error
 	var testedShells []string
 
-	_ = conn.WriteMessage(websocket.TextMessage, []byte("Detecting available shell...\r\n"))
+	_ = conn.writeText("Detecting available shell...\r\n")
 
 	for i, cmd := range shellCommands {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		shellPath := cmd[0]
 		testedShells = append(testedShells, shellPath)
 
@@ -119,14 +361,14 @@ func (h *Handler) detectAndCreateShellExecutor(clientset kubernetes.Interface, c
 			testExec, err := remotecommand.NewSPDYExecutor(config, "POST", testReq.URL())
 			if err == nil {
 				var stdout, stderr bytes.Buffer
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-				defer cancel()
-				err = testExec.StreamWithContext(ctx, remotecommand.StreamOptions{
+				probeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+				err = testExec.StreamWithContext(probeCtx, remotecommand.StreamOptions{
 					Stdout: &stdout,
 					Stderr: &stderr,
 				})
+				cancel()
 				if err == nil && strings.TrimSpace(stdout.String()) == "test" {
-					_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Connected using %s\r\n", shellPath)))
+					_ = conn.writeText(fmt.Sprintf("Connected using %s\r\n", shellPath))
 					log.Printf("Successfully connected to pod %s/%s using shell: %v", namespace, pod, cmd)
 					return executor, nil
 				}
@@ -169,106 +411,26 @@ func (h *Handler) HandleExecWebSocket(c *gin.Context) {
 	}
 	defer func() { _ = conn.Close() }()
 
+	ec := &execConn{conn: conn}
+	ctx, cancel, msgs := startExecReader(conn)
+	defer cancel()
+
 	clientset, config, err := h.k8s.GetClientAndConfig(cluster)
 	if err != nil {
 		log.Printf("Failed to get cluster client: %v", err)
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: Failed to connect to cluster: %v", err)))
+		_ = ec.writeText(fmt.Sprintf("Error: Failed to connect to cluster: %v", err))
 		return
 	}
 
-	exec, err := h.detectAndCreateShellExecutor(clientset, config, namespace, pod, container, conn)
+	exec, err := h.detectAndCreateShellExecutor(ctx, clientset, config, namespace, pod, container, ec)
 	if err != nil {
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("\r\nError: %s\r\n", err.Error())))
+		if ctx.Err() == nil {
+			_ = ec.writeText(fmt.Sprintf("\r\nError: %s\r\n", err.Error()))
+		}
 		return
 	}
 
-	stdinReader, stdinWriter := io.Pipe()
-	stdoutReader, stdoutWriter := io.Pipe()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resizeChan := make(chan remotecommand.TerminalSize, 10)
-
-	go func() {
-		defer func() { _ = stdoutWriter.Close() }()
-		err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-			Stdin:             stdinReader,
-			Stdout:            stdoutWriter,
-			Stderr:            stdoutWriter,
-			Tty:               true,
-			TerminalSizeQueue: &terminalSizeQueue{resizeChan: resizeChan},
-		})
-		if err != nil {
-			log.Printf("Exec stream error: %v", err)
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Exec error: %v", err)))
-		}
-	}()
-
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		_, _ = stdinWriter.Write([]byte("export PS1='$ ' && export PROMPT='$ '\r"))
-		time.Sleep(50 * time.Millisecond)
-		_, _ = stdinWriter.Write([]byte("PS1='$ '\r"))
-		time.Sleep(50 * time.Millisecond)
-		_, _ = stdinWriter.Write([]byte("clear\r"))
-	}()
-
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				n, err := stdoutReader.Read(buf)
-				if err != nil {
-					if err != io.EOF {
-						log.Printf("Read error: %v", err)
-					}
-					return
-				}
-				if n > 0 {
-					if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-						log.Printf("Write error: %v", err)
-						return
-					}
-				}
-			}
-		}
-	}()
-
-	for {
-		messageType, data, err := conn.ReadMessage()
-		if err != nil {
-			log.Printf("Read message error: %v", err)
-			break
-		}
-
-		switch messageType {
-		case websocket.TextMessage:
-			var msg map[string]interface{}
-			if err := jsonv2.Unmarshal(data, &msg); err == nil {
-				if msg["type"] == "resize" {
-					if cols, ok := msg["cols"].(float64); ok {
-						if rows, ok := msg["rows"].(float64); ok {
-							select {
-							case resizeChan <- remotecommand.TerminalSize{
-								Width:  uint16(cols),
-								Height: uint16(rows),
-							}:
-							default:
-							}
-						}
-					}
-				}
-			} else {
-				_, _ = stdinWriter.Write(data)
-			}
-		case websocket.BinaryMessage:
-			_, _ = stdinWriter.Write(data)
-		}
-	}
+	runExecSession(ctx, cancel, ec, msgs, exec)
 }
 
 func (h *Handler) HandleNodeExecWebSocket(c *gin.Context) {
@@ -287,24 +449,28 @@ func (h *Handler) HandleNodeExecWebSocket(c *gin.Context) {
 	}
 	defer func() { _ = conn.Close() }()
 
+	ec := &execConn{conn: conn}
+	ctx, cancel, msgs := startExecReader(conn)
+	defer cancel()
+
 	clientset, config, err := h.k8s.GetClientAndConfig(cluster)
 	if err != nil {
 		log.Printf("Failed to get cluster client: %v", err)
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: Failed to connect to cluster: %v", err)))
+		_ = ec.writeText(fmt.Sprintf("Error: Failed to connect to cluster: %v", err))
 		return
 	}
 
-	_, err = clientset.CoreV1().Nodes().Get(context.Background(), nodeName, metav1.GetOptions{})
+	_, err = clientset.CoreV1().Nodes().Get(ctx, nodeName, metav1.GetOptions{})
 	if err != nil {
 		log.Printf("Failed to get node: %v", err)
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: Failed to get node: %v", err)))
+		_ = ec.writeText(fmt.Sprintf("Error: Failed to get node: %v", err))
 		return
 	}
 
 	var debugPodName string
 	var debugNamespace = "default"
 
-	pods, err := clientset.CoreV1().Pods("").List(context.Background(), metav1.ListOptions{
+	pods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
 		FieldSelector: fmt.Sprintf("spec.nodeName=%s", nodeName),
 		LabelSelector: "app=node-debugger",
 	})
@@ -357,21 +523,27 @@ func (h *Handler) HandleNodeExecWebSocket(c *gin.Context) {
 			},
 		}
 
+		// Not tied to ctx: a create the server may already have accepted
+		// should not be abandoned half-way by a client that just left.
 		_, err = clientset.CoreV1().Pods(debugNamespace).Create(context.Background(), debugPod, metav1.CreateOptions{})
 		if err != nil {
 			log.Printf("Failed to create debug pod: %v", err)
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: Failed to create debug pod: %v", err)))
+			_ = ec.writeText(fmt.Sprintf("Error: Failed to create debug pod: %v", err))
 			return
 		}
 
-		_ = conn.WriteMessage(websocket.TextMessage, []byte("Creating debug pod...\r\n"))
+		_ = ec.writeText("Creating debug pod...\r\n")
 
 		for i := 0; i < 30; i++ {
-			pod, err := clientset.CoreV1().Pods(debugNamespace).Get(context.Background(), debugPodName, metav1.GetOptions{})
+			pod, err := clientset.CoreV1().Pods(debugNamespace).Get(ctx, debugPodName, metav1.GetOptions{})
 			if err == nil && pod.Status.Phase == v1.PodRunning {
 				break
 			}
-			time.Sleep(time.Second)
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Second):
+			}
 		}
 	}
 
@@ -394,95 +566,9 @@ func (h *Handler) HandleNodeExecWebSocket(c *gin.Context) {
 	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
 	if err != nil {
 		log.Printf("Failed to create executor: %v", err)
-		_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Error: Failed to create executor: %v", err)))
+		_ = ec.writeText(fmt.Sprintf("Error: Failed to create executor: %v", err))
 		return
 	}
 
-	stdinReader, stdinWriter := io.Pipe()
-	stdoutReader, stdoutWriter := io.Pipe()
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	resizeChan := make(chan remotecommand.TerminalSize, 10)
-
-	go func() {
-		defer func() { _ = stdoutWriter.Close() }()
-		err := exec.StreamWithContext(ctx, remotecommand.StreamOptions{
-			Stdin:             stdinReader,
-			Stdout:            stdoutWriter,
-			Stderr:            stdoutWriter,
-			Tty:               true,
-			TerminalSizeQueue: &terminalSizeQueue{resizeChan: resizeChan},
-		})
-		if err != nil {
-			log.Printf("Exec stream error: %v", err)
-			_ = conn.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Exec error: %v", err)))
-		}
-	}()
-
-	go func() {
-		time.Sleep(500 * time.Millisecond)
-		_, _ = stdinWriter.Write([]byte("export PS1='$ ' && export PROMPT='$ '\r"))
-		time.Sleep(50 * time.Millisecond)
-		_, _ = stdinWriter.Write([]byte("PS1='$ '\r"))
-		time.Sleep(50 * time.Millisecond)
-		_, _ = stdinWriter.Write([]byte("clear\r"))
-	}()
-
-	go func() {
-		buf := make([]byte, 1024)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-				n, err := stdoutReader.Read(buf)
-				if err != nil {
-					if err != io.EOF {
-						log.Printf("Read error: %v", err)
-					}
-					return
-				}
-				if n > 0 {
-					if err := conn.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-						log.Printf("Write error: %v", err)
-						return
-					}
-				}
-			}
-		}
-	}()
-
-	for {
-		messageType, data, err := conn.ReadMessage()
-		if err != nil {
-			log.Printf("Read message error: %v", err)
-			break
-		}
-
-		switch messageType {
-		case websocket.TextMessage:
-			var msg map[string]interface{}
-			if err := jsonv2.Unmarshal(data, &msg); err == nil {
-				if msg["type"] == "resize" {
-					if cols, ok := msg["cols"].(float64); ok {
-						if rows, ok := msg["rows"].(float64); ok {
-							select {
-							case resizeChan <- remotecommand.TerminalSize{
-								Width:  uint16(cols),
-								Height: uint16(rows),
-							}:
-							default:
-							}
-						}
-					}
-				}
-			} else {
-				_, _ = stdinWriter.Write(data)
-			}
-		case websocket.BinaryMessage:
-			_, _ = stdinWriter.Write(data)
-		}
-	}
+	runExecSession(ctx, cancel, ec, msgs, exec)
 }

@@ -634,19 +634,31 @@ func (s *Service) DiscoverAllClusters(ctx context.Context) ([]DiscoveredCluster,
 	return allClusters, nil
 }
 
+// emitEvent sends a discovery event, giving up when ctx ends. The consumer
+// stops reading once its stream is cancelled; a bare send would then block the
+// producer for good once the channel's buffer is full.
+func emitEvent(ctx context.Context, ch chan<- DiscoveryEvent, ev DiscoveryEvent) bool {
+	select {
+	case ch <- ev:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
 func (s *Service) DiscoverClustersStreaming(ctx context.Context, req DiscoverRequest, eventCh chan<- DiscoveryEvent) {
 	if req.Provider != ProviderAWS {
 		defer close(eventCh)
 		clusters, err := s.DiscoverClusters(ctx, req)
 		if err != nil {
-			eventCh <- DiscoveryEvent{Type: DiscoveryEventError, Error: err.Error()}
+			emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventError, Error: err.Error()})
 			return
 		}
 		for _, c := range clusters {
 			cluster := c
-			eventCh <- DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster}
+			emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster})
 		}
-		eventCh <- DiscoveryEvent{Type: DiscoveryEventComplete}
+		emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventComplete})
 		return
 	}
 

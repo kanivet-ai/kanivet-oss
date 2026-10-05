@@ -22,6 +22,9 @@ type HubConfig struct {
 	EnableCompression bool
 	EnableMetrics     bool
 	SendChannelSize   int
+	// MaxQueuedBytes caps the bytes queued per connection; zero uses
+	// DefaultMaxQueuedBytes.
+	MaxQueuedBytes int64
 }
 
 func DefaultHubConfig() *HubConfig {
@@ -53,7 +56,19 @@ type Hub struct {
 	wg               sync.WaitGroup
 	heartbeatStarted sync.Once
 	chain            atomic.Pointer[MessageHandlerFunc]
+	// connCount mirrors the entries of connections so the MaxConnections check
+	// is O(1) and a reservation closes the check/insert race.
+	connCount atomic.Int64
 }
+
+// handlerQueueSize bounds the messages a connection may have waiting for its
+// handler worker. When it is full the read loop blocks, which is the
+// pre-worker behaviour, rather than dropping a subscribe.
+const handlerQueueSize = 256
+
+// handlerDrainTimeout bounds how long a disconnect waits for the handler that
+// is running when the read loop ends.
+const handlerDrainTimeout = 10 * time.Second
 
 func NewHub(config *HubConfig, router Router, subManager SubscriptionManager) *Hub {
 	if config == nil {
@@ -105,11 +120,16 @@ func (h *Hub) RegisterConnection(conn *Connection) error {
 		conn.id = ConnectionID(uuid.New().String())
 	}
 
-	if h.CountConnections() >= h.Config.MaxConnections {
+	// Reserve a slot before inserting so concurrent registrations cannot
+	// overshoot the limit.
+	if h.connCount.Add(1) > int64(h.Config.MaxConnections) {
+		h.connCount.Add(-1)
 		return ErrRateLimitExceeded
 	}
 
-	h.connections.Store(conn.id, conn)
+	if _, replaced := h.connections.Swap(conn.id, conn); replaced {
+		h.connCount.Add(-1)
+	}
 
 	if h.metrics != nil {
 		h.metrics.ConnectionAdded()
@@ -123,6 +143,7 @@ func (h *Hub) RegisterConnection(conn *Connection) error {
 
 func (h *Hub) UnregisterConnection(id ConnectionID) {
 	if conn, ok := h.connections.LoadAndDelete(id); ok {
+		h.connCount.Add(-1)
 		c := conn.(*Connection)
 
 		h.regMu.RLock()
@@ -162,12 +183,7 @@ func (h *Hub) GetConnection(id ConnectionID) (*Connection, bool) {
 }
 
 func (h *Hub) CountConnections() int {
-	count := 0
-	h.connections.Range(func(_, _ interface{}) bool {
-		count++
-		return true
-	})
-	return count
+	return int(h.connCount.Load())
 }
 
 // RangeConnections iterates over all connections, calling fn for each.
@@ -182,6 +198,28 @@ func (h *Hub) RangeConnections(fn func(*Connection) bool) {
 func (h *Hub) handleConnection(conn *Connection) {
 	defer h.wg.Done()
 	defer h.UnregisterConnection(conn.ID())
+
+	ctx := conn.Context()
+
+	// Handlers run on a per-connection worker so a slow one (a subscribe that
+	// waits on a cluster) cannot stall the read loop: gorilla answers pings
+	// and processes pongs inside Read, and a read that does not come back
+	// within PongWait drops the client. One worker keeps the connection's
+	// messages strictly ordered.
+	queue := make(chan *IncomingMessage, handlerQueueSize)
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go h.runHandlers(conn, queue, stop, done)
+	defer func() {
+		// Drop what is still queued, let the running handler finish so a late
+		// subscribe cannot land after UnsubscribeAll, then unregister.
+		close(stop)
+		select {
+		case <-done:
+		case <-time.After(handlerDrainTimeout):
+			log.Printf("[WebSocket] handler for connection %s still running %v after disconnect", conn.ID(), handlerDrainTimeout)
+		}
+	}()
 	defer func() {
 		if r := recover(); r != nil {
 			stack := string(debug.Stack())
@@ -192,8 +230,6 @@ func (h *Hub) handleConnection(conn *Connection) {
 			)
 		}
 	}()
-
-	ctx := conn.Context()
 
 	for {
 		select {
@@ -213,8 +249,8 @@ func (h *Hub) handleConnection(conn *Connection) {
 				return
 			}
 
-			var msg IncomingMessage
-			if err := jsonv2.Unmarshal(data, &msg); err != nil {
+			msg := new(IncomingMessage)
+			if err := jsonv2.Unmarshal(data, msg); err != nil {
 				if errData := mustSafe(NewErrorMessage(ErrInvalidMessage, "INVALID_FORMAT").Marshal()); errData != nil {
 					_ = conn.Send(errData)
 				}
@@ -223,12 +259,55 @@ func (h *Hub) handleConnection(conn *Connection) {
 
 			msg.Timestamp = time.Now()
 
-			handler := h.buildHandlerChain()
-			if err := handler(ctx, conn, &msg); err != nil {
-				if h.metrics != nil {
-					h.metrics.MessageError("handle", err)
-				}
+			select {
+			case queue <- msg:
+			case <-ctx.Done():
+				return
+			case <-h.ctx.Done():
+				return
 			}
+		}
+	}
+}
+
+// runHandlers is the connection's ordered handler worker. It exits when stop
+// is closed, discarding messages still queued.
+func (h *Hub) runHandlers(conn *Connection, queue <-chan *IncomingMessage, stop <-chan struct{}, done chan<- struct{}) {
+	defer close(done)
+	ctx := conn.Context()
+	for {
+		select {
+		case <-stop:
+			return
+		default:
+		}
+		select {
+		case <-stop:
+			return
+		case msg := <-queue:
+			h.handleMessage(ctx, conn, msg)
+		}
+	}
+}
+
+func (h *Hub) handleMessage(ctx context.Context, conn *Connection, msg *IncomingMessage) {
+	defer func() {
+		if r := recover(); r != nil {
+			stack := string(debug.Stack())
+			log.Printf("[WebSocket] FATAL: panic in handler for connection %s: %v\n%s", conn.ID(), r, stack)
+			faults.CaptureExceptionWithContext(
+				fmt.Errorf("panic in message handler: %v", r),
+				map[string]any{"connectionId": conn.ID(), "panic": r, "stack": stack},
+			)
+			// A panic used to end the connection through handleConnection's
+			// recover; keep that outcome.
+			_ = conn.Close()
+		}
+	}()
+	handler := h.buildHandlerChain()
+	if err := handler(ctx, conn, msg); err != nil {
+		if h.metrics != nil {
+			h.metrics.MessageError("handle", err)
 		}
 	}
 }
@@ -245,6 +324,12 @@ func (h *Hub) buildHandlerChain() MessageHandlerFunc {
 	h.regMu.RUnlock()
 	h.chain.Store(&handler)
 	return handler
+}
+
+// MaxMessageSize is the largest frame a connection accepts for sending; the
+// event batcher sizes its frames to stay under it.
+func (h *Hub) MaxMessageSize() int64 {
+	return h.Config.MaxMessageSize
 }
 
 func (h *Hub) HasSubscribers(topic string) bool {
@@ -315,14 +400,22 @@ func (h *Hub) Router() Router {
 func (h *Hub) Shutdown(ctx context.Context) error {
 	h.cancel()
 
+	// Close concurrently: each close may wait on a client that stopped
+	// reading, and serial closes would add those waits up.
+	var closing sync.WaitGroup
 	h.connections.Range(func(key, value interface{}) bool {
 		conn := value.(*Connection)
-		_ = conn.Close()
+		closing.Add(1)
+		go func() {
+			defer closing.Done()
+			_ = conn.Close()
+		}()
 		return true
 	})
 
 	done := make(chan struct{})
 	go func() {
+		closing.Wait()
 		h.wg.Wait()
 		close(done)
 	}()
