@@ -4,6 +4,7 @@ import api from '../services/api';
 import { ArgoAppListEntry, ArgoStats, ArgoSyncOptions } from '../services/api/resources';
 import { formatAge } from '../utils/formatters';
 import { useVisibleInterval } from '../hooks/useVisibleInterval';
+import Dialog from './common/Dialog';
 import './ArgoApplicationsPage.css';
 
 interface Props {
@@ -21,7 +22,6 @@ interface PersistedState {
   sortKey: SortKey;
   sortDir: 'asc' | 'desc';
   groupBy: GroupBy;
-  density: 'compact' | 'cozy';
   collapsedGroups: string[];
 }
 
@@ -33,7 +33,6 @@ const defaultState: PersistedState = {
   sortKey: 'name',
   sortDir: 'asc',
   groupBy: 'health',
-  density: 'compact',
   collapsedGroups: [],
 };
 
@@ -256,12 +255,12 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
     updateState({ collapsedGroups: Array.from(next) });
   };
 
-  const openApp = useCallback((e: ArgoAppListEntry) => {
+  const openApp = useCallback((e: ArgoAppListEntry, isPinned: boolean = false) => {
     const apiVersion = 'argoproj.io/v1alpha1';
     const resource = { name: 'applications', group: 'argoproj.io', version: 'v1alpha1', kind: 'Application', namespaced: true };
     const item = { name: e.name, namespace: e.namespace, uid: `${e.namespace}-${e.name}`, kind: 'Application', apiVersion };
     const { openDetailTab, loadDetails } = useStore.getState();
-    openDetailTab(resource, item, cluster, false);
+    openDetailTab(resource, item, cluster, isPinned);
     loadDetails(cluster, resource, item).catch(() => {});
   }, [cluster]);
 
@@ -295,6 +294,12 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
       });
     }, 1800);
   };
+
+  // A sync changes the cluster, so it always asks first.
+  const [pendingSync, setPendingSync] = useState<{ entries: ArgoAppListEntry[]; opts: ArgoSyncOptions } | null>(null);
+  const requestSync = useCallback((entries: ArgoAppListEntry[], opts: ArgoSyncOptions = {}) => {
+    if (entries.length > 0) setPendingSync({ entries, opts });
+  }, []);
 
   const runSync = useCallback(async (entries: ArgoAppListEntry[], opts: ArgoSyncOptions = {}) => {
     if (entries.length === 0) return;
@@ -333,9 +338,13 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
   const selectedEntries = useMemo(() => flatRows.filter((r) => selected.has(refKey(r.entry))).map((r) => r.entry), [flatRows, selected]);
 
   const handleToggleSelect = useCallback((e: ArgoAppListEntry) => toggleSelect(e), []);
-  const handleOpen = useCallback((e: ArgoAppListEntry) => openApp(e), [openApp]);
-  const handleSyncOne = useCallback((e: ArgoAppListEntry) => runSync([e]), [runSync]);
-  const handleRefreshOne = useCallback((e: ArgoAppListEntry) => runRefresh([e]), [runRefresh]);
+  // Like a resource list: a click selects the row and shows it in the detail
+  // pane as a preview, a double click keeps it open.
+  const handleSelect = useCallback((e: ArgoAppListEntry) => {
+    setFocusedKey(refKey(e));
+    openApp(e, false);
+  }, [openApp]);
+  const handleOpen = useCallback((e: ArgoAppListEntry) => openApp(e, true), [openApp]);
   const handleContext = useCallback((entry: ArgoAppListEntry, x: number, y: number) => setContextMenu({ x, y, entry }), []);
 
   // Keyboard shortcuts
@@ -343,6 +352,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
     const onKey = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName?.toLowerCase();
       const inField = tag === 'input' || tag === 'textarea';
+      if (pendingSync) return;
       if (e.key === '/' && !inField) {
         e.preventDefault();
         searchRef.current?.focus();
@@ -361,7 +371,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
       } else if (e.key === 'Enter' && focusedKey) {
         e.preventDefault();
         const r = flatRows.find((r) => refKey(r.entry) === focusedKey);
-        if (r) openApp(r.entry);
+        if (r) openApp(r.entry, true);
       } else if (e.key === ' ' && focusedKey) {
         e.preventDefault();
         const r = flatRows.find((r) => refKey(r.entry) === focusedKey);
@@ -370,7 +380,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
         const targets = selectedEntries.length > 0 ? selectedEntries : focusedKey ? flatRows.filter((r) => refKey(r.entry) === focusedKey).map((r) => r.entry) : [];
         if (targets.length > 0) {
           e.preventDefault();
-          runSync(targets);
+          requestSync(targets);
         }
       } else if (e.key.toLowerCase() === 'r') {
         const targets = selectedEntries.length > 0 ? selectedEntries : focusedKey ? flatRows.filter((r) => refKey(r.entry) === focusedKey).map((r) => r.entry) : [];
@@ -384,7 +394,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [flatRows, focusedKey, selectedEntries, openApp, runSync, runRefresh, contextMenu]);
+  }, [flatRows, focusedKey, selectedEntries, openApp, requestSync, runRefresh, contextMenu, pendingSync]);
 
   // Close context menu on outside click
   useEffect(() => {
@@ -411,7 +421,7 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
   const isPivotActive = (kind: 'sync' | 'health', value: string) => (kind === 'sync' ? filterSync.has(value) : filterHealth.has(value));
 
   return (
-    <div className={`argo-apps-page density-${persisted.density}`}>
+    <div className="argo-apps-page">
       <div className="argo-apps-pivots">
         <Pivot value={totalCount} label="Total" active={filterSync.size === 0 && filterHealth.size === 0} onClick={() => updateState({ filterSync: [], filterHealth: [] })} />
         <Pivot value={synced} label="Synced" tone={syncTone('Synced')} active={isPivotActive('sync', 'Synced')} onClick={() => togglePivot('sync', 'Synced')} />
@@ -459,15 +469,11 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
             <option value="none">None</option>
           </select>
         </div>
-        <div className="argo-apps-control argo-apps-density ap-segmented ap-segmented--sm" role="group" aria-label="Row density">
-          <button type="button" aria-pressed={persisted.density === 'compact'} onClick={() => updateState({ density: 'compact' })} title="Compact rows">Compact</button>
-          <button type="button" aria-pressed={persisted.density === 'cozy'} onClick={() => updateState({ density: 'cozy' })} title="Cozy rows">Cozy</button>
-        </div>
         {selected.size > 0 && (
           <div className="argo-apps-bulk">
             <span className="argo-apps-bulk-count">{selected.size} selected</span>
-            <button disabled={busy} onClick={() => runSync(selectedEntries)}>Sync</button>
-            <button disabled={busy} onClick={() => runSync(selectedEntries, { prune: true })}>Sync and prune</button>
+            <button disabled={busy} onClick={() => requestSync(selectedEntries)}>Sync</button>
+            <button disabled={busy} onClick={() => requestSync(selectedEntries, { prune: true })}>Sync and prune</button>
             <button disabled={busy} onClick={() => runRefresh(selectedEntries)}>Refresh</button>
             <button className="argo-apps-bulk-clear" onClick={() => setSelected(new Set())}>Clear</button>
           </div>
@@ -544,9 +550,8 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
                       showProjectColumn={showProjectColumn}
                       showSingleDestNs={showSingleDestNs}
                       onToggleSelect={handleToggleSelect}
+                      onSelect={handleSelect}
                       onOpen={handleOpen}
-                      onSync={handleSyncOne}
-                      onRefresh={handleRefreshOne}
                       onContext={handleContext}
                     />
                   );
@@ -558,11 +563,36 @@ const ArgoApplicationsPage = ({ cluster }: Props) => {
         </table>
       </div>
 
+      <Dialog
+        isOpen={!!pendingSync}
+        title={pendingSync?.opts.prune ? 'Sync and prune' : 'Sync'}
+        onClose={() => setPendingSync(null)}
+        onConfirm={() => {
+          if (!pendingSync) return;
+          const { entries, opts } = pendingSync;
+          setPendingSync(null);
+          runSync(entries, opts);
+        }}
+        confirmText={pendingSync?.opts.prune ? 'Sync and prune' : 'Sync'}
+        variant={pendingSync?.opts.prune ? 'danger' : 'warning'}
+      >
+        {pendingSync && (
+          <>
+            <p>
+              {pendingSync.entries.length === 1
+                ? `Sync ${pendingSync.entries[0].name} (${pendingSync.entries[0].namespace}) to its target state?`
+                : `Sync ${pendingSync.entries.length} applications to their target state?`}
+            </p>
+            {pendingSync.opts.prune && <p>Resources no longer in Git will be deleted from the cluster.</p>}
+          </>
+        )}
+      </Dialog>
+
       {contextMenu && (
         <div className="argo-apps-ctx-menu ap-menu" style={{ top: contextMenu.y, left: contextMenu.x }}>
-          <button onClick={() => { openApp(contextMenu.entry); setContextMenu(null); }}>Open</button>
-          <button onClick={() => { runSync([contextMenu.entry]); setContextMenu(null); }}>Sync</button>
-          <button onClick={() => { runSync([contextMenu.entry], { prune: true }); setContextMenu(null); }}>Sync and prune</button>
+          <button onClick={() => { openApp(contextMenu.entry, true); setContextMenu(null); }}>Open</button>
+          <button onClick={() => { requestSync([contextMenu.entry]); setContextMenu(null); }}>Sync</button>
+          <button onClick={() => { requestSync([contextMenu.entry], { prune: true }); setContextMenu(null); }}>Sync and prune</button>
           <button onClick={() => { runRefresh([contextMenu.entry]); setContextMenu(null); }}>Refresh</button>
         </div>
       )}
@@ -617,9 +647,8 @@ interface AppRowProps {
   showProjectColumn: boolean;
   showSingleDestNs: boolean;
   onToggleSelect: (e: ArgoAppListEntry) => void;
+  onSelect: (e: ArgoAppListEntry) => void;
   onOpen: (e: ArgoAppListEntry) => void;
-  onSync: (e: ArgoAppListEntry) => void;
-  onRefresh: (e: ArgoAppListEntry) => void;
   onContext: (e: ArgoAppListEntry, x: number, y: number) => void;
 }
 
@@ -632,9 +661,8 @@ const AppRow = memo(({
   showProjectColumn,
   showSingleDestNs,
   onToggleSelect,
+  onSelect,
   onOpen,
-  onSync,
-  onRefresh,
   onContext,
 }: AppRowProps) => {
   const opRunning = e.operationPhase === 'Running' || e.operationPhase === 'Terminating';
@@ -643,30 +671,24 @@ const AppRow = memo(({
   return (
     <tr
       className={`${isSel ? 'selected' : ''} ${isFocused ? 'focused' : ''} ${showSpinner ? 'row-busy' : ''} ${flashState ? `row-flash row-flash-${flashState}` : ''}`}
+      onClick={() => onSelect(e)}
+      onDoubleClick={() => onOpen(e)}
       onContextMenu={(ev) => {
         ev.preventDefault();
         onContext(e, ev.clientX, ev.clientY);
       }}
     >
-      <td className="argo-apps-checkbox-col">
+      <td className="argo-apps-checkbox-col" onClick={(ev) => ev.stopPropagation()} onDoubleClick={(ev) => ev.stopPropagation()}>
         <input type="checkbox" checked={isSel} onChange={() => onToggleSelect(e)} />
       </td>
       <td className="argo-apps-name-cell">
-        <button className="argo-apps-name-link" onClick={() => onOpen(e)}>{e.name}</button>
+        <span className="argo-apps-name">{e.name}</span>
         {showSpinner && (
           <span className="argo-apps-row-spinner-wrap">
             <span className="argo-apps-row-spinner" />
             <span className="argo-apps-row-spinner-label">{spinnerLabel}</span>
           </span>
         )}
-        <span className="argo-apps-row-actions">
-          <button title="Sync (s)" disabled={!!busyState} onClick={(ev) => { ev.stopPropagation(); onSync(e); }}>
-            {busyState === 'sync' ? '…' : 'Sync'}
-          </button>
-          <button title="Refresh (r)" disabled={!!busyState} onClick={(ev) => { ev.stopPropagation(); onRefresh(e); }}>
-            {busyState === 'refresh' ? '…' : 'Refresh'}
-          </button>
-        </span>
       </td>
       <td className="argo-apps-mono argo-apps-dest" title={destinationTitle(e)}>
         {showSingleDestNs ? (
@@ -698,9 +720,8 @@ const AppRow = memo(({
     prev.showProjectColumn === next.showProjectColumn &&
     prev.showSingleDestNs === next.showSingleDestNs &&
     prev.onToggleSelect === next.onToggleSelect &&
+    prev.onSelect === next.onSelect &&
     prev.onOpen === next.onOpen &&
-    prev.onSync === next.onSync &&
-    prev.onRefresh === next.onRefresh &&
     prev.onContext === next.onContext
   );
 });
