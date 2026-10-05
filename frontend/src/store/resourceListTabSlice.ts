@@ -6,7 +6,7 @@ import { itemsTopic, liveItemsFor } from './realtimeSlice';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 function pageNode(kind: string, cluster: string | null) {
-  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' | 'cluster-settings' }> = {
+  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' | 'cluster-settings' | 'nats' }> = {
     ClusterSettings: { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings' },
     ClusterDashboard: { id: 'cluster-overview', label: 'Overview', type: 'overview' },
     FinOpsDashboard: { id: 'finops-dashboard', label: 'FinOps', type: 'finops' },
@@ -14,6 +14,7 @@ function pageNode(kind: string, cluster: string | null) {
     IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
     HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
     ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
+    NatsMonitoring: { id: 'nats-monitoring', label: 'NATS', type: 'nats' },
   };
   const p = pages[kind];
   return p ? { ...p, data: { cluster } } : null;
@@ -42,6 +43,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
       : resourceKind === 'RightsizingDashboard' ? 'Rightsizing'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
+      : resourceKind === 'NatsMonitoring' ? 'NATS'
       : resourceKind;
 
     const wantedPaneId = paneId || tab.state.focusedCenterPaneId || undefined;

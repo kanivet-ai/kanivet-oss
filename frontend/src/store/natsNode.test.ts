@@ -77,4 +77,21 @@ describe('the NATS entry in the sidebar', () => {
     await settle();
     expect(treeOf('withnats').some((n) => n.id === 'nats-monitoring')).toBe(false);
   });
+
+  it('is the selected node when its tab is shown again, without watching it as a resource', async () => {
+    await useStore.getState().loadTreeData('withnats');
+    useStore.setState({ currentTab: 'withnats' });
+    await useStore.getState().openResourceListTab(
+      { name: 'nats-monitoring', group: '', version: 'v1', kind: 'NatsMonitoring', namespaced: false },
+      'withnats',
+    );
+    const tab = useStore.getState().activeTabs.find((t) => t.id === 'withnats')!.state.resourceListTabs[0];
+    expect(tab.title).toBe('NATS');
+
+    useStore.getState().setActiveResourceListTab(tab.id);
+
+    const state = useStore.getState().activeTabs.find((t) => t.id === 'withnats')!.state;
+    expect(state.selectedNode?.id).toBe('nats-monitoring');
+    expect(state.selectedNode?.type).toBe('nats');
+  });
 });

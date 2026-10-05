@@ -82,7 +82,7 @@ export const nodeHasChevron = (n: any): boolean =>
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline', 'nats']);
 
 const nodeMatchesSearch = (
   node: any,
