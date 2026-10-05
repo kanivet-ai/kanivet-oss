@@ -763,6 +763,20 @@ func (s *Service) listPods(ctx context.Context, t target) ([]*v1.Pod, error) {
 	return out, nil
 }
 
+// largestFirst orders namespaces by how many series they read, most first:
+// only a few are read at once, and a large one left for last keeps the whole
+// report waiting on it alone.
+func largestFirst(want map[string]map[seriesKey]struct{}) []string {
+	namespaces := slices.Collect(maps.Keys(want))
+	slices.SortFunc(namespaces, func(a, b string) int {
+		if c := cmp.Compare(len(want[b]), len(want[a])); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	return namespaces
+}
+
 func (s *Service) compute(ctx context.Context, cluster string, profile Profile, window time.Duration, prev *Report, progress func(Progress)) *Report {
 	t := resolveTarget(cluster)
 	step := stepFor(window)
@@ -875,15 +889,7 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 			}
 		}
 	}
-	// The namespaces with the most history go first: only a few are read at
-	// once, and a large one left for last keeps the whole report waiting.
-	namespaces := slices.Collect(maps.Keys(byNS))
-	slices.SortFunc(namespaces, func(a, b string) int {
-		if c := cmp.Compare(len(wantNS[b]), len(wantNS[a])); c != 0 {
-			return c
-		}
-		return strings.Compare(a, b)
-	})
+	namespaces := largestFirst(wantNS)
 
 	prevRecs := previousRecs(prev)
 	var (

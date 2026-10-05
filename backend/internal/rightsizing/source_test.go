@@ -16,8 +16,6 @@ import (
 	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/metrics"
-	v1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // restartCounter is kube-state-metrics' restart counter for one container,
@@ -392,68 +390,18 @@ func TestEvidenceAsksPricesWhileHistoryLoads(t *testing.T) {
 	}
 }
 
-// sizedNamespaces runs as many Deployments in each namespace as it says.
-type sizedNamespaces map[string]int
-
-func (s sizedNamespaces) List(context.Context, string) ([]*v1.Pod, error) {
-	controller := true
-	var pods []*v1.Pod
-	for ns, n := range s {
-		for i := range n {
-			name := fmt.Sprintf("w%d", i)
-			pods = append(pods, &v1.Pod{
-				ObjectMeta: metav1.ObjectMeta{
-					Namespace: ns, Name: name + "-bcdfgh-bcdfg",
-					Labels:          map[string]string{"pod-template-hash": "bcdfgh"},
-					OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: name + "-bcdfgh", Controller: &controller}},
-				},
-				Spec:   v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
-				Status: v1.PodStatus{Phase: v1.PodRunning},
-			})
-		}
-	}
-	return pods, nil
-}
-
-// firstNamespaces records the order namespaces first asked for their pod
-// start times in.
-type firstNamespaces struct {
-	*evidenceHistory
-	mu    sync.Mutex
-	order []string
-}
-
-var namespaceMatcher = regexp.MustCompile(`namespace="([^"]+)"`)
-
-func (f *firstNamespaces) QueryRange(context.Context, string, string, time.Time, time.Time, time.Duration) ([]metrics.HistorySeries, error) {
-	return nil, nil
-}
-
-func (f *firstNamespaces) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error) {
-	if m := namespaceMatcher.FindStringSubmatch(query); m != nil { // pod start times, one per namespace
-		f.mu.Lock()
-		if !slices.Contains(f.order, m[1]) {
-			f.order = append(f.order, m[1])
-		}
-		f.mu.Unlock()
-		return nil, nil
-	}
-	return f.evidenceHistory.QueryInstant(ctx, cluster, query, at)
-}
-
 // Only a few namespaces are read at once, so the largest start first: one
 // left for last would keep the whole report waiting on it alone.
-func TestReportReadsLargestNamespacesFirst(t *testing.T) {
-	h := &firstNamespaces{evidenceHistory: &evidenceHistory{calls: map[string]int{}}}
-	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, sizedNamespaces{"a": 1, "b": 2, "c": 3, "d": 10}, nil)
-	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
-	s.now = func() time.Time { return now }
-	if rep := s.compute(metrics.WithHistoryProvider(context.Background(), "mimir"), t.Name(), ProfileBalanced, defaultWindow, nil, func(Progress) {}); rep.Status != StatusReady {
-		t.Fatalf("report: %s %s", rep.Status, rep.Error)
+func TestLargestNamespacesFirst(t *testing.T) {
+	want := map[string]map[seriesKey]struct{}{}
+	for ns, n := range map[string]int{"a": 1, "b": 2, "c": 3, "d": 10, "e": 2} {
+		want[ns] = map[seriesKey]struct{}{}
+		for i := range n {
+			want[ns][seriesKey{ns, "", fmt.Sprint(i), "main"}] = struct{}{}
+		}
 	}
-	// Three at a time: the smallest waits for one of the others to finish.
-	if len(h.order) != 4 || h.order[3] != "a" {
-		t.Fatalf("namespaces started in order %v", h.order)
+	if got := largestFirst(want); !slices.Equal(got, []string{"d", "c", "b", "e", "a"}) {
+		t.Fatalf("namespaces in order %v", got)
 	}
 }
 
