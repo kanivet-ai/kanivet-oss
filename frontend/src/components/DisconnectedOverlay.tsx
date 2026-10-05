@@ -7,13 +7,13 @@ interface DisconnectedOverlayProps {
   lastUpdate?: number;
 }
 
-const DisconnectedOverlay = ({ cluster }: DisconnectedOverlayProps) => {
-  const { backendState, websocketState, getOverallState, clusterErrors } = useStore(useShallow((s) => ({ backendState: s.backendState, websocketState: s.websocketState, getOverallState: s.getOverallState, clusterErrors: s.clusterErrors })));
+const DisconnectedOverlay = (_props: DisconnectedOverlayProps) => {
+  const { backendState, websocketState, getOverallState } = useStore(useShallow((s) => ({ backendState: s.backendState, websocketState: s.websocketState, getOverallState: s.getOverallState })));
   const overallState = getOverallState();
-  const clusterError = cluster ? clusterErrors[cluster] : undefined;
 
-  if (overallState === 'connected' && !clusterError) return null;
-  if (clusterError) return null;
+  // A down socket is shown whatever the cluster reports: its error is stale
+  // while updates cannot arrive.
+  if (overallState === 'connected') return null;
 
   const getOverlayContent = () => {
     if (backendState === 'disconnected') {

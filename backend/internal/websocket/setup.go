@@ -171,47 +171,41 @@ func (s *Server) GetBroadcaster() *WatcherBroadcaster {
 
 // SetupDefaultHandlers configures the default message handlers for Kubernetes watching
 func (s *Server) SetupDefaultHandlers(watcherService *watcher.Service) {
-	// Watch refcounts mirror live (connection, topic) pairs exactly: StartWatch
-	// runs only when the subscription manager reports a new pair, and every
-	// decrement flows through this single removal callback (explicit
-	// unsubscribe and disconnect both end up here).
-	s.subManager.SetOnSubscriptionRemoved(func(topic string, _ *core.Connection) {
+	s.installWatchHandlers(watcherService)
+}
+
+func (s *Server) installWatchHandlers(watcherService watchAPI) {
+	// Watch refcounts mirror live (connection, topic) pairs exactly: a pair
+	// owns one ref once StartWatch succeeds for it, and every release flows
+	// through this single removal callback (explicit unsubscribe, disconnect
+	// and Broadcast's auto-unsubscribe of a closed connection all end up
+	// here). watchRefs keeps that true even when the removal lands before
+	// StartWatch has run.
+	refs := newWatchRefs()
+	s.subManager.SetOnSubscriptionRemoved(func(topic string, conn *core.Connection) {
 		if cluster, group, version, kind, namespace, ok := topics.ParseItemsTopic(topic); ok {
-			log.Printf("[WS] Subscription removed for %s, releasing watch ref", topic)
-			watcherService.StopWatch(cluster, group, version, kind, namespace)
+			if refs.onRemoved(watchRefKey{topic: topic, conn: conn.ID()}) {
+				log.Printf("[WS] Subscription removed for %s, releasing watch ref", topic)
+				watcherService.StopWatch(cluster, group, version, kind, namespace)
+			}
 		}
 	})
 
 	// Re-push the cached snapshot when a client misses updates (backpressure
-	// drop) or re-subscribes to a topic it already had. The pending flag is
-	// cleared only after Resync completes and a cooldown keeps a saturated
-	// client from turning resyncs into a feedback loop.
-	var resyncMu sync.Mutex
-	resyncPending := make(map[string]bool)
-	lastResync := make(map[string]time.Time)
+	// drop) or re-subscribes to a topic it already had. See resyncCoordinator:
+	// the resync reaches every subscriber of the topic, so it is debounced,
+	// rate-limited, and re-armed when a drop happens during a resync.
+	resyncs := newResyncCoordinator(watcherService)
 	requestResync := func(topic string) {
 		if _, _, _, _, _, ok := topics.ParseItemsTopic(topic); !ok {
 			return
 		}
-		resyncMu.Lock()
-		if resyncPending[topic] || time.Since(lastResync[topic]) < 2*time.Second {
-			resyncMu.Unlock()
-			return
-		}
-		resyncPending[topic] = true
-		resyncMu.Unlock()
-		go func() {
-			time.Sleep(250 * time.Millisecond)
-			watcherService.Resync(topic)
-			resyncMu.Lock()
-			lastResync[topic] = time.Now()
-			delete(resyncPending, topic)
-			resyncMu.Unlock()
-		}()
+		resyncs.request(topic)
 	}
 	s.subManager.SetOnBackpressureDrop(func(topic string, _ *core.Connection) {
 		requestResync(topic)
 	})
+	s.subManager.SetOnTopicEmpty(resyncs.topicClosed)
 
 	// Handle subscribe messages
 	s.RegisterHandler("subscribe", core.MessageHandlerFunc(func(ctx context.Context, conn *core.Connection, msg *core.IncomingMessage) error {
@@ -236,18 +230,47 @@ func (s *Server) SetupDefaultHandlers(watcherService *watcher.Service) {
 			if sortOrder == "" {
 				sortOrder = "desc"
 			}
+			// The pair's record exists before it subscribes so a removal that
+			// lands right after Subscribe (a closed connection auto-unsubscribed
+			// by Broadcast) finds it and the refcount stays balanced.
+			key := watchRefKey{topic: topic, conn: conn.ID()}
+			ref, reserved := refs.reserve(key)
 			added, err := s.hub.Subscribe(topic, conn)
 			if err != nil {
+				if reserved {
+					refs.release(key, ref)
+				}
 				return err
 			}
 			if !added {
+				if reserved {
+					refs.release(key, ref)
+				}
 				requestResync(topic)
 				return nil
 			}
-			if err := watcherService.StartWatch(cluster, group, version, kind, namespace, sortBy, sortOrder); err != nil {
-				log.Printf("[WS] Failed to start watcher for topic %s: %v", topic, err)
+			if !reserved {
+				// A record outlived its pair; replace it so this pair owns one.
+				refs.mu.Lock()
+				ref = &watchRef{}
+				refs.refs[key] = ref
+				refs.mu.Unlock()
+			}
+			if refs.removedBeforeStart(ref) {
+				return nil
+			}
+			startErr := watcherService.StartWatch(cluster, group, version, kind, namespace, sortBy, sortOrder)
+			if refs.finishStart(key, ref, startErr) {
+				// Removed while StartWatch ran: the removal could not release
+				// the ref StartWatch took, so give it back here.
+				watcherService.StopWatch(cluster, group, version, kind, namespace)
+			}
+			if startErr != nil {
+				log.Printf("[WS] Failed to start watcher for topic %s: %v", topic, startErr)
+				// No ref was taken, so the removal callback finds no record
+				// and does not stop a watch this pair never started.
 				_, _ = s.hub.Unsubscribe(topic, conn)
-				return err
+				return startErr
 			}
 			return nil
 		}

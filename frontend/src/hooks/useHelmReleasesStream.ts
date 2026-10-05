@@ -29,6 +29,7 @@ export const useHelmReleasesStream = (
 ): UseHelmReleasesStreamResult => {
   const handlerRef = useRef<((raw: any) => void) | null>(null);
   const hasSubscribedRef = useRef(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clusterRef = useRef(options.cluster);
   clusterRef.current = options.cluster;
 
@@ -168,10 +169,20 @@ export const useHelmReleasesStream = (
     setHelmReleasesProgress(cluster, null);
     
     // Small delay to ensure unsubscribe is processed
-    setTimeout(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
       subscribe(cluster);
     }, 100);
   }, [unsubscribe, subscribe, clearHelmReleases, setHelmReleasesLoading, setHelmReleasesStreaming, setHelmReleasesError, setHelmReleasesProgress]);
+
+  // A refresh still waiting to resubscribe must not outlive the page.
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, []);
 
   // Initial load effect - runs once when component mounts or cluster changes
   useEffect(() => {

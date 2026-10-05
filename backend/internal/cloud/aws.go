@@ -1399,20 +1399,20 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 		regions = getAllAWSRegions()
 	}
 
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
 		Status: fmt.Sprintf("Preparing profile %s...", profile), TotalRegions: len(regions),
-	}}
+	}})
 
 	accountID, err := p.GetAccountID(ctx, profile)
 	if err != nil {
 		log.Printf("Warning: could not get account ID for profile %s: %v", profile, err)
-		eventCh <- DiscoveryEvent{Type: DiscoveryEventError, Error: fmt.Sprintf("Profile %s: %s", profile, humanizeAWSCredentialError(err))}
+		emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventError, Error: fmt.Sprintf("Profile %s: %s", profile, humanizeAWSCredentialError(err))})
 		return
 	}
 
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
 		Status: "Scanning regions...", TotalRegions: len(regions),
-	}}
+	}})
 
 	var wg sync.WaitGroup
 	var accessWg sync.WaitGroup
@@ -1436,12 +1436,12 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 				currentScanned := scannedCount
 				currentClusters := clustersFound
 				mu.Unlock()
-				eventCh <- DiscoveryEvent{
+				emitEvent(ctx, eventCh, DiscoveryEvent{
 					Type: DiscoveryEventProgress,
 					Progress: &DiscoveryProgress{
 						Region: r, AccountID: accountID, RegionsScanned: currentScanned, TotalRegions: totalRegions, ClustersFound: currentClusters,
 					},
-				}
+				})
 				return
 			}
 
@@ -1487,14 +1487,14 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 				mu.Lock()
 				clustersFound++
 				mu.Unlock()
-				eventCh <- DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster}
+				emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster})
 
 				caData := aws.ToString(c.CertificateAuthority.Data)
 				accessWg.Add(1)
 				go func(clusterID, clusterName, endpoint, ca, region, prof string) {
 					defer accessWg.Done()
 					hasAccess, accessErr := p.testClusterAccess(ctx, clusterName, endpoint, ca, region, prof, "", "", "")
-					eventCh <- DiscoveryEvent{
+					emitEvent(ctx, eventCh, DiscoveryEvent{
 						Type: DiscoveryEventStatusUpdate,
 						Cluster: &DiscoveredCluster{
 							ID:            clusterID,
@@ -1502,7 +1502,7 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 							AccessChecked: true,
 							AccessError:   accessErr,
 						},
-					}
+					})
 				}(cluster.ID, name, cluster.Endpoint, caData, r, profile)
 			}
 
@@ -1511,17 +1511,17 @@ func (p *AWSProvider) DiscoverClustersStreaming(ctx context.Context, profile str
 			currentScanned := scannedCount
 			currentClusters := clustersFound
 			mu.Unlock()
-			eventCh <- DiscoveryEvent{
+			emitEvent(ctx, eventCh, DiscoveryEvent{
 				Type: DiscoveryEventProgress,
 				Progress: &DiscoveryProgress{
 					Region: r, AccountID: accountID, RegionsScanned: currentScanned, TotalRegions: totalRegions, ClustersFound: currentClusters,
 				},
-			}
+			})
 		}(region)
 	}
 	wg.Wait()
 	accessWg.Wait()
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventComplete}
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventComplete})
 }
 
 // humanizeAWSCredentialError rewrites the SDK's credential-chain errors into
@@ -1553,11 +1553,11 @@ func humanizeAWSCredentialError(err error) string {
 func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, startURL string, regions []string, accountIDs []string, eventCh chan<- DiscoveryEvent) {
 	defer close(eventCh)
 
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{Status: "Fetching accounts..."}}
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{Status: "Fetching accounts..."}})
 
 	accounts, err := p.GetSSOAccounts(ctx, startURL)
 	if err != nil {
-		eventCh <- DiscoveryEvent{Type: DiscoveryEventError, Error: humanizeAWSCredentialError(err)}
+		emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventError, Error: humanizeAWSCredentialError(err)})
 		return
 	}
 
@@ -1586,9 +1586,9 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 		availableRoles []string
 	}
 
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
 		Status: fmt.Sprintf("Preparing %d account(s)...", len(accounts)),
-	}}
+	}})
 
 	type accountCreds struct {
 		account        SSOAccount
@@ -1629,9 +1629,9 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 	}
 
 	totalRegions := len(jobs)
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventProgress, Progress: &DiscoveryProgress{
 		Status: "Scanning regions...", TotalRegions: totalRegions,
-	}}
+	}})
 
 	var wg sync.WaitGroup
 	var accessWg sync.WaitGroup
@@ -1693,7 +1693,7 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 				mu.Lock()
 				clustersFound++
 				mu.Unlock()
-				eventCh <- DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster}
+				emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventCluster, Cluster: &cluster})
 
 				caData := aws.ToString(c.CertificateAuthority.Data)
 				roleName := preferredSSORole(j.availableRoles)
@@ -1701,7 +1701,7 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 				go func(clusterID, clusterName, endpoint, ca, region, accountID, role string) {
 					defer accessWg.Done()
 					hasAccess, accessErr := p.testClusterAccess(ctx, clusterName, endpoint, ca, region, "", startURL, accountID, role)
-					eventCh <- DiscoveryEvent{
+					emitEvent(ctx, eventCh, DiscoveryEvent{
 						Type: DiscoveryEventStatusUpdate,
 						Cluster: &DiscoveredCluster{
 							ID:            clusterID,
@@ -1709,7 +1709,7 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 							AccessChecked: true,
 							AccessError:   accessErr,
 						},
-					}
+					})
 				}(cluster.ID, name, cluster.Endpoint, caData, j.region, j.account.AccountID, roleName)
 			}
 
@@ -1718,17 +1718,17 @@ func (p *AWSProvider) DiscoverClustersWithSSOStreaming(ctx context.Context, star
 			currentScanned := scannedCount
 			currentClusters := clustersFound
 			mu.Unlock()
-			eventCh <- DiscoveryEvent{
+			emitEvent(ctx, eventCh, DiscoveryEvent{
 				Type: DiscoveryEventProgress,
 				Progress: &DiscoveryProgress{
 					Region: j.region, AccountID: j.account.AccountID, RegionsScanned: currentScanned, TotalRegions: totalRegions, ClustersFound: currentClusters,
 				},
-			}
+			})
 		}(job)
 	}
 	wg.Wait()
 	accessWg.Wait()
-	eventCh <- DiscoveryEvent{Type: DiscoveryEventComplete}
+	emitEvent(ctx, eventCh, DiscoveryEvent{Type: DiscoveryEventComplete})
 }
 
 func (p *AWSProvider) testClusterAccess(ctx context.Context, clusterName, endpoint, caData, region, profile, ssoStartURL, accountID, roleName string) (bool, string) {

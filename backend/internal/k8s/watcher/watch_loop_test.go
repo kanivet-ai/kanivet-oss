@@ -221,7 +221,14 @@ func TestWatchOnUnreachableClusterCompletesSyncOnce(t *testing.T) {
 
 	s.sendCachedData(topic, "age", "desc")
 
-	if got := hub.syncCompletes(); len(got) != 1 {
-		t.Fatalf("a revisit replayed the empty cache: %d sync_completes", len(got))
+	// A revisit must not replay the empty cache as an authoritative
+	// snapshot, but it gets the same non-authoritative signal as the first
+	// subscriber so it leaves its loading state.
+	got := hub.syncCompletes()
+	if len(got) != 2 || got[1].Epoch != 0 || got[1].ItemCount != 0 {
+		t.Fatalf("a revisit must get one non-authoritative sync_complete, got %+v", got)
+	}
+	if len(hub.bulkLists()) != 0 {
+		t.Fatal("a revisit replayed the empty cache as a snapshot")
 	}
 }

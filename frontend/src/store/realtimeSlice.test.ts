@@ -476,4 +476,21 @@ describe('realtime subscriptions across tab switches', () => {
     expect(ws.unsubscribes.sort()).toEqual([topicOf('configmaps'), topicOf('secrets')].sort());
     expect(ws.handlers.size).toBe(0);
   });
+
+  it('keeps flushing while animation frames are paused (hidden window)', async () => {
+    const store = makeStore();
+    await open(store, 'configmaps', [item('a')]);
+    // A hidden window never runs its animation frames.
+    (globalThis as any).requestAnimationFrame = () => 1;
+    (globalThis as any).cancelAnimationFrame = () => {};
+    emit('configmaps', [{ action: 'added', item: item('b') }]);
+    await vi.advanceTimersByTimeAsync(300);
+    emit('configmaps', [{ action: 'added', item: item('c') }]);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(store.getState().getCurrentTabState().listItems.map((i: any) => i.name).sort()).toEqual(['a', 'b', 'c']);
+    const rt = (globalThis as any).__kanivetRealtime;
+    expect(rt.pendingEvents).toHaveLength(0);
+    expect(rt.batchTimer).toBeNull();
+  });
 });
