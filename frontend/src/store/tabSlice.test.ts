@@ -20,20 +20,25 @@ const unloadHandlers = vi.hoisted(() => {
 vi.mock('../services/api', () => ({ default: {} }));
 
 const { createTabSlice } = await import('./tabSlice');
+const { installPersistence } = await import('./persistence');
 const { createInitialTabState, rebuildTabIndex } = await import('./utils');
 
 describe('tab state persistence', () => {
   it('writes a pending tab state snapshot when the window unloads', () => {
     vi.useFakeTimers();
     const store = create<any>()((set, get, api) => ({
+      bottomTabs: [],
+      activeBottomTab: null,
       ...createTabSlice(set, get, api),
     }));
+    installPersistence(store, { alreadyHydrated: true });
     const tabs = [{ id: 'c1', name: 'c1', state: createInitialTabState() }];
     store.setState({
       activeTabs: tabs,
       tabIndexMap: rebuildTabIndex(tabs),
       currentTab: 'c1',
     });
+    localStorage.removeItem('kanivet.tabstate.c1');
 
     store
       .getState()
@@ -54,8 +59,11 @@ describe('tab state persistence', () => {
   it('does not write a detail tab object, such as a Secret with its data, to localStorage', () => {
     vi.useFakeTimers();
     const store = create<any>()((set, get, api) => ({
+      bottomTabs: [],
+      activeBottomTab: null,
       ...createTabSlice(set, get, api),
     }));
+    installPersistence(store, { alreadyHydrated: true });
     const secret = {
       kind: 'Secret',
       apiVersion: 'v1',
