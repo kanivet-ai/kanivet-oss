@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { DiffEditor } from '@monaco-editor/react';
+import { DiffEditor } from '../../MonacoEditor';
 import yaml from 'js-yaml';
 import api from '../../../services/api';
 import { ArgoManagedResource } from '../../../services/api/resources';

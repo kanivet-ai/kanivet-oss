@@ -4,12 +4,8 @@ import TreeSidebar from './TreeSidebar';
 import CenterPaneSplitContainer from './CenterPaneSplitContainer';
 import DetailView from './DetailView';
 import TabBar from './TabBar';
-import CommandPalette from './CommandPalette';
 import BottomDock from './BottomDock';
-import { ThemeSettings } from './ThemeSettings';
-import { ComponentLibrary } from './ComponentLibrary';
 import ToastContainer from './ToastContainer';
-import FeatureTour from './onboarding/FeatureTour';
 import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
@@ -24,7 +20,18 @@ import {
   createTabSwitchHandlers,
   createFocusNavigationHandlers,
 } from '../utils/keyboardShortcuts';
+import { lazyView, prefetchLazyViewsWhenIdle } from '../utils/lazyView';
 import './Layout.css';
+
+// Not on the first screen: split out, then warmed once the layout has painted.
+const CommandPalette = lazyView(() => import('./CommandPalette'));
+const FeatureTour = lazyView(() => import('./onboarding/FeatureTour'));
+const ThemeSettings = lazyView(() =>
+  import('./ThemeSettings').then((m) => ({ default: m.ThemeSettings })),
+);
+const ComponentLibrary = lazyView(() =>
+  import('./ComponentLibrary').then((m) => ({ default: m.ComponentLibrary })),
+);
 
 const Layout = () => {
   const {
@@ -105,6 +112,10 @@ const Layout = () => {
   useCloudAuthSync();
 
   useEffect(() => {
+    prefetchLazyViewsWhenIdle();
+  }, []);
+
+  useEffect(() => {
     loadClusters().then(() => notifyWelcome(useStore.getState().clusters.length)).catch(() => {});
     loadClusterAliases();
     hydrateFromStorage();
@@ -180,7 +191,6 @@ const Layout = () => {
       const resource = JSON.parse(resourceJson);
       const {
         updateCurrentTabState,
-        loadTreeData,
         selectNode,
         loadListItems,
         selectItem,
@@ -192,8 +202,10 @@ const Layout = () => {
         selectedNamespace: ns,
         selectedNamespaces: parsedMulti,
       });
-      // Ensure categories/tree are present; then select and load items
-      loadTreeData(currentTab).then(async () => {
+      // The list needs neither the categories nor the tree, so it starts now
+      // instead of a round trip later; the tree (requested by hydrate and the
+      // sidebar) loads alongside.
+      (async () => {
         selectNode({ id: '', label: '', type: 'resource', data: resource });
         await loadListItems(currentTab, resource);
         startRealtime();
@@ -217,7 +229,7 @@ const Layout = () => {
             }
           }
         }
-      });
+      })();
     } catch {}
   }, [currentTab]);
 

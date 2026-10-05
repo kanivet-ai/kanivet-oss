@@ -17,7 +17,7 @@ import { Tooltip } from '../common/Tooltip';
 import { workloadResource } from '../finops/finopsView';
 import { useFinOpsNavigation } from '../finops/useFinOpsNavigation';
 import { HistorySourceState } from './RightsizingParts';
-import { EvidenceSheet } from './EvidenceSheet';
+import { EvidenceSheet } from './lazyEvidenceSheet';
 import { MethodologySheet } from './MethodologySheet';
 import { FacetMenu } from './FacetMenu';
 import { RightsizingTable, workloadId } from './RightsizingTable';

@@ -6,7 +6,7 @@ import {
   ResourceDelta,
   VerdictBadge,
 } from './RightsizingParts';
-import { EvidenceSheet } from './EvidenceSheet';
+import { EvidenceSheet } from './lazyEvidenceSheet';
 import { formatMoney, reasonTags } from './rightsizingView';
 import { Tooltip } from '../common/Tooltip';
 import {

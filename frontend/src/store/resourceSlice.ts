@@ -9,10 +9,25 @@ import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
 
+// Concurrent loads of one cluster's tree share a single run: on startup the
+// hydrate step, the sidebar and the restore effect all ask for it at once.
+// A call that passes the tree itself is applied as is.
+const treeLoads = new Map<string, Promise<void>>();
+const sharedTreeLoad =
+  (load: (cluster: string, data?: TreeNode[]) => Promise<void>) =>
+  (cluster: string, data?: TreeNode[]): Promise<void> => {
+    if (data) return load(cluster, data);
+    const pending = treeLoads.get(cluster);
+    if (pending) return pending;
+    const run = load(cluster).finally(() => treeLoads.delete(cluster));
+    treeLoads.set(cluster, run);
+    return run;
+  };
+
 export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice> = (set, get) => ({
   rolloutPollingInterval: null,
 
-  loadTreeData: async (cluster: string, data?: TreeNode[]) => {
+  loadTreeData: sharedTreeLoad(async (cluster: string, data?: TreeNode[]) => {
     if (data) {
       set((state) => {
         const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
@@ -118,7 +133,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         }
       }
     }
-  },
+  }),
 
   expandNode: async (cluster: string, nodeId: string, nodeType: string, metadata: any) => {
     if (nodeType === 'vclusters') {

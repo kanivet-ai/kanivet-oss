@@ -14,3 +14,9 @@ interface Window {
     isDev: boolean;
   };
 }
+
+// Vite's `?worker` imports (the Monaco workers in utils/monacoSetup).
+declare module '*?worker' {
+  const WorkerConstructor: { new (): Worker };
+  export default WorkerConstructor;
+}

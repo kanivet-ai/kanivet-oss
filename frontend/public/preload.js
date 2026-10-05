@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     notify: (opts) => ipcRenderer.invoke('island:notify', opts),
   },
   backend: {
+    getPort: () => ipcRenderer.invoke('backend:getPort'),
     onPortChanged: (callback) => {
       const listener = (_, port) => callback(port);
       ipcRenderer.on('backend:port-changed', listener);
@@ -46,8 +47,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     updateTabs: (tabs) => ipcRenderer.invoke('tray:updateTabs', tabs),
     updateSSOSessions: (sessions) => ipcRenderer.invoke('tray:updateSSOSessions', sessions),
     onSwitchTab: (callback) => {
-      ipcRenderer.on('tray:switchTab', (_, tabId) => callback(tabId));
-      return () => ipcRenderer.removeListener('tray:switchTab', callback);
+      const listener = (_, tabId) => callback(tabId);
+      ipcRenderer.on('tray:switchTab', listener);
+      return () => ipcRenderer.removeListener('tray:switchTab', listener);
     },
     onOpenSettings: (callback) => {
       ipcRenderer.on('tray:openSettings', callback);

@@ -7,13 +7,15 @@ import {
   LinkBreak2Icon,
 } from '@radix-ui/react-icons';
 import ScrollContainer from './ScrollContainer';
-import PodLogs from './PodLogs';
-import DeploymentLogs from './DeploymentLogs';
-import PodShell from './PodShell';
-import NodeShell from './NodeShell';
-import YamlEditor from './YamlEditor';
-import CrossplaneTrace from './CrossplaneTrace';
-import TerminalContainer from './TerminalContainer';
+import {
+  PodLogs,
+  DeploymentLogs,
+  PodShell,
+  NodeShell,
+  YamlEditor,
+  CrossplaneTrace,
+  TerminalContainer,
+} from './lazyBottomViews';
 import { useStore, type BottomTab } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import useResizableHeight from '../hooks/useResizableHeight';

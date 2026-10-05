@@ -57,10 +57,7 @@ const useStore = create<StoreState>()((...a) => ({
         });
         const shouldUpdateCurrentTab = !get().currentTab;
         set({ activeTabs: newTabs, tabIndexMap: rebuildTabIndex(newTabs), currentTab: shouldUpdateCurrentTab ? (saved || restoredClusters[0] || null) : get().currentTab });
-        restoredClusters.forEach((cid) => {
-          get().loadClusterStatus(cid);
-          get().loadTreeData(cid).catch(() => {});
-        });
+        restoredClusters.forEach((cid) => get().loadClusterStatus(cid));
         restoredClusters.forEach((cid) => {
           try {
             const snapRaw = localStorage.getItem(`kanivet.tabstate.${cid}`);
@@ -85,6 +82,13 @@ const useStore = create<StoreState>()((...a) => ({
               }));
             }
           } catch {}
+        });
+        // After the snapshots: the tree load expands the nodes they restore,
+        // and the sidebar's and the restore effect's loads join this one.
+        restoredClusters.forEach((cid) => {
+          get()
+            .loadTreeData(cid)
+            .catch(() => {});
         });
       } else if (saved) {
         const exists = activeTabs.find((t) => t.id === saved);

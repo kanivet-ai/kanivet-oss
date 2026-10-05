@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { DrawingPinIcon, Pencil2Icon, ReaderIcon } from '@radix-ui/react-icons';
 import ResourceDetailView from '../detailView/ResourceDetailView';
-import HelmReleaseDetailView from '../detailView/resourceTypes/HelmReleaseDetailView';
+// Pulled in here by HelmReleaseDetailView before it was split out: keeps the
+// sheet ahead of the skeleton and container styles it shares selectors with.
+import '../DetailView.css';
 import ResourceDetailSkeleton from '../ResourceDetailSkeleton';
 import ContainerSelector from '../ContainerSelector';
 import CrossplaneIcon from '../icons/CrossplaneIcon';
@@ -10,7 +12,16 @@ import { useStore } from '../../store';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../../services/api';
 import { workloadControllerKinds } from '../../utils/resourceActions';
+import { lazyView } from '../../utils/lazyView';
+import { preloadEditor } from '../MonacoEditor';
 import './TabContent.css';
+
+const HelmReleaseDetailView = lazyView(
+  () => import('../detailView/resourceTypes/HelmReleaseDetailView'),
+  ({ release, mode }: { release: any; mode?: 'detail' | 'center' }) => (
+    <ResourceDetailSkeleton resource={release} mode={mode} />
+  ),
+);
 
 interface TabContentProps {
   tab: any;
@@ -193,6 +204,8 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
         <button
           className="tab-content-action-btn priority-low"
           onClick={() => handleActionClick('edit')}
+          onPointerEnter={preloadEditor}
+          onFocus={preloadEditor}
           disabled={!isFullyLoaded}
           aria-label="Edit YAML"
         >

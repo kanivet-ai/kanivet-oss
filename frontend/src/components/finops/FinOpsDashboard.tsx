@@ -28,7 +28,7 @@ import { ClusterNodeTable, VClusterHostNodeTable } from './NodeCostTable';
 import { SavingsOpportunities } from './SavingsOpportunities';
 import { filterNamespaces, filterNodes, isFiltered as filtersActive, totalSavings } from './finopsView';
 import { useFinOpsNavigation } from './useFinOpsNavigation';
-import { EvidenceSheet } from '../rightsizing/EvidenceSheet';
+import { EvidenceSheet } from '../rightsizing/lazyEvidenceSheet';
 import { useRightsizingPrefs, useRightsizingReport } from '../rightsizing/useRightsizingReport';
 import { rightsizingRecommendations, rightsizingSavingsIndex } from '../rightsizing/rightsizingView';
 import type { WorkloadReport } from '../../types/rightsizing';

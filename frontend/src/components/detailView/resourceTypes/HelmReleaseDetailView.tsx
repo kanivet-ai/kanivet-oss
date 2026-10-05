@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import * as ScrollArea from '@radix-ui/react-scroll-area';
 import { CounterClockwiseClockIcon, TrashIcon, ClockIcon, InfoCircledIcon, FileTextIcon, CodeIcon, Link2Icon, Pencil2Icon } from '@radix-ui/react-icons';
 import HelmIcon from '../../icons/HelmIcon';
-import Editor from '@monaco-editor/react';
+import { Editor } from '../../MonacoEditor';
 import yaml from 'js-yaml';
 import api from '../../../services/api';
 import { HelmRelease, HelmReleaseDetail, HelmHistoryEntry, HelmManagedResource } from '../../../types/helm';

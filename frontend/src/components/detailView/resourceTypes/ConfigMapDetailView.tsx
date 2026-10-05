@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { MagnifyingGlassIcon, FileTextIcon, ArchiveIcon } from '@radix-ui/react-icons';
-import Editor from '@monaco-editor/react';
+import { Editor } from '../../MonacoEditor';
 import PropertyRow from '../../common/PropertyRow';
 import PropertyGroup from '../shared/PropertyGroup';
 import MetadataSection from '../shared/MetadataSection';

@@ -11,12 +11,6 @@ import {
 import CrossplaneIcon from './icons/CrossplaneIcon';
 import ResourceTable from './ResourceTable';
 import ClusterDashboard from './ClusterDashboard';
-import ClusterSettings from './ClusterSettings';
-import ArgoApplicationsPage from './ArgoApplicationsPage';
-import HelmPage from './HelmPage';
-import FinOpsDashboard from './finops/FinOpsDashboard';
-import RightsizingDashboard from './rightsizing/RightsizingDashboard';
-import IncidentTimelinePage from './incidents/IncidentTimelinePage';
 import ResourceControlsBar from './common/ResourceControlsBar';
 import ResourceListDialogs from './ResourceListDialogs';
 import { BottomTabContent, DetailTabContent } from './ResourceListTabContent';
@@ -32,7 +26,20 @@ import { printerColumnsFromItems } from '../utils/resourceListColumns';
 import { createNavigationHandlers } from '../utils/keyboardShortcuts';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
+import { lazyView } from '../utils/lazyView';
 import './ResourceList.css';
+
+// Full pages other than the cluster overview load on demand (warmed when idle).
+const ClusterSettings = lazyView(() => import('./ClusterSettings'));
+const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
+const HelmPage = lazyView(() => import('./HelmPage'));
+const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
+const RightsizingDashboard = lazyView(
+  () => import('./rightsizing/RightsizingDashboard'),
+);
+const IncidentTimelinePage = lazyView(
+  () => import('./incidents/IncidentTimelinePage'),
+);
 
 // Resource-list tabs that show a full page rather than a resource table.
 const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);

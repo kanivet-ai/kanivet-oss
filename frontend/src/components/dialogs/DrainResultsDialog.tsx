@@ -1,3 +1,6 @@
+// Dialog.css restyles the legacy .scale-dialog rules in ResourceList.css, so it
+// has to come after it (HelmPage, which used to load that sheet first, is lazy).
+import '../ResourceList.css';
 import '../common/Dialog.css';
 
 interface DrainResultsDialogProps {

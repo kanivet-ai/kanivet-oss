@@ -1,5 +1,5 @@
 import logger from '../../utils/logger';
-import { getWsBase, getApiBase } from './types';
+import { getWsBase, getApiBase, setBackendPort } from './types';
 
 type MessageHandler = (msg: any) => void;
 type ConnectionEventType = 'backend' | 'websocket' | 'cluster';
@@ -20,10 +20,12 @@ export class WebSocketManager {
   private wasDisconnected: boolean = false;
   private lastBackendState: 'connected' | 'disconnected' = 'disconnected';
   private sessionSecretPromise: Promise<void>;
+  private backendPortPromise: Promise<void>;
   private lastHeartbeat: number = 0;
   private heartbeatCheckInterval?: NodeJS.Timeout;
 
   constructor() {
+    this.backendPortPromise = this.initBackendPort();
     this.sessionSecretPromise = this.initSessionSecret();
     this.setupConnectivityListeners();
     this.startBackendHealthCheck();
@@ -67,12 +69,38 @@ export class WebSocketManager {
     }
   }
 
+  // The window opens before the backend has picked its port, so the URL's is
+  // only a default: ask the main process for the real one (it answers once the
+  // backend has printed it, or startup has given up on one) rather than rely on
+  // a 'backend:port-changed' push sent before index.tsx subscribed. Browser
+  // mode has no main process to ask and keeps the URL's port.
+  private async initBackendPort() {
+    const getPort = (window as any).electronAPI?.backend?.getPort;
+    if (typeof getPort !== 'function') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const port = await Promise.race([
+        getPort() as Promise<number>,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), 30000);
+        }),
+      ]);
+      if (port) setBackendPort(port);
+    } catch {
+      // Keep the port from the URL.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   getSessionSecret(): string | null {
     return this.sessionSecret;
   }
 
+  // Every request waits for this: it needs the session secret, and the
+  // backend's real port (the theme loads before the backend is up).
   async waitForSessionSecret(): Promise<void> {
-    return this.sessionSecretPromise;
+    await Promise.all([this.sessionSecretPromise, this.backendPortPromise]);
   }
 
   private startBackendHealthCheck() {
@@ -217,9 +245,12 @@ export class WebSocketManager {
   }
 
   async waitForBackend(maxWaitMs: number = 30000): Promise<boolean> {
+    this.dispatchConnectionEvent('backend', 'connecting');
+    // Polled at the backend's real port, and for as long as before the window
+    // opened ahead of the backend: the wait starts once the port is known.
+    await this.backendPortPromise;
     const startTime = Date.now();
     const checkInterval = 500;
-    this.dispatchConnectionEvent('backend', 'connecting');
 
     while (Date.now() - startTime < maxWaitMs) {
       try {
