@@ -127,6 +127,9 @@ type DataQuality struct {
 	Samples  int       `json:"samples"`
 	First    time.Time `json:"first"`
 	Runs     int       `json:"runs,omitempty"`
+	// DutyCycle is, for Jobs and CronJobs, the share of the time since the
+	// first sample that a run was going: AvgReplicas counts only those steps.
+	DutyCycle float64 `json:"dutyCycle,omitempty"`
 	// NewPeakChance is the chance that at least one of the next 30 days beats
 	// every past daily memory peak: k/(n+k) for n exchangeable past days and
 	// k = 30. For a single day it would be 1/(n+1), which understates how
@@ -176,13 +179,20 @@ type HPACoupling struct {
 	Resource          string `json:"resource"`
 	TargetUtilization int32  `json:"targetUtilization"`
 	// SuggestedTarget with PairedRequest keeps today's scaling behaviour.
+	// On a workload, PairedRequest is the pod's total over the containers
+	// the HPA counts.
 	SuggestedTarget int32   `json:"suggestedTarget"`
 	PairedRequest   float64 `json:"pairedRequest"`
+	// usageOnly is what usage alone supported when the HPA held the request
+	// up; zero otherwise.
+	usageOnly float64
 }
 
 type ContainerReport struct {
 	Container string   `json:"container"`
 	JVM       *JVMInfo `json:"jvm,omitempty"`
+	// Heap is a fixed heap ceiling of another runtime: Node, .NET or Go.
+	Heap *HeapCeiling `json:"heap,omitempty"`
 	// VersionSince is roughly when the running version was rolled out.
 	VersionSince *time.Time `json:"versionSince,omitempty"`
 	// StartupBoost is what the container needs while it starts, when its
@@ -200,11 +210,15 @@ type ContainerReport struct {
 	OOMKills       int           `json:"oomKills"`
 	Restarts       int           `json:"restarts"`
 	StartupCPUPeak float64       `json:"startupCpuPeak,omitempty"`
-	Throttling     *float64      `json:"throttling,omitempty"`
+	Throttling     *float64      `json:"throttling,omitempty"` // share of replica-time throttled in over 5% of its periods
 	HPA            *HPACoupling  `json:"hpa,omitempty"`
+	// OOMLimit is the highest memory limit it was OOM-killed at, which can
+	// be below today's when the limit was raised since.
+	OOMLimit float64 `json:"oomLimit,omitempty"`
 	// CPUMonthly and MemMonthly price one core and one GiB of request for a
 	// month across the average replica count, so the UI can price any
-	// candidate request. Zero when the nodes have no price.
+	// candidate request; for a Job, only for the share of the month a run is
+	// going. Zero when the nodes have no price.
 	CPUMonthly float64 `json:"cpuMonthly"`
 	MemMonthly float64 `json:"memMonthly"`
 	// MonthlySavings is what this container's recommendation is worth
@@ -254,6 +268,9 @@ type WorkloadReport struct {
 	SavingsHigh       float64           `json:"savingsHigh"`
 	Change            *Change           `json:"change,omitempty"`
 	Dismissed         []Dismissal       `json:"dismissed,omitempty"`
+	// HPA is the one target change for the workload's HPA, when the
+	// recommendation pairs with it: what the containers' couplings share.
+	HPA *HPACoupling `json:"hpa,omitempty"`
 	// RiskScore orders the triage table: higher is more urgent.
 	RiskScore float64 `json:"riskScore"`
 }

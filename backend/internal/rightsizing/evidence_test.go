@@ -16,6 +16,7 @@ import (
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/metrics"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -190,6 +191,86 @@ func TestEvidenceWithoutEventsIsAnEmptyList(t *testing.T) {
 	}
 	if b, _ := json.Marshal(ev.Events); string(b) != `{"main":[]}` {
 		t.Fatalf("events=%s", b)
+	}
+}
+
+// startupStore serves one Deployment whose pod idles at 5m but used 120m in
+// its first minutes after starting, inside the window.
+type startupStore struct{ start time.Time }
+
+func (startupStore) HistorySource(context.Context, string) (*metrics.ProviderInfo, bool) {
+	return &metrics.ProviderInfo{Type: "prometheus", Found: true}, false
+}
+
+func (s startupStore) QueryInstant(_ context.Context, _, query string, at time.Time) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "kube_pod_start_time") {
+		return []metrics.HistorySeries{{Labels: map[string]string{"namespace": "apps", "pod": "api-bcdfgh-bcdfg"}, Times: []int64{at.Unix()}, Values: []float32{float32(s.start.Unix())}}}, nil
+	}
+	return []metrics.HistorySeries{{Times: []int64{at.Unix()}, Values: []float32{1}}}, nil
+}
+
+func (s startupStore) QueryRange(_ context.Context, _, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "kube_pod_container_status") || strings.Contains(query, "throttled") {
+		return nil, nil
+	}
+	ser := metrics.HistorySeries{Labels: map[string]string{"namespace": "apps", "pod": "api-bcdfgh-bcdfg", "wk": "api", "container": "main"}}
+	for at := start; !at.After(end); at = at.Add(step) {
+		v := float32(0.005)
+		switch {
+		case strings.Contains(query, "memory"):
+			v = 300 << 20
+		case strings.Contains(query, "kube_pod_container_resource"):
+			v = 0.5
+		case !at.Before(s.start) && at.Before(s.start.Add(startupWindow)):
+			v = 0.12
+		}
+		ser.Times, ser.Values = append(ser.Times, at.Unix()), append(ser.Values, v)
+	}
+	return []metrics.HistorySeries{ser}, nil
+}
+
+type startupPods struct{ evidenceFixtures }
+
+func (startupPods) List(context.Context, string) ([]*v1.Pod, error) {
+	controller := true
+	return []*v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "apps", Name: "api-bcdfgh-bcdfg",
+			Labels:          map[string]string{"pod-template-hash": "bcdfgh"},
+			OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "api-bcdfgh", Controller: &controller}},
+		},
+		Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main", Resources: v1.ResourceRequirements{
+			Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("500m"), v1.ResourceMemory: resource.MustParse("1Gi")},
+			Limits:   v1.ResourceList{v1.ResourceCPU: resource.MustParse("2"), v1.ResourceMemory: resource.MustParse("1Gi")},
+		}}}},
+		Status: v1.PodStatus{Phase: v1.PodRunning},
+	}}, nil
+}
+
+// The drawer's preset for the report's own profile is the report's
+// recommendation: here, CPU kept at the startup rate on a cluster that can't
+// resize pods in place, not the steady state alone.
+func TestEvidencePresetMatchesReport(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	// A start time float32 carries exactly, on the 5-minute grid.
+	start := time.Unix(now.Add(-5*day).Unix()/9600*9600, 0)
+	s := NewService(&k8s.MockClient{}, startupStore{start}, startupPods{}, startupPods{}, nil)
+	s.now = func() time.Time { return now }
+	ctx := context.Background()
+	rep := s.compute(ctx, t.Name(), ProfileBalanced, defaultWindow, nil, func(Progress) {})
+	if rep.Status != StatusReady || len(rep.Workloads) != 1 {
+		t.Fatalf("report status=%s error=%s workloads=%d", rep.Status, rep.Error, len(rep.Workloads))
+	}
+	c := rep.Workloads[0].Containers[0]
+	if c.StartupBoost == nil || !c.StartupBoost.Floor {
+		t.Fatalf("setup: no startup floor, cpu %+v boost %+v", c.CPU, c.StartupBoost)
+	}
+	ev, err := s.GetEvidence(ctx, WorkloadQuery{Cluster: t.Name(), Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ev.Profiles["main"][ProfileBalanced]; got.CPU != c.CPU.Recommended || got.Memory != c.Memory.Recommended {
+		t.Fatalf("balanced preset %+v, report recommends %v cores and %vMi", got, c.CPU.Recommended, c.Memory.Recommended/mib)
 	}
 }
 
@@ -440,5 +521,33 @@ func TestReportReadsCachedDays(t *testing.T) {
 		if start, _ := strconv.ParseInt(parts[len(parts)-3], 10, 64); start < today {
 			t.Errorf("second report re-fetched a cached day: %s", key)
 		}
+	}
+}
+
+// The persisted inputs keep what a cached drawer needs to match the report:
+// which container a ContainerResource HPA scales on, and the VPAs.
+func TestEvidenceInputsKeepHPAContainerAndVPAs(t *testing.T) {
+	asOf := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	in := &evidenceInputs{
+		now:  asOf,
+		hpas: map[string]*hpaTarget{"apps/Deployment/api": {resource: "cpu", utilization: 70, name: "api", container: "app"}},
+		vpas: map[string]*vpaTarget{"apps/Deployment/web": {name: "web", mode: "Auto", policies: map[string][]string{"*": {"cpu"}},
+			recommended: map[string]Resources{"main": {CPURequest: 0.25, MemRequest: 128 << 20}}}},
+	}
+	data, err := packJSON(in.saved(asOf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := persistingStore{evidenceStore{&memChunks{data: map[string][]byte{}}}, map[string][]byte{inputsKey("k"): data}}
+	s := NewService(nil, nil, nil, nil, store)
+	out := s.loadInputs("k", asOf)
+	if out == nil {
+		t.Fatal("inputs were not read back")
+	}
+	if h := out.hpas["apps/Deployment/api"]; h == nil || h.container != "app" || h.utilization != 70 {
+		t.Fatalf("hpa %+v", h)
+	}
+	if v := out.vpas["apps/Deployment/web"]; v == nil || v.mode != "Auto" || v.policies["*"][0] != "cpu" || v.recommended["main"].CPURequest != 0.25 {
+		t.Fatalf("vpa %+v", v)
 	}
 }

@@ -252,16 +252,16 @@ type history struct {
 	cpu           map[seriesKey]*pooled
 	podMeans      map[seriesKey][]float64 // lifetime mean CPU per pod
 	mem, throttle map[seriesKey][]float64
-	// burst is the busiest replica's highest 2-minute CPU rate in each step,
+	// burst is each replica's highest 2-minute CPU rate in each step,
 	// fetched only where CFS throttling counters are missing.
-	burst map[seriesKey][]float64
+	burst map[seriesKey]*pooled
 	// podFirst is when each pod (by name) first reported CPU, per key.
 	podFirst      map[seriesKey]map[string]int64
 	oom, restarts map[seriesKey][]time.Time
 	startupPeak   map[seriesKey]float64
-	// requests is hourly; requestsGrid is its axis.
-	cpuReq, memReq map[seriesKey][]float64
-	requestsGrid   grid
+	// requests and the memory limit are hourly; requestsGrid is their axis.
+	cpuReq, memReq, memLimit map[seriesKey][]float64
+	requestsGrid             grid
 	// starts are the pod start times startup was split by.
 	starts map[string]int64
 }
@@ -333,6 +333,7 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 		query    string
 		required bool
 		pooled   bool
+		perPod   *map[seriesKey]*pooled // laid out per replica, without the startup split
 	}
 	jobs := []job{
 		// Per pod, relabelled but not aggregated: CPU is pooled across
@@ -340,15 +341,19 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 		{query: relabel(cpuPod), required: true, pooled: true},
 		{dst: &h.mem, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(memPod)), required: true},
 	}
+	// Throttling is judged per replica, as CPU is: the share of replicas
+	// throttled more than throttleHigh of the time at each step, not the
+	// busiest one, which with N independent replicas shows an event N times
+	// as often.
 	switch pr.throttle {
 	case throttlePeriods:
 		thr := fmt.Sprintf(`sum by (namespace, pod, container) (rate(container_cpu_cfs_throttled_periods_total{%[1]s,container!="",container!="POD"}[%[2]s])) / sum by (namespace, pod, container) (rate(container_cpu_cfs_periods_total{%[1]s,container!="",container!="POD"}[%[2]s]))`, sel, stepS)
-		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(thr))})
+		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`avg by (%s) (%s > bool %g)`, keyLabels, relabel(thr), throttleHigh)})
 	case throttleSeconds:
 		// Seconds of throttling per second of wall time: a rough share of time
 		// spent throttled.
 		thr := fmt.Sprintf(`sum by (namespace, pod, container) (rate(container_cpu_cfs_throttled_seconds_total{%s,container!="",container!="POD"}[%s]))`, sel, stepS)
-		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(thr))})
+		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`avg by (%s) (%s > bool %g)`, keyLabels, relabel(thr), throttleHigh)})
 	}
 	if pr.throttle != throttlePeriods {
 		// A CPU limit throttles within 100ms periods, which a step-long
@@ -356,9 +361,9 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 		// rate in each step is the next best evidence of bursts against the
 		// limit. Rates every minute over 2-minute windows read about the same
 		// raw samples as the step-long rate above, so the store does similar
-		// work, not five times more.
+		// work, not five times more. Per pod, pooled like CPU.
 		burst := fmt.Sprintf(`max by (namespace, pod, container) (max_over_time(rate(container_cpu_usage_seconds_total{%s,container!="",container!="POD"}[2m])[%s:1m]))`, sel, stepS)
-		jobs = append(jobs, job{dst: &h.burst, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(burst))})
+		jobs = append(jobs, job{perPod: &h.burst, query: relabel(burst)})
 	}
 
 	for _, j := range jobs {
@@ -370,10 +375,13 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 				}
 				return
 			}
-			if j.pooled {
+			switch {
+			case j.pooled:
 				<-startsReady
 				h.cpu, h.podMeans, h.startupPeak, h.podFirst = alignPooled(res, g, starts, keep, sc.jobs)
-			} else {
+			case j.perPod != nil:
+				*j.perPod, _, _, _ = alignPooled(res, g, nil, keep, nil)
+			default:
 				*j.dst = align(res, g, keep)
 			}
 		})
@@ -401,14 +409,17 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 	}
 	if pr.requests {
 		h.requestsGrid = newGrid(g.end, window, time.Hour)
-		req := func(resource string, dst *map[seriesKey][]float64) {
-			query := fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(fmt.Sprintf(`max by (namespace, pod, container) (kube_pod_container_resource_requests{%s,resource="%s"})`, sel, resource)))
+		hourly := func(metric, resource string, dst *map[seriesKey][]float64) {
+			query := fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(fmt.Sprintf(`max by (namespace, pod, container) (%s{%s,resource="%s"})`, metric, sel, resource)))
 			if res, err := c.rangeQuery(ctx, cluster, query, h.requestsGrid, keep); err == nil {
 				*dst = align(res, h.requestsGrid, keep)
 			}
 		}
-		spawn(func() { req("cpu", &h.cpuReq) })
-		spawn(func() { req("memory", &h.memReq) })
+		spawn(func() { hourly("kube_pod_container_resource_requests", "cpu", &h.cpuReq) })
+		spawn(func() { hourly("kube_pod_container_resource_requests", "memory", &h.memReq) })
+		// Which limit an OOM kill happened at: one raised since has dealt
+		// with it, and must not be bumped again.
+		spawn(func() { hourly("kube_pod_container_resource_limits", "memory", &h.memLimit) })
 	}
 	wg.Wait()
 	if ferr != nil {

@@ -214,7 +214,7 @@ func TestLiveWorkloadsFoldArgoRolloutRevisions(t *testing.T) {
 			}}},
 		},
 	}})
-	if hpaFor(hpas, ws[0]) == nil {
+	if hpaFor(hpas, ws[0], "main") == nil {
 		t.Fatal("the Rollout's HPA was not matched")
 	}
 }

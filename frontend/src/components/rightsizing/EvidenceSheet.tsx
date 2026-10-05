@@ -365,10 +365,12 @@ export const EvidenceSheet: React.FC<Props> = ({
       memLo * 2,
     ) * 1.15;
   const cpuCautionFloor = c.cpu.recommended * 0.8;
+  // The limit it was OOM-killed at, which a raise since has left behind.
+  const oomLimit = c.oomLimit || c.memory.limit;
   const memCautionFloor = Math.max(
     c.memory.recommended * 0.8,
     c.memory.peak,
-    c.oomKills > 0 ? c.memory.limit + 1 : 0,
+    c.oomKills > 0 ? oomLimit + 1 : 0,
   );
   const rangeStatus = (value: number, recommended: number, floor: number) =>
     value >= recommended
@@ -818,7 +820,7 @@ export const EvidenceSheet: React.FC<Props> = ({
                       peaked above it
                     </span>
                   )}
-                  {c.oomKills > 0 && cand.mem <= c.memory.limit && (
+                  {c.oomKills > 0 && cand.mem <= oomLimit && (
                     <span className="danger">
                       At or under the limit it was OOM-killed at
                     </span>

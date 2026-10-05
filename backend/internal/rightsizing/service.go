@@ -30,7 +30,10 @@ import (
 	"github.com/kanivet/backend/internal/metrics"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -434,6 +437,7 @@ type liveContainer struct {
 	name string
 	res  Resources
 	jvm  *JVMInfo
+	heap *HeapCeiling
 }
 
 // filterLabels are the pod labels teams find their workloads by.
@@ -505,11 +509,11 @@ func liveWorkloads(pods []*v1.Pod, vclusterScope bool) []*liveWorkload {
 		var cs []liveContainer
 		for _, c := range p.Spec.InitContainers {
 			if c.RestartPolicy != nil && *c.RestartPolicy == v1.ContainerRestartPolicyAlways {
-				cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c)})
+				cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c), heapCeilingOf(c)})
 			}
 		}
 		for _, c := range p.Spec.Containers {
-			cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c)})
+			cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c), heapCeilingOf(c)})
 		}
 		for _, c := range cs {
 			if w.keys[c.name] == nil {
@@ -547,11 +551,12 @@ func hpaTargets(hpas []autoscalingv2.HorizontalPodAutoscaler) map[string]*hpaTar
 		for _, m := range h.Spec.Metrics {
 			var name v1.ResourceName
 			var target autoscalingv2.MetricTarget
+			var container string
 			switch {
 			case m.Type == autoscalingv2.ResourceMetricSourceType && m.Resource != nil:
 				name, target = m.Resource.Name, m.Resource.Target
 			case m.Type == autoscalingv2.ContainerResourceMetricSourceType && m.ContainerResource != nil:
-				name, target = m.ContainerResource.Name, m.ContainerResource.Target
+				name, target, container = m.ContainerResource.Name, m.ContainerResource.Target, m.ContainerResource.Container
 			default:
 				continue
 			}
@@ -559,7 +564,7 @@ func hpaTargets(hpas []autoscalingv2.HorizontalPodAutoscaler) map[string]*hpaTar
 				continue
 			}
 			if name == v1.ResourceCPU || (name == v1.ResourceMemory && t == nil) {
-				t = &hpaTarget{resource: string(name), utilization: *target.AverageUtilization, name: h.Name}
+				t = &hpaTarget{resource: string(name), utilization: *target.AverageUtilization, name: h.Name, container: container}
 			}
 		}
 		if t != nil {
@@ -577,6 +582,125 @@ func listHPAs(ctx context.Context, cs kubernetes.Interface) []autoscalingv2.Hori
 		return nil
 	}
 	return l.Items
+}
+
+// vpaTarget is a VerticalPodAutoscaler that sets a workload's requests
+// itself as its pods are created: any updateMode but Off.
+type vpaTarget struct {
+	name, mode string
+	// policies are the resources it sets per container, "*" for the rest;
+	// empty for a container it leaves alone. Without a policy it sets both.
+	policies map[string][]string
+	// recommended is its own current target per container.
+	recommended map[string]Resources
+}
+
+// vpaContainer is what a VerticalPodAutoscaler does to one container.
+type vpaContainer struct {
+	name, mode string
+	resources  []string  // cpu, memory: the requests it sets
+	target     Resources // its current recommendation; zero before it has one
+}
+
+func (v *vpaContainer) sets(resource string) bool {
+	return v != nil && slices.Contains(v.resources, resource)
+}
+
+var vpaResource = schema.GroupVersionResource{Group: "autoscaling.k8s.io", Version: "v1", Resource: "verticalpodautoscalers"}
+
+// listVPAs maps namespace/kind/name to the VerticalPodAutoscaler setting a
+// workload's requests. A cluster without the VPA serves no such resource
+// and gets none.
+func listVPAs(ctx context.Context, k k8s.Interface, cluster string) map[string]*vpaTarget {
+	dc, err := k.GetDynamicClient(cluster)
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	l, err := dc.Resource(vpaResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	return vpaTargets(l.Items)
+}
+
+func vpaTargets(items []unstructured.Unstructured) map[string]*vpaTarget {
+	out := map[string]*vpaTarget{}
+	for _, it := range items {
+		mode, _, _ := unstructured.NestedString(it.Object, "spec", "updatePolicy", "updateMode")
+		if mode == "" {
+			mode = "Auto" // the VPA's default
+		}
+		kind, _, _ := unstructured.NestedString(it.Object, "spec", "targetRef", "kind")
+		name, _, _ := unstructured.NestedString(it.Object, "spec", "targetRef", "name")
+		if mode == "Off" || kind == "" || name == "" {
+			continue
+		}
+		v := &vpaTarget{name: it.GetName(), mode: mode, policies: map[string][]string{}, recommended: map[string]Resources{}}
+		policies, _, _ := unstructured.NestedSlice(it.Object, "spec", "resourcePolicy", "containerPolicies")
+		for _, p := range policies {
+			pm, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			c, _, _ := unstructured.NestedString(pm, "containerName")
+			if m, _, _ := unstructured.NestedString(pm, "mode"); m == "Off" {
+				v.policies[c] = []string{}
+				continue
+			}
+			res, found, _ := unstructured.NestedStringSlice(pm, "controlledResources")
+			if !found {
+				res = []string{"cpu", "memory"}
+			}
+			v.policies[c] = res
+		}
+		recs, _, _ := unstructured.NestedSlice(it.Object, "status", "recommendation", "containerRecommendations")
+		for _, r := range recs {
+			rm, ok := r.(map[string]any)
+			if !ok {
+				continue
+			}
+			c, _, _ := unstructured.NestedString(rm, "containerName")
+			var t Resources
+			if s, _, _ := unstructured.NestedString(rm, "target", "cpu"); s != "" {
+				if q, err := resource.ParseQuantity(s); err == nil {
+					t.CPURequest = float64(q.MilliValue()) / 1000
+				}
+			}
+			if s, _, _ := unstructured.NestedString(rm, "target", "memory"); s != "" {
+				if q, err := resource.ParseQuantity(s); err == nil {
+					t.MemRequest = float64(q.Value())
+				}
+			}
+			v.recommended[c] = t
+		}
+		out[it.GetNamespace()+"/"+kind+"/"+name] = v
+	}
+	return out
+}
+
+// vpaFor is what a workload's VerticalPodAutoscaler does to one of its
+// containers, nil when nothing.
+func vpaFor(vpas map[string]*vpaTarget, w *liveWorkload, container string) *vpaContainer {
+	if w.ref.VClusterNamespace != "" {
+		return nil
+	}
+	v := vpas[w.ref.Namespace+"/"+w.ref.Kind+"/"+w.ref.Name]
+	if v == nil {
+		return nil
+	}
+	res, ok := v.policies[container]
+	if !ok {
+		res, ok = v.policies["*"]
+	}
+	if !ok {
+		res = []string{"cpu", "memory"}
+	}
+	if len(res) == 0 {
+		return nil
+	}
+	return &vpaContainer{name: v.name, mode: v.mode, resources: res, target: v.recommended[container]}
 }
 
 // ---- Computation -------------------------------------------------------------
@@ -717,8 +841,9 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		hpas = hpaTargets(listHPAs(ctx, cs))
 		pr.inPlace = supportsInPlaceResize(cs)
 	}
+	vpas := listVPAs(ctx, s.k8s, cluster)
 	rates, _ := s.rates.NodeRates(ctx, cluster)
-	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates, source: historySource(ctx), now: asOf}
+	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, vpas: vpas, rates: rates, source: historySource(ctx), now: asOf}
 	if fresh {
 		storeProbe(probeKey(ctx, t.history), probeEntry{pr, s.now()}, epoch)
 	}
@@ -783,7 +908,7 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 				}
 				rep.evidenceInputs.setStarts(ns, h.starts)
 				for _, w := range byNS[ns] {
-					if wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, rates, prevRecs); wr != nil {
+					if wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, vpas, rates, prevRecs); wr != nil {
 						out = append(out, *wr)
 					}
 				}
@@ -887,11 +1012,12 @@ type containerSeries struct {
 	cpu            *pooled
 	podMeans       []float64
 	mem, throttle  []float64
-	burst          []float64
+	burst          *pooled          // nil when not fetched
 	podFirst       map[string]int64 // pod name -> first CPU sample (unix)
 	oom, restarts  []time.Time
 	startup        float64
 	cpuReq, memReq []float64
+	memLimit       []float64 // hourly, on the requests grid
 }
 
 // supportsInPlaceResize says whether the cluster resizes running pods in
@@ -964,10 +1090,13 @@ func containerHistory(h *history, keys map[seriesKey]struct{}, n int) containerS
 		ks = append(ks, k)
 	}
 	sort.Slice(ks, func(i, j int) bool { return ks[i].wk < ks[j].wk })
-	var cpus []*pooled
+	var cpus, bursts []*pooled
 	for _, k := range ks {
 		if v, ok := h.cpu[k]; ok {
 			cpus = append(cpus, v)
+		}
+		if v, ok := h.burst[k]; ok {
+			bursts = append(bursts, v)
 		}
 		cs.podMeans = append(cs.podMeans, h.podMeans[k]...)
 		if v, ok := h.mem[k]; ok {
@@ -976,14 +1105,14 @@ func containerHistory(h *history, keys map[seriesKey]struct{}, n int) containerS
 		if v, ok := h.throttle[k]; ok {
 			cs.throttle = mergeSeries(cs.throttle, v, maxF)
 		}
-		if v, ok := h.burst[k]; ok {
-			cs.burst = mergeSeries(cs.burst, v, maxF)
-		}
 		if v, ok := h.cpuReq[k]; ok {
 			cs.cpuReq = mergeSeries(cs.cpuReq, v, maxF)
 		}
 		if v, ok := h.memReq[k]; ok {
 			cs.memReq = mergeSeries(cs.memReq, v, maxF)
+		}
+		if v, ok := h.memLimit[k]; ok {
+			cs.memLimit = mergeSeries(cs.memLimit, v, maxF)
 		}
 		cs.oom = append(cs.oom, h.oom[k]...)
 		cs.restarts = append(cs.restarts, h.restarts[k]...)
@@ -992,6 +1121,9 @@ func containerHistory(h *history, keys map[seriesKey]struct{}, n int) containerS
 		}
 	}
 	cs.cpu = mergePooled(n, cpus)
+	if len(bursts) > 0 {
+		cs.burst = mergePooled(n, bursts)
+	}
 	for _, k := range ks {
 		for pod, t := range h.podFirst[k] {
 			if cs.podFirst == nil {
@@ -1041,7 +1173,23 @@ func previousRecs(prev *Report) map[recKey]prevRec {
 	return out
 }
 
-func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g grid, pr probe, profile Profile, hpas map[string]*hpaTarget, rates map[string]finops.Rates, prevRecs map[recKey]prevRec) *WorkloadReport {
+// newContainerInput is what analyze gets for one live container. The report
+// and the evidence drawer's profile presets both build it here, so the
+// preset for the report's own profile is the report's recommendation.
+func newContainerInput(cluster string, w *liveWorkload, c liveContainer, hs containerSeries, g, hourly grid, pr probe, hpas map[string]*hpaTarget, vpas map[string]*vpaTarget, profile Profile) containerInput {
+	return containerInput{
+		container: c.name, start: g.start, step: g.step,
+		cpu: hs.cpu, podMeans: hs.podMeans, mem: hs.mem, throttle: hs.throttle, cpuBurst: hs.burst,
+		throttleKind: pr.throttle, memIsUsage: pr.memMetric == memUsage,
+		oomTimes: hs.oom, restartTimes: hs.restarts, startupCPUPeak: hs.startup,
+		memLimits: hs.memLimit, hourly: hourly,
+		current: c.res, isJob: w.isJob, hpa: hpaFor(hpas, w, c.name), vpa: vpaFor(vpas, w, c.name), profile: profile,
+		seed: seedFor(cluster, w.id(), c.name), jvm: c.jvm, heap: c.heap, versionSince: versionSince(w.newestHash, hs.podFirst),
+		inPlaceResize: pr.inPlace,
+	}
+}
+
+func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g grid, pr probe, profile Profile, hpas map[string]*hpaTarget, vpas map[string]*vpaTarget, rates map[string]finops.Rates, prevRecs map[recKey]prevRec) *WorkloadReport {
 	wr := &WorkloadReport{
 		Namespace:         w.ref.Namespace,
 		Kind:              w.ref.Kind,
@@ -1052,20 +1200,11 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 		Containers:        []ContainerReport{},
 		Labels:            w.labels,
 	}
-	hpa := hpaFor(hpas, w)
 	cpuRate, memRate, priced := workloadRates(w.nodes, rates)
 	wr.Priced = priced
 	for _, c := range w.containers {
 		hs := containerHistory(h, w.keys[c.name], g.n)
-		in := containerInput{
-			container: c.name, start: g.start, step: g.step,
-			cpu: hs.cpu, podMeans: hs.podMeans, mem: hs.mem, throttle: hs.throttle, cpuBurst: hs.burst,
-			throttleKind: pr.throttle, memIsUsage: pr.memMetric == memUsage,
-			oomTimes: hs.oom, restartTimes: hs.restarts, startupCPUPeak: hs.startup,
-			current: c.res, isJob: w.isJob, hpa: hpa, profile: profile,
-			seed: seedFor(cluster, w.id(), c.name), jvm: c.jvm, versionSince: versionSince(w.newestHash, hs.podFirst),
-			inPlaceResize: pr.inPlace,
-		}
+		in := newContainerInput(cluster, w, c, hs, g, h.requestsGrid, pr, hpas, vpas, profile)
 		cr := analyze(in)
 		if cr.StartupBoost != nil {
 			cr.StartupBoost.Selector = workloadSelector(w.labels)
@@ -1074,6 +1213,10 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 			reps := cr.AvgReplicas
 			if reps == 0 {
 				reps = float64(w.replicas)
+			}
+			if w.isJob && cr.Data.DutyCycle > 0 {
+				// Between runs a Job reserves nothing.
+				reps *= cr.Data.DutyCycle
 			}
 			cr.CPUMonthly = cpuRate * hoursPerMonth * reps
 			cr.MemMonthly = memRate * hoursPerMonth * reps
@@ -1085,22 +1228,31 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 			cost := func(cpuCores, memBytes float64) float64 {
 				return cpuCores*cr.CPUMonthly + memBytes/gib*cr.MemMonthly
 			}
+			// A VPA sets the requests it controls itself: a template change
+			// wouldn't hold, and what it saves is the VPA's, already counted.
+			cpuRec, memRec := cr.CPU.Recommended, cr.Memory.Recommended
+			if in.vpa.sets("cpu") {
+				cpuRec = c.res.CPURequest
+			}
+			if in.vpa.sets("memory") {
+				memRec = c.res.MemRequest
+			}
 			now := cost(c.res.CPURequest, c.res.MemRequest)
-			cr.MonthlySavings = now - cost(cr.CPU.Recommended, cr.Memory.Recommended)
+			cr.MonthlySavings = now - cost(cpuRec, memRec)
 			wr.MonthlyCost += now
 			wr.MonthlySavings += cr.MonthlySavings
 			// The range comes from the ends of the need's interval, never
 			// crossing the recommendation itself (rounding can put it past one).
 			// Resources kept as they are stay put at both ends.
-			cpuHi, cpuLo := cr.CPU.Recommended, cr.CPU.Recommended
-			if cr.CPU.Recommended != c.res.CPURequest {
-				cpuHi = max(cr.CPU.Recommended, roundCPU(nanTo(cr.CPU.High, cr.CPU.Recommended)))
-				cpuLo = min(cr.CPU.Recommended, roundCPU(nanTo(cr.CPU.Low, cr.CPU.Recommended)))
+			cpuHi, cpuLo := cpuRec, cpuRec
+			if cpuRec != c.res.CPURequest {
+				cpuHi = max(cpuRec, roundCPU(nanTo(cr.CPU.High, cpuRec)))
+				cpuLo = min(cpuRec, roundCPU(nanTo(cr.CPU.Low, cpuRec)))
 			}
-			memHi, memLo := cr.Memory.Recommended, cr.Memory.Recommended
-			if cr.Memory.Recommended != c.res.MemRequest {
-				memHi = max(cr.Memory.Recommended, roundMem(cr.Memory.High))
-				memLo = min(cr.Memory.Recommended, roundMem(cr.Memory.Low))
+			memHi, memLo := memRec, memRec
+			if memRec != c.res.MemRequest {
+				memHi = max(memRec, roundMem(cr.Memory.High))
+				memLo = min(memRec, roundMem(cr.Memory.Low))
 			}
 			wr.SavingsLow += now - cost(cpuHi, memHi)
 			wr.SavingsHigh += now - cost(cpuLo, memLo)
@@ -1115,6 +1267,7 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 	if len(wr.Containers) == 0 {
 		return nil
 	}
+	wr.HPA = workloadHPA(wr.Containers, w, hpas)
 	wr.Verdict, wr.Confidence = rollUp(wr.Containers)
 	wr.RiskScore = riskScore(wr)
 	return wr

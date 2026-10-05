@@ -87,6 +87,7 @@ type evidenceInputs struct {
 	workloads []*liveWorkload
 	probe     probe
 	hpas      map[string]*hpaTarget
+	vpas      map[string]*vpaTarget
 	rates     map[string]finops.Rates
 	source    string // history store the report's chunks are keyed by
 	// now is the report's clock, which decided the days it fetched whole and
@@ -124,6 +125,7 @@ type savedInputs struct {
 	Source string                      `json:"source"`
 	Probe  savedProbe                  `json:"probe"`
 	HPAs   map[string]savedHPA         `json:"hpas,omitempty"`
+	VPAs   map[string]savedVPA         `json:"vpas,omitempty"`
 	Rates  map[string]finops.Rates     `json:"rates,omitempty"`
 	Starts map[string]map[string]int64 `json:"starts,omitempty"`
 }
@@ -141,6 +143,14 @@ type savedHPA struct {
 	Resource    string `json:"resource"`
 	Utilization int32  `json:"utilization"`
 	Name        string `json:"name"`
+	Container   string `json:"container,omitempty"`
+}
+
+type savedVPA struct {
+	Name        string               `json:"name"`
+	Mode        string               `json:"mode"`
+	Policies    map[string][]string  `json:"policies,omitempty"`
+	Recommended map[string]Resources `json:"recommended,omitempty"`
 }
 
 // inputsKey is where a report's evidence inputs are persisted, next to it.
@@ -157,7 +167,13 @@ func (e *evidenceInputs) saved(asOf time.Time) savedInputs {
 	if len(e.hpas) > 0 {
 		out.HPAs = make(map[string]savedHPA, len(e.hpas))
 		for k, h := range e.hpas {
-			out.HPAs[k] = savedHPA{Resource: h.resource, Utilization: h.utilization, Name: h.name}
+			out.HPAs[k] = savedHPA{Resource: h.resource, Utilization: h.utilization, Name: h.name, Container: h.container}
+		}
+	}
+	if len(e.vpas) > 0 {
+		out.VPAs = make(map[string]savedVPA, len(e.vpas))
+		for k, v := range e.vpas {
+			out.VPAs[k] = savedVPA{Name: v.name, Mode: v.mode, Policies: v.policies, Recommended: v.recommended}
 		}
 	}
 	return out
@@ -185,7 +201,13 @@ func (s *Service) loadInputs(key string, asOf time.Time) *evidenceInputs {
 	if len(in.HPAs) > 0 {
 		e.hpas = make(map[string]*hpaTarget, len(in.HPAs))
 		for k, h := range in.HPAs {
-			e.hpas[k] = &hpaTarget{resource: h.Resource, utilization: h.Utilization, name: h.Name}
+			e.hpas[k] = &hpaTarget{resource: h.Resource, utilization: h.Utilization, name: h.Name, container: h.Container}
+		}
+	}
+	if len(in.VPAs) > 0 {
+		e.vpas = make(map[string]*vpaTarget, len(in.VPAs))
+		for k, v := range in.VPAs {
+			e.vpas[k] = &vpaTarget{name: v.Name, mode: v.Mode, policies: v.Policies, recommended: v.Recommended}
 		}
 	}
 	return e
@@ -228,6 +250,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	var workloads []*liveWorkload
 	var pr probe
 	var hpas map[string]*hpaTarget
+	var vpas map[string]*vpaTarget
 	var rates map[string]finops.Rates
 	var inputs *evidenceInputs
 	asOf := s.now()
@@ -241,7 +264,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 		}
 		inputs = rep.evidenceInputs
 		ctx = withChunksOnly(withHistorySource(ctx, inputs.source))
-		workloads, pr, hpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.rates
+		workloads, pr, hpas, vpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.vpas, inputs.rates
 		if workloads == nil {
 			var err error
 			if workloads, err = s.cachedWorkloads(ctx, t); err != nil {
@@ -340,6 +363,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 			alongside(func() { inPlace = supportsInPlaceResize(cs) })
 		}
 		alongside(func() { rates, _ = s.rates.NodeRates(sideCtx, q.Cluster) })
+		alongside(func() { vpas = listVPAs(sideCtx, s.k8s, q.Cluster) })
 	}
 	h, err := fetchHistory(ctx, ch, t.history, sc, g, pr, q.Window)
 	if err != nil {
@@ -370,7 +394,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 		prev = previousRecs(rep)
 	}
 
-	wr := s.analyzeWorkload(q.Cluster, w, h, g, pr, q.Profile, hpas, rates, prev)
+	wr := s.analyzeWorkload(q.Cluster, w, h, g, pr, q.Profile, hpas, vpas, rates, prev)
 	if wr == nil {
 		return nil, fmt.Errorf("no containers")
 	}
@@ -393,15 +417,7 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 
 		snaps := Snapshots{}
 		for _, p := range []Profile{ProfileConservative, ProfileBalanced, ProfileAggressive} {
-			in := containerInput{
-				container: c.name, start: g.start, step: g.step,
-				cpu: hs.cpu, podMeans: hs.podMeans, mem: hs.mem, throttle: hs.throttle, cpuBurst: hs.burst, throttleKind: pr.throttle,
-				hpa:      hpaFor(hpas, w),
-				oomTimes: oom, restartTimes: restarts, startupCPUPeak: math.NaN(), memIsUsage: pr.memMetric == memUsage,
-				current: c.res, isJob: w.isJob, profile: p, seed: seedFor(q.Cluster, w.id(), c.name),
-				jvm: c.jvm, versionSince: versionSince(w.newestHash, hs.podFirst), inPlaceResize: pr.inPlace,
-			}
-			r := analyze(in)
+			r := analyze(newContainerInput(q.Cluster, w, c, hs, g, h.requestsGrid, pr, hpas, vpas, p))
 			snaps[p] = ProfileRec{CPU: r.CPU.Recommended, Memory: r.Memory.Recommended}
 		}
 		ev.Profiles[c.name] = snaps
@@ -438,12 +454,52 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	return ev, nil
 }
 
-// hpaFor is the HPA a workload's report would use, as analyzeWorkload picks it.
-func hpaFor(hpas map[string]*hpaTarget, w *liveWorkload) *hpaTarget {
+// hpaFor is the HPA whose target counts a container's requests, as
+// analyzeWorkload picks it. A ContainerResource metric counts only the
+// container it names. A Resource metric sums the whole pod, so with several
+// containers requesting the resource, its target is set for the workload.
+func hpaFor(hpas map[string]*hpaTarget, w *liveWorkload, container string) *hpaTarget {
 	if w.ref.VClusterNamespace != "" {
 		return nil
 	}
-	return hpas[w.ref.Namespace+"/"+w.ref.Kind+"/"+w.ref.Name]
+	t := hpas[w.ref.Namespace+"/"+w.ref.Kind+"/"+w.ref.Name]
+	if t == nil || t.container != "" && t.container != container {
+		return nil
+	}
+	if t.container == "" {
+		n := 0
+		for _, c := range w.containers {
+			req := c.res.CPURequest
+			if t.resource == "memory" {
+				req = c.res.MemRequest
+			}
+			if req > 0 {
+				n++
+			}
+		}
+		if n > 1 {
+			pod := *t
+			pod.pod = true
+			return &pod
+		}
+	}
+	return t
+}
+
+// workloadHPA is the one HPA target change a workload's recommendation
+// pairs with, nil when there is none.
+func workloadHPA(crs []ContainerReport, w *liveWorkload, hpas map[string]*hpaTarget) *HPACoupling {
+	for i, c := range w.containers {
+		switch h := hpaFor(hpas, w, c.name); {
+		case h == nil:
+		case h.pod:
+			return podHPA(crs, h)
+		case i < len(crs) && crs[i].HPA != nil:
+			out := *crs[i].HPA
+			return &out
+		}
+	}
+	return nil
 }
 
 // hourly downsamples to one point per hour: the median and P95 of every
