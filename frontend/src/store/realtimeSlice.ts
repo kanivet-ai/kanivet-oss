@@ -19,6 +19,8 @@ interface RealtimeRuntime {
   pendingEvents: RealtimeEvent[];
   batchTimer: number | null;
   batchTimerKind: 'timeout' | 'raf' | null;
+  // Flushes the batch if its animation frame never runs (hidden window).
+  frameFallback: number | null;
   // Latest reconciled list for this topic. Kept current while the topic is
   // parked so switching back to its tab needs no resync.
   items: any[];
@@ -37,6 +39,9 @@ const MAX_PARKED_TOPICS = 6;
 // Parked topics are not on screen; flushing them less often keeps their
 // upkeep off the main thread's busy moments.
 const PARKED_FLUSH_MS = 500;
+// Animation frames stop while the window is hidden or minimized; a frame that
+// has not run by then is replaced by a timer so the batch is still flushed.
+const FRAME_FALLBACK_MS = 500;
 const MAX_CACHED_TOPICS = 12;
 // How long a list may take to arrive before the load is reported as failed.
 const LOAD_TIMEOUT_MS = 30000;
@@ -74,6 +79,10 @@ const cacheItems = (topic: string, items: any[]) => {
 };
 
 const clearTimer = (rt: RealtimeRuntime) => {
+  if (rt.frameFallback !== null) {
+    clearTimeout(rt.frameFallback);
+    rt.frameFallback = null;
+  }
   if (rt.batchTimer === null) return;
   if (rt.batchTimerKind === 'raf') cancelAnimationFrame(rt.batchTimer);
   else clearTimeout(rt.batchTimer);
@@ -162,6 +171,27 @@ export const createRealtimeSlice: StateCreator<
     return ids;
   };
 
+  const requestFlushFrame = (rt: RealtimeRuntime) => {
+    if (typeof document !== 'undefined' && document.hidden) {
+      rt.batchTimer = setTimeout(
+        () => processBatch(rt),
+        PARKED_FLUSH_MS,
+      ) as unknown as number;
+      rt.batchTimerKind = 'timeout';
+      return;
+    }
+    rt.batchTimer = requestAnimationFrame(() => {
+      processBatch(rt);
+    }) as unknown as number;
+    rt.batchTimerKind = 'raf';
+    rt.frameFallback = setTimeout(() => {
+      rt.frameFallback = null;
+      if (rt.batchTimerKind !== 'raf' || rt.batchTimer === null) return;
+      cancelAnimationFrame(rt.batchTimer);
+      processBatch(rt);
+    }, FRAME_FALLBACK_MS) as unknown as number;
+  };
+
   const scheduleFlush = (rt: RealtimeRuntime) => {
     const { interaction } = rt;
     if (runtime() !== rt && !paneTabsShowing(rt)) {
@@ -175,10 +205,7 @@ export const createRealtimeSlice: StateCreator<
     // The first rows of a list not shown yet go out on the next frame; only
     // later updates wait for the coalescing window.
     if (!rt.synced) {
-      rt.batchTimer = requestAnimationFrame(() => {
-        processBatch(rt);
-      }) as unknown as number;
-      rt.batchTimerKind = 'raf';
+      requestFlushFrame(rt);
       return;
     }
     const handle = setTimeout(() => {
@@ -187,14 +214,17 @@ export const createRealtimeSlice: StateCreator<
         scheduleFlush(rt);
         return;
       }
-      rt.batchTimer = requestAnimationFrame(() => { processBatch(rt); }) as unknown as number;
-      rt.batchTimerKind = 'raf';
+      requestFlushFrame(rt);
     }, 120) as unknown as number;
     rt.batchTimer = handle;
     rt.batchTimerKind = 'timeout';
   };
 
   const processBatch = (rt: RealtimeRuntime) => {
+    if (rt.frameFallback !== null) {
+      clearTimeout(rt.frameFallback);
+      rt.frameFallback = null;
+    }
     rt.batchTimer = null;
     rt.batchTimerKind = null;
     if (rt.session.stopped || rt.pendingEvents.length === 0) return;
@@ -422,6 +452,7 @@ export const createRealtimeSlice: StateCreator<
       pendingEvents: [],
       batchTimer: null,
       batchTimerKind: null,
+      frameFallback: null,
       items,
       synced: false,
       startedAt: Date.now(),
