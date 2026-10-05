@@ -68,7 +68,7 @@ func startSmallBufferTerminal(t *testing.T, term domain.Terminal) *terminalEnv {
 	dialer := websocket.Dialer{NetDial: func(network, addr string) (net.Conn, error) {
 		d := net.Dialer{Control: func(_, _ string, c syscall.RawConn) error {
 			return c.Control(func(fd uintptr) {
-				_ = syscall.SetsockoptInt(int(fd), syscall.SOL_SOCKET, syscall.SO_RCVBUF, 2048)
+				setRecvBuf(fd, 2048)
 			})
 		}}
 		return d.Dial(network, addr)

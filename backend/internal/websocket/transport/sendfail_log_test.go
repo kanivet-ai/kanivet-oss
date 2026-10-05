@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kanivet/backend/internal/websocket/core"
 )
@@ -19,6 +20,8 @@ func TestSendFailureLogIsRateLimited(t *testing.T) {
 	_, conn, cleanup := dialOne(t, 8)
 	defer cleanup()
 	sm := NewSubscriptionManager()
+	// The 200 oversized broadcasts can outlast the real interval under -race.
+	sm.failLogInterval = time.Hour
 	if _, err := sm.Subscribe("t", conn); err != nil {
 		t.Fatal(err)
 	}

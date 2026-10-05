@@ -33,13 +33,16 @@ type DefaultSubscriptionManager struct {
 
 	failLogMu sync.Mutex
 	failLog   map[core.ConnectionID]*sendFailLog
+	// failLogInterval is sendFailLogInterval; a field so tests can pin it.
+	failLogInterval time.Duration
 }
 
 func NewSubscriptionManager() *DefaultSubscriptionManager {
 	return &DefaultSubscriptionManager{
-		failLog:      make(map[core.ConnectionID]*sendFailLog),
-		topicToConns: make(map[string]map[core.ConnectionID]*core.Connection),
-		connToTopics: make(map[core.ConnectionID]map[string]struct{}),
+		failLog:         make(map[core.ConnectionID]*sendFailLog),
+		failLogInterval: sendFailLogInterval,
+		topicToConns:    make(map[string]map[core.ConnectionID]*core.Connection),
+		connToTopics:    make(map[core.ConnectionID]map[string]struct{}),
 	}
 }
 
@@ -240,7 +243,7 @@ func (sm *DefaultSubscriptionManager) logSendFailure(topic string, id core.Conne
 		e = &sendFailLog{}
 		sm.failLog[id] = e
 	}
-	if !e.last.IsZero() && now.Sub(e.last) < sendFailLogInterval {
+	if !e.last.IsZero() && now.Sub(e.last) < sm.failLogInterval {
 		e.suppressed++
 		sm.failLogMu.Unlock()
 		return
