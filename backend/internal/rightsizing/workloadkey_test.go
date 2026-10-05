@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -22,12 +23,69 @@ func TestWorkloadKey(t *testing.T) {
 		{"access-manager-78589b95f8-66lwn-x-applications-x-beige-vcluster", "applications", "access-manager"},
 		{"coredns-6d4b75cb6d-wzz5l-x-kube-system-x-beige-vcluster", "kube-system", "coredns"},
 		{"arch-test-predictor-84767dffdc-bgcmh-x-applications--c77b6caaae", "", "arch-test-predictor"},
+		{"payments-reconciliation-worker-eu1-7d4f8b9c5-bcdfg-x-c77b6caaae", "", "payments-reconciliation-worker-eu1"},
 		{"beige-vcluster-etcd-0", "", "beige-vcluster-etcd"},
+		// Host Deployments with -x- in their names are not vcluster pods.
+		{"gateway-x-api-7d4f8b9c5-x2x4z", "", "gateway-x-api"},
+		{"gateway-x-web-6c9f8d7b5-x2x4z", "", "gateway-x-web"},
 	}
 	for _, c := range cases {
 		vns, wk := workloadKey(c.pod)
 		if vns != c.vns || wk != c.wk {
 			t.Errorf("%s: got (%q, %q), want (%q, %q)", c.pod, vns, wk, c.vns, c.wk)
+		}
+	}
+}
+
+// generatedPodName is what the API server's name generator makes of a
+// controller's prefix: cut to 58 characters, then 5 random ones appended.
+func generatedPodName(prefix, random string) string {
+	return prefix[:min(len(prefix), 58)] + random
+}
+
+// Pods of a Deployment with a long name are cut short with the dash before
+// their random suffix; they still share the Deployment's key, and still tell
+// the running version.
+func TestWorkloadKeyOfTruncatedPodNames(t *testing.T) {
+	const base = "checkout-service-payments-gateway-api-canary-eu1-platform-x"
+	for _, hash := range []string{"7d4f8b9c5d", "7d4f8b9c5"} {
+		for n := 40; n <= 57; n++ {
+			deploy := base[:n]
+			if strings.HasSuffix(deploy, "-") {
+				continue
+			}
+			rs := deploy + "-" + hash
+			p1, p2 := generatedPodName(rs+"-", "x2x4z"), generatedPodName(rs+"-", "q9rt7")
+			_, wk1 := workloadKey(p1)
+			_, wk2 := workloadKey(p2)
+			if wk1 != deploy || wk2 != deploy {
+				t.Errorf("deployment %q (%d chars): pods %q, %q keyed %q, %q", deploy, len(deploy), p1, p2, wk1, wk2)
+			}
+			if hashLeft := 57 - len(deploy); hashLeft >= 4 {
+				if got := versionSince(hash, map[string]int64{p1: 400, "other-6c9f8d7b5d-x2x4z": 100}); got.Unix() != 400 {
+					t.Errorf("deployment %q: version since %v", deploy, got.Unix())
+				}
+			}
+		}
+	}
+	// A name too long to keep any of the hash still keys every pod alike.
+	long := "observability-opentelemetry-collector-gateway-shared-ingest-eu"
+	_, wk1 := workloadKey(generatedPodName(long+"-7d4f8b9c5d-", "x2x4z"))
+	_, wk2 := workloadKey(generatedPodName(long+"-7d4f8b9c5d-", "q9rt7"))
+	if wk1 != wk2 {
+		t.Errorf("pods of %q keyed %q and %q", long, wk1, wk2)
+	}
+	// A CronJob's runs are <cronjob>-<scheduled minutes>; names of 49 to 52
+	// characters (the most a CronJob may have) lose the minutes' end.
+	for n := 45; n <= 52; n++ {
+		cronJob := base[:n]
+		if strings.HasSuffix(cronJob, "-") {
+			continue
+		}
+		for _, run := range []string{"29012345", "29013860"} {
+			if _, wk := workloadKey(generatedPodName(cronJob+"-"+run+"-", "x2x4z")); wk != cronJob {
+				t.Errorf("cronjob %q (%d chars), run %s: keyed %q", cronJob, n, run, wk)
+			}
 		}
 	}
 }
@@ -112,6 +170,52 @@ func TestLiveWorkloadsDropFinishedOneOffJobs(t *testing.T) {
 	}
 	if got["Job/init"] || !got["Job/batch"] || len(ws) != 2 {
 		t.Fatalf("workloads %v", got)
+	}
+}
+
+// An Argo Rollout mid-canary runs two ReplicaSets, which label their pods
+// with rollouts-pod-template-hash. It is one workload, the one its HPA
+// scales, whose running version is the canary's.
+func TestLiveWorkloadsFoldArgoRolloutRevisions(t *testing.T) {
+	controller := true
+	pod := func(name, rs, hash string, created time.Time) *v1.Pod {
+		return &v1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Namespace: "apps", Name: name, CreationTimestamp: metav1.NewTime(created),
+				Labels:          map[string]string{"rollouts-pod-template-hash": hash},
+				OwnerReferences: []metav1.OwnerReference{{APIVersion: "apps/v1", Kind: "ReplicaSet", Name: rs, Controller: &controller}},
+			},
+			Spec:   v1.PodSpec{Containers: []v1.Container{{Name: "main"}}},
+			Status: v1.PodStatus{Phase: v1.PodRunning},
+		}
+	}
+	at := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
+	ws := liveWorkloads([]*v1.Pod{
+		pod("web-6c9f8d7b5-bcdfg", "web-6c9f8d7b5", "6c9f8d7b5", at), // stable
+		pod("web-6c9f8d7b5-hjklm", "web-6c9f8d7b5", "6c9f8d7b5", at),
+		pod("web-58d7c9b4f-npqrs", "web-58d7c9b4f", "58d7c9b4f", at.Add(time.Hour)), // canary
+	}, false)
+	if len(ws) != 1 || ws[0].ref.Kind != "Rollout" || ws[0].ref.Name != "web" || ws[0].replicas != 3 {
+		for _, w := range ws {
+			t.Logf("workload %s/%s, %d replicas", w.ref.Kind, w.ref.Name, w.replicas)
+		}
+		t.Fatalf("one Rollout became %d workloads", len(ws))
+	}
+	if ws[0].newestHash != "58d7c9b4f" {
+		t.Fatalf("running version %q", ws[0].newestHash)
+	}
+	target := int32(70)
+	hpas := hpaTargets([]autoscalingv2.HorizontalPodAutoscaler{{
+		ObjectMeta: metav1.ObjectMeta{Namespace: "apps", Name: "web"},
+		Spec: autoscalingv2.HorizontalPodAutoscalerSpec{
+			ScaleTargetRef: autoscalingv2.CrossVersionObjectReference{APIVersion: "argoproj.io/v1alpha1", Kind: "Rollout", Name: "web"},
+			Metrics: []autoscalingv2.MetricSpec{{Type: autoscalingv2.ResourceMetricSourceType, Resource: &autoscalingv2.ResourceMetricSource{
+				Name: v1.ResourceCPU, Target: autoscalingv2.MetricTarget{Type: autoscalingv2.UtilizationMetricType, AverageUtilization: &target},
+			}}},
+		},
+	}})
+	if hpaFor(hpas, ws[0]) == nil {
+		t.Fatal("the Rollout's HPA was not matched")
 	}
 }
 

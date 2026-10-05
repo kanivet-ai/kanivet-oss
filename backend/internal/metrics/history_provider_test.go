@@ -14,6 +14,7 @@ type historyTestProvider struct {
 	info    ProviderInfo
 	paths   []string
 	detects int
+	body    string // the answer, if not the default one
 }
 
 func (p *historyTestProvider) Detect(string) (*ProviderInfo, error) {
@@ -23,6 +24,9 @@ func (p *historyTestProvider) Detect(string) (*ProviderInfo, error) {
 
 func (p *historyTestProvider) promGet(_ context.Context, _, path string, _ url.Values) (io.ReadCloser, error) {
 	p.paths = append(p.paths, path)
+	if p.body != "" {
+		return io.NopCloser(strings.NewReader(p.body)), nil
+	}
 	return io.NopCloser(strings.NewReader(`{"status":"success","data":{"resultType":"vector","result":[{"metric":{},"value":[1,"42"]}]}}`)), nil
 }
 

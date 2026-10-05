@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -87,8 +88,8 @@ func TestProbeCacheIsolatedByProvider(t *testing.T) {
 	s := NewService(nil, nil, nil, nil, nil)
 	q := &probeSource{}
 	s.metrics = q
-	s.cachedProbe(metrics.WithHistoryProvider(context.Background(), "prometheus"), cluster, time.Now())
-	s.cachedProbe(metrics.WithHistoryProvider(context.Background(), "mimir"), cluster, time.Now())
+	s.cachedProbe(metrics.WithHistoryProvider(context.Background(), "prometheus"), cluster, time.Now(), nil)
+	s.cachedProbe(metrics.WithHistoryProvider(context.Background(), "mimir"), cluster, time.Now(), nil)
 	if !q.seen["prometheus"] || !q.seen["mimir"] {
 		t.Fatalf("probes queried %v", q.seen)
 	}
@@ -96,10 +97,13 @@ func TestProbeCacheIsolatedByProvider(t *testing.T) {
 
 type probeSource struct {
 	metricsSource
+	mu   sync.Mutex
 	seen map[string]bool
 }
 
 func (s *probeSource) QueryInstant(ctx context.Context, _, _ string, _ time.Time) ([]metrics.HistorySeries, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.seen == nil {
 		s.seen = map[string]bool{}
 	}

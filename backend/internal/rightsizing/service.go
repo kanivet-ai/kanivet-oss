@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/kanivet/backend/internal/db"
+	"github.com/kanivet/backend/internal/faults"
 	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/k8s/podcache"
@@ -265,14 +267,24 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 	}
 	s.mu.Unlock()
 
-	rep := s.compute(ctx, cluster, profile, window, prev, func(p Progress) {
-		s.mu.Lock()
-		current := s.runs[key] == mine
-		s.mu.Unlock()
-		if current {
-			s.setProgress(key, p)
-		}
-	})
+	rep := func() (rep *Report) {
+		// A panic fails this report like any other error: the last good one
+		// stays on screen, with the refresh error, and the run can retry.
+		defer func() {
+			if r := recover(); r != nil {
+				err := panicked("computing a report for "+cluster, r)
+				rep = &Report{Cluster: cluster, Profile: profile, Window: windowLabel(window), Status: StatusError, Error: err.Error(), Workloads: []WorkloadReport{}}
+			}
+		}()
+		return s.compute(ctx, cluster, profile, window, prev, func(p Progress) {
+			s.mu.Lock()
+			current := s.runs[key] == mine
+			s.mu.Unlock()
+			if current {
+				s.setProgress(key, p)
+			}
+		})
+	}()
 	// The step-by-step explanations are a fifth of a report's size and only
 	// the evidence drawer shows them; it computes its own.
 	for i := range rep.Workloads {
@@ -320,6 +332,13 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 				log.Printf("[Rightsizing] persist report: %v", err)
 			}
 		}
+		// And what cached evidence needs besides history, so that after a
+		// restart the drawer still shows the report's numbers at once.
+		if rep.evidenceInputs != nil {
+			if data, err := packJSON(rep.evidenceInputs.saved(rep.AsOf)); err == nil {
+				_ = s.store.SaveRightsizingReport(inputsKey(key), cluster, data)
+			}
+		}
 	}
 }
 
@@ -364,15 +383,21 @@ func (s *Service) loadPersisted(key string) *Report {
 	if err != nil || len(data) == 0 {
 		return nil
 	}
-	return unpackReport(data)
+	rep := unpackReport(data)
+	if rep != nil && rep.Status == StatusReady {
+		rep.evidenceInputs = s.loadInputs(key, rep.AsOf)
+	}
+	return rep
 }
 
 // packReport stores a report gzipped: JSON of thousands of workloads repeats
 // the same field names and strings, and shrinks about tenfold.
-func packReport(rep *Report) ([]byte, error) {
+func packReport(rep *Report) ([]byte, error) { return packJSON(rep) }
+
+func packJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
-	if err := json.NewEncoder(zw).Encode(rep); err != nil {
+	if err := json.NewEncoder(zw).Encode(v); err != nil {
 		return nil, err
 	}
 	if err := zw.Close(); err != nil {
@@ -382,19 +407,25 @@ func packReport(rep *Report) ([]byte, error) {
 }
 
 func unpackReport(data []byte) *Report {
+	var rep Report
+	if unpackJSON(data, &rep) != nil {
+		return nil
+	}
+	return &rep
+}
+
+// unpackJSON reads what packJSON wrote, or plain JSON as reports were once
+// stored.
+func unpackJSON(data []byte, v any) error {
 	var r io.Reader = bytes.NewReader(data)
 	if len(data) > 2 && data[0] == 0x1f && data[1] == 0x8b {
 		zr, err := gzip.NewReader(r)
 		if err != nil {
-			return nil
+			return err
 		}
 		r = zr
 	}
-	var rep Report
-	if json.NewDecoder(r).Decode(&rep) != nil {
-		return nil
-	}
-	return &rep
+	return json.NewDecoder(r).Decode(v)
 }
 
 // ---- Live workloads ---------------------------------------------------------
@@ -487,6 +518,9 @@ func liveWorkloads(pods []*v1.Pod, vclusterScope bool) []*liveWorkload {
 			w.keys[c.name][seriesKey{p.Namespace, vns, wk, c.name}] = struct{}{}
 		}
 		hash := p.Labels["pod-template-hash"]
+		if hash == "" {
+			hash = p.Labels["rollouts-pod-template-hash"] // an Argo Rollout's pod
+		}
 		if t := p.CreationTimestamp.Time; w.containers == nil || t.After(w.newest) {
 			w.containers, w.newest, w.newestHash = cs, t, hash
 			w.labels = map[string]string{}
@@ -641,13 +675,19 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	// also through the day-chunk cache, above it, so a cached day takes no
 	// slot.
 	ctx = s.withSourceOf(ctx, t.history)
-	cq := newControlled(s.metrics)
+	cq := newControlled(safeQuerier{s.metrics})
 	ch := newChunker(cq, s.chunks())
-	ch.tails = true
+	// Every query sees the same days finished or in progress, as of the
+	// report's own clock, so cached evidence can read them back the same way.
+	ch.now = func() time.Time { return asOf }
+	ch.tails, ch.run = true, runKey(cluster, profile, window, metrics.HistoryProvider(ctx))
 	defer func() {
 		st := limiterFor(t.history).state()
 		log.Printf("[Rightsizing] %s: %d queries to the metrics store, %d day chunks from cache, %d fetched, limit %.1f (grew %d, queue cuts %d, overload cuts %d, max latency ratio %.1f)",
 			cluster, cq.count(), ch.hits.Load(), ch.misses.Load(), st.Limit, st.Grows, st.QueueCuts, st.OverloadCuts, st.MaxRatio)
+		if n := ch.partials.Load(); n > 0 {
+			log.Printf("[Rightsizing] %s: the metrics store answered %d day(s) only in part; used for this report, not cached", cluster, n)
+		}
 		if p, ok := s.store.(interface{ PruneRightsizingChunks() }); ok && s.store != nil {
 			p.PruneRightsizingChunks()
 		}
@@ -656,6 +696,16 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	defer stopWatch()
 	epoch := probeEpoch.Load()
 	pr := probeSignals(ctx, cq, t.history, g.end)
+	fresh := pr.err == nil
+	if !fresh {
+		last, ok := lastProbe(probeKey(ctx, t.history), prev)
+		if !ok {
+			rep.Status, rep.Error = StatusError, "could not check which signals the metrics store has: "+trimErr(pr.err)
+			return rep
+		}
+		log.Printf("[Rightsizing] %s: probing signals failed, using the last probe: %v", cluster, pr.err)
+		pr = last
+	}
 	rep.Signals = signalsOf(pr)
 	if pr.cpuSeries == 0 {
 		rep.Status = StatusNoContainerData
@@ -668,19 +718,38 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		pr.inPlace = supportsInPlaceResize(cs)
 	}
 	rates, _ := s.rates.NodeRates(ctx, cluster)
-	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates, source: historySource(ctx)}
-	storeProbe(probeKey(ctx, t.history), probeEntry{pr, s.now()}, epoch)
+	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates, source: historySource(ctx), now: asOf}
+	if fresh {
+		storeProbe(probeKey(ctx, t.history), probeEntry{pr, s.now()}, epoch)
+	}
 	dismissals := s.dismissalIndex(cluster)
 
+	// Each namespace's workloads, and the history keys (and those of Jobs)
+	// they are read for.
 	byNS := map[string][]*liveWorkload{}
+	wantNS, jobsNS := map[string]map[seriesKey]struct{}{}, map[string]map[seriesKey]struct{}{}
 	for _, w := range workloads {
-		byNS[w.hostNamespace] = append(byNS[w.hostNamespace], w)
+		ns := w.hostNamespace
+		if byNS[ns] == nil {
+			wantNS[ns], jobsNS[ns] = map[seriesKey]struct{}{}, map[seriesKey]struct{}{}
+		}
+		byNS[ns] = append(byNS[ns], w)
+		for _, keys := range w.keys {
+			maps.Copy(wantNS[ns], keys)
+			if w.isJob {
+				maps.Copy(jobsNS[ns], keys)
+			}
+		}
 	}
-	namespaces := make([]string, 0, len(byNS))
-	for ns := range byNS {
-		namespaces = append(namespaces, ns)
-	}
-	sort.Strings(namespaces)
+	// The namespaces with the most history go first: only a few are read at
+	// once, and a large one left for last keeps the whole report waiting.
+	namespaces := slices.Collect(maps.Keys(byNS))
+	slices.SortFunc(namespaces, func(a, b string) int {
+		if c := cmp.Compare(len(wantNS[b]), len(wantNS[a])); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
 
 	prevRecs := previousRecs(prev)
 	var (
@@ -693,31 +762,33 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	var wg sync.WaitGroup
 	progress(Progress{Done: 0, Total: len(namespaces), Stage: "Reading usage history"})
 	for _, ns := range namespaces {
+		// Taken here, so namespaces start in the order above.
+		sem <- struct{}{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
-			want, jobs := map[seriesKey]struct{}{}, map[seriesKey]struct{}{}
-			for _, w := range byNS[ns] {
-				for _, keys := range w.keys {
-					maps.Copy(want, keys)
-					if w.isJob {
-						maps.Copy(jobs, keys)
-					}
-				}
-			}
-			h, err := fetchHistory(ctx, ch, t.history, scope{namespace: ns, want: want, jobs: jobs}, g, pr, window)
 			var out []WorkloadReport
-			if err == nil {
+			err := func() (err error) {
+				// A panic fails this namespace alone; the previous report's
+				// results for it are carried over like for any failure.
+				defer func() {
+					if r := recover(); r != nil {
+						out, err = nil, panicked("analysing namespace "+ns, r)
+					}
+				}()
+				h, err := fetchHistory(ctx, ch, t.history, scope{namespace: ns, want: wantNS[ns], jobs: jobsNS[ns]}, g, pr, window)
+				if err != nil {
+					return err
+				}
 				rep.evidenceInputs.setStarts(ns, h.starts)
 				for _, w := range byNS[ns] {
-					wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, rates, prevRecs)
-					if wr != nil {
+					if wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, rates, prevRecs); wr != nil {
 						out = append(out, *wr)
 					}
 				}
-			}
+				return nil
+			}()
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -788,6 +859,19 @@ func trimErr(err error) string {
 	return msg
 }
 
+// panicked reports a panic recovered in a background computation and turns
+// it into an error. Reports run outside any request handler's recovery, and
+// analyse whatever a metrics store returns: a bug there must fail the report
+// or the namespace, not take the whole backend down with it.
+func panicked(where string, r any) error {
+	log.Printf("[PANIC] rightsizing, %s: %v", where, r)
+	faults.CaptureExceptionWithContext(
+		fmt.Errorf("panic in rightsizing, %s: %v", where, r),
+		map[string]any{"panic": r, "stack": string(debug.Stack())},
+	)
+	return fmt.Errorf("internal error %s: %v", where, r)
+}
+
 func seedFor(parts ...string) uint64 {
 	h := fnv.New64a()
 	for _, p := range parts {
@@ -844,7 +928,7 @@ func versionSince(hash string, podFirst map[string]int64) time.Time {
 	}
 	first := int64(math.MaxInt64)
 	for pod, t := range podFirst {
-		if strings.Contains(pod, "-"+hash+"-") {
+		if carriesHash(pod, hash) {
 			first = min(first, t)
 		}
 	}
@@ -852,6 +936,24 @@ func versionSince(hash string, podFirst map[string]int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(first, 0).UTC()
+}
+
+// carriesHash says whether a pod name carries a pod-template-hash: whole, as
+// <name>-<hash>-<random>, or cut short when the API server truncated the
+// name to 63 characters, as <name>-<start of hash><random>. At least four
+// characters of the hash must be left to tell versions apart.
+func carriesHash(pod, hash string) bool {
+	if strings.Contains(pod, "-"+hash+"-") {
+		return true
+	}
+	if len(pod) != 63 {
+		return false
+	}
+	i := strings.LastIndexByte(pod, '-')
+	if i < 0 || len(pod)-i-1-5 < 4 {
+		return false
+	}
+	return strings.HasPrefix(hash, pod[i+1:len(pod)-5])
 }
 
 // containerHistory merges the series of every key a container's pods map to.

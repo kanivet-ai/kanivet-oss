@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unsafe"
 )
@@ -44,6 +45,24 @@ func WithSeriesFilter(ctx context.Context, keep func(labels map[string]string) b
 func seriesFilter(ctx context.Context) func(map[string]string) bool {
 	keep, _ := ctx.Value(seriesFilterKey{}).(func(map[string]string) bool)
 	return keep
+}
+
+type partialKey struct{}
+
+// WithPartialFlag makes history queries made with ctx set partial when the
+// store answers with only part of the data. Thanos (by default) and a
+// VictoriaMetrics cluster answer that way, as a success, when one of the
+// stores behind them is down: fine to show, but not to keep as complete.
+func WithPartialFlag(ctx context.Context, partial *atomic.Bool) context.Context {
+	return context.WithValue(ctx, partialKey{}, partial)
+}
+
+// MarkPartial sets the flag WithPartialFlag put in ctx, if any: the answer to
+// the query made with ctx was partial. QueryRange and QueryInstant call it.
+func MarkPartial(ctx context.Context) {
+	if p, _ := ctx.Value(partialKey{}).(*atomic.Bool); p != nil {
+		p.Store(true)
+	}
 }
 
 // ErrNoHistorySource means the cluster has no Prometheus-compatible store, so
@@ -159,7 +178,11 @@ func (s *Service) QueryRange(ctx context.Context, cluster, query string, start, 
 	if step > 0 {
 		points = int(end.Sub(start)/step) + 1
 	}
-	return parsePromStream(body, seriesFilter(ctx), points)
+	res, partial, err := parsePromStream(body, seriesFilter(ctx), points)
+	if partial {
+		MarkPartial(ctx)
+	}
+	return res, err
 }
 
 // QueryInstant runs a raw PromQL instant query at the given time.
@@ -176,7 +199,11 @@ func (s *Service) QueryInstant(ctx context.Context, cluster, query string, at ti
 		return nil, err
 	}
 	defer body.Close()
-	return parsePromStream(body, seriesFilter(ctx), 1)
+	res, partial, err := parsePromStream(body, seriesFilter(ctx), 1)
+	if partial {
+		MarkPartial(ctx)
+	}
+	return res, err
 }
 
 // parsePromStream decodes a Prometheus API response as it arrives. Busy
@@ -185,21 +212,22 @@ func (s *Service) QueryInstant(ctx context.Context, cluster, query string, at ti
 // Here each sample's two values are parsed straight from the decoder's
 // buffer, series keep rejects are skipped without storing anything, and the
 // sample arrays start at the expected point count.
-func parsePromStream(r io.Reader, keep func(map[string]string) bool, points int) ([]HistorySeries, error) {
+//
+// partial reports a successful answer the store says is incomplete: Thanos
+// adds warnings, a VictoriaMetrics cluster sets isPartial. Prometheus' infos
+// are notes about the query, not missing data, and don't count.
+func parsePromStream(r io.Reader, keep func(map[string]string) bool, points int) (out []HistorySeries, partial bool, err error) {
 	dec := jsontext.NewDecoder(r)
 	sc := &sampleScratch{times: make([]int64, 0, points), values: make([]float32, 0, points)}
-	var (
-		out                 []HistorySeries
-		status, errType, em string
-	)
+	var status, errType, em string
 	bad := func(err error) error { return fmt.Errorf("unexpected response from metrics store: %w", err) }
 	if err := expect(dec, '{'); err != nil {
-		return nil, bad(err)
+		return nil, false, bad(err)
 	}
 	for dec.PeekKind() != '}' {
 		key, err := readString(dec)
 		if err != nil {
-			return nil, bad(err)
+			return nil, false, bad(err)
 		}
 		switch key {
 		case "status":
@@ -210,17 +238,44 @@ func parsePromStream(r io.Reader, keep func(map[string]string) bool, points int)
 			em, err = readString(dec)
 		case "data":
 			out, err = parseData(dec, keep, sc)
+		case "warnings":
+			var n int
+			n, err = countArray(dec)
+			partial = partial || n > 0
+		case "isPartial":
+			var v jsontext.Value
+			v, err = dec.ReadValue()
+			partial = partial || v.Kind() == 't'
 		default:
 			err = dec.SkipValue()
 		}
 		if err != nil {
-			return nil, bad(err)
+			return nil, false, bad(err)
 		}
 	}
 	if status != "success" {
-		return nil, &QueryError{Type: errType, Message: em}
+		return nil, false, &QueryError{Type: errType, Message: em}
 	}
-	return out, nil
+	return out, partial, nil
+}
+
+// countArray skips a JSON array (or null) and returns how many elements it
+// had.
+func countArray(dec *jsontext.Decoder) (int, error) {
+	if dec.PeekKind() != '[' {
+		return 0, dec.SkipValue()
+	}
+	if err := expect(dec, '['); err != nil {
+		return 0, err
+	}
+	n := 0
+	for dec.PeekKind() != ']' {
+		if err := dec.SkipValue(); err != nil {
+			return 0, err
+		}
+		n++
+	}
+	return n, expect(dec, ']')
 }
 
 // sampleScratch collects one series' samples before they're copied out at
@@ -401,7 +456,8 @@ func expect(dec *jsontext.Decoder, kind jsontext.Kind) error {
 
 // parsePromResult decodes a whole response held in memory.
 func parsePromResult(body []byte) ([]HistorySeries, error) {
-	return parsePromStream(bytes.NewReader(body), nil, 1)
+	res, _, err := parsePromStream(bytes.NewReader(body), nil, 1)
+	return res, err
 }
 
 // HTTPStatusError is a non-2xx answer from the metrics store.

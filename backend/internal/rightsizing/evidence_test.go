@@ -39,12 +39,15 @@ func (h *evidenceHistory) QueryRange(ctx context.Context, cluster, query string,
 	h.mu.Lock()
 	h.calls[key]++
 	h.mu.Unlock()
+	if strings.Contains(query, "restarts_total") {
+		return nil, nil // no restarts: "> 0" keeps no step
+	}
 	var result []metrics.HistorySeries
 	for _, wk := range []string{"api", "other"} {
 		value := float32(0.25)
 		if strings.Contains(query, "memory") || strings.Contains(query, `resource="memory"`) {
 			value = 128 << 20
-		} else if strings.Contains(query, "changes(") || strings.Contains(query, "throttled") {
+		} else if strings.Contains(query, "throttled") {
 			value = 0
 		}
 		if wk == "other" {
@@ -229,6 +232,121 @@ func TestEvidenceCachedSnapshotThenFreshGrid(t *testing.T) {
 	q.CacheOnly, q.Refresh, q.Provider = true, false, "prometheus"
 	if _, err := s.GetEvidence(ctx, q); err != errNotCached {
 		t.Fatalf("provider switch reused snapshot: %v", err)
+	}
+}
+
+// samplesOf is the sample count of a workload's first container in a report.
+func samplesOf(rep *Report, name string) int {
+	for _, w := range rep.Workloads {
+		if w.Name == name {
+			return w.Containers[0].Data.Samples
+		}
+	}
+	return -1
+}
+
+// A report computed shortly before midnight stored its last day as a tail.
+// Cached evidence opened once that day is final still reads that tail.
+func TestCachedEvidenceAcrossMidnight(t *testing.T) {
+	for _, later := range []time.Duration{20 * time.Minute, 55 * time.Minute} {
+		now := time.Date(2026, 10, 2, 23, 50, 0, 0, time.UTC)
+		h := &evidenceHistory{calls: map[string]int{}}
+		s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
+		s.now = func() time.Time { return now }
+		cluster := t.Name()
+		ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+		rep := s.compute(ctx, cluster, ProfileBalanced, defaultWindow, nil, func(Progress) {})
+		rep.ComputedAt = now
+		s.runs[runKey(cluster, ProfileBalanced, defaultWindow, "mimir")] = &run{ready: rep, readyAt: now, loaded: true}
+		now = now.Add(later)
+		q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
+		cached, err := s.GetEvidence(ctx, q)
+		if err != nil {
+			t.Fatalf("+%s: %v", later, err)
+		}
+		if got, row := cached.Workload.Containers[0].Data.Samples, samplesOf(rep, "api"); got != row {
+			t.Errorf("opened %s after the report: cached evidence has %d samples, its report row %d", later, got, row)
+		}
+	}
+}
+
+// Reports for other profiles run the same queries at the same step. Each
+// keeps its own day in progress, so cached evidence still matches its row.
+func TestCachedEvidenceKeepsItsOwnTail(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	h := &evidenceHistory{calls: map[string]int{}}
+	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
+	s.now = func() time.Time { return now }
+	cluster := t.Name()
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	rep := s.compute(ctx, cluster, ProfileBalanced, defaultWindow, nil, func(Progress) {})
+	rep.ComputedAt = now
+	s.runs[runKey(cluster, ProfileBalanced, defaultWindow, "mimir")] = &run{ready: rep, readyAt: now, loaded: true}
+
+	now = now.Add(10 * time.Minute)
+	if other := s.compute(ctx, cluster, ProfileConservative, defaultWindow, nil, func(Progress) {}); other.Status != StatusReady {
+		t.Fatal(other.Status)
+	}
+	now = now.Add(time.Minute)
+	q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
+	cached, err := s.GetEvidence(ctx, q)
+	if err != nil {
+		t.Fatalf("cached evidence: %v", err)
+	}
+	if got, row := cached.Workload.Containers[0].Data.Samples, samplesOf(rep, "api"); got != row {
+		t.Fatalf("cached evidence lost the day in progress to another profile's report: %d samples, its row %d", got, row)
+	}
+}
+
+// persistingStore keeps reports too, the way the local database does across
+// restarts.
+type persistingStore struct {
+	evidenceStore
+	reports map[string][]byte
+}
+
+func (s persistingStore) SaveRightsizingReport(key, _ string, data []byte) error {
+	s.reports[key] = data
+	return nil
+}
+
+func (s persistingStore) GetRightsizingReport(key string) ([]byte, error) {
+	if d, ok := s.reports[key]; ok {
+		return d, nil
+	}
+	return nil, errNoStore
+}
+
+// After a restart the persisted report is fresh, so nothing recomputes it;
+// cached evidence still shows its numbers at once, from the stored days and
+// the local pod cache, without asking the metrics store or the API server.
+func TestCachedEvidenceAfterRestart(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	store := persistingStore{evidenceStore{&memChunks{data: map[string][]byte{}}}, map[string][]byte{}}
+	cluster := t.Name()
+	key := runKey(cluster, ProfileBalanced, defaultWindow, "mimir")
+	before := NewService(&k8s.MockClient{}, &evidenceHistory{calls: map[string]int{}}, evidenceFixtures{}, evidenceFixtures{}, store)
+	before.now = func() time.Time { return now }
+	before.runs[key] = &run{cluster: cluster, computing: true, loaded: true}
+	before.computeAndStore(key, cluster, ProfileBalanced, defaultWindow, "mimir")
+	rep := before.Cached(cluster, ProfileBalanced, defaultWindow, "mimir")
+	if rep == nil || rep.Status != StatusReady {
+		t.Fatalf("report: %+v", rep)
+	}
+
+	now = now.Add(10 * time.Minute)
+	after := NewService(nil, offlineSource{t: t}, nil, evidenceFixtures{}, store)
+	after.now = func() time.Time { return now }
+	if got := after.GetReport(cluster, ProfileBalanced, defaultWindow, false, "", "mimir"); got.Status != StatusReady || got.Stale {
+		t.Fatalf("persisted report: status=%s stale=%t", got.Status, got.Stale)
+	}
+	q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
+	cached, err := after.GetEvidence(context.Background(), q)
+	if err != nil {
+		t.Fatalf("cached evidence after a restart: %v", err)
+	}
+	if got, row := cached.Workload.Containers[0].Data.Samples, samplesOf(rep, "api"); got != row || !cached.AsOf.Equal(rep.AsOf) {
+		t.Fatalf("cached evidence has %d samples at %v, its report row %d at %v", got, cached.AsOf, row, rep.AsOf)
 	}
 }
 
