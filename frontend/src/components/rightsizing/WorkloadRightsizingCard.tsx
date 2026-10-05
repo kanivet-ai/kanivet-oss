@@ -109,22 +109,20 @@ export const WorkloadRightsizingCard: React.FC<Props> = ({
             Needs {formatMoney(-w.monthlySavings)}/mo more
           </span>
         )}
+      </div>
+      <div className="rs-finding-tag-row">
+        {tags.map((t) => (
+          <Tooltip key={t.title} content={t.message}>
+            <span className={`rs-tag rs-tag-${t.severity}`}>{t.title}</span>
+          </Tooltip>
+        ))}
         <button
           className="ap-btn ap-btn--sm rs-card-open"
           onClick={() => setOpen(true)}
         >
-          See the evidence
+          Evidence
         </button>
       </div>
-      {tags.length > 0 && (
-        <div className="rs-finding-tag-row">
-          {tags.map((t) => (
-            <Tooltip key={t.title} content={t.message}>
-              <span className={`rs-tag rs-tag-${t.severity}`}>{t.title}</span>
-            </Tooltip>
-          ))}
-        </div>
-      )}
       <div className="rs-card-rows">
         {w.containers.map((c) => (
           <div key={c.container} className="rs-card-row">

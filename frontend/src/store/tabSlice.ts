@@ -2,7 +2,9 @@ import { StateCreator } from 'zustand';
 import api from '../services/api';
 import { TabSlice, StoreState, Tab, TabState } from './types';
 import { createInitialTabState, rebuildTabIndex } from './utils';
-import { persistedItem } from './persistedItem';
+import { cancelPendingSnapshot } from './persistence';
+import { forgetRestoredVCluster } from './vclusterRestore';
+import { forgetScrollPositions } from '../utils/scrollMemory';
 
 export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, get) => ({
   activeTabs: [],
@@ -81,6 +83,9 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     const newTabs = activeTabs.filter((t: Tab) => t.id !== clusterId);
     const newCurrent = currentTab === clusterId ? newTabs[0]?.id || null : currentTab;
     set({ activeTabs: newTabs, tabIndexMap: rebuildTabIndex(newTabs), currentTab: newCurrent });
+    cancelPendingSnapshot(clusterId);
+    forgetRestoredVCluster(clusterId);
+    forgetScrollPositions(clusterId);
     try {
       if (newCurrent) localStorage.setItem('kanivet.currentTab', newCurrent);
       else localStorage.removeItem('kanivet.currentTab');
@@ -137,8 +142,8 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: newState };
     set({ activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) });
 
-    // Persist immediately for fields the user expects to survive a reload
-    // (namespace selection), but defer the heavy tabstate snapshot.
+    // The namespace selection is written at once; the rest of the workspace is
+    // saved as a snapshot by the persistence subscriber (store/persistence.ts).
     try {
       if (currentTab) {
         if (Object.prototype.hasOwnProperty.call(updates, 'selectedNamespace') && updates.selectedNamespace !== undefined) {
@@ -147,88 +152,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
         if (Object.prototype.hasOwnProperty.call(updates, 'selectedNamespaces') && updates.selectedNamespaces !== undefined) {
           localStorage.setItem(`kanivet.selectedNamespaces.${currentTab}`, JSON.stringify(updates.selectedNamespaces || []));
         }
-        // Skip persistence work entirely when only transient fields changed.
-        if (isTransientOnlyUpdate(updates)) return;
-        scheduleTabStateSave(currentTab, newState);
       }
     } catch {}
   },
 });
-
-// Persistence helpers ---------------------------------------------------------
-
-const TRANSIENT_KEYS = new Set([
-  'listItems',
-  'selectedItem',
-  'detailData',
-  'isLoadingListItems',
-  'hasReceivedInitialListData',
-  'loadError',
-  'namespaces',
-  'rolloutStatuses',
-  'scrollPositions',
-  'focusArea',
-]);
-
-const isTransientOnlyUpdate = (updates: Partial<TabState>): boolean => {
-  for (const key of Object.keys(updates)) {
-    if (!TRANSIENT_KEYS.has(key)) return false;
-  }
-  return true;
-};
-
-const pendingSaves = new Map<
-  string,
-  { handle: ReturnType<typeof setTimeout>; save: () => void }
->();
-const PERSIST_DEBOUNCE_MS = 750;
-
-const stripItems = (rt: any) => {
-  if (!rt) return rt;
-  // Drop items + selectedItem to keep the snapshot small and fast to JSON-encode.
-  // They are re-fetched on tab open.
-  const { items: _items, selectedItem: _sel, ...rest } = rt;
-  return rest;
-};
-
-const scheduleTabStateSave = (cluster: string, newState: TabState) => {
-  const existing = pendingSaves.get(cluster);
-  if (existing) clearTimeout(existing.handle);
-  const save = () => {
-    pendingSaves.delete(cluster);
-    try {
-      const toSave = {
-        resourceListTabs: (newState.resourceListTabs || []).map(stripItems),
-        activeResourceListTab: newState.activeResourceListTab,
-        activeResourceListTabByPane: newState.activeResourceListTabByPane || {},
-        detailTabs: (newState.detailTabs || []).map((dt) => ({ ...dt, item: persistedItem(dt.item) })),
-        activeDetailTab: newState.activeDetailTab,
-        centerPaneLayout: newState.centerPaneLayout,
-        focusedCenterPaneId: newState.focusedCenterPaneId,
-        expandedNodes: Array.from(newState.expandedNodes || []),
-        selectedNode: newState.selectedNode ? {
-          id: newState.selectedNode.id,
-          label: newState.selectedNode.label,
-          type: newState.selectedNode.type,
-          data: newState.selectedNode.data,
-        } : null,
-      };
-      localStorage.setItem(`kanivet.tabstate.${cluster}`, JSON.stringify(toSave));
-    } catch {}
-  };
-  pendingSaves.set(cluster, {
-    handle: setTimeout(save, PERSIST_DEBOUNCE_MS),
-    save,
-  });
-};
-
-// Write pending snapshots at once on reload / app exit, so the last changes
-// before quitting are kept.
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    for (const { handle, save } of [...pendingSaves.values()]) {
-      clearTimeout(handle);
-      save();
-    }
-  });
-}
