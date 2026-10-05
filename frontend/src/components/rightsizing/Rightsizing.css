@@ -711,6 +711,15 @@
   margin-left: auto;
 }
 
+/* In the badge row the button is the size of a badge, on the same line. */
+.rs-finding-tag-row .rs-card-open {
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .rs-card-why {
   color: var(--text2);
   line-height: 1.45;
