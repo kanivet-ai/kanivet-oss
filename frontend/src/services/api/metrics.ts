@@ -210,6 +210,8 @@ export async function detectMetricsProvider(
     const response = await apiClient.getAxios().get('/metrics/detect', {
       params,
       timeout: METRICS_DETECT_TIMEOUT_MS,
+      // Probing a provider through port-forwards can take seconds.
+      long: true,
     });
     const providers: MetricsProvidersStatus = { ...(response.data.providers || {}) };
     if (typeof response.data.checkedAt === 'number') providers.checkedAt = response.data.checkedAt;
@@ -648,7 +650,7 @@ export async function queryPodMetrics(
     const response = await apiClient.getAxios().post(
       `/metrics/pods/${namespace}/${pod}`,
       { metricType, timeRange, containerName, provider },
-      { params: { cluster }, timeout: 300000 }
+      { params: { cluster }, timeout: 300000, long: true }
     );
     markMetricsProviderAvailable(cluster);
     return normalizeSeries(response.data);

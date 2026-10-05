@@ -6,6 +6,7 @@ import type {
   EvidenceEvent,
   Finding,
   Distribution,
+  HPACoupling,
   RightsizingProfile,
   RightsizingSummary,
   Verdict,
@@ -294,6 +295,58 @@ export function choiceFromRec(
   return { container: c.container, cpu, memory, cpuLimit, memoryLimit };
 }
 
+/** Whether a VerticalPodAutoscaler sets this request of a container at
+ * admission, so a patch to it would not last. */
+const vpaSets = (c: ContainerReport, resource: 'cpu' | 'memory') =>
+  c.vpa?.resources.includes(resource) ?? false;
+
+/** The HPA target changes a workload's recommendation pairs with, one per
+ * HPA: the report's own for the workload, which a pod-level HPA works out
+ * over every container's requests. Reports without it carry only the
+ * containers'; they share the HPA, so it gets the lowest, which scales out
+ * no later than today's target does with the old requests. */
+function workloadHPAs(w: WorkloadReport): HPACoupling[] {
+  if (w.hpa) return [w.hpa];
+  const targets = new Map<string, HPACoupling>();
+  for (const c of w.containers) {
+    const prev = c.hpa && targets.get(c.hpa.name);
+    if (c.hpa && (!prev || c.hpa.suggestedTarget < prev.suggestedTarget))
+      targets.set(c.hpa.name, c.hpa);
+  }
+  return [...targets.values()];
+}
+
+/** Whether an HPA's target counts a container's request: a pod-level one
+ * sums every container requesting its resource, any other only the one it
+ * is coupled to. */
+export const hpaCounts = (h: HPACoupling, c: ContainerReport) =>
+  h.pod ? c[h.resource].request > 0 : c.hpa?.name === h.name;
+
+/** The target that keeps today's scaling with the chosen requests: today's
+ * target times the requests it counts, today's over the chosen. With the
+ * recommendations it is the suggested target. */
+export function pairedHPATarget(
+  w: WorkloadReport,
+  h: HPACoupling,
+  choices: ContainerChoice[],
+): number {
+  let now = 0;
+  let next = 0;
+  for (const c of w.containers) {
+    if (!hpaCounts(h, c)) continue;
+    const k = choices.find((x) => x.container === c.container);
+    now += c[h.resource].request;
+    next += k
+      ? h.resource === 'cpu'
+        ? k.cpu
+        : k.memory
+      : c[h.resource].recommended;
+  }
+  return now > 0 && next > 0
+    ? Math.max(1, Math.round((h.targetUtilization * now) / next))
+    : h.suggestedTarget;
+}
+
 const TEMPLATE_PATH: Record<string, string[]> = {
   CronJob: ['spec', 'jobTemplate', 'spec', 'template'],
 };
@@ -402,10 +455,25 @@ export function repositoryPrompt(
       '```',
     ]),
   ];
+  // A pod-level HPA counts every container's requests: its target pairs
+  // with their total, once for the workload.
+  const pod = w.hpa?.pod ? w.hpa : undefined;
+  if (pod) {
+    lines.push(
+      '',
+      `HorizontalPodAutoscaler ${pod.name} scales on the ${pod.resource} utilization of the whole pod, every container's requests summed: its target is ${pod.targetUtilization}%. Kanivet suggests ${pod.suggestedTarget}% paired with requests totalling ${quantity(pod.resource, pod.pairedRequest)} per pod. Verify the target against the selected requests and update the HPA together with them to preserve scaling behavior.`,
+    );
+  }
   for (const choice of choices) {
     const c = w.containers.find((row) => row.container === choice.container);
     if (!c) continue;
-    if (c.hpa) {
+    if (c.vpa) {
+      lines.push(
+        '',
+        `VerticalPodAutoscaler ${c.vpa.name} (updateMode ${c.vpa.mode}) sets the ${c.vpa.resources.join(' and ')} requests of container ${c.container} at admission, so a manifest change to them won't last. Steer the VPA instead, with minAllowed and maxAllowed in its resourcePolicy.`,
+      );
+    }
+    if (c.hpa && !pod) {
       lines.push(
         '',
         `Container ${c.container} is coupled to HorizontalPodAutoscaler ${c.hpa.name}: its ${c.hpa.resource} utilization target is ${c.hpa.targetUtilization}%. Kanivet suggests ${c.hpa.suggestedTarget}% paired with a request of ${quantity(c.hpa.resource, c.hpa.pairedRequest)}. Verify the target against the selected request and update the HPA together with the request to preserve scaling behavior.`,
@@ -964,15 +1032,29 @@ export function patchObject(
     : { spec: { template } };
 }
 
+/** The recommendation as a bulk patch applies it. A resource a
+ * VerticalPodAutoscaler sets is left out (0), request and limit alike: the
+ * VPA would overwrite the request at admission, so the template keeps
+ * today's. */
+const bulkChoice = (c: ContainerReport): ContainerChoice => {
+  const k = choiceFromRec(c);
+  if (vpaSets(c, 'cpu')) k.cpu = k.cpuLimit = 0;
+  if (vpaSets(c, 'memory')) k.memory = k.memoryLimit = 0;
+  return k;
+};
+
 /** Whether applying a container's recommendation changes its requests or
- * limits: a raised CPU limit is a change even when the request stays. */
+ * limits: a raised CPU limit is a change even when the request stays. What
+ * a VPA sets is not Kanivet's to change. */
 const changes = (c: ContainerReport) => {
   const k = choiceFromRec(c);
   return (
-    Math.abs(k.cpu - c.cpu.request) > 1e-9 ||
-    Math.abs(k.memory - c.memory.request) > 0.5 ||
-    Math.abs(k.cpuLimit - c.cpu.limit) > 1e-9 ||
-    Math.abs(k.memoryLimit - c.memory.limit) > 0.5
+    (!vpaSets(c, 'cpu') &&
+      (Math.abs(k.cpu - c.cpu.request) > 1e-9 ||
+        Math.abs(k.cpuLimit - c.cpu.limit) > 1e-9)) ||
+    (!vpaSets(c, 'memory') &&
+      (Math.abs(k.memory - c.memory.request) > 0.5 ||
+        Math.abs(k.memoryLimit - c.memory.limit) > 0.5))
   );
 };
 
@@ -981,22 +1063,20 @@ export const hasChange = (w: WorkloadReport) => w.containers.some(changes);
 
 /** The choices a bulk patch applies: containers that change, nothing else. */
 const changedChoices = (w: WorkloadReport) =>
-  w.containers.filter(changes).map((c) => choiceFromRec(c));
+  w.containers.filter(changes).map(bulkChoice);
 
-/** One line per HPA of a workload. Its containers can each suggest a target;
- * they share the HPA, so it gets the lowest, which scales out no later than
- * today's target does with the old requests. */
+/** One line per HPA of a workload, unless a VPA sets a request its target
+ * counts: the patch leaves that request as it is, so the target stays too. */
 function hpaTargetLines(w: WorkloadReport): string[] {
-  const targets = new Map<string, NonNullable<ContainerReport['hpa']>>();
-  for (const c of w.containers) {
-    const prev = c.hpa && targets.get(c.hpa.name);
-    if (c.hpa && (!prev || c.hpa.suggestedTarget < prev.suggestedTarget))
-      targets.set(c.hpa.name, c.hpa);
-  }
-  return [...targets.values()].map(
-    (h) =>
-      `# and set HPA ${h.name} ${h.resource} target to ${h.suggestedTarget}%`,
-  );
+  return workloadHPAs(w)
+    .filter(
+      (h) =>
+        !w.containers.some((c) => hpaCounts(h, c) && vpaSets(c, h.resource)),
+    )
+    .map(
+      (h) =>
+        `# and set HPA ${h.name} ${h.resource} target to ${h.suggestedTarget}%`,
+    );
 }
 
 /** One `kubectl patch` per workload, for every kind, as a runnable script. */

@@ -790,6 +790,7 @@ func analyze(in containerInput) ContainerReport {
 			msg += fmt.Sprintf(" The VPA currently recommends %s.", strings.Join(rec, " and "))
 		}
 		r.Findings = append(r.Findings, Finding{Code: "vpa-managed", Severity: "warning", Message: msg})
+		r.VPA = &VPAInfo{Name: v.name, Mode: v.mode, Resources: slices.Clone(v.resources)}
 	}
 	if cpu.Verdict == VerdictOver {
 		r.Findings = append(r.Findings, Finding{Code: "cpu-over-provisioned", Severity: "info", Resource: "cpu",
@@ -1005,6 +1006,7 @@ func coupleHPA(r *ContainerReport, h *hpaTarget, res *ResourceRec, usageOnly flo
 // paired, and explains it.
 func describeHPA(r *ContainerReport, res *ResourceRec, old, paired float64, pod bool) {
 	h := r.HPA
+	h.Pod = pod
 	// A request raised far past today's could round the target to 0%, which
 	// no HPA accepts.
 	h.SuggestedTarget = max(1, int32(math.Round(float64(h.TargetUtilization)*old/paired)))

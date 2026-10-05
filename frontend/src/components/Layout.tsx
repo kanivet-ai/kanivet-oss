@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { notifyWelcome } from '../services/islandNotifications';
 import TreeSidebar from './TreeSidebar';
 import CenterPaneSplitContainer from './CenterPaneSplitContainer';
@@ -9,6 +9,7 @@ import ToastContainer from './ToastContainer';
 import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
+import type { StoreState } from '../store/types';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
@@ -21,6 +22,7 @@ import {
   createFocusNavigationHandlers,
 } from '../utils/keyboardShortcuts';
 import { lazyView, prefetchLazyViewsWhenIdle } from '../utils/lazyView';
+import { ViewErrorBoundary } from './common/ViewErrorBoundary';
 import './Layout.css';
 
 // Not on the first screen: split out, then warmed once the layout has painted.
@@ -32,6 +34,25 @@ const ThemeSettings = lazyView(() =>
 const ComponentLibrary = lazyView(() =>
   import('./ComponentLibrary').then((m) => ({ default: m.ComponentLibrary })),
 );
+
+// What the center panes and the detail pane show. A pane that failed to
+// render tries again once the user moves to another tab or selection.
+const centerView = (s: StoreState) => {
+  const t = s.getCurrentTabState();
+  return [s.currentTab, t?.activeResourceListTab, ...Object.values(t?.activeResourceListTabByPane || {}), t?.selectedNode?.id].join('|');
+};
+const detailView = (s: StoreState) => {
+  const t = s.getCurrentTabState();
+  const item = t?.selectedItem;
+  return [t?.activeDetailTab, item?.kind, item?.metadata?.namespace ?? item?.namespace, item?.metadata?.name ?? item?.name].join('|');
+};
+
+// Subscribes on its own, so a new selection re-renders only the boundary,
+// not the layout and every pane under it.
+const PaneBoundary = ({ view, children }: { view: (s: StoreState) => string; children: ReactNode }) => {
+  const resetKey = useStore(view);
+  return <ViewErrorBoundary resetKey={resetKey}>{children}</ViewErrorBoundary>;
+};
 
 const Layout = () => {
   const {
@@ -594,10 +615,16 @@ const Layout = () => {
                 >
                   {/* Keyed by cluster: pane ids differ between clusters, so each one
                       gets its own layout instead of inheriting the previous tab's. */}
-                  <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
+                  <PaneBoundary view={centerView}>
+                    <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
+                  </PaneBoundary>
                   <BottomDock />
                 </div>
-                {(hasDetailData || hasDetailTabs) && <DetailView />}
+                {(hasDetailData || hasDetailTabs) && (
+                  <PaneBoundary view={detailView}>
+                    <DetailView />
+                  </PaneBoundary>
+                )}
               </div>
             )}
             {hasClusterError && currentTab && <ClusterErrorBanner />}

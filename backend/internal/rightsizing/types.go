@@ -183,9 +183,20 @@ type HPACoupling struct {
 	// the HPA counts.
 	SuggestedTarget int32   `json:"suggestedTarget"`
 	PairedRequest   float64 `json:"pairedRequest"`
+	// Pod is set when the target counts the summed requests of every
+	// container requesting the resource (a Resource metric), not one's.
+	Pod bool `json:"pod,omitempty"`
 	// usageOnly is what usage alone supported when the HPA held the request
 	// up; zero otherwise.
 	usageOnly float64
+}
+
+// VPAInfo is the VerticalPodAutoscaler that sets some of a container's
+// requests at admission, so a patch to them would not last.
+type VPAInfo struct {
+	Name      string   `json:"name"`
+	Mode      string   `json:"mode"`
+	Resources []string `json:"resources"` // cpu, memory: the requests it sets
 }
 
 type ContainerReport struct {
@@ -193,6 +204,8 @@ type ContainerReport struct {
 	JVM       *JVMInfo `json:"jvm,omitempty"`
 	// Heap is a fixed heap ceiling of another runtime: Node, .NET or Go.
 	Heap *HeapCeiling `json:"heap,omitempty"`
+	// VPA is set when a VerticalPodAutoscaler sets this container's requests.
+	VPA *VPAInfo `json:"vpa,omitempty"`
 	// VersionSince is roughly when the running version was rolled out.
 	VersionSince *time.Time `json:"versionSince,omitempty"`
 	// StartupBoost is what the container needs while it starts, when its

@@ -9,14 +9,7 @@ interface PodLogsProps {
   active?: boolean;
 }
 
-const PodLogs = ({
-  cluster,
-  namespace,
-  name,
-  containers,
-  initContainers,
-  active,
-}: PodLogsProps) => (
+const PodLogs = ({ cluster, namespace, name, containers, initContainers, active }: PodLogsProps) => (
   <LogViewer
     cluster={cluster}
     namespace={namespace}

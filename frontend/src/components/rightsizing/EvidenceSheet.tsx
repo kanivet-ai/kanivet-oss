@@ -47,8 +47,10 @@ import {
   formatMoney,
   formatPct,
   hoursAbove,
+  hpaCounts,
   idleShare,
   kubectlCommands,
+  pairedHPATarget,
   patchYAML,
   primaryContainer,
   quantileAt,
@@ -432,6 +434,9 @@ export const EvidenceSheet: React.FC<Props> = ({
         ]
       : []),
   ];
+  // The HPA pairs with the workload's requests: a pod-level one counts every
+  // container's, so its target follows all of their candidates.
+  const hpa = w.hpa ?? c.hpa;
   const isRec =
     Math.abs(cand.cpu - c.cpu.recommended) < 1e-9 &&
     Math.abs(cand.mem - c.memory.recommended) < 1;
@@ -705,12 +710,11 @@ export const EvidenceSheet: React.FC<Props> = ({
                       Above the {formatCores(c.cpu.limit)} limit: raise it too
                     </span>
                   )}
-                  {c.hpa?.resource === 'cpu' &&
+                  {hpa?.resource === 'cpu' &&
+                    hpaCounts(hpa, c) &&
                     c.cpu.request > 0 &&
                     (() => {
-                      const t = Math.round(
-                        (c.hpa.targetUtilization * c.cpu.request) / cand.cpu,
-                      );
+                      const t = pairedHPATarget(w, hpa, choices);
                       return (
                         <span className={t > 90 ? 'warn' : ''}>
                           Keeps today's scaling at an HPA target of{' '}
@@ -1124,18 +1128,18 @@ export const EvidenceSheet: React.FC<Props> = ({
                 before Kanivet can suggest requests and limits.
               </p>
             )}
-            {c.hpa && (
+            {hpa && (
               <>
                 <div className="rs-subhead">
-                  And in HorizontalPodAutoscaler {c.hpa.name}, together with the
+                  And in HorizontalPodAutoscaler {hpa.name}, together with the
                   request
                 </div>
                 <CopyBlock
                   label="HPA target"
-                  text={`# spec.metrics, the ${c.hpa.resource} entry (now ${c.hpa.targetUtilization}%)
+                  text={`# spec.metrics, the ${hpa.resource} entry (now ${hpa.targetUtilization}%)
 target:
   type: Utilization
-  averageUtilization: ${c.hpa.suggestedTarget}`}
+  averageUtilization: ${pairedHPATarget(w, hpa, choices)}`}
                 />
               </>
             )}

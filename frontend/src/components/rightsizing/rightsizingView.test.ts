@@ -19,7 +19,11 @@ vi.mock('./RightsizingParts', () => ({
   ConfidenceMeter: () => null,
   VerdictBadge: () => null,
 }));
-import type { ContainerReport, WorkloadReport } from '../../types/rightsizing';
+import type {
+  ContainerReport,
+  HPACoupling,
+  WorkloadReport,
+} from '../../types/rightsizing';
 import {
   PROFILE_META,
   bulkKubectl,
@@ -48,6 +52,7 @@ import {
   formatMem,
   groupByNamespace,
   kubectlCommands,
+  pairedHPATarget,
   patchYAML,
   repositoryPrompt,
   quantileAt,
@@ -130,14 +135,42 @@ const workload = (over: Partial<WorkloadReport> = {}): WorkloadReport => ({
   ...over,
 });
 
+const hpaCoupling = (over: Partial<HPACoupling> = {}): HPACoupling => ({
+  name: 'api-hpa',
+  resource: 'cpu',
+  targetUtilization: 50,
+  suggestedTarget: 86,
+  pairedRequest: 0.7,
+  ...over,
+});
+
+/** An HPA on a Resource metric over two containers, as the backend reports
+ * it: one target over both requests (50% × 1.2 / 0.7). */
+const podHPAWorkload = () =>
+  workload({
+    containers: [
+      container({
+        cpu: rec({ request: 1, recommended: 0.5 }),
+        hpa: hpaCoupling({ pairedRequest: 0.5, pod: true }),
+      }),
+      container({
+        container: 'sidecar',
+        verdict: 'right-sized',
+        cpu: rec({ request: 0.2, recommended: 0.2 }),
+        memory: rec({ request: 64 * MI, recommended: 64 * MI }),
+      }),
+    ],
+    hpa: hpaCoupling({ pod: true }),
+  });
+
 describe('evidence sheet apply section', () => {
-  const render = (c: ContainerReport) => {
+  const render = (c: ContainerReport, w = workload({ containers: [c] })) => {
     vi.stubGlobal('document', { body: {} });
     try {
       return renderToStaticMarkup(
         createElement(EvidenceSheet, {
           cluster: 'staging',
-          workload: workload({ containers: [c] }),
+          workload: w,
           profile: 'balanced',
           window: '14d',
           onClose: () => {},
@@ -172,6 +205,16 @@ describe('evidence sheet apply section', () => {
     expect(html).toContain('Apply it yourself');
     expect(html).toContain('No resource values are available yet.');
     expect(html).not.toContain('Copy AI prompt');
+  });
+
+  it("pairs the HPA target with the whole pod's requests", () => {
+    const w = podHPAWorkload();
+    // On the sidecar's tab too: its request is in the pod's total.
+    for (const c of w.containers) {
+      const html = render(c, { ...w, verdict: c.verdict });
+      expect(html).toContain('averageUtilization: 86');
+      expect(html).toMatch(/HPA target of(<!-- -->)? <strong>86(<!-- -->)?%/);
+    }
   });
 });
 
@@ -837,6 +880,139 @@ describe('changes worth patching', () => {
     ]);
     expect(script.match(/set HPA api-hpa/g)).toHaveLength(1);
     expect(script).toContain('set HPA api-hpa cpu target to 72%');
+  });
+
+  it("prefers the workload's one target, worked out over the pod", () => {
+    const w = workload({
+      containers: [
+        container({ hpa: hpaCoupling({ suggestedTarget: 80 }) }),
+        container({
+          container: 'worker',
+          hpa: hpaCoupling({ suggestedTarget: 72 }),
+        }),
+      ],
+      hpa: hpaCoupling({ suggestedTarget: 75, pod: true }),
+    });
+    const script = bulkKubectl([w]);
+    expect(script.match(/set HPA api-hpa/g)).toHaveLength(1);
+    expect(script).toContain('set HPA api-hpa cpu target to 75%');
+  });
+});
+
+describe('HPA targets over the requests they count', () => {
+  it("pairs a pod-level target with every container's requests", () => {
+    const w = podHPAWorkload();
+    const recs = w.containers.map((c) => choiceFromRec(c));
+    expect(pairedHPATarget(w, w.hpa!, recs)).toBe(86);
+    // 600m picked for the app: 50% × 1.2 / 0.8.
+    const picked = [choiceFromRec(w.containers[0], 0.6), recs[1]];
+    expect(pairedHPATarget(w, w.hpa!, picked)).toBe(75);
+    // A ContainerResource metric counts the container it names alone.
+    const app = {
+      ...w.containers[0],
+      hpa: hpaCoupling({ pairedRequest: 0.5 }),
+    };
+    const one = { ...w, containers: [app, w.containers[1]], hpa: app.hpa };
+    expect(pairedHPATarget(one, one.hpa, recs)).toBe(100);
+    expect(pairedHPATarget(one, one.hpa, picked)).toBe(83);
+  });
+
+  it('describes a pod-level target once, against the total', () => {
+    const w = podHPAWorkload();
+    const prompt = repositoryPrompt(
+      w,
+      w.containers.map((c) => choiceFromRec(c)),
+      'staging',
+    );
+    expect(prompt.match(/HorizontalPodAutoscaler api-hpa/g)).toHaveLength(1);
+    expect(prompt).toContain('86% paired with requests totalling 700m per pod');
+    expect(prompt).not.toContain('paired with a request of');
+  });
+});
+
+describe('requests a VerticalPodAutoscaler sets', () => {
+  const vpa = (...resources: ('cpu' | 'memory')[]) => ({
+    name: 'api-vpa',
+    mode: 'Auto',
+    resources,
+  });
+
+  it('are left out of bulk patches, limits too', () => {
+    const w = workload({ containers: [container({ vpa: vpa('memory') })] });
+    expect(hasChange(w)).toBe(true);
+    expect(bulkKubectl([w])).toContain(
+      `-p '{"spec":{"template":{"spec":{"containers":[{"name":"app","resources":{"requests":{"cpu":"220m"},"limits":{"cpu":"2"}}}]}}}}'`,
+    );
+    const yaml = bulkYAML([w]);
+    expect(yaml).toContain('cpu: 220m');
+    expect(yaml).not.toContain('memory');
+  });
+
+  it('leave a workload out when nothing else changes, and out of the count', () => {
+    const allHeld = workload({
+      name: 'vpa-all',
+      containers: [container({ vpa: vpa('cpu', 'memory') })],
+    });
+    // CPU and its limit stay; only memory, which the VPA sets, would move.
+    const memHeld = workload({
+      name: 'vpa-memory',
+      containers: [
+        container({
+          cpu: rec({
+            request: 1,
+            recommended: 1,
+            limit: 2,
+            recommendedLimit: 2,
+            limitAction: 'keep',
+          }),
+          vpa: vpa('memory'),
+        }),
+      ],
+    });
+    const mixed = workload({
+      name: 'mixed',
+      containers: [
+        container({ container: 'held', vpa: vpa('cpu', 'memory') }),
+        container(),
+      ],
+    });
+    const ws = [allHeld, memHeld, mixed];
+    expect(ws.filter(hasChange).map((w) => w.name)).toEqual(['mixed']);
+    for (const out of [bulkKubectl(ws), bulkYAML(ws)]) {
+      expect(out).not.toContain('vpa-');
+      expect(out).not.toContain('held');
+      expect(out).toContain('shop/mixed');
+    }
+  });
+
+  it('keep the HPA target that counts them', () => {
+    const hpa = hpaCoupling({ suggestedTarget: 80, pairedRequest: 0.22 });
+    const w = workload({
+      containers: [container({ hpa, vpa: vpa('cpu') })],
+      hpa,
+    });
+    const script = bulkKubectl([w]);
+    // Memory still changes; CPU, request and limit, is left to the VPA.
+    expect(script).toContain(
+      `-p '{"spec":{"template":{"spec":{"containers":[{"name":"app","resources":{"requests":{"memory":"640Mi"},"limits":{"memory":"640Mi"}}}]}}}}'`,
+    );
+    expect(script).not.toContain('set HPA');
+  });
+
+  it('still show the recommendation for one workload, naming the VPA', () => {
+    const c = container({ vpa: vpa('memory') });
+    expect(patchYAML('Deployment', [choiceFromRec(c)])).toContain(
+      'memory: 640Mi',
+    );
+    const prompt = repositoryPrompt(
+      workload({ containers: [c] }),
+      [choiceFromRec(c)],
+      'staging',
+    );
+    expect(prompt).toContain('memory: 640Mi');
+    expect(prompt).toContain(
+      'VerticalPodAutoscaler api-vpa (updateMode Auto) sets the memory requests of container app',
+    );
   });
 });
 

@@ -101,6 +101,8 @@ export interface HPACoupling {
   targetUtilization: number;
   suggestedTarget: number;
   pairedRequest: number;
+  /** The target counts every container requesting the resource (a Resource metric), not one. */
+  pod?: boolean;
 }
 
 export interface ContainerReport {
@@ -108,6 +110,8 @@ export interface ContainerReport {
   jvm?: { heapMax?: number; ramPercentage?: number };
   /** A fixed heap ceiling of another runtime (Node, .NET or Go). */
   heap?: { runtime: 'node' | 'dotnet' | 'go'; setting: string; max: number };
+  /** The VerticalPodAutoscaler that sets these requests at admission. */
+  vpa?: { name: string; mode: string; resources: ('cpu' | 'memory')[] };
   /** Roughly when the running version was rolled out. */
   versionSince?: string;
   /** CPU for startup only, when the steady request is far below startup CPU. */

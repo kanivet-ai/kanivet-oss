@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"context"
+	"encoding/json"
 	"maps"
 	"math"
 	"math/rand/v2"
@@ -226,7 +227,7 @@ func TestHPAPairedOverThePod(t *testing.T) {
 		paired += c.CPU.Recommended
 	}
 	want := int32(math.Round(30 * old / paired))
-	if wr.HPA == nil || wr.HPA.SuggestedTarget != want || wr.HPA.PairedRequest != paired || want > maxHPATarget {
+	if wr.HPA == nil || wr.HPA.SuggestedTarget != want || wr.HPA.PairedRequest != paired || !wr.HPA.Pod || want > maxHPATarget {
 		t.Fatalf("workload hpa %+v, want target %d for %v cores (from %v)", wr.HPA, want, paired, old)
 	}
 	for _, c := range wr.Containers {
@@ -242,7 +243,7 @@ func TestHPAPairedOverThePod(t *testing.T) {
 	if side0.HPA != nil || side0.CPU.Verdict == VerdictHPACoupled {
 		t.Fatalf("sidecar coupled to an HPA that doesn't count it: %+v", side0.HPA)
 	}
-	if app0.HPA == nil || app0.HPA.SuggestedTarget != int32(math.Round(30*1/app0.CPU.Recommended)) || wr.HPA == nil || *wr.HPA != *app0.HPA {
+	if app0.HPA == nil || app0.HPA.SuggestedTarget != int32(math.Round(30*1/app0.CPU.Recommended)) || app0.HPA.Pod || wr.HPA == nil || *wr.HPA != *app0.HPA {
 		t.Fatalf("app hpa %+v, workload %+v", app0.HPA, wr.HPA)
 	}
 }
@@ -328,11 +329,23 @@ func TestVPAManagedSavingsLeftOut(t *testing.T) {
 	if c.Verdict != VerdictOver || c.CPU.Recommended >= 1 {
 		t.Fatalf("the analysis itself still shows: verdict %s, cpu %v", c.Verdict, c.CPU.Recommended)
 	}
+	// The UI's bulk patches leave what the VPA sets alone: it says which.
+	if b, _ := json.Marshal(c.VPA); string(b) != `{"name":"api-vpa","mode":"Recreate","resources":["cpu","memory"]}` {
+		t.Fatalf("vpa %s", b)
+	}
 	// Memory only: CPU savings are still Kanivet's to make.
 	vpas["apps/Deployment/api"].policies["*"] = []string{"memory"}
 	wr = (&Service{}).analyzeWorkload("c", w, h, g, probe{}, ProfileBalanced, nil, vpas, testRates, nil)
 	if c := wr.Containers[0]; math.Abs(c.MonthlySavings-(1-c.CPU.Recommended)*c.CPUMonthly) > 1e-9 {
 		t.Fatalf("savings %v, want the CPU change's %v", c.MonthlySavings, (1-c.CPU.Recommended)*c.CPUMonthly)
+	}
+	if c := wr.Containers[0]; c.VPA == nil || len(c.VPA.Resources) != 1 || c.VPA.Resources[0] != "memory" {
+		t.Fatalf("vpa %+v", c.VPA)
+	}
+	// Without a VPA there is none to report.
+	wr = (&Service{}).analyzeWorkload("c", w, h, g, probe{}, ProfileBalanced, nil, nil, testRates, nil)
+	if c := wr.Containers[0]; c.VPA != nil || hasFinding(c, "vpa-managed") {
+		t.Fatalf("vpa %+v", c.VPA)
 	}
 }
 

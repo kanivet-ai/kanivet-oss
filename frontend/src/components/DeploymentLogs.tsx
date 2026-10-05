@@ -17,13 +17,7 @@ const normalizeKind = (k?: string) => {
   return KINDS.includes(singular) ? singular : 'deployment';
 };
 
-const DeploymentLogs = ({
-  cluster,
-  namespace,
-  name,
-  resourceType,
-  active,
-}: DeploymentLogsProps) => (
+const DeploymentLogs = ({ cluster, namespace, name, resourceType, active }: DeploymentLogsProps) => (
   <LogViewer
     cluster={cluster}
     namespace={namespace}
