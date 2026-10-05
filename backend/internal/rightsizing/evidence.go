@@ -249,6 +249,12 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 			}
 		}
 	} else {
+		// While the breaker holds queries back, say so at once: the queries
+		// below would fail with ErrStoreBusy anyway, and the cluster probe,
+		// which runs at background priority, would wait out the pause first.
+		if limiterFor(t.history).state().PausedFor > interactiveWait {
+			return nil, ErrStoreBusy
+		}
 		info, _ := s.metrics.HistorySource(ctx, t.history)
 		if info == nil || !info.Found {
 			return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
@@ -350,6 +356,14 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 
 	if q.CacheOnly && (len(h.cpu) == 0 || len(h.mem) == 0) {
 		return nil, errNotCached
+	}
+	if !q.CacheOnly {
+		// A pause that began while we fetched cut the optional series short,
+		// and restarts or OOM kills that failed to load would read as none:
+		// say the store is busy rather than show evidence without them.
+		if limiterFor(t.history).state().PausedFor > interactiveWait {
+			return nil, ErrStoreBusy
+		}
 	}
 	var prev map[recKey]prevRec
 	if rep != nil {
