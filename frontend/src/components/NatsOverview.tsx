@@ -106,6 +106,17 @@ const findIssues = (accounts: NatsAccountDetail[]): Issue[] => {
   return issues;
 };
 
+// What each cluster's overview last showed. The page is unmounted while another
+// tab is in front, so a returning tab starts from this and refreshes quietly
+// instead of going back to a loading screen.
+interface OverviewSnapshot {
+  detection: NatsDetection;
+  overview: NatsOverviewData | null;
+  history: RateSample[];
+  expandedStreams: Set<string>;
+}
+export const natsOverviewSnapshots = new Map<string, OverviewSnapshot>();
+
 const NatsOverview = ({ cluster }: NatsOverviewProps) => {
   const { openDetailTab } = useStore(useShallow((s) => ({ openDetailTab: s.openDetailTab })));
   const openStreamDetail = useCallback(
@@ -144,14 +155,32 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
     [cluster, openDetailTab],
   );
 
-  const [detection, setDetection] = useState<NatsDetection | null>(null);
-  const [overview, setOverview] = useState<NatsOverviewData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [snapshot] = useState(() => natsOverviewSnapshots.get(cluster));
+  const [detection, setDetection] = useState<NatsDetection | null>(
+    snapshot?.detection ?? null,
+  );
+  const [overview, setOverview] = useState<NatsOverviewData | null>(
+    snapshot?.overview ?? null,
+  );
+  const [loading, setLoading] = useState(!snapshot);
   const [error, setError] = useState<string | null>(null);
   const [expandedStreams, setExpandedStreams] = useState<Set<string>>(
-    new Set(),
+    () => new Set(snapshot?.expandedStreams),
   );
-  const [history, setHistory] = useState<RateSample[]>([]);
+  const [history, setHistory] = useState<RateSample[]>(
+    snapshot?.history ?? [],
+  );
+
+  useEffect(() => {
+    if (detection) {
+      natsOverviewSnapshots.set(cluster, {
+        detection,
+        overview,
+        history,
+        expandedStreams,
+      });
+    }
+  }, [cluster, detection, overview, history, expandedStreams]);
 
   const load = useCallback(
     async (silent: boolean) => {
@@ -190,8 +219,10 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
   );
 
   useEffect(() => {
-    load(false);
-  }, [load]);
+    // Quiet when there is something to show: a failed refresh then keeps the
+    // last data instead of replacing it with an error.
+    load(natsOverviewSnapshots.has(cluster));
+  }, [cluster, load]);
   useVisibleInterval(() => load(true), 5000);
 
   const toggleStream = (nodeId: string) => {
