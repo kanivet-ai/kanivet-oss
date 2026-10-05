@@ -656,6 +656,20 @@ describe('bulk patches', () => {
     ).toEqual({ cpu: '220m', memory: '640Mi' });
   });
 
+  it('leaves custom resources such as Rollouts out of the script instead of stopping it there', () => {
+    const script = bulkKubectl([
+      workload({ name: 'a' }),
+      workload({ name: 'web', kind: 'Rollout' }),
+      workload({ name: 'b' }),
+    ]);
+    // A strategic patch on a custom resource fails (415), and `set -e`
+    // would then leave every workload after it unpatched.
+    expect(script).not.toContain('patch rollout/web');
+    expect(script).toContain('# Rollout shop/web');
+    expect(script).toContain('kubectl -n shop patch deployment/a');
+    expect(script).toContain('kubectl -n shop patch deployment/b');
+  });
+
   it('turns mesh sidecars into pod template annotations', () => {
     const sidecar = container({ container: 'istio-proxy' });
     const obj = patchObject('Deployment', [choiceFromRec(sidecar)]) as any;

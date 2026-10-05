@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
+	"os"
 	"strings"
 	"testing"
 
@@ -122,6 +124,32 @@ func TestListReleasesAllNamespacesListsOnceWithoutHistory(t *testing.T) {
 	}
 	if n := len(secretLists(cs)); n != 1 {
 		t.Fatalf("streaming made %d Secrets LISTs, want 1", n)
+	}
+}
+
+// The secrets driver logs a release record it cannot decode with the whole
+// Secret as an argument. Helm's logger must name the record, never print its
+// payload: backend stderr ends up in the give-up dialog.
+func TestHelmLogNamesUndecodableRecordsWithoutTheirPayload(t *testing.T) {
+	cs := fake.NewSimpleClientset(&corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "sh.helm.release.v1.web.v3", Namespace: "apps", Labels: map[string]string{"owner": "helm"}},
+		Data:       map[string][]byte{"release": []byte("not-a-release PLAINTEXT-VALUES")},
+	})
+	var out strings.Builder
+	log.SetOutput(&out)
+	defer log.SetOutput(os.Stderr)
+	d := driver.NewSecrets(cs.CoreV1().Secrets(""))
+	d.Log = helmLog
+
+	if _, err := d.List(func(*release.Release) bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(out.String(), "apps/sh.helm.release.v1.web.v3") {
+		t.Fatalf("log does not name the record: %q", out.String())
+	}
+	if strings.Contains(out.String(), "PLAINTEXT") || strings.Contains(out.String(), "owner") {
+		t.Fatalf("log carries the record's contents: %q", out.String())
 	}
 }
 

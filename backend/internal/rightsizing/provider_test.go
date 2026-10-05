@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -85,6 +86,16 @@ func TestReportSelectionIsolatedFromExistingReport(t *testing.T) {
 
 func TestProbeCacheIsolatedByProvider(t *testing.T) {
 	cluster := t.Name()
+	// The probe cache is shared by the package: a repeated run (-count)
+	// must not find the probes the previous one stored.
+	t.Cleanup(func() {
+		probeCache.Range(func(k, _ any) bool {
+			if key, _ := k.(string); strings.HasPrefix(key, cluster+"|") {
+				probeCache.Delete(k)
+			}
+			return true
+		})
+	})
 	s := NewService(nil, nil, nil, nil, nil)
 	q := &probeSource{}
 	s.metrics = q

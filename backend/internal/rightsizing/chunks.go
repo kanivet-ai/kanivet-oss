@@ -109,6 +109,13 @@ func minTime(a, b time.Time) time.Time {
 	return b
 }
 
+// chunkKeyVersion is part of every chunk's key, so days stored under an
+// earlier version are never read again. Version 2: earlier releases also
+// stored days whose answer the store marked partial (Thanos warnings,
+// VictoriaMetrics isPartial), and a query whose text did not change since,
+// such as memory, would keep serving those gappy days as final for a month.
+const chunkKeyVersion = "2"
+
 // chunkKey names one day of one query against one history store. source
 // tells stores apart (see withHistorySource): a day cached from one store
 // must not answer for another, even an empty one.
@@ -116,7 +123,7 @@ func chunkKey(cluster, query string, step time.Duration, d time.Time, source str
 	if source != "" {
 		cluster += "|source=" + source
 	}
-	h := sha256.Sum256([]byte(cluster + "\x00" + query + "\x00" + step.String() + "\x00" + strconv.FormatInt(d.Unix(), 10)))
+	h := sha256.Sum256([]byte(cluster + "\x00" + query + "\x00" + step.String() + "\x00" + strconv.FormatInt(d.Unix(), 10) + "\x00" + chunkKeyVersion))
 	return hex.EncodeToString(h[:])
 }
 

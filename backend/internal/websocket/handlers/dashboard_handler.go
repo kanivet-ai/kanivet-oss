@@ -37,7 +37,12 @@ type DashboardHandler struct {
 	// recentEvents, when set, serves the recent events panel instead of a
 	// limited LIST, whose page holds the first events in key order
 	// (namespace/name), not the newest.
-	recentEvents  RecentEventsFunc
+	recentEvents RecentEventsFunc
+	// openEvents, when set, starts the event store's watch of a cluster
+	// whose dashboard opens. recentEvents does not start the watch of a
+	// cluster whose tab was closed, which a refresh still running then
+	// would otherwise bring back.
+	openEvents    func(cluster string) error
 	mu            sync.RWMutex
 	watchers      map[string]*dashboardWatcher
 	infoMu        sync.Mutex
@@ -162,8 +167,12 @@ func NewDashboardHandler(k8sClient k8s.Interface, hub *core.Hub) *DashboardHandl
 // SetPodLister makes the dashboard read pods from a shared pod cache.
 func (h *DashboardHandler) SetPodLister(l podcache.Lister) { h.pods = l }
 
-// SetRecentEvents makes the dashboard read recent events from an event store.
-func (h *DashboardHandler) SetRecentEvents(f RecentEventsFunc) { h.recentEvents = f }
+// SetRecentEvents makes the dashboard read recent events from an event store,
+// and open sets that store going for a cluster whose dashboard opens.
+func (h *DashboardHandler) SetRecentEvents(f RecentEventsFunc, open func(cluster string) error) {
+	h.recentEvents = f
+	h.openEvents = open
+}
 
 // fromWatchCache lets the apiserver answer a full LIST from its watch cache
 // instead of a quorum read of etcd; a dashboard tolerates that staleness.
@@ -206,6 +215,15 @@ func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connect
 		log.Printf("[Dashboard] Starting dashboard stream for cluster: %s", cluster)
 		if _, err := h.hub.Subscribe(topic, conn); err != nil {
 			return err
+		}
+		if h.openEvents != nil {
+			// Building a cluster's client can take seconds: not on the
+			// connection's read loop.
+			go func() {
+				if err := h.openEvents(cluster); err != nil {
+					log.Printf("[Dashboard] Failed to start the event store for %s: %v", cluster, err)
+				}
+			}()
 		}
 		h.startDashboardStream(cluster, topic)
 		return nil

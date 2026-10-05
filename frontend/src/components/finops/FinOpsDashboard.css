@@ -792,7 +792,7 @@
   font-size: 12px;
 }
 
-.node-link {
+.finops-node-name {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text2);
@@ -801,7 +801,7 @@
   transition: color var(--duration-fast) var(--ease-quiet);
 }
 
-.node-link:hover {
+.finops-node-name:hover {
   color: var(--blue);
   text-decoration: none;
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { StoreState, BottomTab, MonitoringSettings, ClusterError, ConnectionState, ClusterConnectionState } from './types';
 import { rebuildTabIndex, createInitialTabState } from './utils';
+import { persistedItem } from './persistedItem';
 import { resolveListColumns, PrinterColumnCell } from '../utils/resourceListColumns';
 import { createClusterSlice } from './clusterSlice';
 import { createTabSlice } from './tabSlice';
@@ -63,6 +64,12 @@ const useStore = create<StoreState>()((...a) => ({
             const snapRaw = localStorage.getItem(`kanivet.tabstate.${cid}`);
             if (snapRaw) {
               const snap = JSON.parse(snapRaw);
+              // Snapshots of earlier releases saved whole objects (a Secret's
+              // data, last-applied copies): keep and rewrite only what finds
+              // them again.
+              snap.detailTabs = (snap.detailTabs || []).map((dt: any) => ({ ...dt, item: persistedItem(dt.item) }));
+              snap.resourceListTabs = (snap.resourceListTabs || []).map((rt: any) => ({ ...rt, selectedItem: persistedItem(rt.selectedItem) }));
+              localStorage.setItem(`kanivet.tabstate.${cid}`, JSON.stringify(snap));
               set((state) => ({
                 activeTabs: state.activeTabs.map((t) => {
                   if (t.id === cid) {

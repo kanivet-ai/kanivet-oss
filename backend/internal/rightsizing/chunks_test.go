@@ -2,7 +2,10 @@ package rightsizing
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -76,6 +79,34 @@ func TestChunksOnlyMissIsNotCached(t *testing.T) {
 	cache.mu.Unlock()
 	if err := read(g, "balanced"); err != errNotCached {
 		t.Fatalf("an evicted day: %v", err)
+	}
+}
+
+// Earlier releases stored finished days even when the store marked its
+// answer partial. A day stored under their key, here of a query whose text is
+// unchanged, must never be read back as history.
+func TestDaysStoredByEarlierFormatAreNotRead(t *testing.T) {
+	now := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	g := newGrid(now, 3*day, 10*time.Minute)
+	gappy, err := encodeSeries([]metrics.HistorySeries{{Labels: map[string]string{"pod": "a"}, Times: []int64{now.Add(-2 * day).Unix()}, Values: []float32{1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &memChunks{data: map[string][]byte{}}
+	for _, sp := range daySpans(g, now) {
+		if sp.final {
+			old := sha256.Sum256([]byte("c\x00q\x00" + g.step.String() + "\x00" + strconv.FormatInt(sp.day.Unix(), 10)))
+			cache.data[hex.EncodeToString(old[:])] = gappy
+		}
+	}
+
+	c := newChunker(&countingStore{}, cache)
+	c.now = func() time.Time { return now }
+	if _, err := c.rangeQuery(context.Background(), "c", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	if hits := c.hits.Load(); hits != 0 {
+		t.Fatalf("%d days stored by an earlier release were read as history", hits)
 	}
 }
 

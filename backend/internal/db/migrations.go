@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kanivet/backend/internal/utils"
+	"gorm.io/gorm"
 )
 
 // schemaVersion is recorded in SQLite's user_version pragma. Bump it and add a
@@ -124,18 +125,34 @@ func (db *DB) migrateV2() error {
 // object's annotations into list rows, including kubectl's
 // last-applied-configuration, so Secret snapshots held the Secret's values in
 // plain text. Snapshots are a cache the next list of each topic rewrites.
+//
+// A DELETE only unlinks pages, so the rows are deleted with secure_delete on
+// (a per-connection setting, hence one connection): SQLite zeroes their
+// content as it frees it, whether or not the space is handed back after. The
+// checkpoint then writes the zeroed pages into the file and truncates the
+// WAL, which can still hold frames of the old rows.
 func (db *DB) migrateV3() error {
 	if !db.Migrator().HasTable(&ListSnapshot{}) {
 		return nil
 	}
-	res := db.Exec("DELETE FROM list_snapshots")
-	if res.Error != nil {
+	var purged int64
+	err := db.Connection(func(conn *gorm.DB) error {
+		if err := conn.Exec("PRAGMA secure_delete = ON").Error; err != nil {
+			return err
+		}
+		defer conn.Exec("PRAGMA secure_delete = OFF")
+		res := conn.Exec("DELETE FROM list_snapshots")
+		purged = res.RowsAffected
 		return res.Error
+	})
+	if err != nil {
+		return err
 	}
-	if res.RowsAffected > 0 {
-		log.Printf("[DB] purged %d list snapshots", res.RowsAffected)
+	if purged > 0 {
+		log.Printf("[DB] purged %d list snapshots", purged)
 	}
 	db.reclaimSpace(false)
+	db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	return nil
 }
 

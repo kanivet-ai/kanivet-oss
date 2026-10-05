@@ -87,4 +87,8 @@ describe('workloadResource', () => {
     expect(workloadResource('Pod')).toMatchObject({ name: 'pods', group: '' });
     expect(workloadResource('Service')).toBeNull();
   });
+
+  it('opens an Argo Rollout, which the backend now names as the owner of its pods', () => {
+    expect(workloadResource('Rollout')).toMatchObject({ name: 'rollouts', group: 'argoproj.io', version: 'v1alpha1' });
+  });
 });

@@ -483,11 +483,28 @@ export const createRealtimeSlice: StateCreator<
     parked.delete(rt.topic);
     parked.set(rt.topic, rt);
     while (parked.size > MAX_PARKED_TOPICS) {
-      const oldest = parked.keys().next().value as string;
+      // The oldest no split pane shows: a pane's list must stay live.
+      let oldest: string | undefined;
+      for (const [topic, p] of parked) {
+        if (!paneTabsShowing(p)) {
+          oldest = topic;
+          break;
+        }
+      }
+      if (oldest === undefined) break;
       const evicted = parked.get(oldest)!;
       parked.delete(oldest);
       closeRuntime(evicted);
     }
+  };
+
+  // Asks again for the list of a parked topic a split pane shows, as a
+  // restart does for the on-screen one.
+  const resubscribePane = (rt: RealtimeRuntime, tabIds: Set<string>) => {
+    const tab = get().getCurrentTabState()?.resourceListTabs.find((r2) => tabIds.has(r2.id));
+    if (!tab) return;
+    const res: any = tab.resource;
+    api.subscribeToItems(rt.cluster, res.group || '', res.version, res.name, '', rt.onEvent, tab.sortBy || 'age', tab.sortOrder || 'desc');
   };
 
   // Makes rt the on-screen subscription.
@@ -658,8 +675,17 @@ export const createRealtimeSlice: StateCreator<
       const rt = runtime();
       if (rt) closeRuntime(rt);
       const parked = parkedRuntimes();
-      for (const p of parked.values()) closeRuntime(p);
-      parked.clear();
+      for (const [topic, p] of [...parked]) {
+        // Callers restart only the on-screen list; one a split pane shows
+        // stays open and asks for its list again instead of freezing.
+        const shown = p.session.stopped ? null : paneTabsShowing(p);
+        if (shown) {
+          resubscribePane(p, shown);
+          continue;
+        }
+        parked.delete(topic);
+        closeRuntime(p);
+      }
       (window as any).__kanivetRealtime = undefined;
       (window as any).__kanivetVisibleUids = undefined;
       clearLoadTimeout();

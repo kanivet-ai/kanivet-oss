@@ -83,6 +83,10 @@ func (h *Handler) UpdateResource(c *gin.Context) {
 	dashboardKey := h.cache.BuildKey("dashboard", cluster)
 	h.cache.Delete(dashboardKey)
 
+	// The update kept the object's last-applied-configuration, which holds a
+	// Secret's applied values; the editor shows this answer, and the detail
+	// view it came from never carries that annotation.
+	h.cleanVerboseFields(updatedResource)
 	h.respond(c, http.StatusOK, updatedResource, nil)
 }
 

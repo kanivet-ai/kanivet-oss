@@ -109,3 +109,33 @@ func TestTypedPodRowDropsLastAppliedConfiguration(t *testing.T) {
 		t.Fatalf("the pod's own annotations must not be modified")
 	}
 }
+
+// OpenShift (4.15 and earlier) puts each service account's bearer token on
+// its dockercfg Secret, and Rancher's wrangler apply keeps a gzipped copy of
+// the applied manifest, Secret data included. Neither may reach a list row.
+func TestSecretListRowDropsTokenAndAppliedCopies(t *testing.T) {
+	gvr := schema.GroupVersionResource{Version: "v1", Resource: "secrets"}
+	in := u(map[string]interface{}{
+		"apiVersion": "v1", "kind": "Secret", "type": "kubernetes.io/dockercfg",
+		"metadata": map[string]interface{}{"name": "builder-dockercfg-x", "namespace": "prod", "annotations": map[string]interface{}{
+			"openshift.io/token-secret.name":  "builder-token-x",
+			"openshift.io/token-secret.value": "eyJhbGciOiJSUzI1NiJ9.SA-TOKEN",
+			"objectset.rio.cattle.io/applied": "H4sIAAAAAAAA/applied-manifest",
+			"objectset.rio.cattle.io/id":      "rke2",
+		}},
+	})
+
+	got := Simplify(in, gvr)
+
+	kept, _ := got["annotations"].(map[string]interface{})
+	for _, k := range []string{"openshift.io/token-secret.value", "objectset.rio.cattle.io/applied"} {
+		if _, ok := kept[k]; ok {
+			t.Errorf("annotation %s must be omitted from list rows", k)
+		}
+	}
+	for _, k := range []string{"openshift.io/token-secret.name", "objectset.rio.cattle.io/id"} {
+		if _, ok := kept[k]; !ok {
+			t.Errorf("annotation %s must be kept", k)
+		}
+	}
+}

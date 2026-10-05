@@ -2,6 +2,7 @@ import { StateCreator } from 'zustand';
 import api from '../services/api';
 import { TabSlice, StoreState, Tab, TabState } from './types';
 import { createInitialTabState, rebuildTabIndex } from './utils';
+import { persistedItem } from './persistedItem';
 
 export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, get) => ({
   activeTabs: [],
@@ -200,7 +201,7 @@ const scheduleTabStateSave = (cluster: string, newState: TabState) => {
         resourceListTabs: (newState.resourceListTabs || []).map(stripItems),
         activeResourceListTab: newState.activeResourceListTab,
         activeResourceListTabByPane: newState.activeResourceListTabByPane || {},
-        detailTabs: newState.detailTabs || [],
+        detailTabs: (newState.detailTabs || []).map((dt) => ({ ...dt, item: persistedItem(dt.item) })),
         activeDetailTab: newState.activeDetailTab,
         centerPaneLayout: newState.centerPaneLayout,
         focusedCenterPaneId: newState.focusedCenterPaneId,

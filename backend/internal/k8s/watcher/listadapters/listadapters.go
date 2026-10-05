@@ -69,9 +69,16 @@ func baseMeta(u *unstructured.Unstructured, gvr schema.GroupVersionResource) map
 const lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
 
 // omittedAnnotationPrefixes are other copies of the applied manifest (kapp,
-// banzaicloud) and the service account tokens vcluster stamps on synced
-// objects.
-var omittedAnnotationPrefixes = []string{"kapp.k14s.io/original", "banzaicloud.io/last-applied", "vcluster.loft.sh/token-"}
+// banzaicloud, Rancher's wrangler apply, gzipped) and the service account
+// tokens vcluster stamps on synced objects and OpenShift on the dockercfg
+// Secret of every service account.
+var omittedAnnotationPrefixes = []string{
+	"kapp.k14s.io/original",
+	"banzaicloud.io/last-applied",
+	"objectset.rio.cattle.io/applied",
+	"vcluster.loft.sh/token-",
+	"openshift.io/token-secret.value",
+}
 
 // omitAnnotation reports whether a list row leaves an annotation out. List
 // rows go to the renderer, are filtered on every keystroke and are persisted

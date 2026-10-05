@@ -3,7 +3,7 @@ import Layout from './components/Layout';
 import StarProjectDialog from './components/StarProjectDialog';
 import { ThemeProvider } from './components/ThemeProvider';
 import api from './services/api';
-import { whenIdle } from './utils/idle';
+import { whenIdleUntouched } from './utils/idle';
 import { isStarProjectPromptDismissed } from './utils/starProjectPromptPreference';
 
 const AppInner = () => {
@@ -22,9 +22,11 @@ const AppInner = () => {
         if (cancelled) return;
         setIsLoading(false);
         // The prompt's focus trap and scroll lock force a style and layout
-        // pass: open it after the first screen has painted, not in its task.
+        // pass: open it after the first screen has painted, not in its task,
+        // and not at all on a launch the user has already started typing or
+        // clicking in by then.
         if (!isStarProjectPromptDismissed()) {
-          cancelStarPrompt = whenIdle(
+          cancelStarPrompt = whenIdleUntouched(
             () => setShowStarProjectDialog(true),
             3000,
           );

@@ -32,6 +32,48 @@ func (g *goneClient) CreateResource(ctx context.Context, cluster string, gvr sch
 	return nil, nil
 }
 
+// appliedClient answers an update the way the apiserver does once
+// keepLastApplied has carried the live annotation over: with it.
+type appliedClient struct {
+	*k8s.MockClient
+}
+
+func (a *appliedClient) UpdateResource(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace, name string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {
+	out := obj.DeepCopy()
+	out.SetAnnotations(map[string]string{
+		"kubectl.kubernetes.io/last-applied-configuration": `{"stringData":{"password":"rotated-PLAINTEXT"}}`,
+		"owner": "team-a",
+	})
+	return out, nil
+}
+
+// The editor shows what a save answers. The detail view it loaded from hides
+// the last-applied copy of a Secret's values, so the answer must too.
+func TestUpdateResourceResponseOmitsLastApplied(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := &Handler{
+		k8s:   &appliedClient{MockClient: &k8s.MockClient{}},
+		cache: cache.New(time.Minute, time.Minute),
+	}
+
+	body := "apiVersion: v1\nkind: Secret\nmetadata:\n  name: db\n  namespace: ns\nstringData:\n  password: rotated-PLAINTEXT\n"
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/cluster/resources?cluster=c1", strings.NewReader(body))
+
+	h.UpdateResource(c)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update failed: %d %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "last-applied-configuration") {
+		t.Fatalf("update response carries last-applied-configuration: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "team-a") {
+		t.Fatalf("other annotations must stay: %s", rec.Body.String())
+	}
+}
+
 func TestUpdateResourceReturns404WhenObjectIsGone(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := &Handler{

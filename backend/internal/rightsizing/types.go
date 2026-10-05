@@ -376,6 +376,9 @@ type Report struct {
 	// Stale is set when this is a persisted report from an earlier run being
 	// shown while a fresh one computes.
 	Stale bool `json:"stale,omitempty"`
+	// Engine is the reportEngine that computed the report; persisted reports
+	// of an earlier release have none.
+	Engine int `json:"engine,omitempty"`
 	// RefreshError is why the latest refresh failed while this older report
 	// is still being shown.
 	RefreshError string `json:"refreshError,omitempty"`

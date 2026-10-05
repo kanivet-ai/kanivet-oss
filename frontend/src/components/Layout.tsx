@@ -10,6 +10,7 @@ import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
 import type { StoreState } from '../store/types';
+import { forgetTreeLoad } from '../store/resourceSlice';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
@@ -429,6 +430,8 @@ const Layout = () => {
         await loadClusterStatus(cluster, true);
         healthy = Boolean(useStore.getState().clusterStatuses[cluster]?.healthy);
         if (healthy) {
+          // Not the load still hanging on the client the refresh replaced.
+          forgetTreeLoad(cluster);
           await loadTreeData(cluster);
           const state = getCurrentTabState();
           if (state?.selectedNode?.type === 'resource' && state.selectedNode.data) {

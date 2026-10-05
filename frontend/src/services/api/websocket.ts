@@ -15,6 +15,8 @@ export class WebSocketManager {
   private wsConnecting: boolean = false;
   private sessionSecret: string | null = null;
   private backendReady: boolean = false;
+  // Set once waitForBackend has given up on the backend.
+  private backendWaitGaveUp: boolean = false;
   private activeClusters: Set<string> = new Set();
   private backendHealthInterval?: NodeJS.Timeout;
   private reconnectCountdownInterval?: NodeJS.Timeout;
@@ -83,13 +85,17 @@ export class WebSocketManager {
     if (typeof getPort !== 'function') return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
+      const answer = getPort() as Promise<number>;
       const port = await Promise.race([
-        getPort() as Promise<number>,
+        answer,
         new Promise<null>((resolve) => {
           timer = setTimeout(() => resolve(null), 30000);
         }),
       ]);
       if (port) setBackendPort(port);
+      // Requests stop waiting after 30s, but a slow first start still
+      // answers later: take its port then.
+      else answer.then((p) => p && setBackendPort(p)).catch(() => {});
     } catch {
       // Keep the port from the URL.
     } finally {
@@ -110,7 +116,13 @@ export class WebSocketManager {
   private startBackendHealthCheck() {
     if (this.backendHealthInterval) clearInterval(this.backendHealthInterval);
     this.backendHealthInterval = setInterval(async () => {
-      if (!this.backendReady) return;
+      if (!this.backendReady) {
+        // waitForBackend gave up on a slow first start (the window opens
+        // before the backend): keep asking, so the session comes up with
+        // the backend instead of never connecting its socket.
+        if (this.backendWaitGaveUp) await this.recoverBackend();
+        return;
+      }
       if (this.ws?.readyState === WebSocket.OPEN) {
         if (this.lastBackendState !== 'connected') {
           this.lastBackendState = 'connected';
@@ -262,11 +274,7 @@ export class WebSocketManager {
         });
         if (response.ok) {
           console.log('[API] Backend is ready');
-          await this.sessionSecretPromise;
-          this.backendReady = true;
-          this.lastBackendState = 'connected';
-          this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
-          this.initWebSocket();
+          await this.markBackendReady();
           return true;
         }
       } catch {
@@ -275,7 +283,28 @@ export class WebSocketManager {
     }
     console.warn('[API] Backend did not become ready within timeout');
     this.dispatchConnectionEvent('backend', 'disconnected');
+    this.backendWaitGaveUp = true;
     return false;
+  }
+
+  private async markBackendReady() {
+    await this.sessionSecretPromise;
+    if (this.backendReady) return;
+    this.backendReady = true;
+    this.lastBackendState = 'connected';
+    this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
+    this.initWebSocket();
+  }
+
+  private async recoverBackend() {
+    try {
+      const response = await fetch(`${getApiBase()}/health`, { method: 'GET', signal: AbortSignal.timeout(2000) });
+      if (!response.ok) return;
+      console.log('[API] Backend is ready after a slow start');
+      await this.markBackendReady();
+    } catch {
+      // Still starting.
+    }
   }
 
   isReady(): boolean {

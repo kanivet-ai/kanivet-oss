@@ -42,6 +42,11 @@ const (
 	// a fresh computation in the background. Two weeks of history hardly
 	// move in an hour, and every refresh is real load on the metrics store.
 	reportTTL = time.Hour
+	// reportEngine numbers the recommendation engine. Bump it with any change
+	// to what a report holds or recommends: a persisted report of another
+	// engine is shown as stale while it is recomputed, not served as fresh
+	// for reportTTL after an update.
+	reportEngine = 1
 	// unavailableTTL is the same for "no history source" answers, short so a
 	// newly configured metrics store is picked up quickly.
 	unavailableTTL = time.Minute
@@ -159,6 +164,9 @@ func (s *Service) GetReport(cluster string, profile Profile, window time.Duratio
 			s.mu.Lock()
 			if r.ready == nil {
 				r.ready, r.readyAt = rep, rep.ComputedAt
+				if rep.Engine != reportEngine {
+					r.readyAt = time.Time{}
+				}
 			}
 			s.mu.Unlock()
 		}
@@ -297,6 +305,7 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 		}
 	}
 	rep.ComputedAt = s.now()
+	rep.Engine = reportEngine
 	// A report reads tens of megabytes of history that is garbage once it's
 	// analysed. Hand it back to the OS now rather than over the next minutes,
 	// so a laptop isn't left holding a peak it no longer uses.

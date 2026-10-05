@@ -1079,7 +1079,22 @@ function hpaTargetLines(w: WorkloadReport): string[] {
     );
 }
 
-/** One `kubectl patch` per workload, for every kind, as a runnable script. */
+/** Kinds the apiserver applies a strategic merge patch to. A custom resource
+ * such as an Argo Rollout refuses one (415), and a merge patch would replace
+ * its whole containers list: under `set -e` either would stop the script
+ * part way, with the workloads after it never patched. */
+const STRATEGIC_PATCH_KINDS = new Set([
+  'Deployment',
+  'StatefulSet',
+  'DaemonSet',
+  'ReplicaSet',
+  'Job',
+  'CronJob',
+  'ReplicationController',
+]);
+
+/** One `kubectl patch` per workload of a built-in kind, as a runnable
+ * script; other kinds get a note to apply their YAML patch by hand. */
 export function bulkKubectl(ws: WorkloadReport[]): string {
   const lines = [
     '#!/bin/sh',
@@ -1094,7 +1109,9 @@ export function bulkKubectl(ws: WorkloadReport[]): string {
       `# ${w.kind} ${ns}/${w.name}${w.vclusterNamespace ? ' (inside its vcluster)' : ''}`,
     );
     lines.push(
-      `kubectl -n ${ns} patch ${w.kind.toLowerCase()}/${w.name} --type strategic -p '${body}'`,
+      STRATEGIC_PATCH_KINDS.has(w.kind)
+        ? `kubectl -n ${ns} patch ${w.kind.toLowerCase()}/${w.name} --type strategic -p '${body}'`
+        : `# not patched here: kubectl cannot merge container resources into a ${w.kind}; apply its YAML patch to the pod template by hand`,
     );
     lines.push(...hpaTargetLines(w));
     lines.push('');

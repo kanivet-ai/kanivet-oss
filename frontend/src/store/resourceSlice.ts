@@ -5,6 +5,7 @@ import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } 
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
 import { applyLoadedDetails } from './applyLoadedDetails';
 import { keepKnownCounts } from './keepKnownCounts';
+import { persistedItem } from './persistedItem';
 import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
@@ -19,10 +20,21 @@ const sharedTreeLoad =
     if (data) return load(cluster, data);
     const pending = treeLoads.get(cluster);
     if (pending) return pending;
-    const run = load(cluster).finally(() => treeLoads.delete(cluster));
+    const run = load(cluster).finally(() => {
+      if (treeLoads.get(cluster) === run) treeLoads.delete(cluster);
+    });
     treeLoads.set(cluster, run);
     return run;
   };
+
+/** Makes the cluster's next loadTreeData start a load of its own instead of
+ * joining one in flight, and its categories request a fresh round trip: once
+ * the backend has rebuilt the cluster's client (a retry), a load started
+ * before can only answer with what the old client got. */
+export const forgetTreeLoad = (cluster: string) => {
+  treeLoads.delete(cluster);
+  api.invalidateCache(`/resources/categories:${JSON.stringify({ cluster })}`);
+};
 
 // Puts an object's events on the detail panel and the detail tabs showing it.
 const applyResourceEvents = (
@@ -508,12 +520,12 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
             activeResourceListTab: snapshot.activeResourceListTab, activeResourceListTabByPane: snapshot.activeResourceListTabByPane,
             resourceListTabs: snapshot.resourceListTabs.map((rt) => ({
               id: rt.id, title: rt.title, resource: rt.resource, cluster: rt.cluster, selectedNamespaces: rt.selectedNamespaces,
-              sortBy: rt.sortBy, sortOrder: rt.sortOrder, isPinned: rt.isPinned, paneId: rt.paneId, selectedItem: rt.selectedItem,
+              sortBy: rt.sortBy, sortOrder: rt.sortOrder, isPinned: rt.isPinned, paneId: rt.paneId, selectedItem: persistedItem(rt.selectedItem),
               items: [],
             })),
             detailTabs: snapshot.detailTabs.map((dt) => ({
               id: dt.id, title: dt.title, resource: dt.resource, cluster: dt.cluster, isPinned: dt.isPinned, location: dt.location, paneId: dt.paneId,
-              item: dt.item ? { name: dt.item.name, namespace: dt.item.namespace, uid: dt.item.uid, kind: dt.item.kind, apiVersion: dt.item.apiVersion } : dt.item,
+              item: persistedItem(dt.item),
             })),
             activeDetailTab: snapshot.activeDetailTab, bottomTabs: get().bottomTabs.map((bt) => ({
               id: bt.id, type: bt.type, title: bt.title, customTitle: bt.customTitle, resource: bt.resource,

@@ -108,7 +108,7 @@ const PodNodeCell: React.FC<{ pod: PodCost; node?: NodeCost }> = ({ pod, node })
         </div>
       }
     >
-      <span className="node-link">{short}</span>
+      <span className="finops-node-name">{short}</span>
     </Tooltip>
   );
 };

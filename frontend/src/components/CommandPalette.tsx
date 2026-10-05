@@ -81,8 +81,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  // Only the latest search may fill the results.
-  const [searchRequest] = useState(createLatestRequest);
+  // Only the latest search may fill the results, and "Searching..." shows
+  // while it is pending: a cancelled search clears it too.
+  const [searchRequest] = useState(() => createLatestRequest(setLoading));
   const resultsRef = useRef<HTMLDivElement>(null);
   // While the keyboard drives the selection, a row sliding under a resting
   // cursor must not steal it. Hover takes over again once the pointer moves.
@@ -116,6 +117,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         });
     } else {
       // Reset state when closed
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
       searchRequest.cancel();
       setQuery('');
       setResults([]);
@@ -195,7 +200,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       }
 
       const request = searchRequest.start();
-      setLoading(true);
       setShowRecent(false);
 
       try {
@@ -233,7 +237,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         logger.error('Search failed', error);
         setResults([]);
       } finally {
-        if (request.isCurrent()) setLoading(false);
+        request.finish();
       }
     },
     [currentTab, selectedClusters, searchRequest],

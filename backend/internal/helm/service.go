@@ -134,7 +134,7 @@ func (s *Service) getActionConfig(cluster, namespace string) (*action.Configurat
 	}
 
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(restClientGetter, namespace, "secret", log.Printf); err != nil {
+	if err := actionConfig.Init(restClientGetter, namespace, "secret", helmLog); err != nil {
 		return nil, fmt.Errorf("failed to initialize helm action config: %w", err)
 	}
 
@@ -144,6 +144,29 @@ func (s *Service) getActionConfig(cluster, namespace string) (*action.Configurat
 	s.configCacheMu.Unlock()
 
 	return actionConfig, nil
+}
+
+// helmLog is the logger Helm's action configuration and storage drivers write
+// to. The secrets driver logs a record it cannot decode with the whole Secret
+// as an argument, its release payload (values and rendered manifests, Secrets
+// among them) included; such an argument is logged as its namespace/name.
+func helmLog(format string, v ...interface{}) {
+	args := make([]interface{}, len(v))
+	for i, a := range v {
+		switch o := a.(type) {
+		case corev1.Secret:
+			args[i] = o.Namespace + "/" + o.Name
+		case *corev1.Secret:
+			args[i] = o.GetNamespace() + "/" + o.GetName()
+		case corev1.ConfigMap:
+			args[i] = o.Namespace + "/" + o.Name
+		case *corev1.ConfigMap:
+			args[i] = o.GetNamespace() + "/" + o.GetName()
+		default:
+			args[i] = a
+		}
+	}
+	log.Printf("[Helm] "+format, args...)
 }
 
 // InvalidateConfigCache clears the ActionConfig cache for a cluster (call on cluster disconnect)

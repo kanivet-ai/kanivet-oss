@@ -7,7 +7,7 @@ import react from '@vitejs/plugin-react';
 // pulled from the network into the window that holds the preload bridge.
 // Monaco injects <style> tags, hence 'unsafe-inline' for styles only. The dev
 // server is left alone: its inline HMR preamble would not pass.
-function contentSecurityPolicy(): Plugin {
+export function contentSecurityPolicy(): Plugin {
   return {
     name: 'kanivet-content-security-policy',
     apply: 'build',
@@ -17,9 +17,11 @@ function contentSecurityPolicy(): Plugin {
         const inlineScripts = [
           ...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g),
         ];
+        // The browser hashes a script's text after the HTML parser has turned
+        // every CRLF into LF; a Windows checkout of index.html has CRLFs.
         const hashes = inlineScripts.map(
           ([, body]) =>
-            `'sha256-${createHash('sha256').update(body).digest('base64')}'`,
+            `'sha256-${createHash('sha256').update(body.replace(/\r\n?/g, '\n')).digest('base64')}'`,
         );
         const policy = [
           "default-src 'self'",

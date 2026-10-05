@@ -120,7 +120,7 @@ func TestDashboardRecentEventsComeFromTheEventStore(t *testing.T) {
 		}, true
 	}
 	_, conn := startDashboard(t, &k8s.MockClient{TypedClient: cs, ClusterName: "test-cluster"}, func(h *handlers.DashboardHandler) {
-		h.SetRecentEvents(store)
+		h.SetRecentEvents(store, nil)
 	})
 
 	events, _ := requestDashboard(t, conn)["events"].([]interface{})
@@ -133,10 +133,31 @@ func TestDashboardRecentEventsComeFromTheEventStore(t *testing.T) {
 	}
 }
 
+// The event store does not restart a cluster whose tab was closed on its
+// own; opening the cluster's dashboard starts it.
+func TestDashboardStartOpensTheEventStore(t *testing.T) {
+	opened := make(chan string, 1)
+	_, conn := startDashboard(t, &k8s.MockClient{TypedClient: seedFakeClientset(), ClusterName: "test-cluster"}, func(h *handlers.DashboardHandler) {
+		h.SetRecentEvents(func(string, int) ([]db.K8sEvent, bool) { return nil, false }, func(cluster string) error {
+			opened <- cluster
+			return nil
+		})
+	})
+	requestDashboard(t, conn)
+	select {
+	case cluster := <-opened:
+		if cluster != "test-cluster" {
+			t.Fatalf("opened the event store of %q", cluster)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("opening the dashboard did not start the cluster's event store")
+	}
+}
+
 // Until the store has synced, the panel keeps using the API.
 func TestDashboardRecentEventsFallBackToTheAPI(t *testing.T) {
 	_, conn := startDashboard(t, &k8s.MockClient{TypedClient: seedFakeClientset(), ClusterName: "test-cluster"}, func(h *handlers.DashboardHandler) {
-		h.SetRecentEvents(func(string, int) ([]db.K8sEvent, bool) { return nil, false })
+		h.SetRecentEvents(func(string, int) ([]db.K8sEvent, bool) { return nil, false }, nil)
 	})
 	events, _ := requestDashboard(t, conn)["events"].([]interface{})
 	if len(events) != 2 {

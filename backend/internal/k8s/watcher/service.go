@@ -224,6 +224,12 @@ type Broadcaster interface {
 	CleanupTopic(topic string)
 }
 
+// TopicHolder is a Broadcaster that batches live events and can hold a
+// topic's back: until release, they wait for FlushTopic.
+type TopicHolder interface {
+	HoldTopic(topic string) (release func())
+}
+
 type Message interface {
 	Marshal() ([]byte, error)
 	GetData() map[string]interface{}
@@ -252,6 +258,7 @@ func NewService(client *k8s.Client, hub Broadcaster) *Service {
 			hub.CleanupTopic(key)
 			svc.clearSyncState(key)
 			svc.clearEpoch(key)
+			svc.clearSnapshotSavedAt(key)
 		})
 		if cleaned {
 			log.Printf("k8s watcher: cleared cache and batcher state for %s", key)
@@ -367,6 +374,15 @@ func (s *Service) clearSyncState(topic string) {
 	s.syncStateMu.Unlock()
 }
 
+// clearSnapshotSavedAt forgets when a topic's snapshot was last saved, so the
+// map does not grow with every topic ever opened and a reopened topic saves
+// its first fresh list.
+func (s *Service) clearSnapshotSavedAt(topic string) {
+	s.snapshotMu.Lock()
+	delete(s.snapshotSavedAt, topic)
+	s.snapshotMu.Unlock()
+}
+
 func (s *Service) SetInvalidationBus(bus *cache.InvalidationBus) {
 	s.invalidationBus = bus
 }
@@ -439,6 +455,7 @@ func (s *Service) StopAllForCluster(cluster string) {
 		s.hub.CleanupTopic(topic)
 		s.clearSyncState(topic)
 		s.clearEpoch(topic)
+		s.clearSnapshotSavedAt(topic)
 	}
 	s.indexedClustersMu.Lock()
 	delete(s.indexedClusters, cluster)
@@ -477,6 +494,12 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	}
 	if !s.manager.HasWatch(topic) {
 		return
+	}
+	// Live events go out after the snapshot's pages, as each page may be
+	// older than they are: held from before the snapshot is read until
+	// sync_complete, they are flushed just ahead of it.
+	if h, ok := s.hub.(TopicHolder); ok {
+		defer h.HoldTopic(topic)()
 	}
 	if err := s.hub.FlushTopic(topic); err != nil {
 		log.Printf("Failed to flush topic %s before resync: %v", topic, err)

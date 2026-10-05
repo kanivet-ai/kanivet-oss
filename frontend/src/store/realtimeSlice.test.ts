@@ -274,6 +274,51 @@ describe('realtime subscriptions across tab switches', () => {
     expect(state.listItems.map((i: any) => i.name)).toEqual(['d']);
   });
 
+  describe('a list shown in another split pane', () => {
+    const splitPods = (store: any) => {
+      const listTab = (id: string, name: string, paneId: string) => ({
+        id, title: name, resource: resource(name), items: [], selectedItem: null, cluster: CLUSTER, paneId,
+      });
+      store.getState().updateCurrentTabState({
+        resourceListTabs: [listTab('t-pods', 'pods', 'root'), listTab('t-other', 'r0', 'p2')],
+        activeResourceListTabByPane: { root: 't-pods', p2: 't-other' },
+      });
+    };
+    const podsPhase = (store: any) =>
+      store.getState().getCurrentTabState().resourceListTabs.find((t: any) => t.id === 't-pods').items[0]?.phase;
+
+    it('is never the parked subscription closed to make room', async () => {
+      const store = makeStore();
+      splitPods(store);
+      await open(store, 'pods', [item('a')]);
+      // The other pane browses more resource types than are kept parked.
+      for (const n of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8']) await open(store, n, [item(n)]);
+
+      expect(ws.unsubscribes).not.toContain(topicOf('pods'));
+      emit('pods', [{ action: 'modified', item: { ...item('a', '2'), phase: 'Failed' } }]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(podsPhase(store)).toBe('Failed');
+    });
+
+    it('stays live when a reconnect restarts the on-screen list', async () => {
+      const store = makeStore();
+      splitPods(store);
+      await open(store, 'pods', [item('a')]);
+      await open(store, 'r0', [item('d')]);
+      ws.subscribes.length = 0;
+
+      // What the reconnect, SSO refresh and cluster retry handlers do.
+      store.getState().stopRealtime();
+      store.getState().startRealtime(true);
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(ws.subscribes).toContain(topicOf('pods'));
+      emit('pods', [{ action: 'modified', item: { ...item('a', '2'), phase: 'Failed' } }]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(podsPhase(store)).toBe('Failed');
+    });
+  });
+
   describe('open details', () => {
     const detailTab = (kind: string, apiVersion: string, res: any) => ({
       id: `detail-${kind}`,

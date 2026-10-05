@@ -54,6 +54,32 @@ describe('WebSocketManager and the backend port', () => {
     expect(fetch.mock.calls[0][0]).toBe('http://127.0.0.1:53727/api/v1/health');
   });
 
+  it('comes up once a backend slower than the startup wait answers', async () => {
+    vi.useFakeTimers();
+    try {
+      fetch.mockReset().mockRejectedValue(new Error('connection refused'));
+      // A first start that runs its migrations for over a minute.
+      const created = await createManager({
+        backend: { getPort: () => new Promise<number>(() => {}) },
+      });
+      const waited = created.waitForBackend(30000);
+      await vi.advanceTimersByTimeAsync(61_000);
+      await expect(waited).resolves.toBe(false);
+
+      // The backend prints its port at last; main pushes it.
+      const { setBackendPort } = await import('./types');
+      setBackendPort(61234);
+      fetch.mockResolvedValue({ ok: true });
+      await vi.advanceTimersByTimeAsync(5_000);
+
+      expect(fetch.mock.calls[fetch.mock.calls.length - 1][0]).toBe('http://127.0.0.1:61234/api/v1/health');
+      expect(created.backendReady).toBe(true);
+      expect(created.initWebSocket).toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('holds requests until the main process has answered with the port', async () => {
     // ThemeProvider asks for the theme while the backend is still starting.
     const answers: Array<(port: number) => void> = [];
