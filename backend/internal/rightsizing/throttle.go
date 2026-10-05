@@ -156,6 +156,19 @@ const (
 	maxAttempts           = 4
 )
 
+// storeLatencyFloor is added to the store's own time, and to its baseline,
+// before they are compared: a few milliseconds more on a query the store
+// answers in three are not queueing. It stands for the fixed cost of a request
+// that no load changes, and keeps answers from the store's cache, which take
+// next to no time, from reading as congestion on their jitter alone.
+var storeLatencyFloor = 25 * time.Millisecond
+
+// storeClassByBytes keys the answers that carry the store's time by the work
+// it reports, a bucket per factor of two. Finer than the samples answered, it
+// splits the answers of each query shape over many classes, each slow to
+// learn; off, they are keyed by samples as the round-trip answers are.
+var storeClassByBytes = false
+
 // limiterTrace logs every answer's contribution to the limiter, for tuning it
 // against a real store: KANIVET_LIMITER_TRACE=1.
 var limiterTrace = os.Getenv("KANIVET_LIMITER_TRACE") == "1"
@@ -455,11 +468,21 @@ func (l *limiter) release(o outcome) {
 		// the network is no sign of its load. Such answers are a class of
 		// their own, as are those of different sizes, and the work the store
 		// says it did is a better size than the samples we got back.
-		latency, key := o.latency, fmt.Sprintf("%s#%d", o.class, sizeBucket(int(o.work*1000)))
+		latency, key, floor := o.latency, fmt.Sprintf("%s#%d", o.class, sizeBucket(int(o.work*1000))), 0.0
 		queueScale := 1.0
 		if o.serverLatency > 0 {
-			latency = o.serverLatency
-			key = fmt.Sprintf("%s#s%d", o.class, byteBucket(o.storeBytes))
+			latency, floor = o.serverLatency, storeLatencyFloor.Seconds()
+			if storeClassByBytes {
+				key = fmt.Sprintf("%s#s%d", o.class, byteBucket(o.storeBytes))
+			} else {
+				// Answers the store gave without doing any work, from its
+				// cache, are a class of their own: they take next to nothing
+				// beside the same query run.
+				key += "|s"
+				if o.storeBytes == 0 {
+					key += "c"
+				}
+			}
 			l.learnClock(o)
 			if o.latency > 0 {
 				share := math.Min(1, float64(o.serverLatency)/float64(o.latency))
@@ -477,7 +500,7 @@ func (l *limiter) release(o outcome) {
 			l.classes[key] = st
 		}
 		sent := l.storeTime(now.Add(-o.latency))
-		ratio, gradient, warm := st.observe(latency.Seconds(), sent, l.lulls)
+		ratio, gradient, warm := st.observe(latency.Seconds(), sent, l.lulls, floor)
 		l.maxRatio = math.Max(l.maxRatio, ratio)
 		if limiterTrace {
 			log.Printf("[LIMITER] class=%.40q latency=%v server=%v bytes=%d limit=%.2f inflight=%d ratio=%.2f gradient=%.2f warm=%v lull=%v offset=%v",
@@ -628,7 +651,7 @@ func (s *latencyStats) long() float64 {
 // observe records a latency and returns short/long and the gradient,
 // long/short within [gradientMin, 1]. Until the class has enough history to
 // judge, warm is false.
-func (s *latencyStats) observe(latency float64, sent time.Time, lulls lullSchedule) (ratio, gradient float64, warm bool) {
+func (s *latencyStats) observe(latency float64, sent time.Time, lulls lullSchedule, floor float64) (ratio, gradient float64, warm bool) {
 	s.n++
 	if s.n == 1 {
 		s.short = latency
@@ -650,9 +673,12 @@ func (s *latencyStats) observe(latency float64, sent time.Time, lulls lullSchedu
 	if s.n < baselineMinSamples {
 		return 1, 1, false
 	}
-	long := s.long()
-	ratio = s.short / math.Max(long, 1e-9)
-	gradient = math.Max(gradientMin, math.Min(1, long/math.Max(s.short, 1e-9)))
+	// The floor is the same on both sides: it blunts a ratio of times too
+	// small to tell apart, and leaves one of times well above it as it was.
+	long := s.long() + floor
+	short := s.short + floor
+	ratio = short / math.Max(long, 1e-9)
+	gradient = math.Max(gradientMin, math.Min(1, long/math.Max(short, 1e-9)))
 	return ratio, gradient, true
 }
 

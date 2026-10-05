@@ -186,7 +186,7 @@ func TestControlledPassesTheStoresAccountToTheLimiter(t *testing.T) {
 		}
 		timed := false
 		for key := range l.classes {
-			timed = strings.Contains(key, "#s")
+			timed = strings.Contains(key, "|s")
 		}
 		if timed != tc.timed {
 			t.Errorf("%s: judged on the store's time = %v, want %v", tc.name, timed, tc.timed)
