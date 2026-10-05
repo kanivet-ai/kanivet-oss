@@ -247,6 +247,12 @@ func (h *Hub) buildHandlerChain() MessageHandlerFunc {
 	return handler
 }
 
+// MaxMessageSize is the largest frame a connection accepts for sending; the
+// event batcher sizes its frames to stay under it.
+func (h *Hub) MaxMessageSize() int64 {
+	return h.Config.MaxMessageSize
+}
+
 func (h *Hub) HasSubscribers(topic string) bool {
 	return h.subManager.HasSubscribers(topic)
 }
