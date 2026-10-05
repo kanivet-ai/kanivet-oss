@@ -178,7 +178,14 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
   }
 
   if (isNatsStream) {
-    const streamKey = `${cluster}-${item.accountName}-${item.streamName}`;
+    // A pinned tab is saved with only its name and namespace (see
+    // persistedItem), which are the stream and its account.
+    const streamItem = {
+      ...item,
+      streamName: item.streamName ?? item.name,
+      accountName: item.accountName ?? item.namespace,
+    };
+    const streamKey = `${cluster}-${streamItem.accountName}-${streamItem.streamName}`;
     return (
       <div className={`tab-content-inner tab-content-${mode}`}>
         {isDeleted && (
@@ -191,7 +198,7 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
           <div className="view-tab-content">
             <div className="tab-content-body">
               <div className="tab-content-pretty">
-                <NatsStreamDetailView key={streamKey} cluster={cluster} item={item} />
+                <NatsStreamDetailView key={streamKey} cluster={cluster} item={streamItem} />
               </div>
             </div>
           </div>

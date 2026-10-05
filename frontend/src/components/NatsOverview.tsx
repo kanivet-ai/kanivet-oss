@@ -109,7 +109,13 @@ const findIssues = (accounts: NatsAccountDetail[]): Issue[] => {
 const NatsOverview = ({ cluster }: NatsOverviewProps) => {
   const { openDetailTab } = useStore(useShallow((s) => ({ openDetailTab: s.openDetailTab })));
   const openStreamDetail = useCallback(
-    (accountName: string, streamName: string, consumers: string[], focusConsumer?: string) => {
+    (
+      accountName: string,
+      streamName: string,
+      consumers: string[],
+      focusConsumer?: string,
+      isPinned = false,
+    ) => {
       const item = {
         kind: 'NatsStream',
         apiVersion: 'nats.io/v1',
@@ -121,8 +127,20 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
         consumers,
         focusConsumer,
       };
-      openDetailTab({ kind: 'NatsStream' }, item, cluster);
+      openDetailTab({ kind: 'NatsStream' }, item, cluster, isPinned);
     },
+    [cluster, openDetailTab],
+  );
+
+  // Click previews, double click pins, as for every other resource.
+  const openToolTab = useCallback(
+    (kind: string, name: string, isPinned = false) =>
+      openDetailTab(
+        { kind },
+        { kind, apiVersion: 'nats.io/v1', name, cluster },
+        cluster,
+        isPinned,
+      ),
     [cluster, openDetailTab],
   );
 
@@ -288,21 +306,24 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
           <button
             type="button"
             className="nats-live-tail-button"
-            onClick={() => openDetailTab({ kind: 'NatsKV' }, { kind: 'NatsKV', apiVersion: 'nats.io/v1', name: 'KV Buckets', cluster }, cluster)}
+            onClick={() => openToolTab('NatsKV', 'KV Buckets')}
+            onDoubleClick={() => openToolTab('NatsKV', 'KV Buckets', true)}
           >
             KV Buckets
           </button>
           <button
             type="button"
             className="nats-live-tail-button"
-            onClick={() => openDetailTab({ kind: 'NatsObjectStore' }, { kind: 'NatsObjectStore', apiVersion: 'nats.io/v1', name: 'Object Stores', cluster }, cluster)}
+            onClick={() => openToolTab('NatsObjectStore', 'Object Stores')}
+            onDoubleClick={() => openToolTab('NatsObjectStore', 'Object Stores', true)}
           >
             Object Stores
           </button>
           <button
             type="button"
             className="nats-live-tail-button"
-            onClick={() => openDetailTab({ kind: 'NatsLiveTail' }, { kind: 'NatsLiveTail', apiVersion: 'nats.io/v1', name: 'Live Tail', cluster }, cluster)}
+            onClick={() => openToolTab('NatsLiveTail', 'Live Tail')}
+            onDoubleClick={() => openToolTab('NatsLiveTail', 'Live Tail', true)}
           >
             Live Tail
           </button>
@@ -320,6 +341,7 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
                 key={issue.key}
                 className="nats-issue-row clickable"
                 onClick={() => openStreamDetail(issue.accountName, issue.streamName, issue.consumers, issue.consumerName)}
+                onDoubleClick={() => openStreamDetail(issue.accountName, issue.streamName, issue.consumers, issue.consumerName, true)}
                 title="Open this message in the Message Browser"
               >
                 <span className="nats-issue-dot" />
@@ -477,6 +499,16 @@ const NatsOverview = ({ cluster }: NatsOverviewProps) => {
                                         account.name,
                                         stream.name,
                                         consumers.map((c) => c.name),
+                                      );
+                                    }}
+                                    onDoubleClick={(e) => {
+                                      e.stopPropagation();
+                                      openStreamDetail(
+                                        account.name,
+                                        stream.name,
+                                        consumers.map((c) => c.name),
+                                        undefined,
+                                        true,
                                       );
                                     }}
                                   >
