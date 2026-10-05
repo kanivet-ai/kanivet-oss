@@ -81,7 +81,8 @@
       splash.className=theme;
       var idx=Math.floor(Math.random()*msgs.length);
       msgEl.textContent=msgs[idx];
-      setInterval(function(){
+      // App.tsx clears this when it removes the splash.
+      window.__kanivetSplashTimer=setInterval(function(){
         var next=Math.floor(Math.random()*msgs.length);
         while(next===idx&&msgs.length>1)next=Math.floor(Math.random()*msgs.length);
         idx=next;

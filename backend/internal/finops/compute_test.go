@@ -411,6 +411,7 @@ func TestResolveOwner(t *testing.T) {
 		wantKind, want string
 	}{
 		{refs: ref("ReplicaSet", "my-app-5d8f7c"), labels: map[string]string{"pod-template-hash": "5d8f7c"}, wantKind: "Deployment", want: "my-app"},
+		{refs: ref("ReplicaSet", "web-58d7c9b4f"), labels: map[string]string{"rollouts-pod-template-hash": "58d7c9b4f"}, wantKind: "Rollout", want: "web"},
 		{refs: ref("ReplicaSet", "standalone"), wantKind: "ReplicaSet", want: "standalone"},
 		{refs: ref("Job", "nightly-report-29012345"), wantKind: "CronJob", want: "nightly-report"},
 		{refs: ref("Job", "migrate-v2"), wantKind: "Job", want: "migrate-v2"},

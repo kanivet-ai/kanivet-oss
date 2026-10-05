@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { EvidenceSheet } from './EvidenceSheet';
 
 vi.mock('../../services/api', () => ({ default: {} }));
+vi.mock('../../services/api/rightsizing', () => ({}));
 vi.mock('./useRightsizingReport', () => ({
   useRightsizingProvider: () => 'auto',
 }));
@@ -18,10 +19,21 @@ vi.mock('./RightsizingParts', () => ({
   ConfidenceMeter: () => null,
   VerdictBadge: () => null,
 }));
-import type { ContainerReport, WorkloadReport } from '../../types/rightsizing';
+import type {
+  ContainerReport,
+  HPACoupling,
+  WorkloadReport,
+} from '../../types/rightsizing';
 import {
+  PROFILE_META,
   bulkKubectl,
   bulkRepositoryPrompt,
+  bulkYAML,
+  evaluateCandidate,
+  eventsOf,
+  hasChange,
+  potentialSavings,
+  rightsizingRecommendations,
   startupBoostYAML,
   formatDayTime,
   hoursAbove,
@@ -40,6 +52,7 @@ import {
   formatMem,
   groupByNamespace,
   kubectlCommands,
+  pairedHPATarget,
   patchYAML,
   repositoryPrompt,
   quantileAt,
@@ -122,14 +135,42 @@ const workload = (over: Partial<WorkloadReport> = {}): WorkloadReport => ({
   ...over,
 });
 
+const hpaCoupling = (over: Partial<HPACoupling> = {}): HPACoupling => ({
+  name: 'api-hpa',
+  resource: 'cpu',
+  targetUtilization: 50,
+  suggestedTarget: 86,
+  pairedRequest: 0.7,
+  ...over,
+});
+
+/** An HPA on a Resource metric over two containers, as the backend reports
+ * it: one target over both requests (50% × 1.2 / 0.7). */
+const podHPAWorkload = () =>
+  workload({
+    containers: [
+      container({
+        cpu: rec({ request: 1, recommended: 0.5 }),
+        hpa: hpaCoupling({ pairedRequest: 0.5, pod: true }),
+      }),
+      container({
+        container: 'sidecar',
+        verdict: 'right-sized',
+        cpu: rec({ request: 0.2, recommended: 0.2 }),
+        memory: rec({ request: 64 * MI, recommended: 64 * MI }),
+      }),
+    ],
+    hpa: hpaCoupling({ pod: true }),
+  });
+
 describe('evidence sheet apply section', () => {
-  const render = (c: ContainerReport) => {
+  const render = (c: ContainerReport, w = workload({ containers: [c] })) => {
     vi.stubGlobal('document', { body: {} });
     try {
       return renderToStaticMarkup(
         createElement(EvidenceSheet, {
           cluster: 'staging',
-          workload: workload({ containers: [c] }),
+          workload: w,
           profile: 'balanced',
           window: '14d',
           onClose: () => {},
@@ -164,6 +205,16 @@ describe('evidence sheet apply section', () => {
     expect(html).toContain('Apply it yourself');
     expect(html).toContain('No resource values are available yet.');
     expect(html).not.toContain('Copy AI prompt');
+  });
+
+  it("pairs the HPA target with the whole pod's requests", () => {
+    const w = podHPAWorkload();
+    // On the sidecar's tab too: its request is in the pod's total.
+    for (const c of w.containers) {
+      const html = render(c, { ...w, verdict: c.verdict });
+      expect(html).toContain('averageUtilization: 86');
+      expect(html).toMatch(/HPA target of(<!-- -->)? <strong>86(<!-- -->)?%/);
+    }
   });
 });
 
@@ -605,6 +656,20 @@ describe('bulk patches', () => {
     ).toEqual({ cpu: '220m', memory: '640Mi' });
   });
 
+  it('leaves custom resources such as Rollouts out of the script instead of stopping it there', () => {
+    const script = bulkKubectl([
+      workload({ name: 'a' }),
+      workload({ name: 'web', kind: 'Rollout' }),
+      workload({ name: 'b' }),
+    ]);
+    // A strategic patch on a custom resource fails (415), and `set -e`
+    // would then leave every workload after it unpatched.
+    expect(script).not.toContain('patch rollout/web');
+    expect(script).toContain('# Rollout shop/web');
+    expect(script).toContain('kubectl -n shop patch deployment/a');
+    expect(script).toContain('kubectl -n shop patch deployment/b');
+  });
+
   it('turns mesh sidecars into pod template annotations', () => {
     const sidecar = container({ container: 'istio-proxy' });
     const obj = patchObject('Deployment', [choiceFromRec(sidecar)]) as any;
@@ -615,9 +680,15 @@ describe('bulk patches', () => {
   });
 
   it('skips workloads with nothing to change', () => {
+    // As the engine reports a container it leaves alone: memory kept.
     const same = container({
       cpu: { ...container().cpu, recommended: 1 },
-      memory: { ...container().memory, recommended: 2048 * MI },
+      memory: {
+        ...container().memory,
+        recommended: 2048 * MI,
+        recommendedLimit: 0,
+        limitAction: 'keep',
+      },
     });
     expect(bulkKubectl([workload({ containers: [same] })])).not.toContain(
       'kubectl -n',
@@ -690,5 +761,340 @@ describe('startupBoostYAML', () => {
     );
     expect(y).toContain("# Add a label that selects only this workload's pods");
     expect(y).not.toContain('limits:');
+  });
+});
+
+describe('memory limits the engine keeps', () => {
+  const kept = (limit: number, over: Partial<ContainerReport> = {}) =>
+    container({
+      verdict: 'right-sized',
+      cpu: rec({ request: 0.25, recommended: 0.25 }),
+      memory: rec({
+        request: 512 * MI,
+        limit,
+        recommended: 512 * MI,
+        recommendedLimit: limit,
+        limitAction: 'keep',
+      }),
+      ...over,
+    });
+
+  it('leaves a limit above the request where it is', () => {
+    const choice = choiceFromRec(kept(1024 * MI));
+    expect(choice.memoryLimit).toBe(1024 * MI);
+    const yaml = patchYAML('Deployment', [choice]);
+    expect(yaml).toMatch(/limits:\n\s+memory: 1Gi/);
+    expect(yaml.match(/memory: 512Mi/g)).toHaveLength(1);
+    expect(kubectlCommands(workload(), [choice])).toContain(
+      '--limits=memory=1Gi',
+    );
+  });
+
+  it('adds no limit where there was none', () => {
+    const choice = choiceFromRec(kept(0));
+    expect(choice.memoryLimit).toBe(0);
+    expect(kubectlCommands(workload(), [choice])).not.toContain('--limits');
+    expect(patchYAML('Deployment', [choice])).not.toContain('limits:');
+  });
+
+  it('still sets request = limit for a value picked on the slider', () => {
+    const choice = choiceFromRec(kept(1024 * MI), 0.25, 768 * MI);
+    expect(choice.memoryLimit).toBe(768 * MI);
+  });
+
+  it("keeps an injected mesh proxy's memory limit annotation", () => {
+    const proxy = kept(1024 * MI, { container: 'istio-proxy' });
+    proxy.memory.request = proxy.memory.recommended = 128 * MI;
+    const obj = patchObject('Deployment', [choiceFromRec(proxy)]) as any;
+    expect(
+      obj.spec.template.metadata.annotations[
+        'sidecar.istio.io/proxyMemoryLimit'
+      ],
+    ).toBe('1Gi');
+  });
+
+  it('leaves untouched containers out of bulk patches', () => {
+    const proxy = kept(1024 * MI, { container: 'istio-proxy' });
+    proxy.memory.request = proxy.memory.recommended = 128 * MI;
+    const w = workload({
+      containers: [
+        container(),
+        kept(256 * MI, { container: 'log-shipper' }),
+        proxy,
+      ],
+    });
+    for (const out of [bulkKubectl([w]), bulkYAML([w])]) {
+      expect(out).toContain('app');
+      expect(out).not.toContain('log-shipper');
+      expect(out).not.toContain('sidecar.istio.io');
+    }
+  });
+});
+
+describe('changes worth patching', () => {
+  // Throttled at its limit with a request that stays: only the limit moves.
+  const throttled = () =>
+    container({
+      verdict: 'under-provisioned',
+      cpu: rec({
+        request: 1,
+        limit: 1,
+        recommended: 1,
+        recommendedLimit: 1.5,
+        limitAction: 'raise',
+      }),
+      memory: rec({
+        request: 512 * MI,
+        limit: 512 * MI,
+        recommended: 512 * MI,
+        recommendedLimit: 512 * MI,
+        limitAction: 'keep',
+      }),
+    });
+
+  it('counts a raised CPU limit with an unchanged request', () => {
+    const w = workload({ containers: [throttled()] });
+    expect(hasChange(w)).toBe(true);
+    expect(bulkKubectl([w])).toContain('"limits":{"cpu":"1500m"');
+    expect(bulkYAML([w])).toContain('cpu: 1500m');
+  });
+
+  it('adds no CPU limit to a container without data or a limit', () => {
+    // The engine's answer without data: today's values, every limit kept.
+    const quiet = container({
+      verdict: 'insufficient-data',
+      cpu: rec({ request: 0.5, recommended: 0.5, limitAction: 'keep' }),
+      memory: rec({
+        request: 256 * MI,
+        recommended: 256 * MI,
+        limitAction: 'keep',
+      }),
+    });
+    expect(choiceFromRec(quiet)).toMatchObject({ cpuLimit: 0, memoryLimit: 0 });
+    const w = workload({ containers: [quiet] });
+    expect(hasChange(w)).toBe(false);
+    expect(bulkKubectl([w])).not.toContain('kubectl -n');
+  });
+
+  it('gives each HPA one target, the lowest its containers suggest', () => {
+    const hpa = (suggestedTarget: number) => ({
+      name: 'api-hpa',
+      resource: 'cpu' as const,
+      targetUtilization: 60,
+      suggestedTarget,
+      pairedRequest: 0.22,
+    });
+    const script = bulkKubectl([
+      workload({
+        containers: [
+          container({ hpa: hpa(80) }),
+          container({ container: 'worker', hpa: hpa(72) }),
+        ],
+      }),
+    ]);
+    expect(script.match(/set HPA api-hpa/g)).toHaveLength(1);
+    expect(script).toContain('set HPA api-hpa cpu target to 72%');
+  });
+
+  it("prefers the workload's one target, worked out over the pod", () => {
+    const w = workload({
+      containers: [
+        container({ hpa: hpaCoupling({ suggestedTarget: 80 }) }),
+        container({
+          container: 'worker',
+          hpa: hpaCoupling({ suggestedTarget: 72 }),
+        }),
+      ],
+      hpa: hpaCoupling({ suggestedTarget: 75, pod: true }),
+    });
+    const script = bulkKubectl([w]);
+    expect(script.match(/set HPA api-hpa/g)).toHaveLength(1);
+    expect(script).toContain('set HPA api-hpa cpu target to 75%');
+  });
+});
+
+describe('HPA targets over the requests they count', () => {
+  it("pairs a pod-level target with every container's requests", () => {
+    const w = podHPAWorkload();
+    const recs = w.containers.map((c) => choiceFromRec(c));
+    expect(pairedHPATarget(w, w.hpa!, recs)).toBe(86);
+    // 600m picked for the app: 50% × 1.2 / 0.8.
+    const picked = [choiceFromRec(w.containers[0], 0.6), recs[1]];
+    expect(pairedHPATarget(w, w.hpa!, picked)).toBe(75);
+    // A ContainerResource metric counts the container it names alone.
+    const app = {
+      ...w.containers[0],
+      hpa: hpaCoupling({ pairedRequest: 0.5 }),
+    };
+    const one = { ...w, containers: [app, w.containers[1]], hpa: app.hpa };
+    expect(pairedHPATarget(one, one.hpa, recs)).toBe(100);
+    expect(pairedHPATarget(one, one.hpa, picked)).toBe(83);
+  });
+
+  it('describes a pod-level target once, against the total', () => {
+    const w = podHPAWorkload();
+    const prompt = repositoryPrompt(
+      w,
+      w.containers.map((c) => choiceFromRec(c)),
+      'staging',
+    );
+    expect(prompt.match(/HorizontalPodAutoscaler api-hpa/g)).toHaveLength(1);
+    expect(prompt).toContain('86% paired with requests totalling 700m per pod');
+    expect(prompt).not.toContain('paired with a request of');
+  });
+});
+
+describe('requests a VerticalPodAutoscaler sets', () => {
+  const vpa = (...resources: ('cpu' | 'memory')[]) => ({
+    name: 'api-vpa',
+    mode: 'Auto',
+    resources,
+  });
+
+  it('are left out of bulk patches, limits too', () => {
+    const w = workload({ containers: [container({ vpa: vpa('memory') })] });
+    expect(hasChange(w)).toBe(true);
+    expect(bulkKubectl([w])).toContain(
+      `-p '{"spec":{"template":{"spec":{"containers":[{"name":"app","resources":{"requests":{"cpu":"220m"},"limits":{"cpu":"2"}}}]}}}}'`,
+    );
+    const yaml = bulkYAML([w]);
+    expect(yaml).toContain('cpu: 220m');
+    expect(yaml).not.toContain('memory');
+  });
+
+  it('leave a workload out when nothing else changes, and out of the count', () => {
+    const allHeld = workload({
+      name: 'vpa-all',
+      containers: [container({ vpa: vpa('cpu', 'memory') })],
+    });
+    // CPU and its limit stay; only memory, which the VPA sets, would move.
+    const memHeld = workload({
+      name: 'vpa-memory',
+      containers: [
+        container({
+          cpu: rec({
+            request: 1,
+            recommended: 1,
+            limit: 2,
+            recommendedLimit: 2,
+            limitAction: 'keep',
+          }),
+          vpa: vpa('memory'),
+        }),
+      ],
+    });
+    const mixed = workload({
+      name: 'mixed',
+      containers: [
+        container({ container: 'held', vpa: vpa('cpu', 'memory') }),
+        container(),
+      ],
+    });
+    const ws = [allHeld, memHeld, mixed];
+    expect(ws.filter(hasChange).map((w) => w.name)).toEqual(['mixed']);
+    for (const out of [bulkKubectl(ws), bulkYAML(ws)]) {
+      expect(out).not.toContain('vpa-');
+      expect(out).not.toContain('held');
+      expect(out).toContain('shop/mixed');
+    }
+  });
+
+  it('keep the HPA target that counts them', () => {
+    const hpa = hpaCoupling({ suggestedTarget: 80, pairedRequest: 0.22 });
+    const w = workload({
+      containers: [container({ hpa, vpa: vpa('cpu') })],
+      hpa,
+    });
+    const script = bulkKubectl([w]);
+    // Memory still changes; CPU, request and limit, is left to the VPA.
+    expect(script).toContain(
+      `-p '{"spec":{"template":{"spec":{"containers":[{"name":"app","resources":{"requests":{"memory":"640Mi"},"limits":{"memory":"640Mi"}}}]}}}}'`,
+    );
+    expect(script).not.toContain('set HPA');
+  });
+
+  it('still show the recommendation for one workload, naming the VPA', () => {
+    const c = container({ vpa: vpa('memory') });
+    expect(patchYAML('Deployment', [choiceFromRec(c)])).toContain(
+      'memory: 640Mi',
+    );
+    const prompt = repositoryPrompt(
+      workload({ containers: [c] }),
+      [choiceFromRec(c)],
+      'staging',
+    );
+    expect(prompt).toContain('memory: 640Mi');
+    expect(prompt).toContain(
+      'VerticalPodAutoscaler api-vpa (updateMode Auto) sets the memory requests of container app',
+    );
+  });
+});
+
+describe('FinOps potential savings', () => {
+  it('counts the long tail the listed rows leave out', () => {
+    const ws = Array.from({ length: 400 }, (_, i) =>
+      workload({ name: `w${i}`, monthlySavings: 4.5 }),
+    );
+    const listed = [
+      ...rightsizingRecommendations(ws),
+      {
+        type: 'underutilized-node' as const,
+        resource: 'node-a',
+        kind: 'Node',
+        currentCost: 300,
+        projectedSavings: 120,
+        recommendation: '',
+        priority: 'medium' as const,
+      },
+    ];
+    expect(listed).toHaveLength(1);
+    const summary = { monthlySavings: 1800, shrinking: 400 } as any;
+    expect(potentialSavings(summary, listed)).toEqual({
+      total: 1920,
+      smaller: 400,
+    });
+    expect(potentialSavings(undefined, listed)).toEqual({
+      total: 120,
+      smaller: 0,
+    });
+  });
+});
+
+describe('the slider before the evidence arrives', () => {
+  it("reads the candidate off the report's quantiles", () => {
+    const c = container({
+      cpu: rec({ p50: 0.1, p90: 0.2, p95: 0.25, p99: 0.4, peak: 0.6 }),
+    });
+    const at = (cpu: number) => evaluateCandidate(c, undefined, cpu, 0);
+    expect(at(0.05).cpuTimeAbove).toBeCloseTo(0.75);
+    expect(at(0.2).cpuTimeAbove).toBeCloseTo(0.1);
+    expect(at(1).cpuTimeAbove).toBe(0);
+    expect(at(0.2).cpuApproximate).toBe(true);
+  });
+});
+
+describe('evidence events', () => {
+  it('stay the same empty list when the backend sends null', () => {
+    const ev = JSON.parse('{"events":{"app":null}}');
+    expect(eventsOf(ev, 'app')).toEqual([]);
+    expect(eventsOf(ev, 'app')).toBe(eventsOf(ev, 'app'));
+    expect(eventsOf(null, 'app')).toBe(eventsOf(ev, 'app'));
+  });
+});
+
+describe('profiles', () => {
+  it("state the backend's memory headroom (types.go params)", () => {
+    expect(PROFILE_META.conservative).toMatchObject({
+      mem: '30%',
+      memFloor: '64Mi',
+    });
+    expect(PROFILE_META.balanced).toMatchObject({
+      mem: '15%',
+      memFloor: '32Mi',
+    });
+    expect(PROFILE_META.aggressive).toMatchObject({
+      mem: '10%',
+      memFloor: '16Mi',
+    });
   });
 });

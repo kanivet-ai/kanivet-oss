@@ -21,15 +21,30 @@ type WorkloadMetricQuery struct {
 	Step       string   `json:"step,omitempty"`
 }
 
-// WorkloadMetricResponse contains metrics for multiple pods
+// WorkloadMetricResponse contains metrics for multiple pods, all on one step
+// grid: each pod's Values has one entry per Timestamps entry.
 type WorkloadMetricResponse struct {
-	Pods map[string]*MetricResponse `json:"pods"` // podName -> metrics
+	Timestamps []int64                    `json:"timestamps,omitempty"`
+	Step       int64                      `json:"step,omitempty"`
+	Peak       bool                       `json:"peak,omitempty"`
+	Pods       map[string]*MetricResponse `json:"pods"` // podName -> metrics
 }
 
+// MetricResponse is one chart series. Timestamps are the instants of the
+// query's step grid in unix seconds, and Values has one sample per timestamp,
+// NaN (null in JSON) where the store had none, so the series of one query
+// line up and a gap is drawn as a gap. Labels are the same instants as clock
+// times, kept for older clients.
 type MetricResponse struct {
-	Labels []string  `json:"labels"`
-	Values []float64 `json:"values"`
-	Unit   string    `json:"unit,omitempty"`
+	Labels     []string `json:"labels,omitempty"`
+	Timestamps []int64  `json:"timestamps,omitempty"`
+	Values     Samples  `json:"values"`
+	// Step is the grid spacing in seconds.
+	Step int64 `json:"step,omitempty"`
+	// Peak is set when each value is the highest sample within its step
+	// rather than the sample at its instant.
+	Peak bool   `json:"peak,omitempty"`
+	Unit string `json:"unit,omitempty"`
 }
 
 type MetricPoint struct {

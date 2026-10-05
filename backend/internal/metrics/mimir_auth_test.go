@@ -83,7 +83,7 @@ func TestMimirAuthenticatedDiscoveryAndQueries(t *testing.T) {
 			if r.Header.Get("X-Scope-OrgID") != "team-a" {
 				t.Error("metric query lost its tenant header")
 			}
-			fmt.Fprint(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"pod":"pod-a"},"values":[[1234,"7"]]}]}}`)
+			fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{"pod":"pod-a"},"values":[[%s,"7"]]}]}}`, r.URL.Query().Get("end"))
 		}
 	}))
 	defer srv.Close()
@@ -102,8 +102,8 @@ func TestMimirAuthenticatedDiscoveryAndQueries(t *testing.T) {
 	if err != nil || len(tenants) != 1 || tenants[0] != "team-a" {
 		t.Fatalf("tenants = %v, %v", tenants, err)
 	}
-	result, err := p.QueryMetrics("cluster-a", MetricQuery{Namespace: "app", PodName: "pod-a", MetricType: "cpu", TimeRange: "5m"})
-	if err != nil || len(result.Values) != 1 || result.Values[0] != 7 {
+	result, err := p.QueryMetrics(context.Background(), "cluster-a", MetricQuery{Namespace: "app", PodName: "pod-a", MetricType: "cpu", TimeRange: "5m"})
+	if err != nil || len(result.Values) == 0 || result.Values[len(result.Values)-1] != 7 {
 		t.Fatalf("query = %+v, %v", result, err)
 	}
 
@@ -116,8 +116,8 @@ func TestMimirAuthenticatedDiscoveryAndQueries(t *testing.T) {
 	mu.Lock()
 	password = "rotated"
 	mu.Unlock()
-	workload, err := p.QueryWorkloadMetrics("cluster-a", WorkloadMetricQuery{Namespace: "app", PodNames: []string{"pod-a"}, MetricType: "cpu", TimeRange: "5m"})
-	if err != nil || workload.Pods["pod-a"] == nil || workload.Pods["pod-a"].Values[0] != 7 {
+	workload, err := p.QueryWorkloadMetrics(context.Background(), "cluster-a", WorkloadMetricQuery{Namespace: "app", PodNames: []string{"pod-a"}, MetricType: "cpu", TimeRange: "5m"})
+	if err != nil || workload.Pods["pod-a"] == nil || workload.Pods["pod-a"].Values[len(workload.Timestamps)-1] != 7 {
 		t.Fatalf("workload query after rotation = %+v, %v", workload, err)
 	}
 	mu.Lock()

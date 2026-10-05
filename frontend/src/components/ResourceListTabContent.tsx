@@ -1,12 +1,14 @@
 import ScrollContainer from './ScrollContainer';
 import TabContent from './common/TabContent';
-import PodLogs from './PodLogs';
-import DeploymentLogs from './DeploymentLogs';
-import PodShell from './PodShell';
-import NodeShell from './NodeShell';
-import TerminalContainer from './TerminalContainer';
-import YamlEditor from './YamlEditor';
-import CrossplaneTrace from './CrossplaneTrace';
+import {
+  PodLogs,
+  DeploymentLogs,
+  PodShell,
+  NodeShell,
+  TerminalContainer,
+  YamlEditor,
+  CrossplaneTrace,
+} from './lazyBottomViews';
 
 interface BottomTabContentProps {
   tab: any;

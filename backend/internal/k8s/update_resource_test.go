@@ -48,6 +48,48 @@ func TestUpdateResourceDoesNotRecreateDeletedObject(t *testing.T) {
 	}
 }
 
+// The YAML editor never sees kubectl's last-applied-configuration (the
+// detail endpoint hides it), so saving must not delete it from the object.
+func TestUpdateResourceKeepsLastAppliedConfiguration(t *testing.T) {
+	c := newTestClient()
+	live := configMap("cfg", "ns", "old")
+	live.SetAnnotations(map[string]string{lastAppliedAnnotation: `{"data":{"key":"old"}}`, "team": "core"})
+	fake := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), live)
+	c.dynamic["c1"] = fake
+	edited := configMap("cfg", "ns", "new")
+	edited.SetAnnotations(map[string]string{"team": "core"})
+
+	got, err := c.UpdateResource(context.Background(), "c1", configMapGVR, "ns", "cfg", edited)
+	if err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+
+	if applied := got.GetAnnotations()[lastAppliedAnnotation]; applied != `{"data":{"key":"old"}}` {
+		t.Fatalf("last-applied-configuration = %q after a save from the editor", applied)
+	}
+	if value, _, _ := unstructured.NestedString(got.Object, "data", "key"); value != "new" {
+		t.Fatalf("update did not apply, data.key = %q", value)
+	}
+}
+
+// A manifest that carries its own last-applied-configuration is saved as is.
+func TestUpdateResourceSavesAGivenLastAppliedConfiguration(t *testing.T) {
+	c := newTestClient()
+	live := configMap("cfg", "ns", "old")
+	live.SetAnnotations(map[string]string{lastAppliedAnnotation: "old"})
+	c.dynamic["c1"] = dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), live)
+	edited := configMap("cfg", "ns", "new")
+	edited.SetAnnotations(map[string]string{lastAppliedAnnotation: "new"})
+
+	got, err := c.UpdateResource(context.Background(), "c1", configMapGVR, "ns", "cfg", edited)
+	if err != nil {
+		t.Fatalf("update failed: %v", err)
+	}
+	if applied := got.GetAnnotations()[lastAppliedAnnotation]; applied != "new" {
+		t.Fatalf("last-applied-configuration = %q, want the saved one", applied)
+	}
+}
+
 func TestUpdateResourceUpdatesExistingObject(t *testing.T) {
 	c := newTestClient()
 	fake := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), configMap("cfg", "ns", "old"))

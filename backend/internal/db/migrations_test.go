@@ -1,6 +1,11 @@
 package db
 
 import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -247,5 +252,109 @@ func TestVersionedMigrationV2PurgesNonCanonicalSearchRows(t *testing.T) {
 	}
 	if v := d.currentSchemaVersion(); v != schemaVersion {
 		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
+	}
+}
+
+// Snapshots written by earlier releases kept kubectl's last-applied
+// annotation in list rows, Secret values included, so the update drops them
+// all once; snapshots written afterwards are left alone.
+func TestVersionedMigrationV3PurgesListSnapshots(t *testing.T) {
+	d := newMigratedTestDB(t)
+	if err := d.setSchemaVersion(2); err != nil {
+		t.Fatal(err)
+	}
+	leaked := `[{"name":"db","annotations":{"kubectl.kubernetes.io/last-applied-configuration":"{\"data\":{\"password\":\"aHVudGVyMg==\"}}"}}]`
+	if err := d.SaveListSnapshot("items:c1::v1:secrets:", "c1", []byte(leaked)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.runVersionedMigrations(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if got := countRows(t, d, "list_snapshots"); got != 0 {
+		t.Fatalf("list_snapshots rows = %d, want 0", got)
+	}
+	if v := d.currentSchemaVersion(); v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
+	}
+
+	if err := d.SaveListSnapshot("items:c1::v1:secrets:", "c1", []byte(`[{"name":"db"}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.runVersionedMigrations(); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if got := countRows(t, d, "list_snapshots"); got != 1 {
+		t.Fatalf("a later start must keep new snapshots, rows = %d", got)
+	}
+}
+
+// The v3 purge exists to get Secret values out of kanivet.db. Deleting the
+// rows only unlinks their pages: unless the freed pages are scrubbed, the
+// values stay readable in the file (strings kanivet.db) after the migration
+// has recorded itself as done.
+func TestVersionedMigrationV3LeavesNoSnapshotBytesInTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kanivet.db")
+	open := func() (*DB, func()) {
+		g, err := gorm.Open(sqlite.Open(mainDSN(path)), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sqlDB, err := g.DB()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return &DB{DB: g}, func() { _ = sqlDB.Close() }
+	}
+	d, closeDB := open()
+	if err := d.MigrateSnapshots(); err != nil {
+		t.Fatal(err)
+	}
+	// A database v1 has rewritten with auto_vacuum on, holding far more
+	// than the snapshots, so the purge frees too little for a full VACUUM.
+	d.Exec("PRAGMA auto_vacuum = INCREMENTAL")
+	d.Exec("VACUUM")
+	if err := d.Exec("CREATE TABLE filler (x BLOB)").Error; err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 48; i++ {
+		if err := d.Exec("INSERT INTO filler VALUES (randomblob(262144))").Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	var rows []string
+	for i := 0; i < 300; i++ {
+		rows = append(rows, fmt.Sprintf(`{"name":"s%03d","annotations":{"kubectl.kubernetes.io/last-applied-configuration":"{\\"data\\":{\\"password\\":\\"PLAINTEXT-MARKER-%03d\\"}}"}}`, i, i))
+	}
+	if err := d.SaveListSnapshot("items:c1::v1:secrets:", "c1", []byte("["+strings.Join(rows, ",")+"]")); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.setSchemaVersion(2); err != nil {
+		t.Fatal(err)
+	}
+	closeDB()
+
+	d, closeDB = open()
+	if err := d.runVersionedMigrations(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if got := countRows(t, d, "list_snapshots"); got != 0 {
+		t.Fatalf("list_snapshots rows = %d, want 0", got)
+	}
+	var free int64
+	d.Raw("PRAGMA freelist_count").Scan(&free)
+	if free != 0 {
+		t.Fatalf("%d freed pages were not handed back", free)
+	}
+	closeDB()
+
+	for _, f := range []string{path, path + "-wal"} {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			continue
+		}
+		if n := bytes.Count(data, []byte("PLAINTEXT-MARKER-")); n > 0 {
+			t.Fatalf("%s still holds %d of the purged snapshot's values", filepath.Base(f), n)
+		}
 	}
 }

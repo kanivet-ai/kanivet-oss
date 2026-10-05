@@ -116,6 +116,9 @@ export function workloadResource(kind: string): { name: string; group: string; v
       return { name: `${kind.toLowerCase()}s`, group: 'batch', version: 'v1', kind, namespaced: true };
     case 'Pod':
       return { name: 'pods', group: '', version: 'v1', kind, namespaced: true };
+    // Pods of an Argo Rollout's ReplicaSets are costed to the Rollout.
+    case 'Rollout':
+      return { name: 'rollouts', group: 'argoproj.io', version: 'v1alpha1', kind, namespaced: true };
     default:
       return null;
   }

@@ -197,7 +197,12 @@ func (h *TerminalHandler) handleClose(ctx context.Context, conn *core.Connection
 	return nil
 }
 
-// streamOutput streams terminal output to the WebSocket connection
+// maxOutputMessage bounds how much already-read output one message carries.
+const maxOutputMessage = 64 * 1024
+
+// streamOutput streams terminal output to the WebSocket connection. Reads run
+// on their own goroutine, so output that arrives while a message is being sent
+// goes out together in the next one rather than as one message per read.
 func (h *TerminalHandler) streamOutput(ctx context.Context, sessionID string) {
 	h.mu.RLock()
 	stream, exists := h.activeStreams[sessionID]
@@ -209,45 +214,133 @@ func (h *TerminalHandler) streamOutput(ctx context.Context, sessionID string) {
 
 	defer h.cleanupStream(sessionID)
 
+	chunks := make(chan []byte, 64)
+	readErr := make(chan error, 1)
+	go func() {
+		for {
+			data, err := stream.terminal.Read()
+			if err != nil {
+				readErr <- err
+				return
+			}
+			if len(data) == 0 {
+				continue
+			}
+			select {
+			case chunks <- data:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	var carry utf8Carry
+	send := func(data []byte) bool {
+		if err := h.sendOutput(stream.connection, sessionID, data); err != nil {
+			log.Printf("Failed to send output for session %s: %v", sessionID, err)
+			return false
+		}
+		return true
+	}
+	// drain appends the output already read, up to maxOutputMessage. It
+	// copies before appending: buf belongs to the terminal that returned it.
+	drain := func(buf []byte) []byte {
+		owned := false
+		for len(buf) < maxOutputMessage {
+			select {
+			case more := <-chunks:
+				if !owned {
+					buf = append(make([]byte, 0, len(buf)+len(more)), buf...)
+					owned = true
+				}
+				buf = append(buf, more...)
+			default:
+				return buf
+			}
+		}
+		return buf
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-			data, err := stream.terminal.Read()
-			if err != nil {
-				log.Printf("Terminal read error for session %s: %v", sessionID, err)
-				if err := h.sendError(stream.connection, fmt.Sprintf("Terminal closed: %v", err)); err != nil {
-					log.Printf("Failed to send error for session %s: %v", sessionID, err)
-				}
+		case data := <-chunks:
+			if out := carry.next(drain(data)); len(out) > 0 && !send(out) {
 				return
 			}
-
-			if len(data) > 0 {
-				var outputData string
-				var encoding string
-				if utf8.Valid(data) {
-					outputData = string(data)
-					encoding = "utf8"
-				} else {
-					outputData = base64.StdEncoding.EncodeToString(data)
-					encoding = "base64"
+		case err := <-readErr:
+			// The reader queued everything it read before failing.
+			for {
+				rest := drain(nil)
+				if len(rest) == 0 {
+					break
 				}
-				response := map[string]interface{}{
-					"type":      "output",
-					"sessionId": sessionID,
-					"data":      outputData,
-					"encoding":  encoding,
-				}
-				msg := core.NewOutgoingMessage("terminal", response)
-				msgData, _ := msg.Marshal()
-				if err := stream.connection.Send(msgData); err != nil {
-					log.Printf("Failed to send output for session %s: %v", sessionID, err)
+				if out := carry.next(rest); len(out) > 0 && !send(out) {
 					return
 				}
 			}
+			if len(carry.pending) > 0 && !send(carry.pending) {
+				return
+			}
+			log.Printf("Terminal read error for session %s: %v", sessionID, err)
+			if err := h.sendError(stream.connection, fmt.Sprintf("Terminal closed: %v", err)); err != nil {
+				log.Printf("Failed to send error for session %s: %v", sessionID, err)
+			}
+			return
 		}
 	}
+}
+
+// sendOutput sends output as text when it is valid UTF-8 and as base64
+// otherwise, which the terminal decodes back to the original bytes.
+func (h *TerminalHandler) sendOutput(conn *core.Connection, sessionID string, data []byte) error {
+	outputData, encoding := string(data), "utf8"
+	if !utf8.Valid(data) {
+		outputData, encoding = base64.StdEncoding.EncodeToString(data), "base64"
+	}
+	msg := core.NewOutgoingMessage("terminal", map[string]interface{}{
+		"type":      "output",
+		"sessionId": sessionID,
+		"data":      outputData,
+		"encoding":  encoding,
+	})
+	msgData, _ := msg.Marshal()
+	return conn.Send(msgData)
+}
+
+// utf8Carry holds back a multibyte character that a read cut short until the
+// read that completes it. Sent split, both halves were invalid UTF-8, so both
+// chunks went out as base64 and every character in them was garbled.
+type utf8Carry struct {
+	pending []byte
+}
+
+// next returns what to send for data, the output read since the last call.
+func (c *utf8Carry) next(data []byte) []byte {
+	if len(c.pending) > 0 {
+		data = append(c.pending, data...)
+	}
+	out, rest := splitIncompleteRune(data)
+	c.pending = append([]byte(nil), rest...)
+	return out
+}
+
+// splitIncompleteRune splits data before a trailing UTF-8 sequence that is
+// cut short. Anything else, invalid bytes included, stays in the first part.
+func splitIncompleteRune(data []byte) (complete, rest []byte) {
+	for i := len(data) - 1; i >= 0 && i >= len(data)-utf8.UTFMax; i-- {
+		if data[i] < utf8.RuneSelf {
+			break
+		}
+		if utf8.RuneStart(data[i]) {
+			if !utf8.FullRune(data[i:]) {
+				return data[:i], data[i:]
+			}
+			break
+		}
+	}
+	return data, nil
 }
 
 // monitorConnection monitors the WebSocket connection and cleans up when it closes

@@ -26,11 +26,11 @@ import { FinOpsLoadingSkeleton } from './FinOpsLoadingSkeleton';
 import { NamespaceCostTable } from './NamespaceCostTable';
 import { ClusterNodeTable, VClusterHostNodeTable } from './NodeCostTable';
 import { SavingsOpportunities } from './SavingsOpportunities';
-import { filterNamespaces, filterNodes, isFiltered as filtersActive, totalSavings } from './finopsView';
+import { filterNamespaces, filterNodes, isFiltered as filtersActive } from './finopsView';
 import { useFinOpsNavigation } from './useFinOpsNavigation';
-import { EvidenceSheet } from '../rightsizing/EvidenceSheet';
+import { EvidenceSheet } from '../rightsizing/lazyEvidenceSheet';
 import { useRightsizingPrefs, useRightsizingReport } from '../rightsizing/useRightsizingReport';
-import { rightsizingRecommendations, rightsizingSavingsIndex } from '../rightsizing/rightsizingView';
+import { potentialSavings, rightsizingRecommendations, rightsizingSavingsIndex, workloadId } from '../rightsizing/rightsizingView';
 import type { WorkloadReport } from '../../types/rightsizing';
 import './FinOpsDashboard.css';
 
@@ -38,6 +38,18 @@ const POLL_MS = 60_000;
 /** While prices are still downloading, poll faster so costs appear as soon as they land. */
 const PRICING_POLL_MS = 10_000;
 const PRICING_POLL_LIMIT = 30;
+
+/** The last dashboard per cluster. The tab unmounts when left, so a revisit
+ * shows these costs at once and refreshes them behind, instead of a
+ * skeleton. Bounded: a few clusters at most. */
+const held = new Map<string, FinOpsDashboardData>();
+const HELD_MAX = 4;
+
+function remember(cluster: string, data: FinOpsDashboardData) {
+  held.delete(cluster);
+  held.set(cluster, data);
+  if (held.size > HELD_MAX) held.delete(held.keys().next().value!);
+}
 
 interface Segment {
   key: string;
@@ -138,20 +150,30 @@ interface FinOpsDashboardProps {
 }
 
 const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
-  const [dashboard, setDashboard] = useState<FinOpsDashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [dashboard, setDashboard] = useState<FinOpsDashboardData | null>(() => held.get(cluster) ?? null);
+  const [loading, setLoading] = useState(() => !held.has(cluster));
+  const [refreshing, setRefreshing] = useState(() => held.has(cluster));
   const [error, setError] = useState<string | null>(null);
   const [showExplainer, setShowExplainer] = useState(false);
   const [filters, setFilters] = useState<FinOpsFilterState>(DEFAULT_FINOPS_FILTERS);
 
   const abortRef = useRef<AbortController | null>(null);
   const pollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollSkipped = useRef(false);
   const pricingPolls = useRef(0);
   const nav = useFinOpsNavigation(cluster);
 
   const load = useCallback(async (refresh = false) => {
     if (!cluster) return;
+    // A hidden window doesn't poll: nobody is looking, and with the poll as
+    // long as the server's cache, each one recomputes the dashboard. Coming
+    // back into view runs the poll it skipped.
+    pollSkipped.current = !refresh && document.hidden;
+    if (pollSkipped.current) {
+      if (pollTimer.current) clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+      return;
+    }
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
@@ -171,12 +193,16 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
         if (type === 'summary' || type === 'nodes' || type === 'namespaces' || type === 'recommendations') {
           (acc as any)[type] = data ?? [];
           if (acc.summary) {
-            setDashboard({
+            // What hasn't streamed in yet keeps the costs already shown.
+            const prev = held.get(cluster);
+            const next = {
               summary: acc.summary,
-              nodes: acc.nodes ?? [],
-              namespaces: acc.namespaces ?? [],
-              recommendations: acc.recommendations ?? [],
-            });
+              nodes: acc.nodes ?? prev?.nodes ?? [],
+              namespaces: acc.namespaces ?? prev?.namespaces ?? [],
+              recommendations: acc.recommendations ?? prev?.recommendations ?? [],
+            };
+            remember(cluster, next);
+            setDashboard(next);
           }
         }
       }, ctrl.signal, refresh);
@@ -204,14 +230,23 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
   useEffect(() => {
     if (!cluster) return;
     api.preloadFinOpsPricing(cluster).catch(() => {});
-    setDashboard(null);
-    setLoading(true);
+    const last = held.get(cluster) ?? null;
+    setDashboard(last);
+    setLoading(!last);
+    setRefreshing(!!last);
     setError(null);
     setFilters(DEFAULT_FINOPS_FILTERS);
     pricingPolls.current = 0;
     load();
+    const onVisible = () => {
+      if (!document.hidden && pollSkipped.current) load();
+    };
+    document.addEventListener('visibilitychange', onVisible);
     return () => {
+      document.removeEventListener('visibilitychange', onVisible);
       if (pollTimer.current) clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+      pollSkipped.current = false;
       abortRef.current?.abort();
       abortRef.current = null;
     };
@@ -261,7 +296,13 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
   const monthly = filtered
     ? filteredNamespaces.reduce((s, ns) => s + ns.monthlyCost, 0)
     : summary?.monthlyCost ?? 0;
-  const savings = totalSavings(recommendations);
+  // The report's own total, not the listed rows': those leave out the long
+  // tail of small savings, which can add up.
+  const { total: savings, smaller } = potentialSavings(rsReady ? rsReport!.summary : undefined, recommendations);
+  const opportunities = [
+    recommendations.length > 0 && `${recommendations.length} opportunit${recommendations.length === 1 ? 'y' : 'ies'} below`,
+    smaller > 0 && `${smaller} smaller workload${smaller === 1 ? '' : 's'} in Rightsizing`,
+  ].filter(Boolean).join(' · ');
   const segments = useMemo(
     () => (summary ? buildSegments(filteredNamespaces, summary, filtered) : []),
     [filteredNamespaces, summary, filtered],
@@ -409,7 +450,7 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
                   <div className="stat-sub">
                     {!rsReady && rsReport && (rsReport.status === 'computing' || rsReport.progress)
                       ? 'Rightsizing is reading usage history…'
-                      : recommendations.length > 0 ? `${recommendations.length} opportunit${recommendations.length === 1 ? 'y' : 'ies'} below` : 'Nothing obvious to trim'}
+                      : opportunities || 'Nothing obvious to trim'}
                   </div>
                 </div>
               </div>
@@ -517,6 +558,7 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
 
       {evidenceFor && (
         <EvidenceSheet
+          key={workloadId(evidenceFor)}
           cluster={cluster}
           workload={evidenceFor}
           profile={rsPrefs.profile}

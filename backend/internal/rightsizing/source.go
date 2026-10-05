@@ -6,6 +6,7 @@ import (
 	"math"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/kanivet/backend/internal/metrics"
@@ -15,6 +16,29 @@ import (
 type historyQuerier interface {
 	QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error)
 	QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error)
+}
+
+// safeQuerier turns a panic answering a query into an error. Below the
+// limiter it matters most: a query that panics there would never give its
+// slot back, and every later query to the store would wait forever.
+type safeQuerier struct{ historyQuerier }
+
+func (q safeQuerier) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) (res []metrics.HistorySeries, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res, err = nil, panicked("querying the metrics store", r)
+		}
+	}()
+	return q.historyQuerier.QueryRange(ctx, cluster, query, start, end, step)
+}
+
+func (q safeQuerier) QueryInstant(ctx context.Context, cluster, query string, at time.Time) (res []metrics.HistorySeries, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			res, err = nil, panicked("querying the metrics store", r)
+		}
+	}()
+	return q.historyQuerier.QueryInstant(ctx, cluster, query, at)
 }
 
 // grid is the time axis every series is aligned to: n samples, step apart,
@@ -83,32 +107,64 @@ type probe struct {
 	throttle                 string
 	// inPlace: the cluster resizes running pods (Kubernetes 1.33+).
 	inPlace bool
+	// err is set when a probe query failed. Its signal is then unknown, not
+	// absent: read as absent, one dropped query would turn off OOM detection
+	// or switch the memory metric in a report that looks complete. Callers
+	// use the store's last good probe instead.
+	err error
 }
 
 func probeSignals(ctx context.Context, q historyQuerier, cluster string, at time.Time) probe {
 	// Count at the level the queries aggregate at: some collectors export a
 	// metric name for a few app jobs without pod labels, which must not count.
-	count := func(metric string) float64 {
-		query := fmt.Sprintf(`count(max by (namespace, pod, container) (%s{namespace!="",pod!="",container!="",container!="POD"}))`, metric)
-		res, err := q.QueryInstant(ctx, cluster, query, at)
-		if err != nil {
-			return -1 // unknown, not zero: a failed probe must not read as "no data"
-		}
-		if len(res) == 0 || len(res[0].Values) == 0 {
-			return 0
-		}
-		return float64(res[0].Values[0])
+	count := func(metric string) string {
+		return fmt.Sprintf(`count(max by (namespace, pod, container) (%s{namespace!="",pod!="",container!="",container!="POD"}))`, metric)
 	}
-	has := func(metric string) bool {
-		res, err := q.QueryInstant(ctx, cluster, fmt.Sprintf("count(%s)", metric), at)
-		return err == nil && len(res) > 0 && len(res[0].Values) > 0 && res[0].Values[0] > 0
+	queries := []string{
+		count("container_cpu_usage_seconds_total"),
+		"count(kube_pod_container_status_restarts_total)",
+		"count(kube_pod_start_time)",
+		"count(kube_pod_container_resource_requests)",
+		count(memWorkingSet),
+		count(memUsage),
+		count("container_cpu_cfs_periods_total"),
+		count("container_cpu_cfs_throttled_periods_total"),
+		count("container_cpu_cfs_throttled_seconds_total"),
 	}
+	// None depends on another: asked together they cost a round trip or two,
+	// not nine, and still each go through the limiter.
+	n := make([]float64, len(queries))
+	errs := make([]error, len(queries))
+	var wg sync.WaitGroup
+	for i, query := range queries {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					errs[i] = panicked("probing signals", r)
+				}
+			}()
+			res, err := q.QueryInstant(ctx, cluster, query, at)
+			switch {
+			case err != nil:
+				errs[i] = err
+			case len(res) > 0 && len(res[0].Values) > 0:
+				n[i] = float64(res[0].Values[0])
+			}
+		}()
+	}
+	wg.Wait()
 	var p probe
-	p.cpuSeries = count("container_cpu_usage_seconds_total")
-	p.ksm = has("kube_pod_container_status_restarts_total")
-	p.startTime = has("kube_pod_start_time")
-	p.requests = has("kube_pod_container_resource_requests")
-	ws, usage := count(memWorkingSet), count(memUsage)
+	for _, err := range errs {
+		if err != nil {
+			p.err = err
+			break
+		}
+	}
+	p.cpuSeries = n[0]
+	p.ksm, p.startTime, p.requests = n[1] > 0, n[2] > 0, n[3] > 0
+	ws, usage := n[4], n[5]
 	switch {
 	case ws > 0 && ws >= 0.5*usage:
 		p.memMetric = memWorkingSet
@@ -118,12 +174,34 @@ func probeSignals(ctx context.Context, q historyQuerier, cluster string, at time
 		p.memMetric = memWorkingSet
 	}
 	switch {
-	case count("container_cpu_cfs_periods_total") > 0 && count("container_cpu_cfs_throttled_periods_total") > 0:
+	case n[6] > 0 && n[7] > 0:
 		p.throttle = throttlePeriods
-	case count("container_cpu_cfs_throttled_seconds_total") > 0:
+	case n[8] > 0:
 		p.throttle = throttleSeconds
 	}
 	return p
+}
+
+// probeOf rebuilds a probe from the signals a report recorded. The number of
+// CPU series isn't kept; a ready report had some.
+func probeOf(s Signals) probe {
+	p := probe{cpuSeries: 1, ksm: s.OOMKills, startTime: s.StartupExclusion, requests: s.RequestHistory, throttle: s.ThrottleKind, memMetric: memWorkingSet}
+	if s.MemoryMetric == "usage" {
+		p.memMetric = memUsage
+	}
+	return p
+}
+
+// lastProbe is the last good probe of a store, however old, or failing that
+// the signals of its last ready report.
+func lastProbe(key string, rep *Report) (probe, bool) {
+	if e, ok := probeCache.Load(key); ok {
+		return e.(probeEntry).p, true
+	}
+	if rep != nil && rep.Status == StatusReady {
+		return probeOf(rep.Signals), true
+	}
+	return probe{}, false
 }
 
 // scope is one namespace. Evidence for a single workload queries the whole
@@ -174,16 +252,16 @@ type history struct {
 	cpu           map[seriesKey]*pooled
 	podMeans      map[seriesKey][]float64 // lifetime mean CPU per pod
 	mem, throttle map[seriesKey][]float64
-	// burst is the busiest replica's highest 2-minute CPU rate in each step,
+	// burst is each replica's highest 2-minute CPU rate in each step,
 	// fetched only where CFS throttling counters are missing.
-	burst map[seriesKey][]float64
+	burst map[seriesKey]*pooled
 	// podFirst is when each pod (by name) first reported CPU, per key.
 	podFirst      map[seriesKey]map[string]int64
 	oom, restarts map[seriesKey][]time.Time
 	startupPeak   map[seriesKey]float64
-	// requests is hourly; requestsGrid is its axis.
-	cpuReq, memReq map[seriesKey][]float64
-	requestsGrid   grid
+	// requests and the memory limit are hourly; requestsGrid is their axis.
+	cpuReq, memReq, memLimit map[seriesKey][]float64
+	requestsGrid             grid
 	// starts are the pod start times startup was split by.
 	starts map[string]int64
 }
@@ -201,15 +279,53 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 	stepS := fmt.Sprintf("%ds", int(g.step.Seconds()))
 	h := &history{}
 
-	cpuPod := fmt.Sprintf(`sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{%s,container!="",container!="POD"}[%s]))`, sel, stepS)
+	// No query depends on another's answer, so all of them go out at once:
+	// the fetch takes as many round trips as the limiter needs for them, not
+	// one per query. A panic fails the fetch rather than the backend.
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		ferr error // first required query that failed, or a panic
+	)
+	fail := func(err error) {
+		mu.Lock()
+		defer mu.Unlock()
+		if ferr == nil {
+			ferr = err
+		}
+	}
+	spawn := func(f func()) {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					fail(panicked("reading history", r))
+				}
+			}()
+			f()
+		}()
+	}
+
+	// The same cgroup (id) is often scraped twice: two Prometheus replicas
+	// behind a store that doesn't deduplicate them, or the kubelet's and a
+	// cAdvisor job. Its copies count once; its per-CPU series, and the cgroups
+	// of a restarted container, still add up.
+	cpuPod := fmt.Sprintf(`sum by (namespace, pod, container) (max by (namespace, pod, container, id, cpu) (rate(container_cpu_usage_seconds_total{%s,container!="",container!="POD"}[%s])))`, sel, stepS)
 	// Startup is split from steady state in Go with each pod's start time,
 	// one cheap instant query, instead of joining kube_pod_start_time into
-	// every step of the CPU query, which is far heavier on the store.
+	// every step of the CPU query, which is far heavier on the store. Only
+	// laying CPU out needs them, and waits.
 	starts := sc.starts
+	startsReady := make(chan struct{})
 	if starts == nil && pr.startTime {
-		starts = podStarts(ctx, q, cluster, sc.liveMatchers(), g.end, window)
+		spawn(func() {
+			defer close(startsReady)
+			starts = podStarts(ctx, q, cluster, sc.liveMatchers(), g.end, window)
+		})
+	} else {
+		close(startsReady)
 	}
-	h.starts = starts
 	memPod := fmt.Sprintf(`max by (namespace, pod, container) (max_over_time(%s{%s,container!="",container!="POD"}[%s]))`, pr.memMetric, sel, stepS)
 
 	type job struct {
@@ -217,6 +333,7 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 		query    string
 		required bool
 		pooled   bool
+		perPod   *map[seriesKey]*pooled // laid out per replica, without the startup split
 	}
 	jobs := []job{
 		// Per pod, relabelled but not aggregated: CPU is pooled across
@@ -224,15 +341,19 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 		{query: relabel(cpuPod), required: true, pooled: true},
 		{dst: &h.mem, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(memPod)), required: true},
 	}
+	// Throttling is judged per replica, as CPU is: the share of replicas
+	// throttled more than throttleHigh of the time at each step, not the
+	// busiest one, which with N independent replicas shows an event N times
+	// as often.
 	switch pr.throttle {
 	case throttlePeriods:
 		thr := fmt.Sprintf(`sum by (namespace, pod, container) (rate(container_cpu_cfs_throttled_periods_total{%[1]s,container!="",container!="POD"}[%[2]s])) / sum by (namespace, pod, container) (rate(container_cpu_cfs_periods_total{%[1]s,container!="",container!="POD"}[%[2]s]))`, sel, stepS)
-		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(thr))})
+		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`avg by (%s) (%s > bool %g)`, keyLabels, relabel(thr), throttleHigh)})
 	case throttleSeconds:
 		// Seconds of throttling per second of wall time: a rough share of time
 		// spent throttled.
 		thr := fmt.Sprintf(`sum by (namespace, pod, container) (rate(container_cpu_cfs_throttled_seconds_total{%s,container!="",container!="POD"}[%s]))`, sel, stepS)
-		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(thr))})
+		jobs = append(jobs, job{dst: &h.throttle, query: fmt.Sprintf(`avg by (%s) (%s > bool %g)`, keyLabels, relabel(thr), throttleHigh)})
 	}
 	if pr.throttle != throttlePeriods {
 		// A CPU limit throttles within 100ms periods, which a step-long
@@ -240,57 +361,71 @@ func fetchHistory(ctx context.Context, c *chunker, cluster string, sc scope, g g
 		// rate in each step is the next best evidence of bursts against the
 		// limit. Rates every minute over 2-minute windows read about the same
 		// raw samples as the step-long rate above, so the store does similar
-		// work, not five times more.
+		// work, not five times more. Per pod, pooled like CPU.
 		burst := fmt.Sprintf(`max by (namespace, pod, container) (max_over_time(rate(container_cpu_usage_seconds_total{%s,container!="",container!="POD"}[2m])[%s:1m]))`, sel, stepS)
-		jobs = append(jobs, job{dst: &h.burst, query: fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(burst))})
+		jobs = append(jobs, job{perPod: &h.burst, query: relabel(burst)})
 	}
 
-	errs := make([]error, len(jobs))
-	done := make(chan struct{}, len(jobs))
-	for i, j := range jobs {
-		go func() {
-			defer func() { done <- struct{}{} }()
+	for _, j := range jobs {
+		spawn(func() {
 			res, err := c.rangeQuery(ctx, cluster, j.query, g, keep)
 			if err != nil {
 				if j.required {
-					errs[i] = err
+					fail(err)
 				}
 				return
 			}
-			if j.pooled {
+			switch {
+			case j.pooled:
+				<-startsReady
 				h.cpu, h.podMeans, h.startupPeak, h.podFirst = alignPooled(res, g, starts, keep, sc.jobs)
-			} else {
+			case j.perPod != nil:
+				*j.perPod, _, _, _ = alignPooled(res, g, nil, keep, nil)
+			default:
 				*j.dst = align(res, g, keep)
 			}
-		}()
+		})
 	}
-	for range jobs {
-		<-done
-	}
-	for _, err := range errs {
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	if pr.ksm {
-		restarts := fmt.Sprintf(`changes(kube_pod_container_status_restarts_total{%s}[%s]) > 0`, sel, stepS)
+		// Restarts in a step are how far the counter rose since the previous
+		// step. changes() over each step's own window never compares the last
+		// scrape of one step with the first of the next, so it lost about
+		// scrape/step of all restarts and OOM kills (one in ten at a 30s
+		// scrape), and counted several between two scrapes as one. Where
+		// there is no count a step apart to rise from, in a pod's first and
+		// last steps, changes() within the step still counts: an OOM kill in
+		// a pod's first minutes, or in a Job's pod that lives less than a
+		// step, would otherwise be lost.
+		counter := fmt.Sprintf(`kube_pod_container_status_restarts_total{%s}`, sel)
+		rise := fmt.Sprintf(`(%[1]s - %[1]s offset %[2]s)`, counter, stepS)
+		restarts := fmt.Sprintf(`%[1]s > 0 or (changes(%[2]s[%[3]s]) > 0 unless %[1]s)`, rise, counter, stepS)
 		oom := fmt.Sprintf(`(%s) and on (namespace, pod, container) (max by (namespace, pod, container) (kube_pod_container_status_last_terminated_reason{%s,reason="OOMKilled"}) == 1)`, restarts, sel)
-		h.restarts = events(ctx, c, cluster, fmt.Sprintf(`sum by (%s) (%s)`, keyLabels, relabel(restarts)), g, keep)
-		h.oom = events(ctx, c, cluster, fmt.Sprintf(`sum by (%s) (%s)`, keyLabels, relabel(oom)), g, keep)
+		spawn(func() {
+			h.restarts = events(ctx, c, cluster, fmt.Sprintf(`sum by (%s) (%s)`, keyLabels, relabel(restarts)), g, keep)
+		})
+		spawn(func() {
+			h.oom = events(ctx, c, cluster, fmt.Sprintf(`sum by (%s) (%s)`, keyLabels, relabel(oom)), g, keep)
+		})
 	}
 	if pr.requests {
 		h.requestsGrid = newGrid(g.end, window, time.Hour)
-		req := func(resource string) string {
-			return fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(fmt.Sprintf(`max by (namespace, pod, container) (kube_pod_container_resource_requests{%s,resource="%s"})`, sel, resource)))
+		hourly := func(metric, resource string, dst *map[seriesKey][]float64) {
+			query := fmt.Sprintf(`max by (%s) (%s)`, keyLabels, relabel(fmt.Sprintf(`max by (namespace, pod, container) (%s{%s,resource="%s"})`, metric, sel, resource)))
+			if res, err := c.rangeQuery(ctx, cluster, query, h.requestsGrid, keep); err == nil {
+				*dst = align(res, h.requestsGrid, keep)
+			}
 		}
-		if res, err := c.rangeQuery(ctx, cluster, req("cpu"), h.requestsGrid, keep); err == nil {
-			h.cpuReq = align(res, h.requestsGrid, keep)
-		}
-		if res, err := c.rangeQuery(ctx, cluster, req("memory"), h.requestsGrid, keep); err == nil {
-			h.memReq = align(res, h.requestsGrid, keep)
-		}
+		spawn(func() { hourly("kube_pod_container_resource_requests", "cpu", &h.cpuReq) })
+		spawn(func() { hourly("kube_pod_container_resource_requests", "memory", &h.memReq) })
+		// Which limit an OOM kill happened at: one raised since has dealt
+		// with it, and must not be bumped again.
+		spawn(func() { hourly("kube_pod_container_resource_limits", "memory", &h.memLimit) })
 	}
+	wg.Wait()
+	if ferr != nil {
+		return nil, ferr
+	}
+	h.starts = starts
 	return h, nil
 }
 

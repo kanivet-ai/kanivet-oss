@@ -244,6 +244,16 @@
   background-image: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08));
 }
 
+.ap-btn--warning {
+  background-color: var(--warning);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.14);
+}
+
+.ap-btn--warning:hover:not(:disabled) {
+  background-image: linear-gradient(rgba(0, 0, 0, 0.08), rgba(0, 0, 0, 0.08));
+}
+
 .ap-btn--ctrl {
   background-color: var(--ctrl);
   box-shadow: none;
@@ -773,6 +783,49 @@
   color: var(--text);
 }
 
+/* Dialogs on the Radix Dialog primitive (common/Dialog, StarProjectDialog):
+   the content sits inside .ap-overlay so it centres and scrolls with it. */
+.ap-dialog-overlay {
+  overflow-y: auto;
+  padding: 32px 16px max(32px, 6vh);
+}
+
+.ap-dialog {
+  position: relative;
+  width: 100%;
+  margin: auto;
+  padding: 20px 22px 18px;
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+  outline: none;
+}
+
+.ap-dialog-title {
+  /* A 24px line with its leading above the cap height trimmed away. */
+  margin: -4.44px 0 8px;
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 24px;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+.ap-dialog-description {
+  color: var(--text2);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.ap-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 16px;
+}
+
 .ap-sheet-footer {
   display: flex;
   justify-content: flex-end;
@@ -780,6 +833,17 @@
   padding: 12px 18px;
   background: var(--win);
   border-top: 1px solid var(--hair);
+}
+
+/* ---- Lazy view that failed to load (utils/lazyView) -------------------- */
+.ap-load-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 16px;
+  font-size: 13px;
+  color: var(--text2);
 }
 
 /* ---- Status bar -------------------------------------------------------- */

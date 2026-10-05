@@ -1,9 +1,14 @@
+import type { CostRecommendation } from '../../types/finops';
 import type {
   StartupBoost,
   ContainerReport,
+  Evidence,
+  EvidenceEvent,
   Finding,
   Distribution,
+  HPACoupling,
   RightsizingProfile,
+  RightsizingSummary,
   Verdict,
   WorkloadReport,
 } from '../../types/rightsizing';
@@ -61,13 +66,25 @@ export const VERDICT_META: Record<
   },
 };
 
+/** Mirrors the backend's profile parameters (types.go): memory headroom over
+ * the peak is a share of it or a floor, whichever is larger. */
 export const PROFILE_META: Record<
   RightsizingProfile,
-  { label: string; cpu: string; mem: string }
+  { label: string; cpu: string; mem: string; memFloor: string }
 > = {
-  conservative: { label: 'Conservative', cpu: 'P99', mem: '+30%' },
-  balanced: { label: 'Balanced', cpu: 'P95', mem: '+15%' },
-  aggressive: { label: 'Aggressive', cpu: 'P90', mem: '+5%' },
+  conservative: {
+    label: 'Conservative',
+    cpu: 'P99',
+    mem: '30%',
+    memFloor: '64Mi',
+  },
+  balanced: { label: 'Balanced', cpu: 'P95', mem: '15%', memFloor: '32Mi' },
+  aggressive: {
+    label: 'Aggressive',
+    cpu: 'P90',
+    mem: '10%',
+    memFloor: '16Mi',
+  },
 };
 
 // ---- Formatting --------------------------------------------------------------
@@ -182,12 +199,18 @@ export function quantileAt(
 
 export interface CandidateEval {
   cpuTimeAbove: number;
+  /** Read off the report's few quantiles: the distribution isn't loaded. */
+  cpuApproximate: boolean;
   memPeakHeadroom: number; // candidate / observed peak - 1
   memDaysOver: number; // daily peaks above the candidate
   monthlyDelta: number; // positive = saves money
 }
 
-/** What a candidate request would have meant over the window. */
+const COARSE_Q = [0, 0.5, 0.9, 0.95, 0.99, 1];
+
+/** What a candidate request would have meant over the window. Until the
+ * evidence's distribution arrives, the report's own quantiles stand in for
+ * it, so the readout follows the slider from the first frame. */
 export function evaluateCandidate(
   c: ContainerReport,
   dist: Distribution | undefined,
@@ -196,7 +219,11 @@ export function evaluateCandidate(
 ): CandidateEval {
   const cpuTimeAbove = dist
     ? exceedance(dist.q, dist.cpu, cpu)
-    : c.cpu.timeAboveRequest;
+    : exceedance(
+        COARSE_Q,
+        [0, c.cpu.p50, c.cpu.p90, c.cpu.p95, c.cpu.p99, c.cpu.peak],
+        cpu,
+      );
   const peak = c.memory.peak || 0;
   const memDaysOver = dist
     ? dist.dailyMemPeaks.filter((p) => p > mem).length
@@ -206,6 +233,7 @@ export function evaluateCandidate(
     ((c.memory.request - mem) / GI) * c.memMonthly;
   return {
     cpuTimeAbove,
+    cpuApproximate: !dist,
     memPeakHeadroom: peak > 0 ? mem / peak - 1 : 0,
     memDaysOver,
     monthlyDelta,
@@ -243,17 +271,80 @@ export interface ContainerChoice {
   memoryLimit: number;
 }
 
-/** The recommendation as a choice, honouring the limit actions. */
+/** The recommendation as a choice, honouring the limit actions. A limit the
+ * engine keeps stays as it is (0: still unset), a CPU one rising only to a
+ * request picked above it; any other memory value, the recommendation's or
+ * one picked on the slider, is both request and limit. */
 export function choiceFromRec(
   c: ContainerReport,
   cpu = c.cpu.recommended,
   memory = c.memory.recommended,
 ): ContainerChoice {
   let cpuLimit = 0;
-  if (c.cpu.limitAction === 'keep' || c.cpu.limitAction === 'raise') {
+  if (
+    (c.cpu.limitAction === 'keep' && c.cpu.recommendedLimit > 0) ||
+    c.cpu.limitAction === 'raise'
+  ) {
     cpuLimit = Math.max(c.cpu.recommendedLimit, cpu);
   }
-  return { container: c.container, cpu, memory, cpuLimit, memoryLimit: memory };
+  const memoryLimit =
+    c.memory.limitAction === 'keep' &&
+    Math.abs(memory - c.memory.recommended) < 1
+      ? c.memory.recommendedLimit
+      : memory;
+  return { container: c.container, cpu, memory, cpuLimit, memoryLimit };
+}
+
+/** Whether a VerticalPodAutoscaler sets this request of a container at
+ * admission, so a patch to it would not last. */
+const vpaSets = (c: ContainerReport, resource: 'cpu' | 'memory') =>
+  c.vpa?.resources.includes(resource) ?? false;
+
+/** The HPA target changes a workload's recommendation pairs with, one per
+ * HPA: the report's own for the workload, which a pod-level HPA works out
+ * over every container's requests. Reports without it carry only the
+ * containers'; they share the HPA, so it gets the lowest, which scales out
+ * no later than today's target does with the old requests. */
+function workloadHPAs(w: WorkloadReport): HPACoupling[] {
+  if (w.hpa) return [w.hpa];
+  const targets = new Map<string, HPACoupling>();
+  for (const c of w.containers) {
+    const prev = c.hpa && targets.get(c.hpa.name);
+    if (c.hpa && (!prev || c.hpa.suggestedTarget < prev.suggestedTarget))
+      targets.set(c.hpa.name, c.hpa);
+  }
+  return [...targets.values()];
+}
+
+/** Whether an HPA's target counts a container's request: a pod-level one
+ * sums every container requesting its resource, any other only the one it
+ * is coupled to. */
+export const hpaCounts = (h: HPACoupling, c: ContainerReport) =>
+  h.pod ? c[h.resource].request > 0 : c.hpa?.name === h.name;
+
+/** The target that keeps today's scaling with the chosen requests: today's
+ * target times the requests it counts, today's over the chosen. With the
+ * recommendations it is the suggested target. */
+export function pairedHPATarget(
+  w: WorkloadReport,
+  h: HPACoupling,
+  choices: ContainerChoice[],
+): number {
+  let now = 0;
+  let next = 0;
+  for (const c of w.containers) {
+    if (!hpaCounts(h, c)) continue;
+    const k = choices.find((x) => x.container === c.container);
+    now += c[h.resource].request;
+    next += k
+      ? h.resource === 'cpu'
+        ? k.cpu
+        : k.memory
+      : c[h.resource].recommended;
+  }
+  return now > 0 && next > 0
+    ? Math.max(1, Math.round((h.targetUtilization * now) / next))
+    : h.suggestedTarget;
 }
 
 const TEMPLATE_PATH: Record<string, string[]> = {
@@ -364,10 +455,25 @@ export function repositoryPrompt(
       '```',
     ]),
   ];
+  // A pod-level HPA counts every container's requests: its target pairs
+  // with their total, once for the workload.
+  const pod = w.hpa?.pod ? w.hpa : undefined;
+  if (pod) {
+    lines.push(
+      '',
+      `HorizontalPodAutoscaler ${pod.name} scales on the ${pod.resource} utilization of the whole pod, every container's requests summed: its target is ${pod.targetUtilization}%. Kanivet suggests ${pod.suggestedTarget}% paired with requests totalling ${quantity(pod.resource, pod.pairedRequest)} per pod. Verify the target against the selected requests and update the HPA together with them to preserve scaling behavior.`,
+    );
+  }
   for (const choice of choices) {
     const c = w.containers.find((row) => row.container === choice.container);
     if (!c) continue;
-    if (c.hpa) {
+    if (c.vpa) {
+      lines.push(
+        '',
+        `VerticalPodAutoscaler ${c.vpa.name} (updateMode ${c.vpa.mode}) sets the ${c.vpa.resources.join(' and ')} requests of container ${c.container} at admission, so a manifest change to them won't last. Steer the VPA instead, with minAllowed and maxAllowed in its resourcePolicy.`,
+      );
+    }
+    if (c.hpa && !pod) {
       lines.push(
         '',
         `Container ${c.container} is coupled to HorizontalPodAutoscaler ${c.hpa.name}: its ${c.hpa.resource} utilization target is ${c.hpa.targetUtilization}%. Kanivet suggests ${c.hpa.suggestedTarget}% paired with a request of ${quantity(c.hpa.resource, c.hpa.pairedRequest)}. Verify the target against the selected request and update the HPA together with the request to preserve scaling behavior.`,
@@ -487,6 +593,10 @@ export const emptyFilters = (): TriageFilters => ({
   kinds: new Set(),
   minSavings: 0,
 });
+
+/** A workload's identity, stable across reports. */
+export const workloadId = (w: WorkloadReport) =>
+  `${w.namespace}/${w.vclusterNamespace ?? ''}/${w.kind}/${w.name}`;
 
 export const isDismissed = (w: WorkloadReport): boolean => {
   const d = w.dismissed ?? [];
@@ -830,10 +940,27 @@ export function rightsizingSavingsIndex(ws: WorkloadReport[]) {
 
 const MIN_LISTED_SAVINGS = 5;
 
+/** FinOps' potential savings: the report's own total, which counts every
+ * workload that would cost less however little, plus the other (node)
+ * opportunities. The rightsizing rows listed stop at MIN_LISTED_SAVINGS;
+ * `smaller` counts the workloads they leave out. */
+export function potentialSavings(
+  summary: RightsizingSummary | undefined,
+  listed: CostRecommendation[],
+): { total: number; smaller: number } {
+  let total = summary?.monthlySavings ?? 0;
+  let rows = 0;
+  for (const r of listed) {
+    if (r.rightsizing) rows++;
+    else total += r.projectedSavings || 0;
+  }
+  return { total, smaller: Math.max(0, (summary?.shrinking ?? 0) - rows) };
+}
+
 /** The engine's findings as FinOps savings rows: what can shrink, priced. */
 export function rightsizingRecommendations(
   ws: WorkloadReport[],
-): import('../../types/finops').CostRecommendation[] {
+): CostRecommendation[] {
   return ws
     .filter(
       (w) =>
@@ -905,15 +1032,69 @@ export function patchObject(
     : { spec: { template } };
 }
 
-/** Whether a workload's recommendation changes anything worth patching. */
-export const hasChange = (w: WorkloadReport) =>
-  w.containers.some(
-    (c) =>
-      Math.abs(c.cpu.recommended - c.cpu.request) > 1e-9 ||
-      Math.abs(c.memory.recommended - c.memory.request) > 0.5,
-  );
+/** The recommendation as a bulk patch applies it. A resource a
+ * VerticalPodAutoscaler sets is left out (0), request and limit alike: the
+ * VPA would overwrite the request at admission, so the template keeps
+ * today's. */
+const bulkChoice = (c: ContainerReport): ContainerChoice => {
+  const k = choiceFromRec(c);
+  if (vpaSets(c, 'cpu')) k.cpu = k.cpuLimit = 0;
+  if (vpaSets(c, 'memory')) k.memory = k.memoryLimit = 0;
+  return k;
+};
 
-/** One `kubectl patch` per workload, for every kind, as a runnable script. */
+/** Whether applying a container's recommendation changes its requests or
+ * limits: a raised CPU limit is a change even when the request stays. What
+ * a VPA sets is not Kanivet's to change. */
+const changes = (c: ContainerReport) => {
+  const k = choiceFromRec(c);
+  return (
+    (!vpaSets(c, 'cpu') &&
+      (Math.abs(k.cpu - c.cpu.request) > 1e-9 ||
+        Math.abs(k.cpuLimit - c.cpu.limit) > 1e-9)) ||
+    (!vpaSets(c, 'memory') &&
+      (Math.abs(k.memory - c.memory.request) > 0.5 ||
+        Math.abs(k.memoryLimit - c.memory.limit) > 0.5))
+  );
+};
+
+/** Whether a workload's recommendation changes anything worth patching. */
+export const hasChange = (w: WorkloadReport) => w.containers.some(changes);
+
+/** The choices a bulk patch applies: containers that change, nothing else. */
+const changedChoices = (w: WorkloadReport) =>
+  w.containers.filter(changes).map(bulkChoice);
+
+/** One line per HPA of a workload, unless a VPA sets a request its target
+ * counts: the patch leaves that request as it is, so the target stays too. */
+function hpaTargetLines(w: WorkloadReport): string[] {
+  return workloadHPAs(w)
+    .filter(
+      (h) =>
+        !w.containers.some((c) => hpaCounts(h, c) && vpaSets(c, h.resource)),
+    )
+    .map(
+      (h) =>
+        `# and set HPA ${h.name} ${h.resource} target to ${h.suggestedTarget}%`,
+    );
+}
+
+/** Kinds the apiserver applies a strategic merge patch to. A custom resource
+ * such as an Argo Rollout refuses one (415), and a merge patch would replace
+ * its whole containers list: under `set -e` either would stop the script
+ * part way, with the workloads after it never patched. */
+const STRATEGIC_PATCH_KINDS = new Set([
+  'Deployment',
+  'StatefulSet',
+  'DaemonSet',
+  'ReplicaSet',
+  'Job',
+  'CronJob',
+  'ReplicationController',
+]);
+
+/** One `kubectl patch` per workload of a built-in kind, as a runnable
+ * script; other kinds get a note to apply their YAML patch by hand. */
 export function bulkKubectl(ws: WorkloadReport[]): string {
   const lines = [
     '#!/bin/sh',
@@ -923,24 +1104,16 @@ export function bulkKubectl(ws: WorkloadReport[]): string {
   ];
   for (const w of ws.filter(hasChange)) {
     const ns = w.vclusterNamespace || w.namespace;
-    const body = JSON.stringify(
-      patchObject(
-        w.kind,
-        w.containers.map((c) => choiceFromRec(c)),
-      ),
-    );
+    const body = JSON.stringify(patchObject(w.kind, changedChoices(w)));
     lines.push(
       `# ${w.kind} ${ns}/${w.name}${w.vclusterNamespace ? ' (inside its vcluster)' : ''}`,
     );
     lines.push(
-      `kubectl -n ${ns} patch ${w.kind.toLowerCase()}/${w.name} --type strategic -p '${body}'`,
+      STRATEGIC_PATCH_KINDS.has(w.kind)
+        ? `kubectl -n ${ns} patch ${w.kind.toLowerCase()}/${w.name} --type strategic -p '${body}'`
+        : `# not patched here: kubectl cannot merge container resources into a ${w.kind}; apply its YAML patch to the pod template by hand`,
     );
-    for (const c of w.containers) {
-      if (c.hpa)
-        lines.push(
-          `# and set HPA ${c.hpa.name} ${c.hpa.resource} target to ${c.hpa.suggestedTarget}%`,
-        );
-    }
+    lines.push(...hpaTargetLines(w));
     lines.push('');
   }
   return lines.join('\n');
@@ -952,13 +1125,17 @@ export function bulkYAML(ws: WorkloadReport[]): string {
     .filter(hasChange)
     .map((w) => {
       const ns = w.vclusterNamespace || w.namespace;
-      return `# ${w.kind} ${ns}/${w.name}\n${patchYAML(
-        w.kind,
-        w.containers.map((c) => choiceFromRec(c)),
-      )}`;
+      return `# ${w.kind} ${ns}/${w.name}\n${patchYAML(w.kind, changedChoices(w))}`;
     })
     .join('\n---\n');
 }
+
+const NO_EVENTS: EvidenceEvent[] = [];
+
+/** A container's events. The backend may send none as null; the same empty
+ * list every time keeps the memoised charts from redrawing on each render. */
+export const eventsOf = (evidence: Evidence | null, container: string) =>
+  evidence?.events[container] ?? NO_EVENTS;
 
 /** Minutes or hours of a day, the unit the duration curve speaks in. */
 export function formatDayTime(hours: number): string {

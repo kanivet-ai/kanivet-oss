@@ -3,10 +3,13 @@ package watcher
 import (
 	"context"
 	"encoding/json"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"runtime/debug"
-	"sort"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -54,6 +57,9 @@ func (m *CountUpdateMessage) GetData() map[string]interface{} {
 type syncStatus struct {
 	done chan struct{}
 	err  error
+	// owner is the context of the watch whose list this is, guarded by
+	// syncStateMu.
+	owner context.Context
 }
 
 type Service struct {
@@ -75,6 +81,8 @@ type Service struct {
 	clusterErr        map[string]*clusterErrState
 	epochMu           sync.Mutex
 	epochs            map[string]uint64
+	snapshotMu        sync.Mutex
+	snapshotSavedAt   map[string]time.Time
 }
 
 func (s *Service) nextEpoch(topic string) uint64 {
@@ -216,6 +224,12 @@ type Broadcaster interface {
 	CleanupTopic(topic string)
 }
 
+// TopicHolder is a Broadcaster that batches live events and can hold a
+// topic's back: until release, they wait for FlushTopic.
+type TopicHolder interface {
+	HoldTopic(topic string) (release func())
+}
+
 type Message interface {
 	Marshal() ([]byte, error)
 	GetData() map[string]interface{}
@@ -244,6 +258,7 @@ func NewService(client *k8s.Client, hub Broadcaster) *Service {
 			hub.CleanupTopic(key)
 			svc.clearSyncState(key)
 			svc.clearEpoch(key)
+			svc.clearSnapshotSavedAt(key)
 		})
 		if cleaned {
 			log.Printf("k8s watcher: cleared cache and batcher state for %s", key)
@@ -312,10 +327,60 @@ func (s *Service) GetCache() *ResourceCache {
 	return s.cache
 }
 
+// pendingSync returns the topic's unfinished sync for the watch running under
+// ctx, starting one if there is none, so sendCachedData waits for the list in
+// flight instead of replaying a cache that does not hold it yet. A sync left
+// unfinished by a stopped watch is taken over, waiters and all. A stopped
+// watch gets one nobody waits on: a watch is cancelled before its replacement
+// can start, so it never ends the replacement's sync.
+func (s *Service) pendingSync(ctx context.Context, topic string) *syncStatus {
+	s.syncStateMu.Lock()
+	defer s.syncStateMu.Unlock()
+	if ctx.Err() != nil {
+		return &syncStatus{done: make(chan struct{}), owner: ctx}
+	}
+	if st := s.syncState[topic]; st != nil {
+		select {
+		case <-st.done:
+		default:
+			st.owner = ctx
+			return st
+		}
+	}
+	st := &syncStatus{done: make(chan struct{}), owner: ctx}
+	s.syncState[topic] = st
+	return st
+}
+
+// finishSync records how the watch's sync ended and releases its waiters,
+// unless the watch that replaced it has taken the sync over.
+func (s *Service) finishSync(ctx context.Context, st *syncStatus, err error) {
+	s.syncStateMu.Lock()
+	defer s.syncStateMu.Unlock()
+	if st.owner != ctx {
+		return
+	}
+	select {
+	case <-st.done:
+	default:
+		st.err = err
+		close(st.done)
+	}
+}
+
 func (s *Service) clearSyncState(topic string) {
 	s.syncStateMu.Lock()
 	delete(s.syncState, topic)
 	s.syncStateMu.Unlock()
+}
+
+// clearSnapshotSavedAt forgets when a topic's snapshot was last saved, so the
+// map does not grow with every topic ever opened and a reopened topic saves
+// its first fresh list.
+func (s *Service) clearSnapshotSavedAt(topic string) {
+	s.snapshotMu.Lock()
+	delete(s.snapshotSavedAt, topic)
+	s.snapshotMu.Unlock()
 }
 
 func (s *Service) SetInvalidationBus(bus *cache.InvalidationBus) {
@@ -354,18 +419,15 @@ func (s *Service) StartWatch(cluster, group, version, kind, namespace, sortBy, s
 	if needsIndexing && s.onClusterWatched != nil {
 		go s.onClusterWatched(cluster)
 	}
-	resourceName := s.client.GetResourceName(cluster, group, version, kind)
-	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourceName}
-	t1 := time.Now()
 	alreadyWatching, err := s.manager.StartWatch(topic, func(ctx context.Context) error {
-		return s.watchResources(ctx, cluster, gvr, namespace, topic)
+		s.watchResources(ctx, cluster, group, version, kind, namespace, topic)
+		return nil
 	})
-	t2 := time.Now()
 	if alreadyWatching {
 		go s.sendCachedData(topic, sortBy, sortOrder)
-		log.Printf("[PERF] StartWatch (cached): setup=%v managerStart=%v kind=%s", t1.Sub(t0), t2.Sub(t1), kind)
+		log.Printf("[PERF] StartWatch (cached): %v kind=%s", time.Since(t0), kind)
 	} else {
-		log.Printf("[PERF] StartWatch (fresh): setup=%v managerStart=%v kind=%s", t1.Sub(t0), t2.Sub(t1), kind)
+		log.Printf("[PERF] StartWatch (fresh): %v kind=%s", time.Since(t0), kind)
 	}
 	return err
 }
@@ -393,6 +455,7 @@ func (s *Service) StopAllForCluster(cluster string) {
 		s.hub.CleanupTopic(topic)
 		s.clearSyncState(topic)
 		s.clearEpoch(topic)
+		s.clearSnapshotSavedAt(topic)
 	}
 	s.indexedClustersMu.Lock()
 	delete(s.indexedClusters, cluster)
@@ -432,6 +495,12 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	if !s.manager.HasWatch(topic) {
 		return
 	}
+	// Live events go out after the snapshot's pages, as each page may be
+	// older than they are: held from before the snapshot is read until
+	// sync_complete, they are flushed just ahead of it.
+	if h, ok := s.hub.(TopicHolder); ok {
+		defer h.HoldTopic(topic)()
+	}
 	if err := s.hub.FlushTopic(topic); err != nil {
 		log.Printf("Failed to flush topic %s before resync: %v", topic, err)
 	}
@@ -456,7 +525,7 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 			Count:       len(chunk),
 			Epoch:       epoch,
 		}
-		if err := s.hub.BroadcastDirect(topic, msg); err != nil {
+		if err := s.broadcastBulk(msg); err != nil {
 			log.Printf("Failed to broadcast cached data chunk for topic %s: %v", topic, err)
 		}
 		i = end
@@ -465,93 +534,121 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	log.Printf("[PERF] sendCachedData: %d items in %v (epoch=%d)", len(cachedItems), time.Since(t0), epoch)
 }
 
-func sortCachedItems(items []map[string]interface{}, sortBy, sortOrder string) {
-	if len(items) == 0 {
-		return
+// broadcastBulk sends a bulk_list chunk. A connection refuses a message over
+// its size limit as a whole (core.ErrInvalidMessage) and nothing resends it,
+// so an oversized chunk is split in half until each part fits; only a single
+// item that is too large on its own is dropped.
+func (s *Service) broadcastBulk(msg *BulkListMessage) error {
+	err := s.hub.BroadcastDirect(msg.Topic, msg)
+	if len(msg.Items) < 2 || !errors.Is(err, core.ErrInvalidMessage) {
+		return err
 	}
-	isDesc := sortOrder == "desc"
-	sort.Slice(items, func(i, j int) bool {
-		var vi, vj interface{}
-		if sortBy == "age" || sortBy == "creationTimestamp" {
-			vi = items[i]["creationTimestamp"]
-			vj = items[j]["creationTimestamp"]
-		} else {
-			vi = items[i][sortBy]
-			vj = items[j][sortBy]
-		}
-		cmp := compareValues(vi, vj)
-		if isDesc {
-			return cmp > 0
-		}
-		return cmp < 0
-	})
+	half := len(msg.Items) / 2
+	first, second := *msg, *msg
+	first.Items, first.Count = msg.Items[:half], half
+	second.Items, second.Count = msg.Items[half:], len(msg.Items)-half
+	return errors.Join(s.broadcastBulk(&first), s.broadcastBulk(&second))
 }
 
-func compareValues(a, b interface{}) int {
-	if a == nil && b == nil {
+// sortKey is one item's sort value, computed once per item rather than on
+// every comparison: lowercasing both operands per comparison cost 50k rows
+// two allocations on each of their n·log n comparisons.
+type sortKey struct {
+	str   string
+	num   float64
+	isNum bool
+	isNil bool
+}
+
+// sortKeyOf orders strings case-insensitively unless lower is false, numbers
+// numerically and nil before everything else. Other values compare as an
+// empty string.
+func sortKeyOf(v interface{}, lower bool) sortKey {
+	switch t := v.(type) {
+	case nil:
+		return sortKey{isNil: true}
+	case string:
+		if lower {
+			t = strings.ToLower(t)
+		}
+		return sortKey{str: t}
+	case int:
+		return sortKey{num: float64(t), isNum: true}
+	case int64:
+		return sortKey{num: float64(t), isNum: true}
+	case float64:
+		return sortKey{num: t, isNum: true}
+	}
+	return sortKey{}
+}
+
+func (a sortKey) compare(b sortKey) int {
+	switch {
+	case a.isNil && b.isNil:
+		return 0
+	case a.isNil:
+		return -1
+	case b.isNil:
+		return 1
+	case a.isNum && b.isNum:
+		if a.num < b.num {
+			return -1
+		}
+		if a.num > b.num {
+			return 1
+		}
 		return 0
 	}
-	if a == nil {
-		return -1
-	}
-	if b == nil {
-		return 1
-	}
-	switch va := a.(type) {
-	case string:
-		if vb, ok := b.(string); ok {
-			return strings.Compare(strings.ToLower(va), strings.ToLower(vb))
-		}
-	case int:
-		if vb, ok := b.(int); ok {
-			if va < vb {
-				return -1
-			}
-			if va > vb {
-				return 1
-			}
-			return 0
-		}
-	case int64:
-		if vb, ok := b.(int64); ok {
-			if va < vb {
-				return -1
-			}
-			if va > vb {
-				return 1
-			}
-			return 0
-		}
-	case float64:
-		if vb, ok := b.(float64); ok {
-			if va < vb {
-				return -1
-			}
-			if va > vb {
-				return 1
-			}
-			return 0
-		}
-	}
-	sa := strings.ToLower(stringValue(a))
-	sb := strings.ToLower(stringValue(b))
-	return strings.Compare(sa, sb)
+	return strings.Compare(a.str, b.str)
 }
 
-func stringValue(v interface{}) string {
-	if v == nil {
-		return ""
+func sortCachedItems(items []map[string]interface{}, sortBy, sortOrder string) {
+	if len(items) < 2 {
+		return
 	}
-	if s, ok := v.(string); ok {
-		return s
+	field := sortBy
+	// RFC3339 timestamps order correctly byte-wise, so they skip lowercasing.
+	timestamp := sortBy == "age" || sortBy == "creationTimestamp"
+	if timestamp {
+		field = "creationTimestamp"
 	}
-	return ""
+	type keyed struct {
+		key             sortKey
+		namespace, name string
+		item            map[string]interface{}
+	}
+	ks := make([]keyed, len(items))
+	for i, item := range items {
+		ns, _ := item["namespace"].(string)
+		name, _ := item["name"].(string)
+		ks[i] = keyed{key: sortKeyOf(item[field], !timestamp), namespace: ns, name: name, item: item}
+	}
+	desc := sortOrder == "desc"
+	slices.SortFunc(ks, func(a, b keyed) int {
+		c := a.key.compare(b.key)
+		if desc {
+			c = -c
+		}
+		if c != 0 {
+			return c
+		}
+		// Ties (objects created in the same second) fall back to namespace
+		// and name, so the same items always come out in the same order.
+		if c = strings.Compare(a.namespace, b.namespace); c != 0 {
+			return c
+		}
+		return strings.Compare(a.name, b.name)
+	})
+	for i := range ks {
+		items[i] = ks[i].item
+	}
 }
 
 const maxSnapshotItems = 2500
 
 // snapshotEligible reports whether a topic's items should be persisted for
-// stale-then-fresh cold starts. Events already have a DB-backed instant path.
+// stale-then-fresh cold starts. Core events expire within an hour, so a
+// snapshot from an earlier session would mostly hold events that are gone.
 func snapshotEligible(topic string) (cluster string, ok bool) {
 	cluster, group, _, kind, _, parsed := topics.ParseItemsTopic(topic)
 	if !parsed || (group == "" && kind == "events") {
@@ -580,7 +677,7 @@ func (s *Service) preloadSnapshot(topic string) {
 		return
 	}
 	var items []map[string]interface{}
-	if err := json.Unmarshal(data, &items); err != nil || len(items) == 0 {
+	if err := jsonv2.Unmarshal(data, &items); err != nil || len(items) == 0 {
 		return
 	}
 	sortBy, sortOrder := s.hub.GetSortPreference(topic)
@@ -599,11 +696,35 @@ func (s *Service) preloadSnapshot(topic string) {
 			Count:       end - i,
 			Epoch:       epoch,
 		}
-		if err := s.hub.BroadcastDirect(topic, msg); err != nil {
+		if err := s.broadcastBulk(msg); err != nil {
 			log.Printf("Failed to broadcast snapshot chunk for topic %s: %v", topic, err)
 		}
 	}
 	log.Printf("k8s watcher: preloaded %d snapshot items for %s", len(items), topic)
+}
+
+// snapshotSaveInterval spaces out the snapshot writes that follow a LIST, so
+// a topic that relists often does not re-encode and rewrite up to 2,500 rows
+// each time. Shutdown still writes every topic's latest state.
+const snapshotSaveInterval = time.Minute
+
+// saveSnapshotSoon persists the topic's snapshot in the background unless it
+// was saved less than snapshotSaveInterval ago.
+func (s *Service) saveSnapshotSoon(topic string) {
+	if s.db == nil {
+		return
+	}
+	s.snapshotMu.Lock()
+	if time.Since(s.snapshotSavedAt[topic]) < snapshotSaveInterval {
+		s.snapshotMu.Unlock()
+		return
+	}
+	if s.snapshotSavedAt == nil {
+		s.snapshotSavedAt = make(map[string]time.Time)
+	}
+	s.snapshotSavedAt[topic] = time.Now()
+	s.snapshotMu.Unlock()
+	go s.saveSnapshot(topic)
 }
 
 func (s *Service) saveSnapshot(topic string) {
@@ -616,6 +737,10 @@ func (s *Service) saveSnapshot(topic string) {
 	}
 	items := s.cache.GetAll(topic)
 	if len(items) > maxSnapshotItems {
+		// The cache is a map: without sorting first, a long list would
+		// persist a random subset instead of the rows the user sees first.
+		sortBy, sortOrder := s.hub.GetSortPreference(topic)
+		sortCachedItems(items, sortBy, sortOrder)
 		items = items[:maxSnapshotItems]
 	}
 	data, err := json.Marshal(items)
@@ -627,20 +752,27 @@ func (s *Service) saveSnapshot(topic string) {
 	}
 }
 
-func (s *Service) watchResources(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string) error {
+// watchResources starts the topic's watch loop. Resolving the resource name
+// (a discovery round trip on a cache miss) and building the client (which, for
+// a reconnecting vcluster, waits up to 25 s for its tunnel) happen in that
+// goroutine, not here: StartWatch runs on the connection's only read loop and
+// under the manager's lock, so doing them inline stalled every other message
+// on the socket and every other topic's subscribe. runWatchLoop retries a
+// client it cannot build with backoff and reports credential errors.
+func (s *Service) watchResources(ctx context.Context, cluster, group, version, kind, namespace, topic string) {
 	s.cache.Clear(topic)
-
-	resource, err := s.resourceForGVR(cluster, gvr)
-	if err != nil {
-		if isCredErr, code, msg := isCredentialError(err); isCredErr {
-			s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
+	// The first list is pending from here, not only once the goroutine gets
+	// to it, so a revisit in the meantime waits for it rather than replaying
+	// the still-empty cache as an authoritative snapshot.
+	pending := s.pendingSync(ctx, topic)
+	go func() {
+		gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: s.client.GetResourceName(cluster, group, version, kind)}
+		if ctx.Err() != nil {
+			s.finishSync(ctx, pending, ctx.Err())
+			return
 		}
-		return err
-	}
-
-	go s.runWatchLoop(ctx, cluster, gvr, namespace, topic, resource)
-
-	return nil
+		s.runWatchLoop(ctx, cluster, gvr, namespace, topic, nil)
+	}()
 }
 
 func (s *Service) resourceForGVR(cluster string, gvr schema.GroupVersionResource) (resourceLister, error) {
@@ -688,6 +820,13 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 				if isCredErr, code, msg := isCredentialError(err); isCredErr {
 					s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
 				}
+				if consecutiveFailures == 0 {
+					// Like a failed list: revisits must not replay the empty
+					// cache as authoritative, and the UI leaves its loading
+					// state while the client is retried.
+					s.finishSync(ctx, s.pendingSync(ctx, topic), err)
+					s.sendInitialSyncComplete(topic, 0, 0)
+				}
 				if !sleepBackoff(ctx, &consecutiveFailures) {
 					return
 				}
@@ -698,19 +837,9 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 		needsList := latestRV == ""
 		var listErr error
 		if needsList {
-			s.syncStateMu.Lock()
-			status := &syncStatus{done: make(chan struct{})}
-			s.syncState[topic] = status
-			s.syncStateMu.Unlock()
-
+			status := s.pendingSync(ctx, topic)
 			latestRV, listErr = s.fetchAndBroadcastListSync(ctx, cluster, gvr, namespace, topic, resource)
-
-			s.syncStateMu.Lock()
-			if st, ok := s.syncState[topic]; ok {
-				st.err = listErr
-				close(st.done)
-			}
-			s.syncStateMu.Unlock()
+			s.finishSync(ctx, status, listErr)
 
 			if listErr != nil {
 				log.Printf("k8s watcher: list failed for %s: %v", topic, listErr)
@@ -738,7 +867,7 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 			}
 			consecutiveFailures = 0
 			s.markClusterHealthy(cluster)
-			go s.saveSnapshot(topic)
+			s.saveSnapshotSoon(topic)
 		}
 
 		watchOpts := metav1.ListOptions{Watch: true, ResourceVersion: latestRV, AllowWatchBookmarks: true}
@@ -775,7 +904,8 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 		log.Printf("k8s watcher: started for %s from RV=%s", topic, latestRV)
 		s.markClusterHealthy(cluster)
 
-		expired, watchErr := s.processWatchEvents(ctx, w, cluster, gvr, topic, &latestRV)
+		watchStart := time.Now()
+		events, expired, watchErr := s.processWatchEvents(ctx, w, cluster, gvr, topic, &latestRV)
 		w.Stop()
 
 		if watchErr != nil {
@@ -792,6 +922,17 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 		if expired {
 			log.Printf("k8s watcher: RV expired for %s, forcing relist", topic)
 			latestRV = ""
+		} else if events == 0 && time.Since(watchStart) < time.Second && ctx.Err() == nil {
+			// A watch closed right after it opened, with nothing delivered,
+			// is a failure (client-go's reflector treats it the same way): a
+			// server, proxy or dying port-forward that drops every watch
+			// would otherwise be re-watched in a tight loop, since watches
+			// are not client-side rate limited.
+			log.Printf("k8s watcher: watch for %s closed immediately, backing off", topic)
+			if !sleepBackoff(ctx, &consecutiveFailures) {
+				return
+			}
+			continue
 		}
 		consecutiveFailures = 0
 	}
@@ -799,16 +940,24 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 
 func sleepBackoff(ctx context.Context, attempts *int) bool {
 	*attempts++
-	backoff := time.Duration(1<<min(*attempts-1, 5)) * time.Second
-	if backoff > 30*time.Second {
-		backoff = 30 * time.Second
-	}
 	select {
 	case <-ctx.Done():
 		return false
-	case <-time.After(backoff):
+	case <-time.After(backoffDelay(*attempts)):
 		return true
 	}
+}
+
+// backoffDelay doubles from 1 s up to 30 s per attempt, with equal jitter: a
+// cluster's topics usually fail together (an apiserver restart drops all
+// their watches), and spreading their retries keeps them from reconnecting
+// and relisting in lockstep.
+func backoffDelay(attempt int) time.Duration {
+	backoff := time.Duration(1<<min(attempt-1, 5)) * time.Second
+	if backoff > 30*time.Second {
+		backoff = 30 * time.Second
+	}
+	return backoff/2 + rand.N(backoff/2)
 }
 
 func isExpiredErr(err error) bool {
@@ -819,30 +968,34 @@ func isExpiredErr(err error) bool {
 	return strings.Contains(s, "too old") || strings.Contains(s, "Gone") || strings.Contains(s, "expired")
 }
 
-func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, cluster string, gvr schema.GroupVersionResource, topic string, latestRV *string) (expired bool, err error) {
+// processWatchEvents applies a watch's events until it ends, returning how
+// many it delivered (bookmarks included).
+func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, cluster string, gvr schema.GroupVersionResource, topic string, latestRV *string) (events int, expired bool, err error) {
 	for {
 		select {
 		case <-ctx.Done():
-			return false, nil
+			return events, false, nil
 		case event, ok := <-w.ResultChan():
 			if !ok {
-				return false, nil
+				return events, false, nil
 			}
 			switch event.Type {
 			case watch.Error:
 				if status, ok := event.Object.(*metav1.Status); ok {
 					if status.Code == 410 || status.Reason == metav1.StatusReasonExpired || status.Reason == metav1.StatusReasonGone {
-						return true, nil
+						return events, true, nil
 					}
 					log.Printf("k8s watcher: watch error for %s: %s (code=%d)", topic, status.Message, status.Code)
-					return false, fmt.Errorf("watch error for %s: %s (code=%d, reason=%s)", topic, status.Message, status.Code, status.Reason)
+					return events, false, fmt.Errorf("watch error for %s: %s (code=%d, reason=%s)", topic, status.Message, status.Code, status.Reason)
 				}
-				return false, fmt.Errorf("watch error for %s", topic)
+				return events, false, fmt.Errorf("watch error for %s", topic)
 			case watch.Bookmark:
+				events++
 				if rv := extractRV(event.Object); rv != "" {
 					*latestRV = rv
 				}
 			default:
+				events++
 				if rv := extractRV(event.Object); rv != "" {
 					*latestRV = rv
 				}
@@ -872,156 +1025,108 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 	epoch := s.nextEpoch(topic)
 	currentItems := make(map[string]bool)
 	var listResourceVersion string
-	isFirstPage := true
 
-	if gvr.Resource == "events" && s.db != nil {
-		log.Printf("Fetching events from DB for cluster %s", cluster)
-		events, dbErr := s.db.GetClusterEvents(cluster, 1000)
-		if dbErr != nil {
-			log.Printf("Failed to fetch events from DB: %v", dbErr)
-			return "", dbErr
+	// Events are listed from the cluster like every other kind: the event
+	// listener's store keeps rows for 30 days whether or not the events still
+	// exist.
+	scoped := resource
+	if namespace != "" {
+		scoped = resource.Namespace(namespace)
+	}
+	// The full list is fetched concurrently with the quick first page,
+	// with ResourceVersion=0 so the apiserver serves its watch cache in a
+	// single round trip — sequential Continue pages made large lists take
+	// pages×RTT on slow links.
+	type fullListResult struct {
+		list *unstructured.UnstructuredList
+		err  error
+	}
+	// Returning early (the first page failed) cancels the full list
+	// instead of downloading a whole list nobody reads.
+	listCtx, cancelList := context.WithCancel(ctx)
+	defer cancelList()
+	fullCh := make(chan fullListResult, 1)
+	go func() {
+		list, err := scoped.List(listCtx, metav1.ListOptions{ResourceVersion: "0"})
+		fullCh <- fullListResult{list, err}
+	}()
+	colsCh := make(chan []printercolumns.Column, 1)
+	go func() {
+		colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
+	}()
+
+	firstList, err := scoped.List(ctx, metav1.ListOptions{Limit: firstPageSize})
+	if err != nil {
+		log.Printf("k8s watcher: failed to list %s: %v", topic, err)
+		if isCredErr, code, msg := isCredentialError(err); isCredErr {
+			s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
 		}
-		var pageItems []map[string]interface{}
-		for _, e := range events {
-			item := map[string]interface{}{
-				"metadata": map[string]interface{}{
-					"name":              e.Name,
-					"namespace":         e.Namespace,
-					"uid":               e.UID,
-					"creationTimestamp": e.CreatedAt.Format(time.RFC3339),
-					"resourceVersion":   "",
-				},
-				"involvedObject": map[string]interface{}{
-					"kind":            e.InvolvedObjectKind,
-					"namespace":       e.InvolvedObjectNamespace,
-					"name":            e.InvolvedObjectName,
-					"uid":             e.InvolvedObjectUID,
-					"apiVersion":      e.InvolvedObjectAPIVersion,
-					"resourceVersion": "",
-				},
-				"type":           e.Type,
-				"reason":         e.Reason,
-				"message":        e.Message,
-				"count":          e.Count,
-				"firstTimestamp": e.FirstTimestamp.Format(time.RFC3339),
-				"lastTimestamp":  e.LastTimestamp.Format(time.RFC3339),
-				"eventTime":      e.EventTime.Format(time.RFC3339),
-				"source": map[string]interface{}{
-					"component": e.SourceComponent,
-					"host":      e.SourceHost,
-				},
-				"kind":       "Event",
-				"apiVersion": "v1",
-				"name":       e.Name,
-				"namespace":  e.Namespace,
-				"uid":        e.UID,
-				"cluster":    e.Cluster,
+		return "", err
+	}
+	// Items already sent in the full first page are skipped in the RV=0
+	// sweep unless their resourceVersion moved in between.
+	sentRV := make(map[string]string)
+	cols := <-colsCh
+	if firstList != nil && len(firstList.Items) > 0 {
+		pre := listadapters.IsPresimplified(firstList)
+		pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
+		fullPageItems := make([]map[string]interface{}, 0, len(firstList.Items))
+		for i := range firstList.Items {
+			var full, minimal map[string]interface{}
+			if pre {
+				full = firstList.Items[i].Object
+				minimal = listadapters.MinimalProjection(full)
+			} else {
+				full = s.simplifyListed(&firstList.Items[i], gvr, cols)
+				minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
+				copyPrinterColumns(minimal, full)
 			}
-			item["creationTimestamp"] = e.FirstTimestamp.Format(time.RFC3339)
-			if e.FirstTimestamp.IsZero() {
-				item["creationTimestamp"] = e.EventTime.Format(time.RFC3339)
+			pageItems = append(pageItems, minimal)
+			fullPageItems = append(fullPageItems, full)
+			rv, _ := full["resourceVersion"].(string)
+			sentRV[itemKeyOf(full)] = rv
+		}
+		// Membership comes from the full list alone: the watch resumes
+		// from its resourceVersion, so an object the first page saw but
+		// that was deleted before the full list would never get a delete
+		// event. The stale diff below removes it instead.
+		s.broadcastPage(topic, pageItems, nil, sortBy, sortOrder, true, epoch)
+		s.broadcastPage(topic, fullPageItems, nil, sortBy, sortOrder, false, epoch)
+	}
+
+	res := <-fullCh
+	if res.err != nil {
+		log.Printf("k8s watcher: failed to list %s: %v", topic, res.err)
+		if isCredErr, code, msg := isCredentialError(res.err); isCredErr {
+			s.sendClusterErrorWithDetails(cluster, code, msg, res.err.Error(), true)
+		}
+		return "", res.err
+	}
+	if res.list == nil {
+		return "", fmt.Errorf("list for %s returned no result", topic)
+	}
+	listResourceVersion = res.list.GetResourceVersion()
+	pre := listadapters.IsPresimplified(res.list)
+	for start := 0; start < len(res.list.Items); start += pageSize {
+		end := min(start+pageSize, len(res.list.Items))
+		pageItems := make([]map[string]interface{}, 0, end-start)
+		for i := start; i < end; i++ {
+			item := res.list.Items[i].Object
+			if !pre {
+				item = s.simplifyListed(&res.list.Items[i], gvr, cols)
+			}
+			key := itemKeyOf(item)
+			currentItems[key] = true
+			if rv, seen := sentRV[key]; seen && rv == item["resourceVersion"] {
+				continue
 			}
 			pageItems = append(pageItems, item)
-			if len(pageItems) >= pageSize {
-				s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, isFirstPage, epoch)
-				isFirstPage = false
-				pageItems = pageItems[:0]
-			}
 		}
-		if len(pageItems) > 0 {
-			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, isFirstPage, epoch)
-		}
-		listResourceVersion = "0"
-	} else {
-		scoped := resource
-		if namespace != "" {
-			scoped = resource.Namespace(namespace)
-		}
-		// The full list is fetched concurrently with the quick first page,
-		// with ResourceVersion=0 so the apiserver serves its watch cache in a
-		// single round trip — sequential Continue pages made large lists take
-		// pages×RTT on slow links.
-		type fullListResult struct {
-			list *unstructured.UnstructuredList
-			err  error
-		}
-		fullCh := make(chan fullListResult, 1)
-		go func() {
-			list, err := scoped.List(ctx, metav1.ListOptions{ResourceVersion: "0"})
-			fullCh <- fullListResult{list, err}
-		}()
-		colsCh := make(chan []printercolumns.Column, 1)
-		go func() {
-			colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
-		}()
-
-		firstList, err := scoped.List(ctx, metav1.ListOptions{Limit: firstPageSize})
-		if err != nil {
-			log.Printf("k8s watcher: failed to list %s: %v", topic, err)
-			if isCredErr, code, msg := isCredentialError(err); isCredErr {
-				s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
-			}
-			return "", err
-		}
-		// Items already sent in the full first page are skipped in the RV=0
-		// sweep unless their resourceVersion moved in between.
-		sentRV := make(map[string]string)
-		cols := <-colsCh
-		if firstList != nil && len(firstList.Items) > 0 {
-			pre := listadapters.IsPresimplified(firstList)
-			pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
-			fullPageItems := make([]map[string]interface{}, 0, len(firstList.Items))
-			for i := range firstList.Items {
-				var full, minimal map[string]interface{}
-				if pre {
-					full = firstList.Items[i].Object
-					minimal = listadapters.MinimalProjection(full)
-				} else {
-					full = s.simplifyListed(&firstList.Items[i], gvr, cols)
-					minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
-					copyPrinterColumns(minimal, full)
-				}
-				pageItems = append(pageItems, minimal)
-				fullPageItems = append(fullPageItems, full)
-				rv, _ := full["resourceVersion"].(string)
-				sentRV[itemKeyOf(full)] = rv
-			}
-			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, true, epoch)
-			s.broadcastPage(topic, fullPageItems, currentItems, sortBy, sortOrder, false, epoch)
-		}
-
-		res := <-fullCh
-		if res.err != nil {
-			log.Printf("k8s watcher: failed to list %s: %v", topic, res.err)
-			if isCredErr, code, msg := isCredentialError(res.err); isCredErr {
-				s.sendClusterErrorWithDetails(cluster, code, msg, res.err.Error(), true)
-			}
-			return "", res.err
-		}
-		if res.list == nil {
-			return "", fmt.Errorf("list for %s returned no result", topic)
-		}
-		listResourceVersion = res.list.GetResourceVersion()
-		pre := listadapters.IsPresimplified(res.list)
-		for start := 0; start < len(res.list.Items); start += pageSize {
-			end := min(start+pageSize, len(res.list.Items))
-			pageItems := make([]map[string]interface{}, 0, end-start)
-			for i := start; i < end; i++ {
-				item := res.list.Items[i].Object
-				if !pre {
-					item = s.simplifyListed(&res.list.Items[i], gvr, cols)
-				}
-				if rv, seen := sentRV[itemKeyOf(item)]; seen && rv == item["resourceVersion"] {
-					continue
-				}
-				pageItems = append(pageItems, item)
-			}
-			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch)
-		}
+		s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch)
 	}
 
 	// The quick first page and the full RV=0 list overlap, so the true item
-	// count is the deduplicated key set — summing page sizes double-counts.
+	// count is the full list's key set — summing page sizes double-counts.
 	activeItems := len(currentItems)
 
 	cachedItems := s.cache.GetAll(topic)
@@ -1054,13 +1159,18 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 	return listResourceVersion, nil
 }
 
+// broadcastPage caches and sends one page of a list sync, recording its keys
+// in currentItems unless that is nil. Every page carries the sync's epoch, so
+// the client can drop the rows the closing sync_complete no longer covers.
 func (s *Service) broadcastPage(topic string, items []map[string]interface{}, currentItems map[string]bool, sortBy, sortOrder string, isMinimal bool, epoch uint64) int {
 	if len(items) == 0 {
 		return 0
 	}
 	sortCachedItems(items, sortBy, sortOrder)
 	for _, item := range items {
-		currentItems[itemKeyOf(item)] = true
+		if currentItems != nil {
+			currentItems[itemKeyOf(item)] = true
+		}
 		s.cache.Set(topic, item)
 	}
 	msg := &BulkListMessage{
@@ -1070,8 +1180,9 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 		Items:       items,
 		Count:       len(items),
 		IsMinimal:   isMinimal,
+		Epoch:       epoch,
 	}
-	if err := s.hub.BroadcastDirect(topic, msg); err != nil {
+	if err := s.broadcastBulk(msg); err != nil {
 		log.Printf("Failed to broadcast bulk list for topic %s: %v", topic, err)
 	}
 	return len(items)
@@ -1147,13 +1258,20 @@ func (s *Service) emitResourceEvent(topic string, gvr schema.GroupVersionResourc
 		if ok {
 			namespace, _ := item["namespace"].(string)
 			name, _ := item["name"].(string)
+			// Same shape as the API's detail cache key, which is keyed on the
+			// resolved resource name too.
 			detailKey := cluster + ":" + gvr.Group + ":" + gvr.Version + ":" + gvr.Resource + ":" + namespace + ":" + name
-			s.invalThrottler.add(
-				"detail:"+detailKey,
-				"resources:"+cluster+":*",
-				"dashboard:"+cluster,
-				"status:"+cluster,
-			)
+			patterns := []string{"detail:" + detailKey, "dashboard:" + cluster}
+			// Only creations and deletions change the cached category
+			// counts, and of the cluster status only its node and namespace
+			// counts depend on objects at all.
+			if action == "added" || action == "deleted" {
+				patterns = append(patterns, "resources:"+cluster+":*")
+				if gvr.Group == "" && (gvr.Resource == "nodes" || gvr.Resource == "namespaces") {
+					patterns = append(patterns, "status:"+cluster)
+				}
+			}
+			s.invalThrottler.add(patterns...)
 		}
 	}
 
@@ -1701,7 +1819,9 @@ func (m *ResourceEventMessage) GetData() map[string]interface{} {
 
 // sendInitialSyncComplete signals list load completion. A non-zero epoch marks
 // the snapshot authoritative: the client may drop rows it did not see in that
-// epoch. Epoch 0 (failure paths) only clears loading state client-side.
+// epoch. Epoch 0 (failure paths) only clears loading state client-side. It is
+// sent directly, behind the bulk pages and any flushed events, rather than
+// waiting out the event batcher's window.
 func (s *Service) sendInitialSyncComplete(topic string, itemCount int, epoch uint64) {
 	msg := &InitialSyncMessage{
 		BaseMessage: core.BaseMessage{
@@ -1713,7 +1833,10 @@ func (s *Service) sendInitialSyncComplete(topic string, itemCount int, epoch uin
 		ItemCount: itemCount,
 		Epoch:     epoch,
 	}
-	if err := s.hub.Broadcast(topic, msg); err != nil {
+	if err := s.hub.FlushTopic(topic); err != nil {
+		log.Printf("Failed to flush topic %s before sync complete: %v", topic, err)
+	}
+	if err := s.hub.BroadcastDirect(topic, msg); err != nil {
 		log.Printf("Failed to broadcast sync complete for topic %s: %v", topic, err)
 	} else {
 		log.Printf("Sent initial sync complete for %s with %d items (epoch=%d)", topic, itemCount, epoch)

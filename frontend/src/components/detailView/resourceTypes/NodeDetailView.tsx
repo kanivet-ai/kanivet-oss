@@ -4,12 +4,15 @@ import PropertyRow from '../../common/PropertyRow';
 import PropertyGroup from '../shared/PropertyGroup';
 import MetricsPropertyGroup from '../shared/MetricsPropertyGroup';
 import ConditionsView from '../shared/ConditionsView';
-import { NodeMetrics } from '../../NodeMetrics';
 import EventsSection from '../shared/EventsSection';
 import MetadataSection from '../shared/MetadataSection';
 import { parseCPUToMillicores, parseMemoryToBytes } from '../../../utils/detailViewFormatters';
 import { DetailViewPropsWithCluster } from '../../../types/detailView';
+import { lazyView } from '../../../utils/lazyView';
 import './NodeDetailView.css';
+
+// chart.js loads with the chart, warmed when idle.
+const NodeMetrics = lazyView(() => import('../../NodeMetrics'));
 
 const NodeDetailView: React.FC<DetailViewPropsWithCluster> = ({ resource, cluster, handleResourceClick }) => {
   const { metadata = {}, spec = {}, status = {} } = resource;

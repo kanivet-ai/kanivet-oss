@@ -34,8 +34,11 @@ describe('rightsizing requests', () => {
         provider: 'mimir',
       },
       timeout: 120_000,
+      long: true,
     });
   });
+  // Only computing evidence waits for a long-request slot: the cached read
+  // answers at once.
   it('requests a cache-only preview followed by a current refresh', async () => {
     const ref = { namespace: 'app', kind: 'Deployment', name: 'worker' };
     get.mockResolvedValueOnce({ status: 204 });
@@ -59,6 +62,7 @@ describe('rightsizing requests', () => {
         cached: '1',
       },
       timeout: 120_000,
+      long: false,
     });
     await getRightsizingWorkload(
       'production',
@@ -78,6 +82,7 @@ describe('rightsizing requests', () => {
         refresh: '1',
       },
       timeout: 120_000,
+      long: true,
     });
   });
 });

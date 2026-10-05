@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"github.com/kanivet/backend/internal/cache"
@@ -14,7 +13,6 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"log"
-	"math"
 	"net"
 	"net/http"
 	"net/url"
@@ -175,37 +173,8 @@ func (p *PrometheusProvider) forgetDetection(cluster string) {
 	p.cache.Delete(p.cache.BuildKey("prometheus-info", cluster))
 }
 
-// Get or create a port forward for the detected provider
-func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *ProviderInfo) (*PortForwardInfo, error) {
-	key := prometheusPoolKey(cluster, promInfo)
-	if pfi, ok := p.portForwardPool.Load(key); ok {
-		pfInfo := pfi.(*PortForwardInfo)
-		pfInfo.Mutex.Lock()
-		pfInfo.LastUsed = time.Now()
-		pfInfo.Mutex.Unlock()
-		return pfInfo, nil
-	}
-
-	podName := p.findPrometheusPod(cluster, promInfo)
-	if podName == "" {
-		// The Service we detected has nothing ready behind it any more. Forget
-		// the detection so the next query re-detects instead of failing on an
-		// empty pod name until the cache expires.
-		p.forgetDetection(cluster)
-		return nil, fmt.Errorf("no ready pod behind %s/%s", promInfo.Namespace, promInfo.Service)
-	}
-
-	targetPort := promInfo.Port
-	if targetPort == 0 {
-		targetPort = 9090
-	}
-	pf, err := p.k8s.CreatePortForward(cluster, promInfo.Namespace, podName, int(targetPort))
-	if err != nil {
-		p.forgetDetection(cluster)
-		return nil, fmt.Errorf("failed to create port forward: %w", err)
-	}
-
-	// Create optimized HTTP client
+// newPortForwardInfo wraps a tunnel with the HTTP client queries use.
+func newPortForwardInfo(pf *k8s.PortForward, basePath string) *PortForwardInfo {
 	httpClient := &http.Client{
 		Timeout: 5 * time.Second, // Reduced for faster failure detection
 		Transport: &http.Transport{
@@ -224,20 +193,87 @@ func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *Pr
 			}).DialContext,
 		},
 	}
+	return &PortForwardInfo{PortForward: pf, HTTPClient: httpClient, LastUsed: time.Now(), BasePath: basePath}
+}
 
-	pfInfo := &PortForwardInfo{
-		PortForward: pf,
-		HTTPClient:  httpClient,
-		LastUsed:    time.Now(),
-		BasePath:    promInfo.Path,
+// tunnelAlive reports whether a pooled tunnel is still running. The manager
+// forgets a forward the moment it exits (pod restart, network drop), so this
+// is exact, and cheap enough to ask before every query.
+func tunnelAlive(client k8s.Interface, pfInfo *PortForwardInfo) bool {
+	cur, ok := client.GetPortForward(pfInfo.PortForward.ID)
+	return ok && cur == pfInfo.PortForward
+}
+
+// pooledPortForward returns the live tunnel pooled under key. A dead one is
+// dropped, so the caller opens a new one now instead of failing queries on it
+// until the recreate throttle allows a rebuild.
+func pooledPortForward(pool *sync.Map, client k8s.Interface, key string) *PortForwardInfo {
+	v, ok := pool.Load(key)
+	if !ok {
+		return nil
+	}
+	pfInfo := v.(*PortForwardInfo)
+	if !tunnelAlive(client, pfInfo) {
+		pool.CompareAndDelete(key, pfInfo)
+		return nil
+	}
+	pfInfo.Mutex.Lock()
+	pfInfo.LastUsed = time.Now()
+	pfInfo.Mutex.Unlock()
+	return pfInfo
+}
+
+// poolPortForward pools pfInfo under key and returns what the pool holds
+// afterwards. When a live tunnel got there first (a concurrent query, or the
+// pool's own tunnel when detection runs again) that one is kept and pfInfo's
+// is stopped: tunnels are private, so one left out of the pool would never be
+// reaped.
+func poolPortForward(pool *sync.Map, client k8s.Interface, key string, pfInfo *PortForwardInfo) *PortForwardInfo {
+	for {
+		cur, loaded := pool.LoadOrStore(key, pfInfo)
+		if !loaded {
+			return pfInfo
+		}
+		existing := cur.(*PortForwardInfo)
+		if tunnelAlive(client, existing) {
+			_ = client.StopPortForward(pfInfo.PortForward.ID)
+			return existing
+		}
+		if pool.CompareAndSwap(key, existing, pfInfo) {
+			_ = client.StopPortForward(existing.PortForward.ID)
+			return pfInfo
+		}
+	}
+}
+
+// Get or create a port forward for the detected provider
+func (p *PrometheusProvider) getOrCreatePortForward(cluster string, promInfo *ProviderInfo) (*PortForwardInfo, error) {
+	key := prometheusPoolKey(cluster, promInfo)
+	if pfInfo := pooledPortForward(&p.portForwardPool, p.k8s, key); pfInfo != nil {
+		return pfInfo, nil
 	}
 
-	p.portForwardPool.Store(key, pfInfo)
+	podName := p.findPrometheusPod(cluster, promInfo)
+	if podName == "" {
+		// The Service we detected has nothing ready behind it any more. Forget
+		// the detection so the next query re-detects instead of failing on an
+		// empty pod name until the cache expires.
+		p.forgetDetection(cluster)
+		return nil, fmt.Errorf("no ready pod behind %s/%s", promInfo.Namespace, promInfo.Service)
+	}
 
-	// Give port forward a moment to be ready
-	time.Sleep(100 * time.Millisecond) // Reduced from 500ms
-
-	return pfInfo, nil
+	targetPort := promInfo.Port
+	if targetPort == 0 {
+		targetPort = 9090
+	}
+	// CreatePrivatePortForward returns once the local listener is bound, so
+	// the tunnel is usable straight away.
+	pf, err := p.k8s.CreatePrivatePortForward(cluster, promInfo.Namespace, podName, int(targetPort))
+	if err != nil {
+		p.forgetDetection(cluster)
+		return nil, fmt.Errorf("failed to create port forward: %w", err)
+	}
+	return poolPortForward(&p.portForwardPool, p.k8s, key, newPortForwardInfo(pf, promInfo.Path)), nil
 }
 
 // Cleanup unused port forwards every 5 minutes
@@ -256,7 +292,7 @@ func (p *PrometheusProvider) cleanupUnusedPortForwards() {
 				if err := p.k8s.StopPortForward(pfInfo.PortForward.ID); err != nil {
 					log.Printf("Failed to stop port forward %s: %v", pfInfo.PortForward.ID, err)
 				}
-				p.portForwardPool.Delete(key)
+				p.portForwardPool.CompareAndDelete(key, pfInfo)
 			}
 
 			pfInfo.Mutex.Unlock()
@@ -273,12 +309,16 @@ func (p *PrometheusProvider) keepAlivePortForwards() {
 	for range ticker.C {
 		p.portForwardPool.Range(func(key, value interface{}) bool {
 			pfInfo := value.(*PortForwardInfo)
+			// Read under the lock, ask without it: queries take the same lock
+			// to stamp LastUsed and must not wait out a slow health check.
 			pfInfo.Mutex.Lock()
+			recent := time.Since(pfInfo.LastUsed) < 5*time.Minute
+			healthURL := fmt.Sprintf("http://localhost:%d%s/api/v1/status/buildinfo", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
+			pfInfo.Mutex.Unlock()
 
 			// Only send keepalive if the port forward was used recently (within last 5 minutes)
-			if time.Since(pfInfo.LastUsed) < 5*time.Minute {
+			if recent {
 				// Send a lightweight health check to keep the connection alive
-				healthURL := fmt.Sprintf("http://localhost:%d%s/api/v1/status/buildinfo", pfInfo.PortForward.LocalPort, pfInfo.BasePath)
 				healthClient := &http.Client{Timeout: 2 * time.Second}
 				resp, err := healthClient.Get(healthURL)
 				if err == nil {
@@ -294,8 +334,6 @@ func (p *PrometheusProvider) keepAlivePortForwards() {
 					log.Printf("Keepalive failed for port forward on cluster %s: %v", key, err)
 				}
 			}
-
-			pfInfo.Mutex.Unlock()
 			return true
 		})
 	}
@@ -359,7 +397,7 @@ func (p *PrometheusProvider) detectInternal(cluster string) (*ProviderInfo, erro
 		}
 
 		port := resolvePodPort(ctx, clientset, c.svc.Namespace, backends.ReadyPod, c.svcPort, c.defaultPort)
-		outcome := probePrometheusAPI(p.k8s, cluster, c.svc.Namespace, backends.ReadyPod, port, c.path, nil)
+		outcome, tunnel := probePrometheusAPI(p.k8s, cluster, c.svc.Namespace, backends.ReadyPod, port, c.path, nil)
 		if !outcome.OK {
 			reasons = append(reasons, where+": "+outcome.Detail)
 			continue
@@ -378,6 +416,10 @@ func (p *PrometheusProvider) detectInternal(cluster string) (*ProviderInfo, erro
 			URL:       fmt.Sprintf("http://%s.%s.svc.cluster.local:%d%s", c.svc.Name, c.svc.Namespace, c.svcPort.Port, c.path),
 		}
 		log.Printf("[Prometheus] Using %s %s (pod %s:%d, version %q) in cluster %s", c.flavor, where, backends.ReadyPod, port, outcome.Version, cluster)
+		// The first chart usually follows detection at once: give it the
+		// probe's tunnel rather than looking the pod up and dialling again.
+		// Idle cleanup reclaims it if no chart comes.
+		poolPortForward(&p.portForwardPool, p.k8s, prometheusPoolKey(cluster, info), newPortForwardInfo(tunnel, info.Path))
 		return info, nil
 	}
 
@@ -596,231 +638,13 @@ func (p *PrometheusProvider) chartGet(ctx context.Context, cluster string, param
 	})
 }
 
-func (p *PrometheusProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
-	promQL := p.buildPromQL(query)
-	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	bodyStream, err := p.chartGet(ctx, cluster, params)
-	if err != nil {
-		return nil, err
-	}
-	defer bodyStream.Close()
-
-	body, err := io.ReadAll(bodyStream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var promResponse struct {
-		Status string `json:"status"`
-		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Values [][]interface{}   `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-		ErrorType string `json:"errorType,omitempty"`
-		Error     string `json:"error,omitempty"`
-	}
-
-	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse prometheus response: %w", err)
-	}
-
-	if promResponse.Status != "success" {
-		return nil, fmt.Errorf("prometheus query failed: %s - %s", promResponse.ErrorType, promResponse.Error)
-	}
-
-	response := &MetricResponse{
-		Labels: []string{},
-		Values: []float64{},
-		Unit:   p.getMetricUnit(query.MetricType),
-	}
-
-	// Handle empty results gracefully
-	if len(promResponse.Data.Result) == 0 {
-		log.Printf("No data found for metric query: %s", promQL)
-		// Return empty but valid response
-		return response, nil
-	}
-
-	// Process the first result series
-	for _, value := range promResponse.Data.Result[0].Values {
-		if len(value) >= 2 {
-			// Safely extract timestamp
-			timestamp, ok := value[0].(float64)
-			if !ok {
-				log.Printf("Invalid timestamp format: %v", value[0])
-				continue
-			}
-
-			// Safely extract value
-			var floatVal float64
-			switch v := value[1].(type) {
-			case string:
-				if _, err := fmt.Sscanf(v, "%f", &floatVal); err != nil {
-					log.Printf("Failed to parse float value %s: %v", v, err)
-					continue
-				}
-			case float64:
-				floatVal = v
-			case int:
-				floatVal = float64(v)
-			default:
-				log.Printf("Invalid value format: %v", value[1])
-				continue
-			}
-
-			// Skip NaN or Inf values
-			if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
-				continue
-			}
-
-			response.Labels = append(response.Labels, time.Unix(int64(timestamp), 0).Format("15:04:05"))
-			response.Values = append(response.Values, floatVal)
-		}
-	}
-
-	// If we still have no data points after processing, log it
-	if len(response.Values) == 0 {
-		log.Printf("No valid data points found for metric query: %s", promQL)
-	}
-
-	return response, nil
+func (p *PrometheusProvider) QueryMetrics(ctx context.Context, cluster string, query MetricQuery) (*MetricResponse, error) {
+	return queryChart(ctx, p, "prometheus", cluster, query)
 }
 
-// QueryWorkloadMetrics queries metrics for multiple pods in a single Prometheus query using regex
-func (p *PrometheusProvider) QueryWorkloadMetrics(cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
-	if len(query.PodNames) == 0 {
-		return &WorkloadMetricResponse{Pods: map[string]*MetricResponse{}}, nil
-	}
-	pods := append([]string(nil), query.PodNames...)
-	sort.Strings(pods)
-	podRegex := strings.Join(pods, "|")
-	promQL := p.buildWorkloadPromQL(query.Namespace, podRegex, query.MetricType)
-	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	bodyStream, err := p.chartGet(ctx, cluster, params)
-	if err != nil {
-		return nil, err
-	}
-	defer bodyStream.Close()
-
-	body, err := io.ReadAll(bodyStream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var promResponse struct {
-		Status string `json:"status"`
-		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Values [][]interface{}   `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-		ErrorType string `json:"errorType,omitempty"`
-		Error     string `json:"error,omitempty"`
-	}
-
-	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
-		return nil, fmt.Errorf("failed to parse prometheus response: %w", err)
-	}
-
-	if promResponse.Status != "success" {
-		return nil, fmt.Errorf("prometheus query failed: %s - %s", promResponse.ErrorType, promResponse.Error)
-	}
-
-	// Group results by pod name
-	response := &WorkloadMetricResponse{
-		Pods: make(map[string]*MetricResponse),
-	}
-
-	unit := p.getMetricUnit(query.MetricType)
-
-	for _, result := range promResponse.Data.Result {
-		podName := result.Metric["pod"]
-		if podName == "" {
-			continue
-		}
-
-		podMetrics := &MetricResponse{
-			Labels: []string{},
-			Values: []float64{},
-			Unit:   unit,
-		}
-
-		for _, value := range result.Values {
-			if len(value) >= 2 {
-				timestamp, ok := value[0].(float64)
-				if !ok {
-					continue
-				}
-
-				var floatVal float64
-				switch v := value[1].(type) {
-				case string:
-					if _, err := fmt.Sscanf(v, "%f", &floatVal); err != nil {
-						continue
-					}
-				case float64:
-					floatVal = v
-				case int:
-					floatVal = float64(v)
-				default:
-					continue
-				}
-
-				if math.IsNaN(floatVal) || math.IsInf(floatVal, 0) {
-					continue
-				}
-
-				podMetrics.Labels = append(podMetrics.Labels, time.Unix(int64(timestamp), 0).Format("15:04:05"))
-				podMetrics.Values = append(podMetrics.Values, floatVal)
-			}
-		}
-
-		response.Pods[podName] = podMetrics
-	}
-
-	log.Printf("[Prometheus] Workload query returned metrics for %d pods", len(response.Pods))
-	return response, nil
-}
-
-// buildWorkloadPromQL builds a PromQL query for multiple pods using regex
-func (p *PrometheusProvider) buildWorkloadPromQL(namespace, podRegex, metricType string) string {
-	switch metricType {
-	case "cpu":
-		return fmt.Sprintf(`sum by (pod) (rate(container_cpu_usage_seconds_total{pod=~"%s",namespace="%s",container!="POD",container!=""}[5m])) * 1000`,
-			podRegex, namespace)
-	case "memory":
-		return fmt.Sprintf(`sum by (pod) (container_memory_usage_bytes{pod=~"%s",namespace="%s",container!="POD",container!=""})`,
-			podRegex, namespace)
-	case "network_rx":
-		return fmt.Sprintf(`sum by (pod) (rate(container_network_receive_bytes_total{pod=~"%s",namespace="%s"}[5m])) / 1024`,
-			podRegex, namespace)
-	case "network_tx":
-		return fmt.Sprintf(`sum by (pod) (rate(container_network_transmit_bytes_total{pod=~"%s",namespace="%s"}[5m])) / 1024`,
-			podRegex, namespace)
-	case "disk_read":
-		return fmt.Sprintf(`sum by (pod) (rate(container_fs_reads_bytes_total{pod=~"%s",namespace="%s"}[5m])) / 1024`,
-			podRegex, namespace)
-	case "disk_write":
-		return fmt.Sprintf(`sum by (pod) (rate(container_fs_writes_bytes_total{pod=~"%s",namespace="%s"}[5m])) / 1024`,
-			podRegex, namespace)
-	default:
-		return fmt.Sprintf(`up{pod=~"%s",namespace="%s"}`, podRegex, namespace)
-	}
+// QueryWorkloadMetrics charts several pods with one query, one series per pod.
+func (p *PrometheusProvider) QueryWorkloadMetrics(ctx context.Context, cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
+	return queryWorkloadChart(ctx, p, "prometheus", cluster, query)
 }
 
 // findPrometheusPod returns a ready pod behind the detected Service. When the
@@ -862,153 +686,6 @@ func (p *PrometheusProvider) findPrometheusPod(cluster string, info *ProviderInf
 		}
 	}
 	return ""
-}
-
-func (p *PrometheusProvider) buildPromQL(query MetricQuery) string {
-	baseQuery := ""
-
-	// Node-level metrics
-	// Note: We use "instance" label as that's where the node name is stored in most Prometheus setups
-	// Some setups also have "kubernetes_io_hostname" but "instance" is more common
-	if query.NodeName != "" {
-		switch query.MetricType {
-		case "cpu":
-			// Node CPU usage in millicores - using container metrics aggregated by instance (node)
-			// This works with cAdvisor metrics which are always available
-			baseQuery = fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{instance="%s",container!="POD",container!=""}[5m])) * 1000`,
-				query.NodeName)
-		case "memory":
-			// Node memory usage in bytes - sum of all container memory on the node
-			baseQuery = fmt.Sprintf(`sum(container_memory_usage_bytes{instance="%s",container!="POD",container!=""})`,
-				query.NodeName)
-		case "network_rx":
-			// Node network receive - aggregate all pod network on the node
-			baseQuery = fmt.Sprintf(`sum(rate(container_network_receive_bytes_total{instance="%s"}[5m])) / 1024`,
-				query.NodeName)
-		case "network_tx":
-			// Node network transmit
-			baseQuery = fmt.Sprintf(`sum(rate(container_network_transmit_bytes_total{instance="%s"}[5m])) / 1024`,
-				query.NodeName)
-		case "disk_read":
-			// Node disk read
-			baseQuery = fmt.Sprintf(`sum(rate(container_fs_reads_bytes_total{instance="%s"}[5m])) / 1024`,
-				query.NodeName)
-		case "disk_write":
-			// Node disk write
-			baseQuery = fmt.Sprintf(`sum(rate(container_fs_writes_bytes_total{instance="%s"}[5m])) / 1024`,
-				query.NodeName)
-		default:
-			baseQuery = fmt.Sprintf(`up{instance="%s"}`, query.NodeName)
-		}
-		return baseQuery
-	}
-
-	// Pod-level metrics
-	switch query.MetricType {
-	case "cpu":
-		// CPU usage in cores (rate gives cores, multiply by 1000 for millicores)
-		if query.ContainerName != "" {
-			baseQuery = fmt.Sprintf(`rate(container_cpu_usage_seconds_total{pod="%s",namespace="%s",container="%s"}[5m]) * 1000`,
-				query.PodName, query.Namespace, query.ContainerName)
-		} else {
-			baseQuery = fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{pod="%s",namespace="%s",container!="POD"}[5m])) by (pod) * 1000`,
-				query.PodName, query.Namespace)
-		}
-	case "memory":
-		// Memory usage in bytes (frontend will format it)
-		if query.ContainerName != "" {
-			baseQuery = fmt.Sprintf(`container_memory_usage_bytes{pod="%s",namespace="%s",container="%s"}`,
-				query.PodName, query.Namespace, query.ContainerName)
-		} else {
-			baseQuery = fmt.Sprintf(`sum(container_memory_usage_bytes{pod="%s",namespace="%s",container!="POD"}) by (pod)`,
-				query.PodName, query.Namespace)
-		}
-	case "network_rx":
-		baseQuery = fmt.Sprintf(`rate(container_network_receive_bytes_total{pod="%s",namespace="%s"}[5m]) / 1024`,
-			query.PodName, query.Namespace)
-	case "network_tx":
-		baseQuery = fmt.Sprintf(`rate(container_network_transmit_bytes_total{pod="%s",namespace="%s"}[5m]) / 1024`,
-			query.PodName, query.Namespace)
-	case "disk_read":
-		baseQuery = fmt.Sprintf(`rate(container_fs_reads_bytes_total{pod="%s",namespace="%s"}[5m]) / 1024`,
-			query.PodName, query.Namespace)
-	case "disk_write":
-		baseQuery = fmt.Sprintf(`rate(container_fs_writes_bytes_total{pod="%s",namespace="%s"}[5m]) / 1024`,
-			query.PodName, query.Namespace)
-	default:
-		baseQuery = fmt.Sprintf(`up{pod="%s",namespace="%s"}`, query.PodName, query.Namespace)
-	}
-
-	return baseQuery
-}
-
-func (p *PrometheusProvider) getMetricUnit(metricType string) string {
-	switch metricType {
-	case "cpu":
-		return "millicores"
-	case "memory":
-		return "bytes"
-	case "network_rx", "network_tx":
-		return "KB/s"
-	case "disk_read", "disk_write":
-		return "KB/s"
-	default:
-		return ""
-	}
-}
-
-func (p *PrometheusProvider) parseTimeRange(timeRange string) time.Duration {
-	// Handle standard ranges
-	switch timeRange {
-	case "5m":
-		return 5 * time.Minute
-	case "15m":
-		return 15 * time.Minute
-	case "1h":
-		return time.Hour
-	case "6h":
-		return 6 * time.Hour
-	case "24h":
-		return 24 * time.Hour
-	}
-
-	// Handle custom duration format (e.g., "180m" for 180 minutes, "3h" for 3 hours)
-	if len(timeRange) > 1 {
-		unit := timeRange[len(timeRange)-1]
-		valueStr := timeRange[:len(timeRange)-1]
-		var value int
-		if _, err := fmt.Sscanf(valueStr, "%d", &value); err == nil && value > 0 {
-			switch unit {
-			case 'm':
-				return time.Duration(value) * time.Minute
-			case 'h':
-				return time.Duration(value) * time.Hour
-			case 'd':
-				return time.Duration(value) * 24 * time.Hour
-			}
-		}
-	}
-
-	// Default fallback
-	return 15 * time.Minute
-}
-
-func (p *PrometheusProvider) calculateStep(duration time.Duration) string {
-	// Reduce points for faster queries - 50 instead of 100
-	points := 50
-	stepSeconds := int(duration.Seconds() / float64(points))
-
-	if stepSeconds < 15 {
-		return "15s"
-	} else if stepSeconds < 30 {
-		return "30s"
-	} else if stepSeconds < 60 {
-		return "1m"
-	} else if stepSeconds < 300 {
-		return "5m"
-	} else {
-		return "15m"
-	}
 }
 
 func (p *PrometheusProvider) installWithManifests(ctx context.Context, dynamicClient dynamic.Interface, namespace string) error {

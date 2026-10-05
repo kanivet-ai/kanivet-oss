@@ -5,7 +5,7 @@ import React, {
   useLayoutEffect,
   useCallback,
 } from 'react';
-import Editor from '@monaco-editor/react';
+import { Editor } from './MonacoEditor';
 import * as yaml from 'js-yaml';
 import { Cross2Icon, ExclamationTriangleIcon, CheckCircledIcon, UpdateIcon, CheckIcon, PlayIcon, CrossCircledIcon } from '@radix-ui/react-icons';
 import api from '../services/api';

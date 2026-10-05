@@ -701,8 +701,10 @@ func (s *Service) preferredAPIResources(cluster string, resources []metav1.APIRe
 	return out
 }
 
+// apiResources shares the API handler's discovery cache entry, and its
+// stale-while-revalidate windows, so neither reader resets the other's.
 func (s *Service) apiResources(cluster string) ([]metav1.APIResource, error) {
-	cached, err := s.cache.GetOrSet(s.cache.BuildKey("api-resources", cluster), 5*time.Minute, func() (interface{}, error) {
+	cached, err := s.cache.GetOrSetSWR(s.cache.BuildKey("api-resources", cluster), 5*time.Minute, time.Hour, func() (interface{}, error) {
 		return s.k8sClient.ListAPIResources(cluster)
 	})
 	if err != nil {

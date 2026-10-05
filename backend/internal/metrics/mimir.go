@@ -10,7 +10,6 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -208,11 +207,7 @@ func (p *MimirProvider) forgetDetection(cluster string) {
 
 func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInfo) (*PortForwardInfo, error) {
 	cacheKey := mimirPoolKey(cluster, info)
-	if pfi, ok := p.portForwardPool.Load(cacheKey); ok {
-		pfInfo := pfi.(*PortForwardInfo)
-		pfInfo.Mutex.Lock()
-		pfInfo.LastUsed = time.Now()
-		pfInfo.Mutex.Unlock()
+	if pfInfo := pooledPortForward(&p.portForwardPool, p.k8s, cacheKey); pfInfo != nil {
 		return pfInfo, nil
 	}
 
@@ -227,40 +222,20 @@ func (p *MimirProvider) getOrCreatePortForward(cluster string, info *ProviderInf
 		p.forgetDetection(cluster)
 		return nil, fmt.Errorf("no ready pod behind %s/%s", info.Namespace, info.Service)
 	}
-	pf, err := p.k8s.CreatePortForward(cluster, info.Namespace, podName, int(targetPort))
+	pf, err := p.k8s.CreatePrivatePortForward(cluster, info.Namespace, podName, int(targetPort))
 	if err != nil {
 		p.forgetDetection(cluster)
 		return nil, fmt.Errorf("failed to create port forward: %w", err)
 	}
+	return poolPortForward(&p.portForwardPool, p.k8s, cacheKey, p.newPortForwardInfo(pf, cluster, info)), nil
+}
 
-	httpClient := &http.Client{
-		Timeout: 5 * time.Second,
-		Transport: &http.Transport{
-			MaxIdleConns:        10,
-			MaxIdleConnsPerHost: 10,
-			IdleConnTimeout:     90 * time.Second,
-			// History answers run to megabytes over a loopback port-forward:
-			// the default 4KB buffer costs one read syscall per 4KB.
-			ReadBufferSize:     64 << 10,
-			DisableCompression: false,
-			DisableKeepAlives:  false,
-			DialContext: (&net.Dialer{
-				Timeout:   1 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-		},
-	}
-	p.authenticateClient(httpClient, cluster, info)
-
-	pfInfo := &PortForwardInfo{
-		PortForward: pf,
-		HTTPClient:  httpClient,
-		LastUsed:    time.Now(),
-		BasePath:    "/prometheus",
-	}
-	p.portForwardPool.Store(cacheKey, pfInfo)
-	time.Sleep(100 * time.Millisecond)
-	return pfInfo, nil
+// newPortForwardInfo wraps a tunnel with a client that answers the gateway's
+// Basic auth challenges.
+func (p *MimirProvider) newPortForwardInfo(pf *k8s.PortForward, cluster string, info *ProviderInfo) *PortForwardInfo {
+	pfInfo := newPortForwardInfo(pf, "/prometheus")
+	p.authenticateClient(pfInfo.HTTPClient, cluster, info)
+	return pfInfo
 }
 
 // findMimirPod returns a ready pod behind the Service, or "" when none is.
@@ -288,7 +263,7 @@ func (p *MimirProvider) cleanupUnusedPortForwards() {
 			pfInfo.Mutex.Lock()
 			if time.Since(pfInfo.LastUsed) > 10*time.Minute {
 				_ = p.k8s.StopPortForward(pfInfo.PortForward.ID)
-				p.portForwardPool.Delete(key)
+				p.portForwardPool.CompareAndDelete(key, pfInfo)
 			}
 			pfInfo.Mutex.Unlock()
 			return true
@@ -302,12 +277,15 @@ func (p *MimirProvider) keepAlivePortForwards() {
 	for range ticker.C {
 		p.portForwardPool.Range(func(key, value interface{}) bool {
 			pfInfo := value.(*PortForwardInfo)
+			// Queries take the same lock to stamp LastUsed: never hold it
+			// across the request.
 			pfInfo.Mutex.Lock()
-			resp, err := pfInfo.HTTPClient.Get(fmt.Sprintf("http://localhost:%d/prometheus/api/v1/status/buildinfo", pfInfo.PortForward.LocalPort))
+			client, port := pfInfo.HTTPClient, pfInfo.PortForward.LocalPort
+			pfInfo.Mutex.Unlock()
+			resp, err := client.Get(fmt.Sprintf("http://localhost:%d/prometheus/api/v1/status/buildinfo", port))
 			if err == nil {
 				resp.Body.Close()
 			}
-			pfInfo.Mutex.Unlock()
 			return true
 		})
 	}
@@ -402,7 +380,7 @@ func (p *MimirProvider) detectInternal(cluster string) (*ProviderInfo, error) {
 		port := resolvePodPort(ctx, clientset, d.info.Namespace, backends.ReadyPod, d.svcPort, 8080)
 		client := &http.Client{Timeout: 10 * time.Second}
 		p.authenticateClient(client, cluster, d.info)
-		outcome := probePrometheusAPIWithClient(p.k8s, cluster, d.info.Namespace, backends.ReadyPod, port, "/prometheus", headers, client)
+		outcome, tunnel := probePrometheusAPIWithClient(p.k8s, cluster, d.info.Namespace, backends.ReadyPod, port, "/prometheus", headers, client)
 
 		info := *d.info
 		info.Port = port
@@ -412,6 +390,9 @@ func (p *MimirProvider) detectInternal(cluster string) (*ProviderInfo, error) {
 			info.Verified = true
 			info.Version = outcome.Version
 			log.Printf("[Mimir] Using %s %s (pod %s:%d, version %q) in cluster %s", info.Flavor, where, backends.ReadyPod, port, outcome.Version, cluster)
+			// The first chart reuses the probe's tunnel (see the Prometheus
+			// provider).
+			poolPortForward(&p.portForwardPool, p.k8s, mimirPoolKey(cluster, &info), p.newPortForwardInfo(tunnel, cluster, &info))
 			return &info, nil
 		case outcome.NeedsTenant:
 			info.Found = true
@@ -604,220 +585,11 @@ func (p *MimirProvider) chartGet(ctx context.Context, cluster string, params url
 	})
 }
 
-func (p *MimirProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
-	promQL := p.buildPromQuery(query)
-	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	bodyStream, err := p.chartGet(ctx, cluster, params)
-	if err != nil {
-		return nil, err
-	}
-	defer bodyStream.Close()
-
-	body, err := io.ReadAll(bodyStream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var promResponse struct {
-		Status string `json:"status"`
-		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Values [][]interface{}   `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-		ErrorType string `json:"errorType,omitempty"`
-		Error     string `json:"error,omitempty"`
-	}
-
-	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
-		return nil, fmt.Errorf("mimir returned unexpected response")
-	}
-
-	if promResponse.Status != "success" {
-		return nil, fmt.Errorf("mimir query failed: %s - %s", promResponse.ErrorType, promResponse.Error)
-	}
-
-	response := &MetricResponse{
-		Labels: []string{},
-		Values: []float64{},
-		Unit:   p.getMetricUnit(query.MetricType),
-	}
-
-	if len(promResponse.Data.Result) == 0 {
-		return response, nil
-	}
-
-	for _, value := range promResponse.Data.Result[0].Values {
-		if len(value) >= 2 {
-			timestamp, ok := value[0].(float64)
-			if !ok {
-				continue
-			}
-			var floatVal float64
-			switch v := value[1].(type) {
-			case string:
-				if _, err := fmt.Sscanf(v, "%f", &floatVal); err != nil {
-					continue
-				}
-			case float64:
-				floatVal = v
-			default:
-				continue
-			}
-			response.Labels = append(response.Labels, time.Unix(int64(timestamp), 0).Format("15:04"))
-			response.Values = append(response.Values, floatVal)
-		}
-	}
-
-	return response, nil
+func (p *MimirProvider) QueryMetrics(ctx context.Context, cluster string, query MetricQuery) (*MetricResponse, error) {
+	return queryChart(ctx, p, "mimir", cluster, query)
 }
 
-func (p *MimirProvider) buildPromQuery(query MetricQuery) string {
-	switch query.MetricType {
-	case "cpu":
-		if query.ContainerName != "" {
-			return fmt.Sprintf(`rate(container_cpu_usage_seconds_total{namespace="%s",pod="%s",container="%s"}[5m]) * 1000`, query.Namespace, query.PodName, query.ContainerName)
-		}
-		return fmt.Sprintf(`sum(rate(container_cpu_usage_seconds_total{namespace="%s",pod="%s",container!=""}[5m])) * 1000`, query.Namespace, query.PodName)
-	case "memory":
-		if query.ContainerName != "" {
-			return fmt.Sprintf(`container_memory_usage_bytes{namespace="%s",pod="%s",container="%s"}`, query.Namespace, query.PodName, query.ContainerName)
-		}
-		return fmt.Sprintf(`sum(container_memory_usage_bytes{namespace="%s",pod="%s",container!=""})`, query.Namespace, query.PodName)
-	case "network_rx":
-		return fmt.Sprintf(`sum(rate(container_network_receive_bytes_total{namespace="%s",pod="%s"}[5m])) / 1024`, query.Namespace, query.PodName)
-	case "network_tx":
-		return fmt.Sprintf(`sum(rate(container_network_transmit_bytes_total{namespace="%s",pod="%s"}[5m])) / 1024`, query.Namespace, query.PodName)
-	case "disk_read":
-		return fmt.Sprintf(`sum(rate(container_fs_reads_bytes_total{namespace="%s",pod="%s"}[5m])) / 1024`, query.Namespace, query.PodName)
-	case "disk_write":
-		return fmt.Sprintf(`sum(rate(container_fs_writes_bytes_total{namespace="%s",pod="%s"}[5m])) / 1024`, query.Namespace, query.PodName)
-	default:
-		return fmt.Sprintf(`up{namespace="%s",pod="%s"}`, query.Namespace, query.PodName)
-	}
-}
-
-func (p *MimirProvider) QueryWorkloadMetrics(cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
-	if len(query.PodNames) == 0 {
-		return &WorkloadMetricResponse{Pods: map[string]*MetricResponse{}}, nil
-	}
-	pods := append([]string(nil), query.PodNames...)
-	sort.Strings(pods)
-	podRegex := strings.Join(pods, "|")
-	promQL := p.buildWorkloadPromQuery(query.Namespace, podRegex, query.MetricType)
-	params, err := chartQueryParams(promQL, query.TimeRange, query.Step)
-	if err != nil {
-		return nil, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	bodyStream, err := p.chartGet(ctx, cluster, params)
-	if err != nil {
-		return nil, err
-	}
-	defer bodyStream.Close()
-
-	body, err := io.ReadAll(bodyStream)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	var promResponse struct {
-		Status string `json:"status"`
-		Data   struct {
-			ResultType string `json:"resultType"`
-			Result     []struct {
-				Metric map[string]string `json:"metric"`
-				Values [][]interface{}   `json:"values"`
-			} `json:"result"`
-		} `json:"data"`
-		ErrorType string `json:"errorType,omitempty"`
-		Error     string `json:"error,omitempty"`
-	}
-
-	if err := jsonv2.Unmarshal(body, &promResponse); err != nil {
-		return nil, fmt.Errorf("mimir returned unexpected response")
-	}
-
-	if promResponse.Status != "success" {
-		return nil, fmt.Errorf("mimir query failed: %s - %s", promResponse.ErrorType, promResponse.Error)
-	}
-
-	response := &WorkloadMetricResponse{
-		Pods: make(map[string]*MetricResponse),
-	}
-	unit := p.getMetricUnit(query.MetricType)
-
-	for _, result := range promResponse.Data.Result {
-		podName := result.Metric["pod"]
-		if podName == "" {
-			continue
-		}
-		podMetrics := &MetricResponse{
-			Labels: []string{},
-			Values: []float64{},
-			Unit:   unit,
-		}
-		for _, value := range result.Values {
-			if len(value) >= 2 {
-				timestamp, ok := value[0].(float64)
-				if !ok {
-					continue
-				}
-				var floatVal float64
-				switch v := value[1].(type) {
-				case string:
-					if _, err := fmt.Sscanf(v, "%f", &floatVal); err != nil {
-						continue
-					}
-				case float64:
-					floatVal = v
-				default:
-					continue
-				}
-				podMetrics.Labels = append(podMetrics.Labels, time.Unix(int64(timestamp), 0).Format("15:04"))
-				podMetrics.Values = append(podMetrics.Values, floatVal)
-			}
-		}
-		response.Pods[podName] = podMetrics
-	}
-
-	return response, nil
-}
-
-func (p *MimirProvider) buildWorkloadPromQuery(namespace, podRegex, metricType string) string {
-	switch metricType {
-	case "cpu":
-		return fmt.Sprintf(`sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s",container!=""}[5m])) * 1000`, namespace, podRegex)
-	case "memory":
-		return fmt.Sprintf(`sum by (pod) (container_memory_usage_bytes{namespace="%s",pod=~"%s",container!=""})`, namespace, podRegex)
-	case "network_rx":
-		return fmt.Sprintf(`sum by (pod) (rate(container_network_receive_bytes_total{namespace="%s",pod=~"%s"}[5m])) / 1024`, namespace, podRegex)
-	case "network_tx":
-		return fmt.Sprintf(`sum by (pod) (rate(container_network_transmit_bytes_total{namespace="%s",pod=~"%s"}[5m])) / 1024`, namespace, podRegex)
-	default:
-		return fmt.Sprintf(`sum by (pod) (rate(container_cpu_usage_seconds_total{namespace="%s",pod=~"%s",container!=""}[5m])) * 1000`, namespace, podRegex)
-	}
-}
-
-func (p *MimirProvider) getMetricUnit(metricType string) string {
-	switch metricType {
-	case "cpu":
-		return "millicores"
-	case "memory":
-		return "bytes"
-	case "network_rx", "network_tx":
-		return "KB/s"
-	case "disk_read", "disk_write":
-		return "KB/s"
-	default:
-		return ""
-	}
+// QueryWorkloadMetrics charts several pods with one query, one series per pod.
+func (p *MimirProvider) QueryWorkloadMetrics(ctx context.Context, cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
+	return queryWorkloadChart(ctx, p, "mimir", cluster, query)
 }

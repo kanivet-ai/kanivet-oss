@@ -233,7 +233,7 @@ func (db *DB) reclaimSpace(force bool) {
 	wantFull := force || free >= fullVacuumMinFree || (fileSize > 0 && free >= fileSize/5)
 	if !wantFull {
 		if freelist > 0 {
-			db.Exec("PRAGMA incremental_vacuum")
+			db.incrementalVacuum()
 		}
 		return
 	}
@@ -254,6 +254,23 @@ func (db *DB) reclaimSpace(force bool) {
 	var after int64
 	db.Raw("PRAGMA page_count").Scan(&after)
 	log.Printf("[DB] VACUUM reclaimed %d MB in %v (database now %d MB)", (pageCount-after)*pageSize>>20, time.Since(start).Round(time.Millisecond), after*pageSize>>20)
+}
+
+// incrementalVacuum hands every free page back. The pragma frees one page per
+// row it returns, so it is read to the end: an Exec steps it once and frees a
+// single page.
+func (db *DB) incrementalVacuum() {
+	rows, err := db.Raw("PRAGMA incremental_vacuum").Rows()
+	if err != nil {
+		log.Printf("[DB] incremental_vacuum failed: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+	}
+	if err := rows.Err(); err != nil {
+		log.Printf("[DB] incremental_vacuum failed: %v", err)
+	}
 }
 
 // filePath returns the main database file, or "" for in-memory databases.

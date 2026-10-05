@@ -5,14 +5,73 @@ import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } 
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
 import { applyLoadedDetails } from './applyLoadedDetails';
 import { keepKnownCounts } from './keepKnownCounts';
+import { persistedItem } from './persistedItem';
 import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
 
+// Concurrent loads of one cluster's tree share a single run: on startup the
+// hydrate step, the sidebar and the restore effect all ask for it at once.
+// A call that passes the tree itself is applied as is.
+const treeLoads = new Map<string, Promise<void>>();
+const sharedTreeLoad =
+  (load: (cluster: string, data?: TreeNode[]) => Promise<void>) =>
+  (cluster: string, data?: TreeNode[]): Promise<void> => {
+    if (data) return load(cluster, data);
+    const pending = treeLoads.get(cluster);
+    if (pending) return pending;
+    const run = load(cluster).finally(() => {
+      if (treeLoads.get(cluster) === run) treeLoads.delete(cluster);
+    });
+    treeLoads.set(cluster, run);
+    return run;
+  };
+
+/** Makes the cluster's next loadTreeData start a load of its own instead of
+ * joining one in flight, and its categories request a fresh round trip: once
+ * the backend has rebuilt the cluster's client (a retry), a load started
+ * before can only answer with what the old client got. */
+export const forgetTreeLoad = (cluster: string) => {
+  treeLoads.delete(cluster);
+  api.invalidateCache(`/resources/categories:${JSON.stringify({ cluster })}`);
+};
+
+// Puts an object's events on the detail panel and the detail tabs showing it.
+const applyResourceEvents = (
+  set: (fn: (state: StoreState) => Partial<StoreState>) => void,
+  cluster: string,
+  details: any,
+  events: any[],
+) => {
+  const name = details?.metadata?.name || details?.name;
+  const namespace = details?.metadata?.namespace || details?.namespace || '';
+  if (!name || !events.length) return;
+  const matches = (item: any) =>
+    item &&
+    (item.metadata?.name || item.name) === name &&
+    (item.metadata?.namespace || item.namespace || '') === namespace;
+  set((state) => ({
+    activeTabs: state.activeTabs.map((t) => {
+      if (t.id !== cluster) return t;
+      const dd = t.state.detailData;
+      return {
+        ...t,
+        state: {
+          ...t.state,
+          detailData: matches(dd) ? { ...dd, events } : dd,
+          detailTabs: t.state.detailTabs.map((dt) =>
+            matches(dt.item) ? { ...dt, item: { ...dt.item, events } } : dt,
+          ),
+        },
+      };
+    }),
+  }));
+};
+
 export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice> = (set, get) => ({
   rolloutPollingInterval: null,
 
-  loadTreeData: async (cluster: string, data?: TreeNode[]) => {
+  loadTreeData: sharedTreeLoad(async (cluster: string, data?: TreeNode[]) => {
     if (data) {
       set((state) => {
         const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
@@ -118,7 +177,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         }
       }
     }
-  },
+  }),
 
   expandNode: async (cluster: string, nodeId: string, nodeType: string, metadata: any) => {
     if (nodeType === 'vclusters') {
@@ -312,7 +371,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
 
   loadListItems: async (cluster: string, resource: any) => {
     const topic = `items:${cluster}:${resource.group || ''}:${resource.version}:${resource.name}:`;
-    const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache || new Map();
+    const cacheMap: Map<string, any[]> =
+      (window as any).__kanivetItemsCache || new Map();
     (window as any).__kanivetItemsCache = cacheMap;
     const topicCache = cacheMap.get(topic);
     const cachedItems = topicCache ? Array.from(topicCache.values()) : [];
@@ -340,7 +400,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     if (!currentTab || !tabState?.selectedNode || tabState.selectedNode.type !== 'resource') return;
     const resource = tabState.selectedNode.data;
     const topic = `items:${currentTab}:${resource.group || ''}:${resource.version}:${resource.name}:`;
-    const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache || new Map();
+    const cacheMap: Map<string, any[]> =
+      (window as any).__kanivetItemsCache || new Map();
     if (cacheMap.has(topic)) cacheMap.delete(topic);
     // Close the subscription so a new one brings a fresh snapshot from the server.
     get().releaseRealtimeTopics((t) => t === topic);
@@ -379,6 +440,20 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       }
       return item;
     }
+    // Events need only the name and namespace the caller already has, so they
+    // load alongside the details instead of after them.
+    const eventsRequest = item?.name
+      ? api.getResourceEvents(
+          cluster,
+          resource.group,
+          resource.version,
+          resource.kind,
+          item.namespace || '',
+          item.name,
+          signal,
+        )
+      : Promise.resolve([]);
+    eventsRequest.catch(() => {});
     let details;
     try {
       details = await api.getResourceDetails(cluster, resource.group, resource.version, resource.kind, item.namespace || '', item.name, signal);
@@ -393,7 +468,13 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     const after = applyLoadedDetails(before, cluster, details);
     if (after === before) return details;
     set({ activeTabs: after });
-    get().loadResourceEvents(cluster, resource, details, signal);
+    eventsRequest.then(
+      (events) => {
+        if (!signal?.aborted)
+          applyResourceEvents(set, cluster, details, events);
+      },
+      () => {},
+    );
     return details;
   },
 
@@ -407,23 +488,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     } catch {
       return;
     }
-    if (signal?.aborted || !events.length) return;
-    const matches = (item: any) =>
-      item && (item.metadata?.name || item.name) === name &&
-      (item.metadata?.namespace || item.namespace || '') === namespace;
-    set((state) => ({
-      activeTabs: state.activeTabs.map((t) => {
-        if (t.id !== cluster) return t;
-        const dd = t.state.detailData;
-        return {
-          ...t, state: {
-            ...t.state,
-            detailData: matches(dd) ? { ...dd, events } : dd,
-            detailTabs: t.state.detailTabs.map((dt) => matches(dt.item) ? { ...dt, item: { ...dt.item, events } } : dt),
-          },
-        };
-      }),
-    }));
+    if (signal?.aborted) return;
+    applyResourceEvents(set, cluster, details, events);
   },
 
   updateDetailData: (data: any) => { get().updateCurrentTabState({ detailData: data }); },
@@ -454,12 +520,12 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
             activeResourceListTab: snapshot.activeResourceListTab, activeResourceListTabByPane: snapshot.activeResourceListTabByPane,
             resourceListTabs: snapshot.resourceListTabs.map((rt) => ({
               id: rt.id, title: rt.title, resource: rt.resource, cluster: rt.cluster, selectedNamespaces: rt.selectedNamespaces,
-              sortBy: rt.sortBy, sortOrder: rt.sortOrder, isPinned: rt.isPinned, paneId: rt.paneId, selectedItem: rt.selectedItem,
+              sortBy: rt.sortBy, sortOrder: rt.sortOrder, isPinned: rt.isPinned, paneId: rt.paneId, selectedItem: persistedItem(rt.selectedItem),
               items: [],
             })),
             detailTabs: snapshot.detailTabs.map((dt) => ({
               id: dt.id, title: dt.title, resource: dt.resource, cluster: dt.cluster, isPinned: dt.isPinned, location: dt.location, paneId: dt.paneId,
-              item: dt.item ? { name: dt.item.name, namespace: dt.item.namespace, uid: dt.item.uid, kind: dt.item.kind, apiVersion: dt.item.apiVersion } : dt.item,
+              item: persistedItem(dt.item),
             })),
             activeDetailTab: snapshot.activeDetailTab, bottomTabs: get().bottomTabs.map((bt) => ({
               id: bt.id, type: bt.type, title: bt.title, customTitle: bt.customTitle, resource: bt.resource,

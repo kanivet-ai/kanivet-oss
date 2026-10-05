@@ -12,6 +12,12 @@ describe('StarProjectDialog', () => {
     expect(source).toContain(
       "import * as Checkbox from '@radix-ui/react-checkbox';",
     );
+    // The Radix Dialog primitive, not Radix Themes (its stylesheet is gone).
+    expect(source).toContain(
+      "import * as RDialog from '@radix-ui/react-dialog';",
+    );
+    expect(source).not.toContain('@radix-ui/themes');
+    expect(source).not.toMatch(/var\(--gray-a\d+\)/);
     expect(source).toContain("import KanivetMark from './icons/KanivetMark';");
     expect(source).toMatch(
       /<RDialog\.Root open=\{isOpen\}[\s\S]*?<RDialog\.Content/,
@@ -27,10 +33,10 @@ describe('StarProjectDialog', () => {
   });
 
   it('provides bug reporting and star actions with the expected close behavior', () => {
-    expect(source).toMatch(/<Button[\s\S]*?>\s*Report a bug\s*<\/Button>/);
-    expect(source).toMatch(/<Button[\s\S]*?>\s*Maybe later\s*<\/Button>/);
+    expect(source).toMatch(/<button[\s\S]*?>\s*Report a bug\s*<\/button>/);
+    expect(source).toMatch(/<button[\s\S]*?>\s*Maybe later\s*<\/button>/);
     expect(source).toMatch(
-      /<Button onClick=\{handleStarProject\}>Star on GitHub<\/Button>/,
+      /<button[^>]*onClick=\{handleStarProject\}\s*>\s*Star on GitHub\s*<\/button>/,
     );
     expect(source).toMatch(
       /window\.open\(\s*'https:\/\/github\.com\/kanivet-ai\/kanivet-oss\/issues\/new\?template=bug_report\.md',\s*'_blank',\s*'noopener,noreferrer',?\s*\)/,

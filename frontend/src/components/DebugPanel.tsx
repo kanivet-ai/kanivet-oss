@@ -201,8 +201,6 @@ const DebugPanel = ({
     return () => clearInterval(interval);
   }, []);
 
-  if (!isDev) return null;
-
   return (
     <div className="debug-panel" ref={panelRef}>
       {isExpanded && (
@@ -282,4 +280,9 @@ const DebugPanel = ({
   );
 };
 
-export default DebugPanel;
+// Production renders nothing, and does so without running the panel's hooks:
+// their state initialisers read localStorage and format a date, which
+// initialises ICU inside the first render.
+const NoDebugPanel = (_props: DebugPanelProps) => null;
+
+export default isDev ? DebugPanel : NoDebugPanel;

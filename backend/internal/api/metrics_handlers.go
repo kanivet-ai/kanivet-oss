@@ -227,7 +227,7 @@ func (h *Handler) QueryPodMetrics(c *gin.Context) {
 		TimeRange:     request.TimeRange,
 	}
 
-	result, err := h.metrics.QueryMetrics(cluster, request.Provider, query)
+	result, err := h.metrics.QueryMetrics(c.Request.Context(), cluster, request.Provider, query)
 	if err != nil {
 		h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to query metrics: %v", err))
 		return

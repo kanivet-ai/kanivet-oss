@@ -7,10 +7,12 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/k8s"
+	"golang.org/x/sync/singleflight"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -34,6 +36,16 @@ const detectPositiveTTL = 30 * time.Minute
 // stays invisible until Kanivet restarts. A var so tests can shrink it.
 var detectNegativeTTL = 45 * time.Second
 
+// detectErrorTTL is how long a failed detection (the Services list timed
+// out, the API server refused) is remembered, so the charts and history
+// queries right behind it do not each run it again inline. A var so tests can
+// shrink it.
+var detectErrorTTL = 10 * time.Second
+
+// detectStaleFor is how long past its expiry an answer is still served while
+// a fresh one is worked out in the background.
+const detectStaleFor = 6 * time.Hour
+
 // maxVerifiedCandidates bounds how many Services a single detection pass will
 // port-forward into. Candidates are tried best-first, so this only matters in
 // clusters full of broken look-alikes.
@@ -41,35 +53,76 @@ const maxVerifiedCandidates = 4
 
 type detectEntry struct {
 	info    *ProviderInfo
+	err     error
 	expires time.Time
+	// refreshing is set once a background refresh of this entry has started.
+	refreshing atomic.Bool
 }
 
-// detectCached runs fetch under the cache's single-flight and remembers the
-// answer for a time that depends on the outcome: found → detectPositiveTTL,
-// not found → detectNegativeTTL. Errors are never cached.
-func detectCached(c *cache.Cache, key string, fetch func() (*ProviderInfo, error)) (*ProviderInfo, error) {
-	for attempt := 0; attempt < 2; attempt++ {
-		data, err := c.GetOrSet(key, detectPositiveTTL, func() (interface{}, error) {
-			info, err := fetch()
-			if err != nil {
-				return nil, err
-			}
-			ttl := detectPositiveTTL
-			if !info.Found {
-				ttl = detectNegativeTTL
-			}
-			return &detectEntry{info: info, expires: time.Now().Add(ttl)}, nil
-		})
-		if err != nil {
-			return nil, err
-		}
-		entry, ok := data.(*detectEntry)
-		if ok && time.Now().Before(entry.expires) {
-			return entry.info, nil
-		}
-		c.Delete(key)
+func newDetectEntry(info *ProviderInfo, err error) *detectEntry {
+	ttl := detectPositiveTTL
+	switch {
+	case err != nil:
+		ttl = detectErrorTTL
+	case !info.Found:
+		ttl = detectNegativeTTL
 	}
-	return fetch()
+	return &detectEntry{info: info, err: err, expires: time.Now().Add(ttl)}
+}
+
+// retention is how long the cache keeps the entry: an answer stays servable
+// (stale) for a while after it expires, a failure does not.
+func (e *detectEntry) retention() time.Duration {
+	keep := time.Until(e.expires)
+	if e.err == nil {
+		keep += detectStaleFor
+	}
+	return max(keep, time.Millisecond)
+}
+
+var detectFlight singleflight.Group
+
+// detectCached remembers a detection for a time that depends on the outcome:
+// found → detectPositiveTTL, not found → detectNegativeTTL, failed →
+// detectErrorTTL. Past that an answer is still served, stale, while a single
+// background run replaces it (RFC 5861 stale-while-revalidate): detection
+// lists every Service and port-forwards into candidates, and the chart and
+// history queries that ask for it must not wait for that every 45 seconds on
+// a cluster without Prometheus. A refresh that fails keeps the previous answer
+// (stale-if-error). Only a missing entry — never fetched, failed, or dropped
+// by InvalidateDetection — makes callers wait, sharing one run.
+func detectCached(c *cache.Cache, key string, fetch func() (*ProviderInfo, error)) (*ProviderInfo, error) {
+	if v, ok := c.Get(key); ok {
+		if entry, ok := v.(*detectEntry); ok {
+			if time.Now().Before(entry.expires) {
+				return entry.info, entry.err
+			}
+			if entry.err == nil {
+				if entry.refreshing.CompareAndSwap(false, true) {
+					go refreshDetection(c, key, entry, fetch)
+				}
+				return entry.info, nil
+			}
+		}
+	}
+	v, _, _ := detectFlight.Do(fmt.Sprintf("%p|%s", c, key), func() (any, error) {
+		entry := newDetectEntry(fetch())
+		c.Set(key, entry, entry.retention())
+		return entry, nil
+	})
+	entry := v.(*detectEntry)
+	return entry.info, entry.err
+}
+
+// refreshDetection replaces a stale entry, unless it was dropped or replaced
+// while the refresh ran (settings changed, "Detect again"): the newer state
+// wins over an answer worked out under the old one.
+func refreshDetection(c *cache.Cache, key string, stale *detectEntry, fetch func() (*ProviderInfo, error)) {
+	next := newDetectEntry(fetch())
+	if next.err != nil {
+		next = &detectEntry{info: stale.info, expires: time.Now().Add(detectErrorTTL)}
+	}
+	c.Replace(key, stale, next, next.retention())
 }
 
 // serviceBackends is what stands behind a Service right now.
@@ -233,19 +286,23 @@ type probeOutcome struct {
 	Detail      string // why it is not OK, in plain words
 }
 
-// probePrometheusAPI opens a short-lived port-forward to pod:port and asks the
+// probePrometheusAPI opens a port-forward to pod:port and asks the
 // Prometheus-compatible API under basePath to identify itself. It is the
 // ground truth for "found".
-func probePrometheusAPI(k8sClient k8s.Interface, cluster, namespace, pod string, port int32, basePath string, headers map[string]string) probeOutcome {
+func probePrometheusAPI(k8sClient k8s.Interface, cluster, namespace, pod string, port int32, basePath string, headers map[string]string) (probeOutcome, *k8s.PortForward) {
 	return probePrometheusAPIWithClient(k8sClient, cluster, namespace, pod, port, basePath, headers, &http.Client{Timeout: 4 * time.Second})
 }
 
-func probePrometheusAPIWithClient(k8sClient k8s.Interface, cluster, namespace, pod string, port int32, basePath string, headers map[string]string, client *http.Client) probeOutcome {
-	pf, err := k8sClient.CreatePortForward(cluster, namespace, pod, int(port))
+// probePrometheusAPIWithClient probes through a private port-forward — never
+// one the user or the provider's pool is reading through, which stopping it
+// would cut. When the API answers, the tunnel is handed back open so the
+// provider can keep it for the queries that follow instead of building
+// another to the same pod; otherwise it is closed here.
+func probePrometheusAPIWithClient(k8sClient k8s.Interface, cluster, namespace, pod string, port int32, basePath string, headers map[string]string, client *http.Client) (probeOutcome, *k8s.PortForward) {
+	pf, err := k8sClient.CreatePrivatePortForward(cluster, namespace, pod, int(port))
 	if err != nil {
-		return probeOutcome{Detail: fmt.Sprintf("port-forward to pod %s:%d failed: %s", pod, port, trimErr(err))}
+		return probeOutcome{Detail: fmt.Sprintf("port-forward to pod %s:%d failed: %s", pod, port, trimErr(err))}, nil
 	}
-	defer func() { _ = k8sClient.StopPortForward(pf.ID) }()
 
 	base := fmt.Sprintf("http://localhost:%d%s", pf.LocalPort, strings.TrimSuffix(basePath, "/"))
 
@@ -254,11 +311,15 @@ func probePrometheusAPIWithClient(k8sClient k8s.Interface, cluster, namespace, p
 	var last probeOutcome
 	for _, path := range []string{"/api/v1/status/buildinfo", "/api/v1/labels"} {
 		last = probeOnce(client, base+path, headers)
-		if last.OK || last.NeedsTenant {
-			return last
+		if last.OK {
+			return last, pf
+		}
+		if last.NeedsTenant {
+			break
 		}
 	}
-	return last
+	_ = k8sClient.StopPortForward(pf.ID)
+	return last, nil
 }
 
 func probeOnce(client *http.Client, url string, headers map[string]string) probeOutcome {

@@ -16,7 +16,9 @@ function createDeferred() {
   return { promise, resolve, reject };
 }
 
-function loadElectronMain() {
+// Loads electron.js against fakes. The fakes stay installed until the test
+// ends, so modules electron.js requires lazily resolve to them too.
+function loadElectronMain(t) {
   delete require.cache[require.resolve(electronMainPath)];
 
   class FakeBrowserWindow extends EventEmitter {
@@ -100,6 +102,8 @@ function loadElectronMain() {
 
   const autoUpdater = new EventEmitter();
   autoUpdater.checkForUpdates = async () => ({ updateInfo: null });
+  const ipcHandlers = new Map();
+  const requested = [];
 
   const icon = {
     resize() {
@@ -112,7 +116,11 @@ function loadElectronMain() {
     electron: {
       app,
       BrowserWindow: FakeBrowserWindow,
-      ipcMain: { handle() {} },
+      ipcMain: {
+        handle(channel, handler) {
+          ipcHandlers.set(channel, handler);
+        },
+      },
       shell: { openExternal() {} },
       Menu: {
         buildFromTemplate: () => ({}),
@@ -137,24 +145,28 @@ function loadElectronMain() {
   const originalLoad = Module._load;
   Module._load = function patchedLoad(request, parent, isMain) {
     if (Object.hasOwn(mocks, request)) {
+      requested.push(request);
       return mocks[request];
     }
     return originalLoad.call(this, request, parent, isMain);
   };
-
-  try {
-    const electronMain = require(electronMainPath);
-    return {
-      electronMain,
-      BrowserWindow: FakeBrowserWindow,
-    };
-  } finally {
+  t.after(() => {
     Module._load = originalLoad;
-  }
+  });
+
+  const electronMain = require(electronMainPath);
+  return {
+    electronMain,
+    BrowserWindow: FakeBrowserWindow,
+    FakeStore,
+    autoUpdater,
+    ipcHandlers,
+    requested,
+  };
 }
 
-test('startup activate race does not create a duplicate frontend window', async () => {
-  const { electronMain, BrowserWindow } = loadElectronMain();
+test('startup activate race does not create a duplicate frontend window', async (t) => {
+  const { electronMain, BrowserWindow } = loadElectronMain(t);
   const backendStartup = createDeferred();
 
   const appReady = electronMain.handleAppReady({
@@ -174,8 +186,8 @@ test('startup activate race does not create a duplicate frontend window', async 
   assert.equal(BrowserWindow.instances.length, 1);
 });
 
-test('createWindow still recreates the frontend after the prior window is destroyed', () => {
-  const { electronMain, BrowserWindow } = loadElectronMain();
+test('createWindow still recreates the frontend after the prior window is destroyed', (t) => {
+  const { electronMain, BrowserWindow } = loadElectronMain(t);
 
   const firstWindow = electronMain.createWindow();
   firstWindow.destroy();
@@ -185,4 +197,95 @@ test('createWindow still recreates the frontend after the prior window is destro
   assert.notEqual(replacementWindow, firstWindow);
   assert.equal(BrowserWindow.instances.length, 2);
   assert.equal(BrowserWindow.getAllWindows().length, 1);
+});
+
+test('loading the main process requires neither electron-store nor electron-updater', async (t) => {
+  const { ipcHandlers, autoUpdater, requested } = loadElectronMain(t);
+
+  assert.ok(!requested.includes('electron-store'));
+  assert.ok(!requested.includes('electron-updater'));
+
+  // The updater loads, configured, on first use. (Fake timers: the check
+  // arms a 15 s timeout that would otherwise hold the test process open.)
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  await ipcHandlers.get('updater:checkForUpdates')();
+  assert.ok(requested.includes('electron-updater'));
+  assert.equal(autoUpdater.autoDownload, false);
+  assert.equal(autoUpdater.listenerCount('update-available'), 1);
+});
+
+test('the window opens while the backend starts, and the renderer can pull the port', async (t) => {
+  const { electronMain, BrowserWindow, FakeStore, ipcHandlers } = loadElectronMain(t);
+  const backendStartup = createDeferred();
+
+  const appReady = electronMain.handleAppReady({
+    runLegacyHostedIdentityCleanupImpl: () => ({ errorCount: 0 }),
+    settingsStoreImpl: new FakeStore(),
+    startBackendImpl: () => backendStartup.promise,
+    createTrayImpl: () => {},
+    initDynamicIslandImpl: () => {},
+    startPeriodicUpdateCheckImpl: () => {},
+  });
+  assert.equal(BrowserWindow.instances.length, 1);
+
+  // Asked before the backend has printed its port: the answer waits for it.
+  let port = null;
+  const portAnswered = ipcHandlers.get('backend:getPort')().then((value) => {
+    port = value;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(port, null);
+
+  electronMain.setBackendPort(61234);
+  backendStartup.resolve(61234);
+  await appReady;
+  await portAnswered;
+  assert.equal(port, 61234);
+});
+
+test('the renderer still gets an answer when the backend never reports a port', async (t) => {
+  const { electronMain, FakeStore, ipcHandlers } = loadElectronMain(t);
+
+  await assert.rejects(
+    electronMain.handleAppReady({
+      runLegacyHostedIdentityCleanupImpl: () => ({ errorCount: 0 }),
+      settingsStoreImpl: new FakeStore(),
+      startBackendImpl: async () => {
+        throw new Error('spawn EACCES');
+      },
+      createTrayImpl: () => {},
+      initDynamicIslandImpl: () => {},
+      startPeriodicUpdateCheckImpl: () => {},
+    }),
+  );
+
+  assert.equal(await ipcHandlers.get('backend:getPort')(), 53727);
+});
+
+test('the renderer gets the port even when the rest of startup fails', async (t) => {
+  const { electronMain, FakeStore, ipcHandlers } = loadElectronMain(t);
+
+  await assert.rejects(
+    electronMain.handleAppReady({
+      runLegacyHostedIdentityCleanupImpl: () => ({ errorCount: 0 }),
+      settingsStoreImpl: new FakeStore(),
+      startBackendImpl: async () => {
+        electronMain.setBackendPort(61234);
+        return 61234;
+      },
+      createTrayImpl: () => {
+        throw new Error('tray unavailable');
+      },
+      initDynamicIslandImpl: () => {},
+      startPeriodicUpdateCheckImpl: () => {},
+    }),
+  );
+
+  let timer;
+  const unanswered = new Promise((resolve) => {
+    timer = setTimeout(resolve, 1000, 'unanswered');
+  });
+  const port = await Promise.race([ipcHandlers.get('backend:getPort')(), unanswered]);
+  clearTimeout(timer);
+  assert.equal(port, 61234);
 });

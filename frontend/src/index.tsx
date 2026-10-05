@@ -1,10 +1,23 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import '@radix-ui/themes/styles.css';
 import './index.css';
 import './styles/radix-bridge.css';
 import './styles/primitives.css';
 import App from './App';
+// Stylesheets of lazily loaded views whose unscoped rules (.search-input,
+// .search-icon, .no-results, .error-message, .terminal-container…) also style
+// first-screen elements and each other. Split out, they would be appended in
+// whatever order their chunks load; imported here, after everything App
+// pulls in and in the order the single bundle had them, the cascade stays as
+// it was.
+import './components/finops/FinOpsFilters.css';
+import './components/detailView/shared/DetailViewShared.css';
+import './components/Terminal.css';
+import './components/PodShell.css';
+import './components/common/Terminal.css';
+import './components/ResourceSelector.css';
+import './components/CrossplaneTrace.css';
+import './components/ThemeSettings.css';
 import { setBackendPort } from './services/api/types';
 import { setupResizeObserverErrorHandler } from './utils/resizeObserverPolyfill';
 import { runLegacyChatSessionMigration } from './utils/legacyChatSessionMigration.mjs';

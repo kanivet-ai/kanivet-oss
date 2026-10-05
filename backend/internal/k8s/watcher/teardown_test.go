@@ -42,3 +42,23 @@ func TestStopAllForClusterReapsOnlyIdleWatchesOfThatCluster(t *testing.T) {
 		t.Fatal("cluster must be forgotten so reopening re-triggers kind indexing")
 	}
 }
+
+// A topic's last snapshot save is per-topic state like its cache and epoch:
+// a long session opening many namespaces must not keep one entry per topic
+// forever, and a topic reopened within the save interval saves its new list.
+func TestReleasedTopicsForgetTheirSnapshotSave(t *testing.T) {
+	s := newServiceForResync(&captureBroadcaster{sortBy: "age", sortOrder: "desc"})
+	s.db = newSnapshotDB(t)
+	released := "items:cluster-a:apps:v1:deployments:"
+	registerWatch(t, s, released)
+	s.saveSnapshotSoon(released)
+	s.manager.StopWatch(released)
+
+	s.StopAllForCluster("cluster-a")
+
+	s.snapshotMu.Lock()
+	defer s.snapshotMu.Unlock()
+	if _, ok := s.snapshotSavedAt[released]; ok {
+		t.Fatal("a released topic keeps its snapshot save time")
+	}
+}

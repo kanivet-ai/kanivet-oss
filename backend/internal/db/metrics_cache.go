@@ -14,9 +14,11 @@ import (
 const metricsLastUsedEvery = time.Hour
 
 type MetricsQuery struct {
-	Key      string `gorm:"primaryKey"`
-	Data     []byte
-	Bytes    int64
+	Key  string `gorm:"primaryKey"`
+	Data []byte
+	// Bytes is indexed so the total is read from the index at open, not
+	// from every page of a table of up to 128MB of blobs.
+	Bytes    int64 `gorm:"index"`
 	LastUsed int64 `gorm:"index"`
 }
 
@@ -37,7 +39,15 @@ func (db *DB) OpenMetricsCache(path string) error {
 		_ = sqlDB.Close()
 		return err
 	}
+	var total int64
+	if err := g.Model(&MetricsQuery{}).Select("COALESCE(SUM(bytes), 0)").Scan(&total).Error; err != nil {
+		_ = sqlDB.Close()
+		return err
+	}
+	db.metricsCacheMu.Lock()
 	db.metricsCache = g
+	db.metricsCacheBytes = total
+	db.metricsCacheMu.Unlock()
 	return nil
 }
 
@@ -77,6 +87,9 @@ func (db *DB) GetMetricsQuery(key string) ([]byte, error) {
 
 // Prune and insert in one transaction, so simultaneous queries cannot grow
 // the cache past its budget. An oversized entry is served without retention.
+// The budget is checked against a running total: summing the table on every
+// save read all of it, ~70ms once the cache had filled, and charts save on
+// most refreshes.
 func (db *DB) SaveMetricsQuery(key string, data []byte, maxBytes int64) error {
 	db.metricsCacheMu.Lock()
 	defer db.metricsCacheMu.Unlock()
@@ -88,13 +101,18 @@ func (db *DB) SaveMetricsQuery(key string, data []byte, maxBytes int64) error {
 		return nil
 	}
 	removed := false
+	var total int64
 	err := db.metricsCache.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("key = ?", key).Delete(&MetricsQuery{}).Error; err != nil {
+		total = db.metricsCacheBytes
+		var replaced []int64
+		if err := tx.Model(&MetricsQuery{}).Where("key = ?", key).Pluck("bytes", &replaced).Error; err != nil {
 			return err
 		}
-		var total int64
-		if err := tx.Model(&MetricsQuery{}).Select("COALESCE(SUM(bytes), 0)").Scan(&total).Error; err != nil {
-			return err
+		if len(replaced) > 0 {
+			if err := tx.Where("key = ?", key).Delete(&MetricsQuery{}).Error; err != nil {
+				return err
+			}
+			total -= replaced[0]
 		}
 		for total+size > maxBytes {
 			var rows []MetricsQuery
@@ -102,6 +120,7 @@ func (db *DB) SaveMetricsQuery(key string, data []byte, maxBytes int64) error {
 				return err
 			}
 			if len(rows) == 0 {
+				total = 0 // nothing left to evict, so nothing left to count
 				break
 			}
 			for _, row := range rows {
@@ -115,8 +134,15 @@ func (db *DB) SaveMetricsQuery(key string, data []byte, maxBytes int64) error {
 				removed = true
 			}
 		}
-		return tx.Create(&MetricsQuery{Key: key, Data: data, Bytes: size, LastUsed: time.Now().UnixNano()}).Error
+		if err := tx.Create(&MetricsQuery{Key: key, Data: data, Bytes: size, LastUsed: time.Now().UnixNano()}).Error; err != nil {
+			return err
+		}
+		total += size
+		return nil
 	})
+	if err == nil {
+		db.metricsCacheBytes = total
+	}
 	if err == nil && removed {
 		if rows, e := db.metricsCache.Raw("PRAGMA incremental_vacuum").Rows(); e == nil {
 			for rows.Next() {

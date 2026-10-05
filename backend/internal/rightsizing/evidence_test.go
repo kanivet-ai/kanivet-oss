@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -15,6 +16,7 @@ import (
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/metrics"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -39,12 +41,15 @@ func (h *evidenceHistory) QueryRange(ctx context.Context, cluster, query string,
 	h.mu.Lock()
 	h.calls[key]++
 	h.mu.Unlock()
+	if strings.Contains(query, "restarts_total") {
+		return nil, nil // no restarts: "> 0" keeps no step
+	}
 	var result []metrics.HistorySeries
 	for _, wk := range []string{"api", "other"} {
 		value := float32(0.25)
 		if strings.Contains(query, "memory") || strings.Contains(query, `resource="memory"`) {
 			value = 128 << 20
-		} else if strings.Contains(query, "changes(") || strings.Contains(query, "throttled") {
+		} else if strings.Contains(query, "throttled") {
 			value = 0
 		}
 		if wk == "other" {
@@ -160,6 +165,115 @@ func TestEvidenceReusesReportQueriesAndFiltersWorkload(t *testing.T) {
 	}
 }
 
+// quietHistory is evidenceHistory without restarts, so without OOM kills.
+type quietHistory struct{ *evidenceHistory }
+
+func (h quietHistory) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "restarts_total") {
+		return nil, nil
+	}
+	return h.evidenceHistory.QueryRange(ctx, cluster, query, start, end, step)
+}
+
+// A container without events has an empty list, not null: the drawer would
+// make a new array for null on every render and redraw its charts each time.
+func TestEvidenceWithoutEventsIsAnEmptyList(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	s := NewService(&k8s.MockClient{}, quietHistory{&evidenceHistory{calls: map[string]int{}}}, evidenceFixtures{}, evidenceFixtures{}, nil)
+	s.now = func() time.Time { return now }
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	ev, err := s.GetEvidence(ctx, WorkloadQuery{
+		Cluster: t.Name(), Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api",
+		Profile: ProfileBalanced, Window: defaultWindow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(ev.Events); string(b) != `{"main":[]}` {
+		t.Fatalf("events=%s", b)
+	}
+}
+
+// startupStore serves one Deployment whose pod idles at 5m but used 120m in
+// its first minutes after starting, inside the window.
+type startupStore struct{ start time.Time }
+
+func (startupStore) HistorySource(context.Context, string) (*metrics.ProviderInfo, bool) {
+	return &metrics.ProviderInfo{Type: "prometheus", Found: true}, false
+}
+
+func (s startupStore) QueryInstant(_ context.Context, _, query string, at time.Time) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "kube_pod_start_time") {
+		return []metrics.HistorySeries{{Labels: map[string]string{"namespace": "apps", "pod": "api-bcdfgh-bcdfg"}, Times: []int64{at.Unix()}, Values: []float32{float32(s.start.Unix())}}}, nil
+	}
+	return []metrics.HistorySeries{{Times: []int64{at.Unix()}, Values: []float32{1}}}, nil
+}
+
+func (s startupStore) QueryRange(_ context.Context, _, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "kube_pod_container_status") || strings.Contains(query, "throttled") {
+		return nil, nil
+	}
+	ser := metrics.HistorySeries{Labels: map[string]string{"namespace": "apps", "pod": "api-bcdfgh-bcdfg", "wk": "api", "container": "main"}}
+	for at := start; !at.After(end); at = at.Add(step) {
+		v := float32(0.005)
+		switch {
+		case strings.Contains(query, "memory"):
+			v = 300 << 20
+		case strings.Contains(query, "kube_pod_container_resource"):
+			v = 0.5
+		case !at.Before(s.start) && at.Before(s.start.Add(startupWindow)):
+			v = 0.12
+		}
+		ser.Times, ser.Values = append(ser.Times, at.Unix()), append(ser.Values, v)
+	}
+	return []metrics.HistorySeries{ser}, nil
+}
+
+type startupPods struct{ evidenceFixtures }
+
+func (startupPods) List(context.Context, string) ([]*v1.Pod, error) {
+	controller := true
+	return []*v1.Pod{{
+		ObjectMeta: metav1.ObjectMeta{
+			Namespace: "apps", Name: "api-bcdfgh-bcdfg",
+			Labels:          map[string]string{"pod-template-hash": "bcdfgh"},
+			OwnerReferences: []metav1.OwnerReference{{Kind: "ReplicaSet", Name: "api-bcdfgh", Controller: &controller}},
+		},
+		Spec: v1.PodSpec{Containers: []v1.Container{{Name: "main", Resources: v1.ResourceRequirements{
+			Requests: v1.ResourceList{v1.ResourceCPU: resource.MustParse("500m"), v1.ResourceMemory: resource.MustParse("1Gi")},
+			Limits:   v1.ResourceList{v1.ResourceCPU: resource.MustParse("2"), v1.ResourceMemory: resource.MustParse("1Gi")},
+		}}}},
+		Status: v1.PodStatus{Phase: v1.PodRunning},
+	}}, nil
+}
+
+// The drawer's preset for the report's own profile is the report's
+// recommendation: here, CPU kept at the startup rate on a cluster that can't
+// resize pods in place, not the steady state alone.
+func TestEvidencePresetMatchesReport(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	// A start time float32 carries exactly, on the 5-minute grid.
+	start := time.Unix(now.Add(-5*day).Unix()/9600*9600, 0)
+	s := NewService(&k8s.MockClient{}, startupStore{start}, startupPods{}, startupPods{}, nil)
+	s.now = func() time.Time { return now }
+	ctx := context.Background()
+	rep := s.compute(ctx, t.Name(), ProfileBalanced, defaultWindow, nil, func(Progress) {})
+	if rep.Status != StatusReady || len(rep.Workloads) != 1 {
+		t.Fatalf("report status=%s error=%s workloads=%d", rep.Status, rep.Error, len(rep.Workloads))
+	}
+	c := rep.Workloads[0].Containers[0]
+	if c.StartupBoost == nil || !c.StartupBoost.Floor {
+		t.Fatalf("setup: no startup floor, cpu %+v boost %+v", c.CPU, c.StartupBoost)
+	}
+	ev, err := s.GetEvidence(ctx, WorkloadQuery{Cluster: t.Name(), Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ev.Profiles["main"][ProfileBalanced]; got.CPU != c.CPU.Recommended || got.Memory != c.Memory.Recommended {
+		t.Fatalf("balanced preset %+v, report recommends %v cores and %vMi", got, c.CPU.Recommended, c.Memory.Recommended/mib)
+	}
+}
+
 // evidenceStore persists day chunks in memory and nothing else.
 type evidenceStore struct{ *memChunks }
 
@@ -232,6 +346,121 @@ func TestEvidenceCachedSnapshotThenFreshGrid(t *testing.T) {
 	}
 }
 
+// samplesOf is the sample count of a workload's first container in a report.
+func samplesOf(rep *Report, name string) int {
+	for _, w := range rep.Workloads {
+		if w.Name == name {
+			return w.Containers[0].Data.Samples
+		}
+	}
+	return -1
+}
+
+// A report computed shortly before midnight stored its last day as a tail.
+// Cached evidence opened once that day is final still reads that tail.
+func TestCachedEvidenceAcrossMidnight(t *testing.T) {
+	for _, later := range []time.Duration{20 * time.Minute, 55 * time.Minute} {
+		now := time.Date(2026, 10, 2, 23, 50, 0, 0, time.UTC)
+		h := &evidenceHistory{calls: map[string]int{}}
+		s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
+		s.now = func() time.Time { return now }
+		cluster := t.Name()
+		ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+		rep := s.compute(ctx, cluster, ProfileBalanced, defaultWindow, nil, func(Progress) {})
+		rep.ComputedAt = now
+		s.runs[runKey(cluster, ProfileBalanced, defaultWindow, "mimir")] = &run{ready: rep, readyAt: now, loaded: true}
+		now = now.Add(later)
+		q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
+		cached, err := s.GetEvidence(ctx, q)
+		if err != nil {
+			t.Fatalf("+%s: %v", later, err)
+		}
+		if got, row := cached.Workload.Containers[0].Data.Samples, samplesOf(rep, "api"); got != row {
+			t.Errorf("opened %s after the report: cached evidence has %d samples, its report row %d", later, got, row)
+		}
+	}
+}
+
+// Reports for other profiles run the same queries at the same step. Each
+// keeps its own day in progress, so cached evidence still matches its row.
+func TestCachedEvidenceKeepsItsOwnTail(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	h := &evidenceHistory{calls: map[string]int{}}
+	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, evidenceStore{&memChunks{data: map[string][]byte{}}})
+	s.now = func() time.Time { return now }
+	cluster := t.Name()
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	rep := s.compute(ctx, cluster, ProfileBalanced, defaultWindow, nil, func(Progress) {})
+	rep.ComputedAt = now
+	s.runs[runKey(cluster, ProfileBalanced, defaultWindow, "mimir")] = &run{ready: rep, readyAt: now, loaded: true}
+
+	now = now.Add(10 * time.Minute)
+	if other := s.compute(ctx, cluster, ProfileConservative, defaultWindow, nil, func(Progress) {}); other.Status != StatusReady {
+		t.Fatal(other.Status)
+	}
+	now = now.Add(time.Minute)
+	q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
+	cached, err := s.GetEvidence(ctx, q)
+	if err != nil {
+		t.Fatalf("cached evidence: %v", err)
+	}
+	if got, row := cached.Workload.Containers[0].Data.Samples, samplesOf(rep, "api"); got != row {
+		t.Fatalf("cached evidence lost the day in progress to another profile's report: %d samples, its row %d", got, row)
+	}
+}
+
+// persistingStore keeps reports too, the way the local database does across
+// restarts.
+type persistingStore struct {
+	evidenceStore
+	reports map[string][]byte
+}
+
+func (s persistingStore) SaveRightsizingReport(key, _ string, data []byte) error {
+	s.reports[key] = data
+	return nil
+}
+
+func (s persistingStore) GetRightsizingReport(key string) ([]byte, error) {
+	if d, ok := s.reports[key]; ok {
+		return d, nil
+	}
+	return nil, errNoStore
+}
+
+// After a restart the persisted report is fresh, so nothing recomputes it;
+// cached evidence still shows its numbers at once, from the stored days and
+// the local pod cache, without asking the metrics store or the API server.
+func TestCachedEvidenceAfterRestart(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	store := persistingStore{evidenceStore{&memChunks{data: map[string][]byte{}}}, map[string][]byte{}}
+	cluster := t.Name()
+	key := runKey(cluster, ProfileBalanced, defaultWindow, "mimir")
+	before := NewService(&k8s.MockClient{}, &evidenceHistory{calls: map[string]int{}}, evidenceFixtures{}, evidenceFixtures{}, store)
+	before.now = func() time.Time { return now }
+	before.runs[key] = &run{cluster: cluster, computing: true, loaded: true}
+	before.computeAndStore(key, cluster, ProfileBalanced, defaultWindow, "mimir")
+	rep := before.Cached(cluster, ProfileBalanced, defaultWindow, "mimir")
+	if rep == nil || rep.Status != StatusReady {
+		t.Fatalf("report: %+v", rep)
+	}
+
+	now = now.Add(10 * time.Minute)
+	after := NewService(nil, offlineSource{t: t}, nil, evidenceFixtures{}, store)
+	after.now = func() time.Time { return now }
+	if got := after.GetReport(cluster, ProfileBalanced, defaultWindow, false, "", "mimir"); got.Status != StatusReady || got.Stale {
+		t.Fatalf("persisted report: status=%s stale=%t", got.Status, got.Stale)
+	}
+	q := WorkloadQuery{Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api", Profile: ProfileBalanced, Window: defaultWindow, CacheOnly: true}
+	cached, err := after.GetEvidence(context.Background(), q)
+	if err != nil {
+		t.Fatalf("cached evidence after a restart: %v", err)
+	}
+	if got, row := cached.Workload.Containers[0].Data.Samples, samplesOf(rep, "api"); got != row || !cached.AsOf.Equal(rep.AsOf) {
+		t.Fatalf("cached evidence has %d samples at %v, its report row %d at %v", got, cached.AsOf, row, rep.AsOf)
+	}
+}
+
 // With a chunk store, evidence reads the report's finished days from it and
 // asks the store only for the day in progress.
 func TestEvidenceReadsReportChunks(t *testing.T) {
@@ -292,5 +521,33 @@ func TestReportReadsCachedDays(t *testing.T) {
 		if start, _ := strconv.ParseInt(parts[len(parts)-3], 10, 64); start < today {
 			t.Errorf("second report re-fetched a cached day: %s", key)
 		}
+	}
+}
+
+// The persisted inputs keep what a cached drawer needs to match the report:
+// which container a ContainerResource HPA scales on, and the VPAs.
+func TestEvidenceInputsKeepHPAContainerAndVPAs(t *testing.T) {
+	asOf := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	in := &evidenceInputs{
+		now:  asOf,
+		hpas: map[string]*hpaTarget{"apps/Deployment/api": {resource: "cpu", utilization: 70, name: "api", container: "app"}},
+		vpas: map[string]*vpaTarget{"apps/Deployment/web": {name: "web", mode: "Auto", policies: map[string][]string{"*": {"cpu"}},
+			recommended: map[string]Resources{"main": {CPURequest: 0.25, MemRequest: 128 << 20}}}},
+	}
+	data, err := packJSON(in.saved(asOf))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := persistingStore{evidenceStore{&memChunks{data: map[string][]byte{}}}, map[string][]byte{inputsKey("k"): data}}
+	s := NewService(nil, nil, nil, nil, store)
+	out := s.loadInputs("k", asOf)
+	if out == nil {
+		t.Fatal("inputs were not read back")
+	}
+	if h := out.hpas["apps/Deployment/api"]; h == nil || h.container != "app" || h.utilization != 70 {
+		t.Fatalf("hpa %+v", h)
+	}
+	if v := out.vpas["apps/Deployment/web"]; v == nil || v.mode != "Auto" || v.policies["*"][0] != "cpu" || v.recommended["main"].CPURequest != 0.25 {
+		t.Fatalf("vpa %+v", v)
 	}
 }

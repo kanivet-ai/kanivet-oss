@@ -97,7 +97,8 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     }
 
     const topic = itemsTopic(cluster, resource);
-    const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache || new Map();
+    const cacheMap: Map<string, any[]> =
+      (window as any).__kanivetItemsCache || new Map();
     const topicCache = cacheMap.get(topic);
     const items = liveItemsFor(topic) ?? (topicCache ? Array.from(topicCache.values()) : []);
 
@@ -147,9 +148,13 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     if (closingActiveTab) {
       const currentIndex = tab.state.resourceListTabs.findIndex((rt) => rt.id === tabId);
       if (newTabs.length > 0) {
+        // The closed tab may only be the global "active" one while its pane
+        // shows another tab: that one stays in front, and stays selected.
+        const shownId = closing ? (tab.state.activeResourceListTabByPane || {})[closing.paneId || 'root'] : null;
+        const shown = shownId && shownId !== tabId ? newTabs.find((rt) => rt.id === shownId) : undefined;
         const newIndex = Math.min(currentIndex, newTabs.length - 1);
-        newActiveTab = newTabs[newIndex].id;
-        const newTab = newTabs[newIndex];
+        const newTab = shown || newTabs[newIndex];
+        newActiveTab = newTab.id;
         const page = pageNode(newTab.resource.kind, currentTab);
         if (page) {
           selectedNode = page;
@@ -234,7 +239,10 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       }
       const ns = resourceListTab.selectedNamespaces;
       const live = resourceListTab !== storedTab;
+      // The global active tab follows the pane's: closing a tab decides what
+      // was showing from it, and a stale value selected another page.
       get().updateCurrentTabState({
+        activeResourceListTab: resourceListTab.id,
         activeResourceListTabByPane: next, selectedNode, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all',
         ...(live ? {
           resourceListTabs: tab.state.resourceListTabs.map((rt) => rt.id === tabId ? { ...rt, items: resourceListTab.items } : rt),

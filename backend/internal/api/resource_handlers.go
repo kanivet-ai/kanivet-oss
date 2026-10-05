@@ -17,6 +17,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// Discovery results and category resource counts are refreshed in the
+// background once their TTL passes, and served stale meanwhile for up to their
+// max-stale window. Watch events only mark the counts stale; CRD changes and
+// explicit invalidation drop discovery results outright.
+const (
+	apiResourcesTTL        = 5 * time.Minute
+	apiResourcesMaxStale   = time.Hour
+	categoryCountsTTL      = 2 * time.Minute
+	categoryCountsMaxStale = 15 * time.Minute
+)
+
 func (h *Handler) GetCategoriesQuery(c *gin.Context) {
 	cluster, ok := h.requireCluster(c)
 	if !ok {
@@ -45,7 +56,7 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 		switch category {
 		case "custom":
 			cacheKey := h.cache.BuildKey("api-resources", cluster)
-			data, err := h.cache.GetOrSet(cacheKey, 5*time.Minute, func() (interface{}, error) {
+			data, err := h.cache.GetOrSetSWR(cacheKey, apiResourcesTTL, apiResourcesMaxStale, func() (interface{}, error) {
 				return h.k8s.ListAPIResources(cluster)
 			})
 			if err != nil {
@@ -90,7 +101,7 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 	}
 
 	cacheKey := h.cache.BuildKey("resources", cluster, category)
-	data, err := h.cache.GetOrSet(cacheKey, 2*time.Minute, func() (interface{}, error) {
+	data, err := h.cache.GetOrSetSWR(cacheKey, categoryCountsTTL, categoryCountsMaxStale, func() (interface{}, error) {
 		switch category {
 		case "custom":
 			resources, err := h.k8s.ListAPIResources(cluster)
@@ -107,6 +118,15 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 		}
 	})
 	h.respond(c, http.StatusOK, gin.H{"resources": data}, err)
+}
+
+// detailCacheKey keys a cached object by its resolved resource name. The UI
+// asks for details by Kind ("Deployment") while the watcher, which evicts the
+// entry when the object changes, only knows the resource ("deployments"), so
+// both sides must key on the resource for an eviction to ever hit.
+func (h *Handler) detailCacheKey(cluster, group, version, kindOrResource, namespace, name string) string {
+	resource := h.k8s.GetResourceName(cluster, group, version, kindOrResource)
+	return h.cache.BuildKey("detail", cluster, group, version, resource, namespace, name)
 }
 
 func (h *Handler) GetResourceDetailsQuery(c *gin.Context) {
@@ -135,7 +155,7 @@ func (h *Handler) GetResourceDetailsQuery(c *gin.Context) {
 
 	resourceName := h.k8s.GetResourceName(cluster, group, version, kind)
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourceName}
-	cacheKey := h.cache.BuildKey("detail", cluster, group, version, kind, namespace, name)
+	cacheKey := h.cache.BuildKey("detail", cluster, group, version, resourceName, namespace, name)
 
 	data, err := h.cache.GetOrSet(cacheKey, 10*time.Second, func() (interface{}, error) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
@@ -236,7 +256,7 @@ func (h *Handler) ScaleResource(c *gin.Context) {
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, group, version, kind, namespace, name)
+	detailKey := h.detailCacheKey(cluster, group, version, kind, namespace, name)
 	h.cache.Delete(detailKey)
 	resourceName := h.k8s.GetResourceName(cluster, group, version, kind)
 	topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, group, version, resourceName, namespace)
@@ -276,7 +296,7 @@ func (h *Handler) RestartResource(c *gin.Context) {
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, group, version, kind, namespace, name)
+	detailKey := h.detailCacheKey(cluster, group, version, kind, namespace, name)
 	h.cache.Delete(detailKey)
 	resourceName := h.k8s.GetResourceName(cluster, group, version, kind)
 	topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, group, version, resourceName, namespace)
@@ -489,7 +509,7 @@ func (h *Handler) DeleteResources(c *gin.Context) {
 			errors = append(errors, fmt.Sprintf("Failed to delete %s/%s: %v", item.Namespace, item.Name, deleteErr))
 		} else {
 			successCount++
-			detailKey := h.cache.BuildKey("detail", cluster, group, version, kind, item.Namespace, item.Name)
+			detailKey := h.detailCacheKey(cluster, group, version, kind, item.Namespace, item.Name)
 			h.cache.Delete(detailKey)
 		}
 	}
@@ -674,7 +694,7 @@ func (h *Handler) ListAPIResources(c *gin.Context) {
 		return
 	}
 	cacheKey := h.cache.BuildKey("api-resources", cluster)
-	data, err := h.cache.GetOrSet(cacheKey, 5*time.Minute, func() (interface{}, error) {
+	data, err := h.cache.GetOrSetSWR(cacheKey, apiResourcesTTL, apiResourcesMaxStale, func() (interface{}, error) {
 		return h.k8s.ListAPIResources(cluster)
 	})
 	if err != nil {

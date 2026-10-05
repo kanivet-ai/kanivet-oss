@@ -34,15 +34,23 @@ func storeProbe(key string, e probeEntry, epoch uint64) {
 	}
 }
 
-func (s *Service) cachedProbe(ctx context.Context, cluster string, at time.Time) probe {
+// cachedProbe is the store's probe, asked again once probeTTL has passed. If
+// asking fails it falls back to the last good probe or rep's signals.
+func (s *Service) cachedProbe(ctx context.Context, cluster string, at time.Time, rep *Report) (probe, error) {
 	key := probeKey(ctx, cluster)
 	if e, ok := probeCache.Load(key); ok && s.now().Sub(e.(probeEntry).at) < probeTTL {
-		return e.(probeEntry).p
+		return e.(probeEntry).p, nil
 	}
 	epoch := probeEpoch.Load()
-	p := probeSignals(ctx, newControlled(s.metrics), cluster, at)
+	p := probeSignals(ctx, newControlled(safeQuerier{s.metrics}), cluster, at)
+	if p.err != nil {
+		if last, ok := lastProbe(key, rep); ok {
+			return last, nil
+		}
+		return probe{}, fmt.Errorf("could not check which signals the metrics store has: %w", p.err)
+	}
 	storeProbe(key, probeEntry{p, s.now()}, epoch)
-	return p
+	return p, nil
 }
 
 // probeKey keeps each history store's signals apart.
@@ -74,11 +82,17 @@ type WorkloadQuery struct {
 // evidence drawer can show its numbers straight from the day-chunk cache
 // without asking Kubernetes or the metrics store anything.
 type evidenceInputs struct {
+	// workloads is nil once restored with a persisted report: the local pod
+	// cache has the pods then.
 	workloads []*liveWorkload
 	probe     probe
 	hpas      map[string]*hpaTarget
+	vpas      map[string]*vpaTarget
 	rates     map[string]finops.Rates
 	source    string // history store the report's chunks are keyed by
+	// now is the report's clock, which decided the days it fetched whole and
+	// the day in progress it stored as a tail.
+	now time.Time
 
 	mu     sync.Mutex
 	starts map[string]map[string]int64 // pod start times per host namespace
@@ -102,6 +116,123 @@ func (e *evidenceInputs) startsIn(namespace string) map[string]int64 {
 	return e.starts[namespace]
 }
 
+// savedInputs is evidenceInputs as persisted next to its report, so cached
+// evidence works after a restart too. Workloads are left out: they're most of
+// the size, and the local pod cache has them again.
+type savedInputs struct {
+	AsOf   time.Time                   `json:"asOf"` // the report's, to match them up
+	Now    time.Time                   `json:"now"`
+	Source string                      `json:"source"`
+	Probe  savedProbe                  `json:"probe"`
+	HPAs   map[string]savedHPA         `json:"hpas,omitempty"`
+	VPAs   map[string]savedVPA         `json:"vpas,omitempty"`
+	Rates  map[string]finops.Rates     `json:"rates,omitempty"`
+	Starts map[string]map[string]int64 `json:"starts,omitempty"`
+}
+
+type savedProbe struct {
+	KSM       bool   `json:"ksm"`
+	StartTime bool   `json:"startTime"`
+	Requests  bool   `json:"requests"`
+	InPlace   bool   `json:"inPlace"`
+	MemMetric string `json:"memMetric"`
+	Throttle  string `json:"throttle,omitempty"`
+}
+
+type savedHPA struct {
+	Resource    string `json:"resource"`
+	Utilization int32  `json:"utilization"`
+	Name        string `json:"name"`
+	Container   string `json:"container,omitempty"`
+}
+
+type savedVPA struct {
+	Name        string               `json:"name"`
+	Mode        string               `json:"mode"`
+	Policies    map[string][]string  `json:"policies,omitempty"`
+	Recommended map[string]Resources `json:"recommended,omitempty"`
+}
+
+// inputsKey is where a report's evidence inputs are persisted, next to it.
+func inputsKey(key string) string { return key + "|evidence-inputs" }
+
+func (e *evidenceInputs) saved(asOf time.Time) savedInputs {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	p := e.probe
+	out := savedInputs{
+		AsOf: asOf, Now: e.now, Source: e.source, Rates: e.rates, Starts: e.starts,
+		Probe: savedProbe{KSM: p.ksm, StartTime: p.startTime, Requests: p.requests, InPlace: p.inPlace, MemMetric: p.memMetric, Throttle: p.throttle},
+	}
+	if len(e.hpas) > 0 {
+		out.HPAs = make(map[string]savedHPA, len(e.hpas))
+		for k, h := range e.hpas {
+			out.HPAs[k] = savedHPA{Resource: h.resource, Utilization: h.utilization, Name: h.name, Container: h.container}
+		}
+	}
+	if len(e.vpas) > 0 {
+		out.VPAs = make(map[string]savedVPA, len(e.vpas))
+		for k, v := range e.vpas {
+			out.VPAs[k] = savedVPA{Name: v.name, Mode: v.mode, Policies: v.policies, Recommended: v.recommended}
+		}
+	}
+	return out
+}
+
+// loadInputs reads back the evidence inputs persisted with the report of
+// grid end asOf; nil if there are none, or they belong to another report.
+func (s *Service) loadInputs(key string, asOf time.Time) *evidenceInputs {
+	data, err := s.store.GetRightsizingReport(inputsKey(key))
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+	var in savedInputs
+	if unpackJSON(data, &in) != nil || !in.AsOf.Equal(asOf) {
+		return nil
+	}
+	p := in.Probe
+	e := &evidenceInputs{
+		probe:  probe{cpuSeries: 1, ksm: p.KSM, startTime: p.StartTime, requests: p.Requests, inPlace: p.InPlace, memMetric: p.MemMetric, throttle: p.Throttle},
+		rates:  in.Rates,
+		source: in.Source,
+		now:    in.Now,
+		starts: in.Starts,
+	}
+	if len(in.HPAs) > 0 {
+		e.hpas = make(map[string]*hpaTarget, len(in.HPAs))
+		for k, h := range in.HPAs {
+			e.hpas[k] = &hpaTarget{resource: h.Resource, utilization: h.Utilization, name: h.Name, container: h.Container}
+		}
+	}
+	if len(in.VPAs) > 0 {
+		e.vpas = make(map[string]*vpaTarget, len(in.VPAs))
+		for k, v := range in.VPAs {
+			e.vpas[k] = &vpaTarget{name: v.Name, mode: v.Mode, policies: v.Policies, recommended: v.Recommended}
+		}
+	}
+	return e
+}
+
+// podCacheWait bounds how long cached evidence waits for the local pod cache,
+// which may still be loading just after a restart.
+const podCacheWait = 2 * time.Second
+
+// cachedWorkloads lists the workloads for cached evidence whose inputs came
+// back without them. Only the local pod cache may answer: cached evidence
+// must not wait on the API server.
+func (s *Service) cachedWorkloads(ctx context.Context, t target) ([]*liveWorkload, error) {
+	if s.pods == nil {
+		return nil, errNotCached
+	}
+	ctx, cancel := context.WithTimeout(ctx, podCacheWait)
+	defer cancel()
+	pods, err := s.listPods(ctx, t)
+	if err != nil {
+		return nil, errNotCached
+	}
+	return liveWorkloads(pods, t.vcluster != ""), nil
+}
+
 // GetEvidence recomputes one workload's analysis from its namespace's history
 // and returns everything the evidence drawer shows. It aligns to the cached
 // report's time so its numbers match the row the user clicked.
@@ -111,12 +242,15 @@ func (e *evidenceInputs) startsIn(namespace string) map[string]int64 {
 // errNotCached when they're missing; the drawer shows that at once and then
 // asks again without it for fresh numbers.
 func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, error) {
-	ctx = metrics.WithHistoryProvider(ctx, q.Provider)
+	// Someone is waiting on this one: its queries, the probe's included, go
+	// ahead of background reports.
+	ctx = interactive(metrics.WithHistoryProvider(ctx, q.Provider))
 	t := resolveTarget(q.Cluster)
 	rep := s.Cached(q.Cluster, q.Profile, q.Window, q.Provider)
 	var workloads []*liveWorkload
 	var pr probe
 	var hpas map[string]*hpaTarget
+	var vpas map[string]*vpaTarget
 	var rates map[string]finops.Rates
 	var inputs *evidenceInputs
 	asOf := s.now()
@@ -130,8 +264,20 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 		}
 		inputs = rep.evidenceInputs
 		ctx = withChunksOnly(withHistorySource(ctx, inputs.source))
-		workloads, pr, hpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.rates
+		workloads, pr, hpas, vpas, rates = inputs.workloads, inputs.probe, inputs.hpas, inputs.vpas, inputs.rates
+		if workloads == nil {
+			var err error
+			if workloads, err = s.cachedWorkloads(ctx, t); err != nil {
+				return nil, err
+			}
+		}
 	} else {
+		// While the breaker holds queries back, say so at once: the queries
+		// below would fail with ErrStoreBusy anyway, and the cluster probe,
+		// which runs at background priority, would wait out the pause first.
+		if limiterFor(t.history).state().PausedFor > interactiveWait {
+			return nil, ErrStoreBusy
+		}
 		info, _ := s.metrics.HistorySource(ctx, t.history)
 		if info == nil || !info.Found {
 			return nil, fmt.Errorf("no Prometheus-compatible metrics store in this cluster")
@@ -142,7 +288,9 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 			return nil, err
 		}
 		workloads = liveWorkloads(pods, t.vcluster != "")
-		pr = s.cachedProbe(ctx, t.history, g.end)
+		if pr, err = s.cachedProbe(ctx, t.history, g.end, rep); err != nil {
+			return nil, err
+		}
 	}
 	var w *liveWorkload
 	for _, lw := range workloads {
@@ -169,33 +317,84 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	if w.isJob {
 		jobs = want
 	}
-	// Someone is waiting on this one: it goes ahead of background reports.
-	ctx = interactive(ctx)
 	sc := scope{namespace: w.hostNamespace, wks: wks, want: want, jobs: jobs}
 	if inputs != nil {
 		sc.starts = inputs.startsIn(w.hostNamespace)
 	}
-	h, err := fetchHistory(ctx, newChunker(newControlled(s.metrics), s.chunks()), t.history, sc, g, pr, q.Window)
+	ch := newChunker(newControlled(safeQuerier{s.metrics}), s.chunks())
+	ch.now = s.now
+	if inputs != nil {
+		// Read the report's days as the report classified them: once its last
+		// day is past midnight that day is final, but what it stored is the
+		// day's tail, under its run.
+		ch.now = func() time.Time { return inputs.now }
+		ch.run = runKey(q.Cluster, q.Profile, q.Window, q.Provider)
+	}
+	// HPAs, the server version and node prices don't depend on history: they
+	// are asked for while it loads, not after. Their goroutines are outside
+	// the request handler's recovery, so a panic in one fails the request
+	// here rather than the backend.
+	var (
+		side    sync.WaitGroup
+		sideMu  sync.Mutex
+		sideErr error
+	)
+	sideCtx, cancelSide := context.WithCancel(ctx)
+	defer cancelSide()
+	alongside := func(f func()) {
+		side.Add(1)
+		go func() {
+			defer side.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					err := panicked("loading evidence", r)
+					sideMu.Lock()
+					sideErr = err
+					sideMu.Unlock()
+				}
+			}()
+			f()
+		}()
+	}
+	inPlace := pr.inPlace
+	if !q.CacheOnly {
+		if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
+			alongside(func() { hpas = hpaTargets(listHPAs(sideCtx, cs)) })
+			alongside(func() { inPlace = supportsInPlaceResize(cs) })
+		}
+		alongside(func() { rates, _ = s.rates.NodeRates(sideCtx, q.Cluster) })
+		alongside(func() { vpas = listVPAs(sideCtx, s.k8s, q.Cluster) })
+	}
+	h, err := fetchHistory(ctx, ch, t.history, sc, g, pr, q.Window)
+	if err != nil {
+		cancelSide()
+	}
+	side.Wait()
+	if err == nil {
+		err = sideErr
+	}
 	if err != nil {
 		return nil, err
 	}
+	pr.inPlace = inPlace
 
 	if q.CacheOnly && (len(h.cpu) == 0 || len(h.mem) == 0) {
 		return nil, errNotCached
 	}
 	if !q.CacheOnly {
-		if cs, err := s.k8s.GetClientForCluster(q.Cluster); err == nil {
-			hpas = hpaTargets(listHPAs(ctx, cs))
-			pr.inPlace = supportsInPlaceResize(cs)
+		// A pause that began while we fetched cut the optional series short,
+		// and restarts or OOM kills that failed to load would read as none:
+		// say the store is busy rather than show evidence without them.
+		if limiterFor(t.history).state().PausedFor > interactiveWait {
+			return nil, ErrStoreBusy
 		}
-		rates, _ = s.rates.NodeRates(ctx, q.Cluster)
 	}
 	var prev map[recKey]prevRec
 	if rep != nil {
 		prev = previousRecs(rep)
 	}
 
-	wr := s.analyzeWorkload(q.Cluster, w, h, g, pr, q.Profile, hpas, rates, prev)
+	wr := s.analyzeWorkload(q.Cluster, w, h, g, pr, q.Profile, hpas, vpas, rates, prev)
 	if wr == nil {
 		return nil, fmt.Errorf("no containers")
 	}
@@ -218,20 +417,13 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 
 		snaps := Snapshots{}
 		for _, p := range []Profile{ProfileConservative, ProfileBalanced, ProfileAggressive} {
-			in := containerInput{
-				container: c.name, start: g.start, step: g.step,
-				cpu: hs.cpu, podMeans: hs.podMeans, mem: hs.mem, throttle: hs.throttle, cpuBurst: hs.burst, throttleKind: pr.throttle,
-				hpa:      hpaFor(hpas, w),
-				oomTimes: oom, restartTimes: restarts, startupCPUPeak: math.NaN(), memIsUsage: pr.memMetric == memUsage,
-				current: c.res, isJob: w.isJob, profile: p, seed: seedFor(q.Cluster, w.id(), c.name),
-				jvm: c.jvm, versionSince: versionSince(w.newestHash, hs.podFirst), inPlaceResize: pr.inPlace,
-			}
-			r := analyze(in)
+			r := analyze(newContainerInput(q.Cluster, w, c, hs, g, h.requestsGrid, pr, hpas, vpas, p))
 			snaps[p] = ProfileRec{CPU: r.CPU.Recommended, Memory: r.Memory.Recommended}
 		}
 		ev.Profiles[c.name] = snaps
 
-		var evs []Event
+		// Never nil: a container without events is an empty list, not null.
+		evs := []Event{}
 		oomAt := map[int64]bool{}
 		for _, t := range oom {
 			oomAt[t.Unix()] = true
@@ -262,12 +454,52 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 	return ev, nil
 }
 
-// hpaFor is the HPA a workload's report would use, as analyzeWorkload picks it.
-func hpaFor(hpas map[string]*hpaTarget, w *liveWorkload) *hpaTarget {
+// hpaFor is the HPA whose target counts a container's requests, as
+// analyzeWorkload picks it. A ContainerResource metric counts only the
+// container it names. A Resource metric sums the whole pod, so with several
+// containers requesting the resource, its target is set for the workload.
+func hpaFor(hpas map[string]*hpaTarget, w *liveWorkload, container string) *hpaTarget {
 	if w.ref.VClusterNamespace != "" {
 		return nil
 	}
-	return hpas[w.ref.Namespace+"/"+w.ref.Kind+"/"+w.ref.Name]
+	t := hpas[w.ref.Namespace+"/"+w.ref.Kind+"/"+w.ref.Name]
+	if t == nil || t.container != "" && t.container != container {
+		return nil
+	}
+	if t.container == "" {
+		n := 0
+		for _, c := range w.containers {
+			req := c.res.CPURequest
+			if t.resource == "memory" {
+				req = c.res.MemRequest
+			}
+			if req > 0 {
+				n++
+			}
+		}
+		if n > 1 {
+			pod := *t
+			pod.pod = true
+			return &pod
+		}
+	}
+	return t
+}
+
+// workloadHPA is the one HPA target change a workload's recommendation
+// pairs with, nil when there is none.
+func workloadHPA(crs []ContainerReport, w *liveWorkload, hpas map[string]*hpaTarget) *HPACoupling {
+	for i, c := range w.containers {
+		switch h := hpaFor(hpas, w, c.name); {
+		case h == nil:
+		case h.pod:
+			return podHPA(crs, h)
+		case i < len(crs) && crs[i].HPA != nil:
+			out := *crs[i].HPA
+			return &out
+		}
+	}
+	return nil
 }
 
 // hourly downsamples to one point per hour: the median and P95 of every

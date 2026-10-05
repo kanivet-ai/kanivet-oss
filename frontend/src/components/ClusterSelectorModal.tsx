@@ -1,8 +1,12 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { ClusterSelector } from './ClusterSelector';
-import { CloudDiscovery } from './CloudDiscovery';
 import { QuickClusterSearch } from './QuickClusterSearch';
+import { lazyView } from '../utils/lazyView';
 import './ClusterSelectorModal.css';
+
+const CloudDiscovery = lazyView(() =>
+  import('./CloudDiscovery').then((m) => ({ default: m.CloudDiscovery })),
+);
 
 interface ClusterSelectorModalProps {
   isOpen: boolean;

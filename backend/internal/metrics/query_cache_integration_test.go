@@ -74,23 +74,23 @@ func TestHistoryBypassesChartCache(t *testing.T) {
 			metadata := cache.New(time.Hour, 0)
 			metadata.Set(metadata.BuildKey(kind+"-info", "cluster"), &detectEntry{info: info, expires: time.Now().Add(time.Hour)}, time.Hour)
 			queries := newQueryCache(nil, MetricsCacheBytes)
-			pf := &PortForwardInfo{PortForward: &k8s.PortForward{LocalPort: serverPort(t, srv)}, HTTPClient: srv.Client(), LastUsed: time.Now()}
+			pf := &PortForwardInfo{PortForward: &k8s.PortForward{ID: "pf-1", LocalPort: serverPort(t, srv)}, HTTPClient: srv.Client(), LastUsed: time.Now()}
+			fc := &forwardingClient{MockClient: &k8s.MockClient{}}
+			fc.register(pf.PortForward)
 			var provider Provider
-			var promQL string
 			query := MetricQuery{Namespace: "apps", PodName: "a", MetricType: "cpu", TimeRange: "5m", Step: "1m"}
+			promQL := chartPromQL(query, time.Minute)
 			if kind == "prometheus" {
-				p := &PrometheusProvider{cache: metadata, queries: queries}
+				p := &PrometheusProvider{k8s: fc, cache: metadata, queries: queries}
 				p.portForwardPool.Store(prometheusPoolKey("cluster", info), pf)
 				provider = p
-				promQL = p.buildPromQL(query)
 			} else {
-				p := &MimirProvider{cache: metadata, queries: queries}
+				p := &MimirProvider{k8s: fc, cache: metadata, queries: queries}
 				p.portForwardPool.Store(mimirPoolKey("cluster", info), pf)
 				provider = p
-				promQL = p.buildPromQuery(query)
 			}
 			s := &Service{providers: map[string]Provider{kind: provider}, queries: queries}
-			chart, err := s.QueryMetrics("cluster", kind, query)
+			chart, err := s.QueryMetrics(context.Background(), "cluster", kind, query)
 			if err != nil || len(chart.Values) != 6 {
 				t.Fatalf("chart=%+v, err=%v", chart, err)
 			}
@@ -135,7 +135,7 @@ func TestMetricsServerSnapshotsCachedBriefly(t *testing.T) {
 	s := &Service{k8s: k, queries: c}
 	query := MetricQuery{Namespace: "apps", PodName: "a", MetricType: "cpu"}
 	for i := 0; i < 2; i++ {
-		got, err := p.QueryMetrics("cluster", query)
+		got, err := p.QueryMetrics(context.Background(), "cluster", query)
 		if err != nil || len(got.Values) != 1 || got.Values[0] != 100 {
 			t.Fatalf("pod=%+v,%v", got, err)
 		}
@@ -144,7 +144,7 @@ func TestMetricsServerSnapshotsCachedBriefly(t *testing.T) {
 		}
 		memoryQuery := query
 		memoryQuery.MetricType = "memory"
-		memory, err := p.QueryMetrics("cluster", memoryQuery)
+		memory, err := p.QueryMetrics(context.Background(), "cluster", memoryQuery)
 		if err != nil || memory.Values[0] != 64<<20 {
 			t.Fatalf("memory=%+v,%v", memory, err)
 		}
@@ -159,7 +159,7 @@ func TestMetricsServerSnapshotsCachedBriefly(t *testing.T) {
 	now = now.Add(3 * time.Second)
 	obj.SetResourceVersion("2")
 	_, _ = dyn.Resource(gvr).Namespace("apps").Update(context.Background(), obj, metav1.UpdateOptions{})
-	_, err := p.QueryMetrics("cluster", query)
+	_, err := p.QueryMetrics(context.Background(), "cluster", query)
 	if err != nil {
 		t.Fatal(err)
 	}

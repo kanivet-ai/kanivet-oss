@@ -2,7 +2,10 @@ package metrics
 
 import (
 	"context"
+	"errors"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -289,19 +292,124 @@ func TestDetectCachedShortLivedNegative(t *testing.T) {
 		return &ProviderInfo{Type: "prometheus", Found: calls > 1}, nil
 	}
 
-	first, _ := detectCached(c, "k", fetch)
-	second, _ := detectCached(c, "k", fetch)
-	if first.Found || second.Found || calls != 1 {
-		t.Fatalf("negative result should be served from cache: calls=%d", calls)
+	var mu sync.Mutex
+	locked := func() (*ProviderInfo, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return fetch()
+	}
+	count := func() int {
+		mu.Lock()
+		defer mu.Unlock()
+		return calls
+	}
+
+	first, _ := detectCached(c, "k", locked)
+	second, _ := detectCached(c, "k", locked)
+	if first.Found || second.Found || count() != 1 {
+		t.Fatalf("negative result should be served from cache: calls=%d", count())
 	}
 	time.Sleep(40 * time.Millisecond)
-	third, _ := detectCached(c, "k", fetch)
-	if !third.Found || calls != 2 {
-		t.Fatalf("negative result should expire quickly: found=%v calls=%d", third.Found, calls)
+	// Expired: the caller is answered at once, from the old result, while
+	// detection runs again in the background.
+	third, _ := detectCached(c, "k", locked)
+	if third.Found {
+		t.Fatal("an expired result should be served while it is refreshed")
 	}
-	fourth, _ := detectCached(c, "k", fetch)
-	if !fourth.Found || calls != 2 {
-		t.Fatalf("positive result should stay cached: calls=%d", calls)
+	waitFor(t, func() bool {
+		info, _ := detectCached(c, "k", locked)
+		return info.Found
+	})
+	if n := count(); n != 2 {
+		t.Fatalf("detection ran %d times, want one background refresh", n)
+	}
+	fourth, _ := detectCached(c, "k", locked)
+	if !fourth.Found || count() != 2 {
+		t.Fatalf("positive result should stay cached: calls=%d", count())
+	}
+}
+
+func waitFor(t *testing.T, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("timed out")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A failed detection is remembered briefly, so the queries behind it do not
+// each run it again; a failed refresh keeps serving the last answer.
+func TestDetectCachedFailures(t *testing.T) {
+	oldErr, oldNeg := detectErrorTTL, detectNegativeTTL
+	detectErrorTTL, detectNegativeTTL = 30*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { detectErrorTTL, detectNegativeTTL = oldErr, oldNeg })
+	c := cache.New(time.Minute, time.Minute)
+
+	var calls atomic.Int32
+	failing := func() (*ProviderInfo, error) {
+		calls.Add(1)
+		return nil, errors.New("listing services timed out")
+	}
+	for range 3 {
+		if _, err := detectCached(c, "k", failing); err == nil {
+			t.Fatal("want the failure")
+		}
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("failed detection ran %d times, want 1 while it is remembered", n)
+	}
+	time.Sleep(40 * time.Millisecond)
+	ok := func() (*ProviderInfo, error) {
+		calls.Add(1)
+		return &ProviderInfo{Type: "prometheus"}, nil
+	}
+	if info, err := detectCached(c, "k", ok); err != nil || info == nil {
+		t.Fatalf("a remembered failure must not be served past its TTL: %v", err)
+	}
+
+	time.Sleep(40 * time.Millisecond) // the negative answer expires
+	before := calls.Load()
+	if info, err := detectCached(c, "k", failing); err != nil || info == nil {
+		t.Fatalf("stale answer not served: %v", err)
+	}
+	waitFor(t, func() bool { return calls.Load() == before+1 })
+	time.Sleep(5 * time.Millisecond)
+	if info, err := detectCached(c, "k", failing); err != nil || info == nil {
+		t.Fatalf("a failed refresh replaced the last answer: %v", err)
+	}
+}
+
+// Dropping a detection while its refresh runs ("Detect again", new settings)
+// wins: the refresh must not write back what it found under the old state.
+func TestDetectRefreshDoesNotOverwriteInvalidation(t *testing.T) {
+	old := detectNegativeTTL
+	detectNegativeTTL = time.Millisecond
+	t.Cleanup(func() { detectNegativeTTL = old })
+	c := cache.New(time.Minute, time.Minute)
+	if _, err := detectCached(c, "k", func() (*ProviderInfo, error) { return &ProviderInfo{Reason: "old"}, nil }); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	release := make(chan struct{})
+	refreshed := make(chan struct{})
+	slow := func() (*ProviderInfo, error) {
+		<-release
+		defer close(refreshed)
+		return &ProviderInfo{Reason: "refresh"}, nil
+	}
+	if info, _ := detectCached(c, "k", slow); info.Reason != "old" {
+		t.Fatalf("got %q", info.Reason)
+	}
+	c.Delete("k")
+	close(release)
+	<-refreshed
+	time.Sleep(5 * time.Millisecond)
+	info, _ := detectCached(c, "k", func() (*ProviderInfo, error) { return &ProviderInfo{Reason: "new"}, nil })
+	if info.Reason != "new" {
+		t.Fatalf("got %q: the refresh overwrote the invalidation", info.Reason)
 	}
 }
 
