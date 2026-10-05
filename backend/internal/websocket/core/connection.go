@@ -59,7 +59,7 @@ func DefaultConnectionConfig() *ConnectionConfig {
 		PingInterval:      30 * time.Second,
 		PongWait:          60 * time.Second,
 		SendChannelSize:   256,
-		EnableCompression: true,
+		EnableCompression: false,
 	}
 }
 

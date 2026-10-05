@@ -198,11 +198,14 @@ func (s *ShardedIndex) Search(query SearchQuery) ([]SearchResult, error) {
 		return targets[0].Search(query)
 	}
 
-	// Strip pagination for per-shard queries so merging sees every candidate,
-	// then paginate the merged set once.
+	// Each shard returns its first offset+limit results, which hold every
+	// result of the merged page: a shard's ranking is the merged ranking with
+	// other shards' results removed. Pagination is applied once after merging.
 	shardQuery := query
 	shardQuery.Offset = 0
-	shardQuery.Limit = 0
+	if query.Limit > 0 {
+		shardQuery.Limit = query.Offset + query.Limit
+	}
 
 	results := make([][]SearchResult, len(targets))
 	var wg sync.WaitGroup
@@ -241,8 +244,8 @@ func (s *ShardedIndex) Search(query SearchQuery) ([]SearchResult, error) {
 	}
 	sort.Slice(kindDefs, func(i, j int) bool { return kindDefs[i].Score > kindDefs[j].Score })
 	sort.Slice(regular, func(i, j int) bool { return regular[i].Score > regular[j].Score })
-	if len(kindDefs) > 5 {
-		kindDefs = kindDefs[:5]
+	if len(kindDefs) > maxKindDefResults {
+		kindDefs = kindDefs[:maxKindDefResults]
 	}
 	merged := append(kindDefs, regular...)
 	return paginate(merged, query.Offset, query.Limit), nil

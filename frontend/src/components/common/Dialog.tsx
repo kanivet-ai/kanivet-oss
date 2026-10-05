@@ -1,5 +1,5 @@
 import React from 'react';
-import { Dialog as RDialog, Flex, Button } from '@radix-ui/themes';
+import * as RDialog from '@radix-ui/react-dialog';
 
 interface DialogProps {
   isOpen: boolean;
@@ -28,26 +28,46 @@ const Dialog: React.FC<DialogProps> = ({
   confirmDisabled = false,
   variant = 'default',
 }) => {
-  const confirmColor = variant === 'danger' ? 'red' : variant === 'warning' ? 'amber' : undefined;
+  const confirmClass =
+    variant === 'danger'
+      ? 'ap-btn--danger'
+      : variant === 'warning'
+        ? 'ap-btn--warning'
+        : 'ap-btn--primary';
 
   return (
     <RDialog.Root open={isOpen} onOpenChange={(o) => !o && onClose()}>
-      <RDialog.Content size="2" maxWidth="480px">
-        <RDialog.Title size="4" weight="medium" mb="2" style={{ fontFamily: 'var(--font-display)', letterSpacing: '-0.01em' }}>
-          {title}
-        </RDialog.Title>
-        <RDialog.Description size="2" color="gray" mb="4">
-          <div>{children}</div>
-        </RDialog.Description>
-        <Flex gap="3" mt="4" justify="end">
-          <Button variant="soft" color="gray" onClick={onClose} disabled={isLoading}>
-            {cancelText}
-          </Button>
-          <Button color={confirmColor} onClick={onConfirm} disabled={isLoading || confirmDisabled}>
-            {isLoading ? loadingText : confirmText}
-          </Button>
-        </Flex>
-      </RDialog.Content>
+      <RDialog.Portal>
+        <RDialog.Overlay className="ap-overlay ap-dialog-overlay">
+          <RDialog.Content
+            className="ap-sheet ap-dialog"
+            style={{ maxWidth: 480 }}
+          >
+            <RDialog.Title className="ap-dialog-title">{title}</RDialog.Title>
+            <RDialog.Description asChild>
+              <div className="ap-dialog-description">{children}</div>
+            </RDialog.Description>
+            <div className="ap-dialog-actions">
+              <button
+                type="button"
+                className="ap-btn"
+                onClick={onClose}
+                disabled={isLoading}
+              >
+                {cancelText}
+              </button>
+              <button
+                type="button"
+                className={`ap-btn ${confirmClass}`}
+                onClick={onConfirm}
+                disabled={isLoading || confirmDisabled}
+              >
+                {isLoading ? loadingText : confirmText}
+              </button>
+            </div>
+          </RDialog.Content>
+        </RDialog.Overlay>
+      </RDialog.Portal>
     </RDialog.Root>
   );
 };

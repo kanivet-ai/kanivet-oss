@@ -1,10 +1,13 @@
 package events
 
 import (
+	"container/heap"
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/db"
@@ -22,14 +25,27 @@ type EventListener struct {
 	listeners  map[string]*clusterListener
 	mu         sync.RWMutex
 	windowSize int
+	// released holds the clusters stopped by StopListening (their tab was
+	// closed) and not started explicitly since; RecentEvents leaves them be.
+	released map[string]bool
+	// closed is set by StopAll at shutdown, after which nothing starts.
+	closed bool
 }
+
+// errReleased is why RecentEvents does not start a released cluster.
+var errReleased = errors.New("cluster was released")
 
 type clusterListener struct {
 	cluster  string
 	client   kubernetes.Interface
 	cancel   context.CancelFunc
 	isActive bool
+	// starting is set while the listener's client is being built.
+	starting bool
 	lastSync time.Time
+	// synced is set once the initial list has been stored, from when the
+	// database holds the cluster's current events.
+	synced atomic.Bool
 }
 
 func NewEventListener(k8sClient k8s.Interface, database *db.DB) *EventListener {
@@ -38,33 +54,63 @@ func NewEventListener(k8sClient k8s.Interface, database *db.DB) *EventListener {
 		db:         database,
 		listeners:  make(map[string]*clusterListener),
 		windowSize: 10000,
+		released:   make(map[string]bool),
 	}
 }
 
+// StartListening starts the cluster's listener for a view of the cluster
+// being opened, which also undoes an earlier StopListening's release.
 func (el *EventListener) StartListening(cluster string) error {
-	el.mu.Lock()
-	defer el.mu.Unlock()
+	return el.start(cluster, true)
+}
 
-	if listener, exists := el.listeners[cluster]; exists && listener.isActive {
+// start starts the cluster's listener. Only an explicit start may start a
+// released cluster: an automatic one comes from a dashboard refresh that can
+// still be running when the cluster's tab closes, and must not bring back the
+// listener the close just stopped. Building the client (up to 25 s for a
+// reconnecting vcluster) and recording the start run outside el.mu, which
+// IsListening takes on every dashboard refresh of every cluster.
+func (el *EventListener) start(cluster string, explicit bool) error {
+	el.mu.Lock()
+	if el.closed {
+		el.mu.Unlock()
+		return fmt.Errorf("event listener for cluster %s: shutting down", cluster)
+	}
+	if explicit {
+		delete(el.released, cluster)
+	} else if el.released[cluster] {
+		el.mu.Unlock()
+		return errReleased
+	}
+	if listener, exists := el.listeners[cluster]; exists && (listener.isActive || listener.starting) {
+		el.mu.Unlock()
 		log.Printf("Event listener for cluster %s is already active", cluster)
 		return nil
 	}
+	listener := &clusterListener{cluster: cluster, starting: true}
+	el.listeners[cluster] = listener
+	el.mu.Unlock()
 
 	client, err := el.k8sClient.GetClientForCluster(cluster)
+
+	el.mu.Lock()
+	if el.listeners[cluster] != listener {
+		// Stopped while its client was built.
+		el.mu.Unlock()
+		return nil
+	}
 	if err != nil {
+		delete(el.listeners, cluster)
+		el.mu.Unlock()
 		return fmt.Errorf("failed to get client for cluster %s: %v", cluster, err)
 	}
-
 	ctx, cancel := context.WithCancel(context.Background())
-	listener := &clusterListener{
-		cluster:  cluster,
-		client:   client,
-		cancel:   cancel,
-		isActive: true,
-		lastSync: time.Now(),
-	}
-
-	el.listeners[cluster] = listener
+	listener.client = client
+	listener.cancel = cancel
+	listener.isActive = true
+	listener.starting = false
+	listener.lastSync = time.Now()
+	el.mu.Unlock()
 
 	if el.db != nil {
 		if _, err := el.db.CreateOrUpdateEventListener(cluster); err != nil {
@@ -86,6 +132,36 @@ func (el *EventListener) IsListening(cluster string) bool {
 	return exists && listener.isActive
 }
 
+// RecentEvents returns the cluster's n most recent stored events, starting the
+// cluster's listener if it is not running and was not released. It reports
+// false until that listener has stored its initial list: rows kept from an
+// earlier session are up to 30 days old and would hide what is happening now.
+func (el *EventListener) RecentEvents(cluster string, n int) ([]db.K8sEvent, bool) {
+	if el.db == nil {
+		return nil, false
+	}
+	if !el.IsListening(cluster) {
+		if err := el.start(cluster, false); err != nil {
+			if !errors.Is(err, errReleased) {
+				log.Printf("Failed to start event listener for cluster %s: %v", cluster, err)
+			}
+			return nil, false
+		}
+	}
+	el.mu.RLock()
+	listener := el.listeners[cluster]
+	el.mu.RUnlock()
+	if listener == nil || !listener.synced.Load() {
+		return nil, false
+	}
+	events, err := el.db.GetRecentClusterEvents(cluster, n)
+	if err != nil {
+		log.Printf("Failed to read recent events for cluster %s: %v", cluster, err)
+		return nil, false
+	}
+	return events, true
+}
+
 // watchEvents lists once, then watches from the list's resourceVersion and keeps
 // following the latest seen version across reconnects. Watching without a
 // version made the apiserver replay every existing event on each reconnect.
@@ -103,6 +179,8 @@ func (el *EventListener) watchEvents(ctx context.Context, listener *clusterListe
 			listRV, err := el.syncExistingEvents(ctx, listener)
 			if err != nil {
 				log.Printf("Failed to sync existing events for cluster %s: %v", listener.cluster, err)
+			} else {
+				listener.synced.Store(true)
 			}
 			rv = listRV
 		}
@@ -122,37 +200,73 @@ func (el *EventListener) watchEvents(ctx context.Context, listener *clusterListe
 	}
 }
 
+// syncExistingEvents lists all of the cluster's events and stores the newest
+// windowSize of them. A LIST pages in namespace/name order: stopping once
+// windowSize had been stored kept the alphabetically first namespaces of a
+// busy cluster, and RecentEvents served their newest events rather than the
+// cluster's.
 func (el *EventListener) syncExistingEvents(ctx context.Context, listener *clusterListener) (string, error) {
 	var rv string
-	total := 0
+	listed := 0
+	var kept newestEvents
+	var listErr error
 	opts := metav1.ListOptions{Limit: 1000}
 	for {
 		eventList, err := listener.client.CoreV1().Events("").List(ctx, opts)
 		if err != nil {
-			return rv, fmt.Errorf("failed to list existing events: %v", err)
+			listErr = fmt.Errorf("failed to list existing events: %v", err)
+			break
 		}
 		if rv == "" {
 			rv = eventList.ResourceVersion
 		}
-		if len(eventList.Items) > 0 {
-			events := make([]db.K8sEvent, 0, len(eventList.Items))
-			for i := range eventList.Items {
-				events = append(events, el.convertToDBEvent(&eventList.Items[i]))
-			}
-			if el.db != nil {
-				if err := el.db.StoreEvents(listener.cluster, events); err != nil {
-					return rv, fmt.Errorf("failed to store events: %v", err)
-				}
-			}
-			total += len(events)
+		for i := range eventList.Items {
+			kept.keep(el.convertToDBEvent(&eventList.Items[i]), el.windowSize)
 		}
+		listed += len(eventList.Items)
 		opts.Continue = eventList.Continue
-		if opts.Continue == "" || total >= el.windowSize {
+		if opts.Continue == "" {
 			break
 		}
 	}
-	log.Printf("Synced %d existing events for cluster %s (rv=%s)", total, listener.cluster, rv)
+	if el.db != nil {
+		for i := 0; i < len(kept); i += 1000 {
+			if err := el.db.StoreEvents(listener.cluster, kept[i:min(i+1000, len(kept))]); err != nil {
+				return rv, fmt.Errorf("failed to store events: %v", err)
+			}
+		}
+	}
+	if listErr != nil {
+		return rv, listErr
+	}
+	log.Printf("Synced %d of %d existing events for cluster %s (rv=%s)", len(kept), listed, listener.cluster, rv)
 	return rv, nil
+}
+
+// newestEvents keeps the newest events offered to it, up to a limit: a
+// min-heap on EventTime whose root is the oldest event kept.
+type newestEvents []db.K8sEvent
+
+func (h newestEvents) Len() int           { return len(h) }
+func (h newestEvents) Less(i, j int) bool { return h[i].EventTime.Before(h[j].EventTime) }
+func (h newestEvents) Swap(i, j int)      { h[i], h[j] = h[j], h[i] }
+func (h *newestEvents) Push(x any)        { *h = append(*h, x.(db.K8sEvent)) }
+func (h *newestEvents) Pop() any {
+	old := *h
+	e := old[len(old)-1]
+	*h = old[:len(old)-1]
+	return e
+}
+
+func (h *newestEvents) keep(e db.K8sEvent, limit int) {
+	if h.Len() < limit {
+		heap.Push(h, e)
+		return
+	}
+	if limit > 0 && e.EventTime.After((*h)[0].EventTime) {
+		(*h)[0] = e
+		heap.Fix(h, 0)
+	}
 }
 
 func (el *EventListener) streamEvents(ctx context.Context, listener *clusterListener, rv *string) (expired bool, err error) {
@@ -260,9 +374,12 @@ func (el *EventListener) convertToDBEvent(event *corev1.Event) db.K8sEvent {
 	return dbEvent
 }
 
+// StopListening stops the cluster's listener as its tab closes. The cluster
+// stays released until it is started explicitly again.
 func (el *EventListener) StopListening(cluster string) {
 	el.mu.Lock()
 	defer el.mu.Unlock()
+	el.released[cluster] = true
 	if listener, exists := el.listeners[cluster]; exists {
 		if listener.isActive {
 			listener.cancel()
@@ -276,6 +393,7 @@ func (el *EventListener) StopListening(cluster string) {
 func (el *EventListener) StopAll() {
 	el.mu.Lock()
 	defer el.mu.Unlock()
+	el.closed = true
 
 	for cluster, listener := range el.listeners {
 		if listener.isActive {

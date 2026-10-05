@@ -384,7 +384,7 @@ func (h *Handler) TaintNode(c *gin.Context) {
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, "", "v1", "Node", "", nodeName)
+	detailKey := h.detailCacheKey(cluster, "", "v1", "Node", "", nodeName)
 	h.cache.Delete(detailKey)
 	topic := fmt.Sprintf("items:%s::v1:nodes:", cluster)
 	if h.invalidationBus != nil {
@@ -423,7 +423,7 @@ func (h *Handler) RemoveTaint(c *gin.Context) {
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, "", "v1", "Node", "", nodeName)
+	detailKey := h.detailCacheKey(cluster, "", "v1", "Node", "", nodeName)
 	h.cache.Delete(detailKey)
 	topic := fmt.Sprintf("items:%s::v1:nodes:", cluster)
 	if h.invalidationBus != nil {
@@ -467,7 +467,7 @@ func (h *Handler) DrainNode(c *gin.Context) {
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, "", "v1", "Node", "", nodeName)
+	detailKey := h.detailCacheKey(cluster, "", "v1", "Node", "", nodeName)
 	h.cache.Delete(detailKey)
 	nodeTopic := fmt.Sprintf("items:%s::v1:nodes:", cluster)
 	podTopic := fmt.Sprintf("items:%s::v1:pods:*", cluster)
@@ -514,7 +514,7 @@ func (h *Handler) CordonNode(c *gin.Context) {
 		action = "uncordoned"
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, "", "v1", "Node", "", nodeName)
+	detailKey := h.detailCacheKey(cluster, "", "v1", "Node", "", nodeName)
 	h.cache.Delete(detailKey)
 	topic := fmt.Sprintf("items:%s::v1:nodes:", cluster)
 	if h.invalidationBus != nil {

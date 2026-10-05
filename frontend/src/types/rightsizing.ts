@@ -60,6 +60,8 @@ export interface DataQuality {
   samples: number;
   first: string;
   runs?: number;
+  /** Jobs: share of the time since the first run that a run was going. */
+  dutyCycle?: number;
   newPeakChance?: number;
 }
 
@@ -99,11 +101,17 @@ export interface HPACoupling {
   targetUtilization: number;
   suggestedTarget: number;
   pairedRequest: number;
+  /** The target counts every container requesting the resource (a Resource metric), not one. */
+  pod?: boolean;
 }
 
 export interface ContainerReport {
   /** JVM heap sizing, when the container runs a JVM. */
   jvm?: { heapMax?: number; ramPercentage?: number };
+  /** A fixed heap ceiling of another runtime (Node, .NET or Go). */
+  heap?: { runtime: 'node' | 'dotnet' | 'go'; setting: string; max: number };
+  /** The VerticalPodAutoscaler that sets these requests at admission. */
+  vpa?: { name: string; mode: string; resources: ('cpu' | 'memory')[] };
   /** Roughly when the running version was rolled out. */
   versionSince?: string;
   /** CPU for startup only, when the steady request is far below startup CPU. */
@@ -119,8 +127,11 @@ export interface ContainerReport {
   avgReplicas: number;
   imbalance?: number;
   oomKills: number;
+  /** The highest memory limit it was OOM-killed at; below today's once raised. */
+  oomLimit?: number;
   restarts: number;
   startupCpuPeak?: number;
+  /** Share of replica-time throttled in over 5% of its CFS periods. */
   throttling?: number;
   hpa?: HPACoupling;
   /** $ per core-month and per GiB-month of request, across the average replica count. */
@@ -170,6 +181,8 @@ export interface WorkloadReport {
   savingsHigh: number;
   change?: Change;
   dismissed?: Dismissal[];
+  /** The one HPA target change the workload pairs with; pairedRequest is the pod's total. */
+  hpa?: HPACoupling;
   riskScore: number;
 }
 

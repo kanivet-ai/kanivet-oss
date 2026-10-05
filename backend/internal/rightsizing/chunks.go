@@ -48,12 +48,18 @@ type chunker struct {
 	// grid. Only a report sets it: evidence asks about one workload, and its
 	// narrower answer must not replace the report's.
 	tails bool
+	// run names the report (cluster, profile, window) whose tails these are.
+	// Reports for other profiles or windows run the same queries at the same
+	// step, and must not overwrite each other's day in progress.
+	run string
 	// live, if set, rewrites the query for the day in progress, which no
 	// cache answers: evidence narrows it to one workload's pods. Its answer
 	// is never stored, as it isn't the query the key names.
 	live func(query string) string
 
 	hits, misses atomic.Int64
+	// partials counts days fetched from partial answers, which weren't stored.
+	partials atomic.Int64
 }
 
 func newChunker(q historyQuerier, st chunkStore) *chunker {
@@ -67,8 +73,10 @@ type daySpan struct {
 }
 
 // daySpans cuts a grid into UTC days. Finished days are queried whole, so the
-// cached chunk is the same whichever window asked for it; the day in progress
-// is queried from the grid's start (or midnight) to its end.
+// cached chunk is the same whichever window asked for it; a day in progress
+// is queried from the grid's start (or midnight) to the grid's end (or the
+// day's end). Just after midnight yesterday is still in progress too, and
+// must stop at its own end: today's samples would otherwise count twice.
 func daySpans(g grid, now time.Time) []daySpan {
 	var out []daySpan
 	first := g.start.UTC().Truncate(day)
@@ -77,7 +85,7 @@ func daySpans(g grid, now time.Time) []daySpan {
 		s := daySpan{day: d, start: d, end: d.Add(day - g.step), final: final}
 		if !final {
 			s.start = maxTime(d, g.start)
-			s.end = g.end
+			s.end = minTime(s.end, g.end)
 		}
 		if s.end.Before(s.start) {
 			continue
@@ -94,6 +102,20 @@ func maxTime(a, b time.Time) time.Time {
 	return b
 }
 
+func minTime(a, b time.Time) time.Time {
+	if a.Before(b) {
+		return a
+	}
+	return b
+}
+
+// chunkKeyVersion is part of every chunk's key, so days stored under an
+// earlier version are never read again. Version 2: earlier releases also
+// stored days whose answer the store marked partial (Thanos warnings,
+// VictoriaMetrics isPartial), and a query whose text did not change since,
+// such as memory, would keep serving those gappy days as final for a month.
+const chunkKeyVersion = "2"
+
 // chunkKey names one day of one query against one history store. source
 // tells stores apart (see withHistorySource): a day cached from one store
 // must not answer for another, even an empty one.
@@ -101,14 +123,14 @@ func chunkKey(cluster, query string, step time.Duration, d time.Time, source str
 	if source != "" {
 		cluster += "|source=" + source
 	}
-	h := sha256.Sum256([]byte(cluster + "\x00" + query + "\x00" + step.String() + "\x00" + strconv.FormatInt(d.Unix(), 10)))
+	h := sha256.Sum256([]byte(cluster + "\x00" + query + "\x00" + step.String() + "\x00" + strconv.FormatInt(d.Unix(), 10) + "\x00" + chunkKeyVersion))
 	return hex.EncodeToString(h[:])
 }
 
-// tailKey names the stored day in progress; one per day, replaced by each
-// report.
-func tailKey(cluster, query string, step time.Duration, d time.Time, source string) string {
-	return chunkKey(cluster, query, step, d, source+"|tail")
+// tailKey names the stored day in progress of one report run; one per day,
+// replaced by that run's next report.
+func tailKey(cluster, query string, step time.Duration, d time.Time, source, run string) string {
+	return chunkKey(cluster, query, step, d, source+"|tail|"+run)
 }
 
 type historySourceKey struct{}
@@ -130,9 +152,11 @@ func historySource(ctx context.Context) string {
 
 type chunksOnlyKey struct{}
 
-// withChunksOnly makes history reads answer from stored chunks alone: days
-// nobody stored stay empty and nothing reaches the metrics store. Evidence
-// uses it to show the last report's numbers at once while fresh ones load.
+// withChunksOnly makes history reads answer from stored chunks alone: nothing
+// reaches the metrics store, and a day that was not stored for the reader's
+// grid fails the read with errNotCached rather than leaving a silent gap.
+// Evidence uses it to show the last report's numbers at once while fresh ones
+// load.
 func withChunksOnly(ctx context.Context) context.Context {
 	return context.WithValue(ctx, chunksOnlyKey{}, true)
 }
@@ -178,7 +202,11 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 	for i, sp := range spans {
 		if !sp.final {
 			if only {
-				parts[i] = c.readTail(cluster, query, g.step, sp, source, keep)
+				res, ok := c.readTail(cluster, query, g.step, sp, source, keep)
+				if !ok {
+					return nil, errNotCached
+				}
+				parts[i] = res
 				continue
 			}
 			live = append(live, i)
@@ -193,9 +221,10 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 				}
 			}
 		}
-		if !only {
-			missing = append(missing, i)
+		if only {
+			return nil, errNotCached
 		}
+		missing = append(missing, i)
 	}
 
 	// Consecutive missing days, up to batchDays at a time.
@@ -213,10 +242,18 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 
 	errs := make([]error, len(batches)+len(live))
 	var wg sync.WaitGroup
+	// A panic decoding or splitting an answer fails the query, not the
+	// backend.
+	recoverInto := func(err *error) {
+		if r := recover(); r != nil {
+			*err = panicked("reading history", r)
+		}
+	}
 	for bi, b := range batches {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer recoverInto(&errs[bi])
 			errs[bi] = c.fetchBatch(ctx, cluster, query, g.step, spans, b, parts)
 		}()
 	}
@@ -224,6 +261,7 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			defer recoverInto(&errs[len(batches)+li])
 			c.misses.Add(1)
 			lctx := ctx
 			if keep != nil {
@@ -233,8 +271,12 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 			if c.live != nil {
 				q = c.live(query)
 			}
-			parts[i], errs[len(batches)+li] = c.fetchSpan(lctx, cluster, q, spans[i].start, spans[i].end, g.step)
-			if errs[len(batches)+li] == nil && c.live == nil {
+			var partial bool
+			parts[i], partial, errs[len(batches)+li] = c.fetchSpan(lctx, cluster, q, spans[i].start, spans[i].end, g.step)
+			if partial {
+				c.partials.Add(1)
+			}
+			if errs[len(batches)+li] == nil && c.live == nil && !partial {
 				c.saveTail(cluster, query, g.step, spans[i], source, parts[i])
 			}
 		}()
@@ -250,10 +292,11 @@ func (c *chunker) rangeQuery(ctx context.Context, cluster, query string, g grid,
 
 // fetchBatch fetches consecutive finished days in one query, splits the
 // answer back into days and stores each. If the batch fails, it retries the
-// days one at a time before giving up.
+// days one at a time before giving up. An answer the store says is partial
+// serves this report but is not stored, so the days are asked for again.
 func (c *chunker) fetchBatch(ctx context.Context, cluster, query string, step time.Duration, spans []daySpan, b []int, parts [][]metrics.HistorySeries) error {
 	first, last := spans[b[0]], spans[b[len(b)-1]]
-	res, err := c.fetchSpan(ctx, cluster, query, first.start, last.end, step)
+	res, partial, err := c.fetchSpan(ctx, cluster, query, first.start, last.end, step)
 	if err != nil && len(b) > 1 && ctx.Err() == nil {
 		for _, i := range b {
 			if err := c.fetchBatch(ctx, cluster, query, step, spans, []int{i}, parts); err != nil {
@@ -266,9 +309,12 @@ func (c *chunker) fetchBatch(ctx context.Context, cluster, query string, step ti
 		return err
 	}
 	c.misses.Add(int64(len(b)))
+	if partial {
+		c.partials.Add(int64(len(b)))
+	}
 	byDay := splitByDay(res, first.day, len(b))
 	for k, i := range b {
-		if c.store != nil {
+		if c.store != nil && !partial {
 			if data, err := encodeSeries(byDay[k]); err == nil {
 				_ = c.store.SaveRightsizingChunk(chunkKey(cluster, query, step, spans[i].day, historySource(ctx)), cluster, spans[i].day.Unix(), data)
 			}
@@ -292,26 +338,28 @@ func (c *chunker) saveTail(cluster, query string, step time.Duration, sp daySpan
 	buf := make([]byte, 16, 16+len(data))
 	binary.BigEndian.PutUint64(buf, uint64(sp.start.Unix()))
 	binary.BigEndian.PutUint64(buf[8:], uint64(sp.end.Unix()))
-	_ = c.store.SaveRightsizingChunk(tailKey(cluster, query, step, sp.day, source), cluster, sp.day.Unix(), append(buf, data...))
+	_ = c.store.SaveRightsizingChunk(tailKey(cluster, query, step, sp.day, source, c.run), cluster, sp.day.Unix(), append(buf, data...))
 }
 
 // readTail returns the stored day in progress if it covers exactly sp, which
 // it does when the reader is aligned to the grid of the report that stored it.
-func (c *chunker) readTail(cluster, query string, step time.Duration, sp daySpan, source string, keep func(map[string]string) bool) []metrics.HistorySeries {
+// ok is false when there is no such tail: the report stored none, or the
+// run's next report has replaced it.
+func (c *chunker) readTail(cluster, query string, step time.Duration, sp daySpan, source string, keep func(map[string]string) bool) (res []metrics.HistorySeries, ok bool) {
 	if c.store == nil {
-		return nil
+		return nil, false
 	}
-	data, err := c.store.GetRightsizingChunk(tailKey(cluster, query, step, sp.day, source))
+	data, err := c.store.GetRightsizingChunk(tailKey(cluster, query, step, sp.day, source, c.run))
 	if err != nil || len(data) < 16 ||
 		int64(binary.BigEndian.Uint64(data)) != sp.start.Unix() || int64(binary.BigEndian.Uint64(data[8:])) != sp.end.Unix() {
-		return nil
+		return nil, false
 	}
-	res, err := decodeSeries(data[16:], keep)
+	res, err = decodeSeries(data[16:], keep)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	c.hits.Add(1)
-	return res
+	return res, true
 }
 
 // splitByDay cuts series spanning n days from firstDay into one slice per
@@ -340,25 +388,29 @@ func splitByDay(res []metrics.HistorySeries, firstDay time.Time, n int) [][]metr
 }
 
 // fetchSpan queries a range, halving it while the store says it's too large.
-func (c *chunker) fetchSpan(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
-	res, err := c.q.QueryRange(ctx, cluster, query, start, end, step)
+// partial is set when the store answered with only part of the data.
+func (c *chunker) fetchSpan(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) (res []metrics.HistorySeries, partial bool, err error) {
+	// One flag per query, so a retry or another day's query sharing ctx
+	// can't mark this answer.
+	var p atomic.Bool
+	res, err = c.q.QueryRange(metrics.WithPartialFlag(ctx, &p), cluster, query, start, end, step)
 	var qe *metrics.QueryError
 	if err == nil || !errors.As(err, &qe) || !qe.TooLarge() || end.Sub(start) < minSplitSpan {
-		return res, err
+		return res, err == nil && p.Load(), err
 	}
 	half := end.Sub(start) / 2
 	mid := start.Add(half - half%step)
-	left, err := c.fetchSpan(ctx, cluster, query, start, mid, step)
+	left, lp, err := c.fetchSpan(ctx, cluster, query, start, mid, step)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	right, err := c.fetchSpan(ctx, cluster, query, mid.Add(step), end, step)
+	right, rp, err := c.fetchSpan(ctx, cluster, query, mid.Add(step), end, step)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	// The halves stay separate pieces of the same series: splitByDay and every
 	// consumer handle a series repeated within a part.
-	return append(left, right...), nil
+	return append(left, right...), lp || rp, nil
 }
 
 // ---- Compact encoding ---------------------------------------------------------

@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -32,16 +34,37 @@ type PortForwardManager struct {
 	mu       sync.RWMutex
 	forwards map[string]*PortForward
 	client   *Client
+	// seq numbers private forwards so their IDs are never shared.
+	seq atomic.Uint64
+	// start runs a forward until it is stopped; replaced in tests.
+	start func(pf *PortForward) error
 }
 
 func NewPortForwardManager(client *Client) *PortForwardManager {
-	return &PortForwardManager{
+	m := &PortForwardManager{
 		forwards: make(map[string]*PortForward),
 		client:   client,
 	}
+	m.start = m.startPortForward
+	return m
 }
 
+// CreatePortForward opens a forward to pod:port, or hands back the one
+// already open to the same target. Stopping it stops it for everyone holding
+// it, which is what the user's own port-forwards want.
 func (m *PortForwardManager) CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
+	return m.create(cluster, namespace, podName, remotePort, true)
+}
+
+// CreatePrivatePortForward always opens a new forward under an ID nobody else
+// gets, so its owner can stop it without tearing down a tunnel the user (or
+// another of Kanivet's own users) is still reading through, and nobody else's
+// Stop can tear down the owner's.
+func (m *PortForwardManager) CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
+	return m.create(cluster, namespace, podName, remotePort, false)
+}
+
+func (m *PortForwardManager) create(cluster, namespace, podName string, remotePort int, shared bool) (*PortForward, error) {
 	log.Printf("Creating port forward for %s/%s:%d in cluster %s", namespace, podName, remotePort, cluster)
 
 	// Find an available local port
@@ -52,6 +75,9 @@ func (m *PortForwardManager) CreatePortForward(cluster, namespace, podName strin
 	log.Printf("Found available local port: %d", localPort)
 
 	id := fmt.Sprintf("%s-%s-%s-%d", cluster, namespace, podName, remotePort)
+	if !shared {
+		id += "#" + strconv.FormatUint(m.seq.Add(1), 10)
+	}
 
 	m.mu.Lock()
 	// Check if already exists
@@ -79,7 +105,7 @@ func (m *PortForwardManager) CreatePortForward(cluster, namespace, podName strin
 
 	// Start the port forward in a goroutine
 	go func() {
-		if err := m.startPortForward(pf); err != nil {
+		if err := m.start(pf); err != nil {
 			log.Printf("Port forward %s failed: %v", id, err)
 			m.mu.Lock()
 			delete(m.forwards, id)

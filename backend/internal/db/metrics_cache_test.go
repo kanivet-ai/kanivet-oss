@@ -112,3 +112,46 @@ func TestMetricsCacheConcurrentWritesStayBounded(t *testing.T) {
 		t.Fatalf("concurrent cache size=%d", size)
 	}
 }
+
+// Saves no longer sum the table; the running total they check the budget
+// against must stay what the table holds through replacements, evictions and
+// a reopen.
+func TestMetricsCacheRunningTotal(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metrics.db")
+	d := &DB{}
+	if err := d.OpenMetricsCache(path); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.CloseMetricsCache() })
+	check := func() {
+		t.Helper()
+		var sum int64
+		if err := d.metricsCache.Model(&MetricsQuery{}).Select("COALESCE(SUM(bytes), 0)").Scan(&sum).Error; err != nil {
+			t.Fatal(err)
+		}
+		if sum != d.metricsCacheBytes {
+			t.Fatalf("running total %d, table holds %d", d.metricsCacheBytes, sum)
+		}
+	}
+	const budget = 4096
+	for i := range 40 {
+		key := fmt.Sprint(i % 7)
+		if err := d.SaveMetricsQuery(key, bytes.Repeat([]byte("x"), 100+i*13), budget); err != nil {
+			t.Fatal(err)
+		}
+		check()
+		if d.metricsCacheBytes > budget {
+			t.Fatalf("cache grew to %d", d.metricsCacheBytes)
+		}
+	}
+	if err := d.CloseMetricsCache(); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.OpenMetricsCache(path); err != nil {
+		t.Fatal(err)
+	}
+	if d.metricsCacheBytes == 0 {
+		t.Fatal("total not restored on open")
+	}
+	check()
+}

@@ -1,26 +1,71 @@
-import { useEffect, useRef, useMemo, useState, memo } from 'react';
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+  memo,
+} from 'react';
 import clsx from 'clsx';
 import { getResourceIcon, getCategoryIcon } from '../utils/resourceIcons';
 import { useStore } from '../store';
 import ExpandIcon from './icons/ExpandIcon';
 import './TreeNode.css';
 
-interface TreeNodeProps {
-  node: any;
-  level: number;
-  searchQuery: string;
+/**
+ * The two highlighted rows of a tree, read by each node for itself so that
+ * moving either re-renders the rows involved, not the whole tree.
+ */
+export interface TreeCursor {
   /** Keyboard cursor: the row j/k and the arrow keys move. */
-  focusedNodeId?: string | null;
+  focused: string | null;
   /**
    * The one tree node whose list is open. Resolved once by the sidebar so a
    * selection made elsewhere (search, a link, a tab) highlights a single row.
    */
-  selectedNodeId?: string | null;
+  selected: string | null;
+  subscribe: (listener: () => void) => () => void;
+  set: (focused: string | null, selected: string | null) => void;
+}
+
+export const createTreeCursor = (): TreeCursor => {
+  const listeners = new Set<() => void>();
+  const cursor: TreeCursor = {
+    focused: null,
+    selected: null,
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return () => {
+        listeners.delete(listener);
+      };
+    },
+    set: (focused, selected) => {
+      if (focused === cursor.focused && selected === cursor.selected) return;
+      cursor.focused = focused;
+      cursor.selected = selected;
+      listeners.forEach((l) => l());
+    },
+  };
+  return cursor;
+};
+
+export const TreeCursorContext = createContext<TreeCursor>(createTreeCursor());
+
+interface TreeNodeProps {
+  node: any;
+  level: number;
+  searchQuery: string;
   onNodeClick: (node: any, isPinned?: boolean) => void;
   isLast?: boolean;
   parentPath?: boolean[];
   ancestorLabels?: string[];
 }
+
+// Shared defaults, so a node's memoized child props stay the same arrays.
+const NO_PATH: boolean[] = [];
+const NO_LABELS: string[] = [];
 
 export const nodeHasChevron = (n: any): boolean =>
   !n.disabled &&
@@ -62,14 +107,12 @@ const TreeNode = ({
   node,
   level,
   searchQuery,
-  focusedNodeId,
-  selectedNodeId = null,
   onNodeClick,
   isLast = false,
-  parentPath = [],
-  ancestorLabels = [],
+  parentPath = NO_PATH,
+  ancestorLabels = NO_LABELS,
 }: TreeNodeProps) => {
-  const currentTab = useStore((state) => state.currentTab);
+  const cursor = useContext(TreeCursorContext);
   const nodeRef = useRef<HTMLDivElement>(null);
   const [contextMenu, setContextMenu] = useState<{
     x: number;
@@ -81,19 +124,34 @@ const TreeNode = ({
   const disabled = !!node.disabled;
   const fullPath = [...ancestorLabels, node.label].join(' ').toLowerCase();
   const isMatch = searchQuery && fullPath.includes(searchQuery.toLowerCase());
-  const isFocused = focusedNodeId === node.id;
-  const isSelected = !!selectedNodeId && selectedNodeId === node.id;
+  const isFocused = useSyncExternalStore(
+    cursor.subscribe,
+    () => cursor.focused === node.id,
+  );
+  const isSelected = useSyncExternalStore(
+    cursor.subscribe,
+    () => !!cursor.selected && cursor.selected === node.id,
+  );
 
   const shouldShowNode = useMemo(() => {
     return nodeMatchesSearch(node, searchQuery, ancestorLabels);
   }, [node, searchQuery, ancestorLabels]);
 
+  const childAncestorLabels = useMemo(
+    () => [...ancestorLabels, node.label],
+    [ancestorLabels, node.label],
+  );
+  const childParentPath = useMemo(
+    () => [...parentPath, isLast],
+    [parentPath, isLast],
+  );
+
   const filteredChildren = useMemo(() => {
     if (!node.children || !expanded) return [];
     return node.children.filter((child: any) =>
-      nodeMatchesSearch(child, searchQuery, [...ancestorLabels, node.label])
+      nodeMatchesSearch(child, searchQuery, childAncestorLabels),
     );
-  }, [node.children, expanded, searchQuery, ancestorLabels, node.label]);
+  }, [node.children, expanded, searchQuery, childAncestorLabels]);
 
   const childMaxCountDigits = useMemo(() => {
     let m = 0;
@@ -159,7 +217,7 @@ const TreeNode = ({
   };
 
   const handleSeeDetail = async () => {
-    if (node.type === 'resource' && currentTab) {
+    if (node.type === 'resource' && useStore.getState().currentTab) {
       // Emit custom event to TreeSidebar/Store to open CRD detail
       const event = new CustomEvent('tree:see-detail', {
         detail: { node },
@@ -170,7 +228,7 @@ const TreeNode = ({
   };
 
   const handleOpenToSide = async () => {
-    if (node.type === 'resource' && currentTab) {
+    if (node.type === 'resource' && useStore.getState().currentTab) {
       const event = new CustomEvent('centerPane:split', {
         detail: {
           paneId: 'root',
@@ -348,17 +406,15 @@ const TreeNode = ({
           }
         >
           {filteredChildren.map((child: any, index: number) => (
-            <TreeNode
+            <MemoTreeNode
               key={child.id}
               node={child}
               level={level + 1}
               searchQuery={searchQuery}
-              focusedNodeId={focusedNodeId}
-              selectedNodeId={selectedNodeId}
               onNodeClick={onNodeClick}
               isLast={index === filteredChildren.length - 1}
-              parentPath={[...parentPath, isLast]}
-              ancestorLabels={[...ancestorLabels, node.label]}
+              parentPath={childParentPath}
+              ancestorLabels={childAncestorLabels}
             />
           ))}
         </div>
@@ -387,4 +443,8 @@ const TreeNode = ({
   );
 };
 
-export default memo(TreeNode);
+// Children render through the memoized node too, so a count update re-renders
+// only the nodes on the path to the changed one.
+const MemoTreeNode = memo(TreeNode);
+
+export default MemoTreeNode;

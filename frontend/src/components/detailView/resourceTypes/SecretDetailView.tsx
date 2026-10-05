@@ -1,6 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { LockClosedIcon, MagnifyingGlassIcon, EyeOpenIcon, EyeClosedIcon, ChevronDownIcon, ChevronUpIcon } from '@radix-ui/react-icons';
-import Editor from '@monaco-editor/react';
+import { Editor } from '../../MonacoEditor';
 import PropertyRow from '../../common/PropertyRow';
 import PropertyGroup from '../shared/PropertyGroup';
 import ClipboardCopy from '../../common/ClipboardCopy';

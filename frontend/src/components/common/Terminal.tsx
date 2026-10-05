@@ -317,9 +317,10 @@ const TerminalComponent: React.FC<TerminalProps> = ({
           ws.onmessage = (event) => {
             if (disposed || !terminalOpened) return;
             if (event.data instanceof ArrayBuffer) {
-              const decoder = new TextDecoder();
-              const text = decoder.decode(new Uint8Array(event.data));
-              term.write(text);
+              // Frames end wherever the stream was read, often mid-character.
+              // xterm decodes written bytes as one UTF-8 stream; decoding each
+              // frame on its own turned split characters into U+FFFD.
+              term.write(new Uint8Array(event.data));
             } else {
               const text = event.data as string;
               if (text.startsWith('Error') || text.startsWith('Exec error')) {

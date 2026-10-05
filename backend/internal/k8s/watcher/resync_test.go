@@ -2,9 +2,12 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
+
+	"github.com/kanivet/backend/internal/websocket/core"
 )
 
 type captureBroadcaster struct {
@@ -15,6 +18,9 @@ type captureBroadcaster struct {
 	directCalls    int
 	sortBy         string
 	sortOrder      string
+	// maxBulkItems, when set, rejects bulk_list messages with more items the
+	// way a connection rejects one over its size limit.
+	maxBulkItems int
 }
 
 func (c *captureBroadcaster) Broadcast(topic string, message Message) error {
@@ -30,6 +36,9 @@ func (c *captureBroadcaster) BroadcastDirect(topic string, message Message) erro
 	c.directCalls++
 	if c.failDirectCall > 0 && c.directCalls == c.failDirectCall {
 		return fmt.Errorf("simulated backpressure on call %d", c.directCalls)
+	}
+	if bl, ok := message.(*BulkListMessage); ok && c.maxBulkItems > 0 && len(bl.Items) > c.maxBulkItems {
+		return errors.Join(fmt.Errorf("send failed"), core.ErrInvalidMessage)
 	}
 	c.direct = append(c.direct, message)
 	return nil
@@ -59,7 +68,7 @@ func (c *captureBroadcaster) syncCompletes() []*InitialSyncMessage {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var out []*InitialSyncMessage
-	for _, m := range c.batched {
+	for _, m := range c.direct {
 		if sc, ok := m.(*InitialSyncMessage); ok {
 			out = append(out, sc)
 		}
@@ -154,11 +163,39 @@ func TestResyncContinuesPastChunkErrors(t *testing.T) {
 
 	s.Resync(topic)
 
-	if hub.directCalls != 3 {
-		t.Fatalf("one failed chunk must not truncate the stream: expected 3 direct calls, got %d", hub.directCalls)
+	if hub.directCalls != 4 {
+		t.Fatalf("one failed chunk must not truncate the stream: expected 3 chunks and a sync_complete, got %d direct calls", hub.directCalls)
 	}
 	if len(hub.syncCompletes()) != 1 {
 		t.Fatalf("sync_complete must still be sent after a chunk error, got %d", len(hub.syncCompletes()))
+	}
+}
+
+// A connection refuses a message over its size limit and nothing resends it,
+// so an oversized chunk is split until each part fits instead of its rows
+// silently never reaching the client.
+func TestResyncSplitsChunksOverTheMessageSizeLimit(t *testing.T) {
+	hub := &captureBroadcaster{sortBy: "age", sortOrder: "desc", maxBulkItems: 30}
+	s := newServiceForResync(hub)
+	topic := "items:cluster-a:apps:v1:Deployment:ns"
+	registerWatch(t, s, topic)
+	for i := 0; i < 350; i++ {
+		s.cache.Set(topic, map[string]interface{}{"name": fmt.Sprintf("d%03d", i), "namespace": "ns"})
+	}
+
+	s.Resync(topic)
+
+	sent := map[string]bool{}
+	for _, bl := range hub.bulkLists() {
+		if bl.Count != len(bl.Items) || bl.Epoch == 0 {
+			t.Fatalf("split chunk has count %d for %d items, epoch %d", bl.Count, len(bl.Items), bl.Epoch)
+		}
+		for _, item := range bl.Items {
+			sent[itemKeyOf(item)] = true
+		}
+	}
+	if len(sent) != 350 {
+		t.Fatalf("%d of 350 rows reached the client", len(sent))
 	}
 }
 

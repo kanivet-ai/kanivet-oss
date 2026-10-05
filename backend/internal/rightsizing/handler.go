@@ -1,7 +1,11 @@
 package rightsizing
 
 import (
+	"errors"
+	"math"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -47,6 +51,16 @@ func (h *Handler) GetWorkload(c *gin.Context) {
 	ev, err := h.service.GetEvidence(c.Request.Context(), q)
 	if err != nil && q.CacheOnly {
 		c.Status(http.StatusNoContent)
+		return
+	}
+	if errors.Is(err, ErrStoreBusy) {
+		// The breaker is holding queries back: say for how long, so the
+		// drawer can show it and ask again then.
+		st := limiterFor(resolveTarget(q.Cluster).history).state()
+		secs := max(1, int(math.Ceil(st.PausedFor.Seconds())))
+		st.PausedFor = time.Duration(secs) * time.Second
+		c.Header("Retry-After", strconv.Itoa(secs))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": busyMessage(st), "retryAfterSeconds": secs})
 		return
 	}
 	if err != nil {

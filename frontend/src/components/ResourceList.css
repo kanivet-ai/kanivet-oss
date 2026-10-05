@@ -395,6 +395,11 @@
   position: absolute;
   inset: 0;
   content-visibility: hidden;
+  /* Still a full-size box stacked over the active tab: without this it takes
+     the wheel and clicks meant for the tab underneath, which then cannot
+     scroll. */
+  pointer-events: none;
+  visibility: hidden;
 }
 
 .resource-list-bottom-tab-content {

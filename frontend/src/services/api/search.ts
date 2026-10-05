@@ -2,7 +2,7 @@ import logger from '../../utils/logger';
 import { SearchResult, SearchOptions, SearchResponse, RecentResource } from '../../types/search';
 import { apiClient } from './client';
 
-export async function search(query: string, options: SearchOptions = {}): Promise<SearchResult[]> {
+export async function search(query: string, options: SearchOptions = {}, signal?: AbortSignal): Promise<SearchResult[]> {
   const endpoint = '/search';
   try {
     const params = new URLSearchParams();
@@ -12,10 +12,10 @@ export async function search(query: string, options: SearchOptions = {}): Promis
     if (options.clusters) options.clusters.forEach((c: string) => params.append('clusters', c));
     if (options.namespaces) options.namespaces.forEach((n: string) => params.append('namespaces', n));
     if (options.kinds) options.kinds.forEach((k: string) => params.append('kinds', k));
-    const response = await apiClient.getAxios().get<SearchResponse>(endpoint, { params });
+    const response = await apiClient.getAxios().get<SearchResponse>(endpoint, { params, signal });
     return response.data.results || [];
   } catch (error: any) {
-    logger.error('Search failed:', { query, error: error.message });
+    if (!signal?.aborted) logger.error('Search failed:', { query, error: error.message });
     throw error;
   }
 }

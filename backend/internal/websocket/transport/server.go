@@ -22,7 +22,7 @@ func DefaultServerConfig() *ServerConfig {
 		ReadBufferSize:    1024 * 1024,
 		WriteBufferSize:   1024 * 1024,
 		HandshakeTimeout:  10 * time.Second,
-		EnableCompression: true,
+		EnableCompression: false, // loopback only, see core.DefaultHubConfig
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
 			if origin == "" || origin == "file://" || origin == "null" {

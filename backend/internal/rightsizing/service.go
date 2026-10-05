@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"encoding/json"
@@ -22,13 +23,17 @@ import (
 	"time"
 
 	"github.com/kanivet/backend/internal/db"
+	"github.com/kanivet/backend/internal/faults"
 	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/k8s/podcache"
 	"github.com/kanivet/backend/internal/metrics"
 	autoscalingv2 "k8s.io/api/autoscaling/v2"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -37,6 +42,11 @@ const (
 	// a fresh computation in the background. Two weeks of history hardly
 	// move in an hour, and every refresh is real load on the metrics store.
 	reportTTL = time.Hour
+	// reportEngine numbers the recommendation engine. Bump it with any change
+	// to what a report holds or recommends: a persisted report of another
+	// engine is shown as stale while it is recomputed, not served as fresh
+	// for reportTTL after an update.
+	reportEngine = 1
 	// unavailableTTL is the same for "no history source" answers, short so a
 	// newly configured metrics store is picked up quickly.
 	unavailableTTL = time.Minute
@@ -154,6 +164,9 @@ func (s *Service) GetReport(cluster string, profile Profile, window time.Duratio
 			s.mu.Lock()
 			if r.ready == nil {
 				r.ready, r.readyAt = rep, rep.ComputedAt
+				if rep.Engine != reportEngine {
+					r.readyAt = time.Time{}
+				}
 			}
 			s.mu.Unlock()
 		}
@@ -265,14 +278,24 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 	}
 	s.mu.Unlock()
 
-	rep := s.compute(ctx, cluster, profile, window, prev, func(p Progress) {
-		s.mu.Lock()
-		current := s.runs[key] == mine
-		s.mu.Unlock()
-		if current {
-			s.setProgress(key, p)
-		}
-	})
+	rep := func() (rep *Report) {
+		// A panic fails this report like any other error: the last good one
+		// stays on screen, with the refresh error, and the run can retry.
+		defer func() {
+			if r := recover(); r != nil {
+				err := panicked("computing a report for "+cluster, r)
+				rep = &Report{Cluster: cluster, Profile: profile, Window: windowLabel(window), Status: StatusError, Error: err.Error(), Workloads: []WorkloadReport{}}
+			}
+		}()
+		return s.compute(ctx, cluster, profile, window, prev, func(p Progress) {
+			s.mu.Lock()
+			current := s.runs[key] == mine
+			s.mu.Unlock()
+			if current {
+				s.setProgress(key, p)
+			}
+		})
+	}()
 	// The step-by-step explanations are a fifth of a report's size and only
 	// the evidence drawer shows them; it computes its own.
 	for i := range rep.Workloads {
@@ -282,6 +305,7 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 		}
 	}
 	rep.ComputedAt = s.now()
+	rep.Engine = reportEngine
 	// A report reads tens of megabytes of history that is garbage once it's
 	// analysed. Hand it back to the OS now rather than over the next minutes,
 	// so a laptop isn't left holding a peak it no longer uses.
@@ -318,6 +342,13 @@ func (s *Service) computeAndStore(key, cluster string, profile Profile, window t
 		if data, err := packReport(rep); err == nil {
 			if err := s.store.SaveRightsizingReport(key, cluster, data); err != nil {
 				log.Printf("[Rightsizing] persist report: %v", err)
+			}
+		}
+		// And what cached evidence needs besides history, so that after a
+		// restart the drawer still shows the report's numbers at once.
+		if rep.evidenceInputs != nil {
+			if data, err := packJSON(rep.evidenceInputs.saved(rep.AsOf)); err == nil {
+				_ = s.store.SaveRightsizingReport(inputsKey(key), cluster, data)
 			}
 		}
 	}
@@ -364,15 +395,21 @@ func (s *Service) loadPersisted(key string) *Report {
 	if err != nil || len(data) == 0 {
 		return nil
 	}
-	return unpackReport(data)
+	rep := unpackReport(data)
+	if rep != nil && rep.Status == StatusReady {
+		rep.evidenceInputs = s.loadInputs(key, rep.AsOf)
+	}
+	return rep
 }
 
 // packReport stores a report gzipped: JSON of thousands of workloads repeats
 // the same field names and strings, and shrinks about tenfold.
-func packReport(rep *Report) ([]byte, error) {
+func packReport(rep *Report) ([]byte, error) { return packJSON(rep) }
+
+func packJSON(v any) ([]byte, error) {
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
-	if err := json.NewEncoder(zw).Encode(rep); err != nil {
+	if err := json.NewEncoder(zw).Encode(v); err != nil {
 		return nil, err
 	}
 	if err := zw.Close(); err != nil {
@@ -382,19 +419,25 @@ func packReport(rep *Report) ([]byte, error) {
 }
 
 func unpackReport(data []byte) *Report {
+	var rep Report
+	if unpackJSON(data, &rep) != nil {
+		return nil
+	}
+	return &rep
+}
+
+// unpackJSON reads what packJSON wrote, or plain JSON as reports were once
+// stored.
+func unpackJSON(data []byte, v any) error {
 	var r io.Reader = bytes.NewReader(data)
 	if len(data) > 2 && data[0] == 0x1f && data[1] == 0x8b {
 		zr, err := gzip.NewReader(r)
 		if err != nil {
-			return nil
+			return err
 		}
 		r = zr
 	}
-	var rep Report
-	if json.NewDecoder(r).Decode(&rep) != nil {
-		return nil
-	}
-	return &rep
+	return json.NewDecoder(r).Decode(v)
 }
 
 // ---- Live workloads ---------------------------------------------------------
@@ -403,6 +446,7 @@ type liveContainer struct {
 	name string
 	res  Resources
 	jvm  *JVMInfo
+	heap *HeapCeiling
 }
 
 // filterLabels are the pod labels teams find their workloads by.
@@ -474,11 +518,11 @@ func liveWorkloads(pods []*v1.Pod, vclusterScope bool) []*liveWorkload {
 		var cs []liveContainer
 		for _, c := range p.Spec.InitContainers {
 			if c.RestartPolicy != nil && *c.RestartPolicy == v1.ContainerRestartPolicyAlways {
-				cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c)})
+				cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c), heapCeilingOf(c)})
 			}
 		}
 		for _, c := range p.Spec.Containers {
-			cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c)})
+			cs = append(cs, liveContainer{c.Name, containerResources(c), jvmOf(c), heapCeilingOf(c)})
 		}
 		for _, c := range cs {
 			if w.keys[c.name] == nil {
@@ -487,6 +531,9 @@ func liveWorkloads(pods []*v1.Pod, vclusterScope bool) []*liveWorkload {
 			w.keys[c.name][seriesKey{p.Namespace, vns, wk, c.name}] = struct{}{}
 		}
 		hash := p.Labels["pod-template-hash"]
+		if hash == "" {
+			hash = p.Labels["rollouts-pod-template-hash"] // an Argo Rollout's pod
+		}
 		if t := p.CreationTimestamp.Time; w.containers == nil || t.After(w.newest) {
 			w.containers, w.newest, w.newestHash = cs, t, hash
 			w.labels = map[string]string{}
@@ -513,11 +560,12 @@ func hpaTargets(hpas []autoscalingv2.HorizontalPodAutoscaler) map[string]*hpaTar
 		for _, m := range h.Spec.Metrics {
 			var name v1.ResourceName
 			var target autoscalingv2.MetricTarget
+			var container string
 			switch {
 			case m.Type == autoscalingv2.ResourceMetricSourceType && m.Resource != nil:
 				name, target = m.Resource.Name, m.Resource.Target
 			case m.Type == autoscalingv2.ContainerResourceMetricSourceType && m.ContainerResource != nil:
-				name, target = m.ContainerResource.Name, m.ContainerResource.Target
+				name, target, container = m.ContainerResource.Name, m.ContainerResource.Target, m.ContainerResource.Container
 			default:
 				continue
 			}
@@ -525,7 +573,7 @@ func hpaTargets(hpas []autoscalingv2.HorizontalPodAutoscaler) map[string]*hpaTar
 				continue
 			}
 			if name == v1.ResourceCPU || (name == v1.ResourceMemory && t == nil) {
-				t = &hpaTarget{resource: string(name), utilization: *target.AverageUtilization, name: h.Name}
+				t = &hpaTarget{resource: string(name), utilization: *target.AverageUtilization, name: h.Name, container: container}
 			}
 		}
 		if t != nil {
@@ -543,6 +591,125 @@ func listHPAs(ctx context.Context, cs kubernetes.Interface) []autoscalingv2.Hori
 		return nil
 	}
 	return l.Items
+}
+
+// vpaTarget is a VerticalPodAutoscaler that sets a workload's requests
+// itself as its pods are created: any updateMode but Off.
+type vpaTarget struct {
+	name, mode string
+	// policies are the resources it sets per container, "*" for the rest;
+	// empty for a container it leaves alone. Without a policy it sets both.
+	policies map[string][]string
+	// recommended is its own current target per container.
+	recommended map[string]Resources
+}
+
+// vpaContainer is what a VerticalPodAutoscaler does to one container.
+type vpaContainer struct {
+	name, mode string
+	resources  []string  // cpu, memory: the requests it sets
+	target     Resources // its current recommendation; zero before it has one
+}
+
+func (v *vpaContainer) sets(resource string) bool {
+	return v != nil && slices.Contains(v.resources, resource)
+}
+
+var vpaResource = schema.GroupVersionResource{Group: "autoscaling.k8s.io", Version: "v1", Resource: "verticalpodautoscalers"}
+
+// listVPAs maps namespace/kind/name to the VerticalPodAutoscaler setting a
+// workload's requests. A cluster without the VPA serves no such resource
+// and gets none.
+func listVPAs(ctx context.Context, k k8s.Interface, cluster string) map[string]*vpaTarget {
+	dc, err := k.GetDynamicClient(cluster)
+	if err != nil {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	l, err := dc.Resource(vpaResource).List(ctx, metav1.ListOptions{})
+	if err != nil {
+		return nil
+	}
+	return vpaTargets(l.Items)
+}
+
+func vpaTargets(items []unstructured.Unstructured) map[string]*vpaTarget {
+	out := map[string]*vpaTarget{}
+	for _, it := range items {
+		mode, _, _ := unstructured.NestedString(it.Object, "spec", "updatePolicy", "updateMode")
+		if mode == "" {
+			mode = "Auto" // the VPA's default
+		}
+		kind, _, _ := unstructured.NestedString(it.Object, "spec", "targetRef", "kind")
+		name, _, _ := unstructured.NestedString(it.Object, "spec", "targetRef", "name")
+		if mode == "Off" || kind == "" || name == "" {
+			continue
+		}
+		v := &vpaTarget{name: it.GetName(), mode: mode, policies: map[string][]string{}, recommended: map[string]Resources{}}
+		policies, _, _ := unstructured.NestedSlice(it.Object, "spec", "resourcePolicy", "containerPolicies")
+		for _, p := range policies {
+			pm, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			c, _, _ := unstructured.NestedString(pm, "containerName")
+			if m, _, _ := unstructured.NestedString(pm, "mode"); m == "Off" {
+				v.policies[c] = []string{}
+				continue
+			}
+			res, found, _ := unstructured.NestedStringSlice(pm, "controlledResources")
+			if !found {
+				res = []string{"cpu", "memory"}
+			}
+			v.policies[c] = res
+		}
+		recs, _, _ := unstructured.NestedSlice(it.Object, "status", "recommendation", "containerRecommendations")
+		for _, r := range recs {
+			rm, ok := r.(map[string]any)
+			if !ok {
+				continue
+			}
+			c, _, _ := unstructured.NestedString(rm, "containerName")
+			var t Resources
+			if s, _, _ := unstructured.NestedString(rm, "target", "cpu"); s != "" {
+				if q, err := resource.ParseQuantity(s); err == nil {
+					t.CPURequest = float64(q.MilliValue()) / 1000
+				}
+			}
+			if s, _, _ := unstructured.NestedString(rm, "target", "memory"); s != "" {
+				if q, err := resource.ParseQuantity(s); err == nil {
+					t.MemRequest = float64(q.Value())
+				}
+			}
+			v.recommended[c] = t
+		}
+		out[it.GetNamespace()+"/"+kind+"/"+name] = v
+	}
+	return out
+}
+
+// vpaFor is what a workload's VerticalPodAutoscaler does to one of its
+// containers, nil when nothing.
+func vpaFor(vpas map[string]*vpaTarget, w *liveWorkload, container string) *vpaContainer {
+	if w.ref.VClusterNamespace != "" {
+		return nil
+	}
+	v := vpas[w.ref.Namespace+"/"+w.ref.Kind+"/"+w.ref.Name]
+	if v == nil {
+		return nil
+	}
+	res, ok := v.policies[container]
+	if !ok {
+		res, ok = v.policies["*"]
+	}
+	if !ok {
+		res = []string{"cpu", "memory"}
+	}
+	if len(res) == 0 {
+		return nil
+	}
+	return &vpaContainer{name: v.name, mode: v.mode, resources: res, target: v.recommended[container]}
 }
 
 // ---- Computation -------------------------------------------------------------
@@ -596,6 +763,20 @@ func (s *Service) listPods(ctx context.Context, t target) ([]*v1.Pod, error) {
 	return out, nil
 }
 
+// largestFirst orders namespaces by how many series they read, most first:
+// only a few are read at once, and a large one left for last keeps the whole
+// report waiting on it alone.
+func largestFirst(want map[string]map[seriesKey]struct{}) []string {
+	namespaces := slices.Collect(maps.Keys(want))
+	slices.SortFunc(namespaces, func(a, b string) int {
+		if c := cmp.Compare(len(want[b]), len(want[a])); c != 0 {
+			return c
+		}
+		return strings.Compare(a, b)
+	})
+	return namespaces
+}
+
 func (s *Service) compute(ctx context.Context, cluster string, profile Profile, window time.Duration, prev *Report, progress func(Progress)) *Report {
 	t := resolveTarget(cluster)
 	step := stepFor(window)
@@ -641,13 +822,19 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	// also through the day-chunk cache, above it, so a cached day takes no
 	// slot.
 	ctx = s.withSourceOf(ctx, t.history)
-	cq := newControlled(s.metrics)
+	cq := newControlled(safeQuerier{s.metrics})
 	ch := newChunker(cq, s.chunks())
-	ch.tails = true
+	// Every query sees the same days finished or in progress, as of the
+	// report's own clock, so cached evidence can read them back the same way.
+	ch.now = func() time.Time { return asOf }
+	ch.tails, ch.run = true, runKey(cluster, profile, window, metrics.HistoryProvider(ctx))
 	defer func() {
 		st := limiterFor(t.history).state()
 		log.Printf("[Rightsizing] %s: %d queries to the metrics store, %d day chunks from cache, %d fetched, limit %.1f (grew %d, queue cuts %d, overload cuts %d, max latency ratio %.1f)",
 			cluster, cq.count(), ch.hits.Load(), ch.misses.Load(), st.Limit, st.Grows, st.QueueCuts, st.OverloadCuts, st.MaxRatio)
+		if n := ch.partials.Load(); n > 0 {
+			log.Printf("[Rightsizing] %s: the metrics store answered %d day(s) only in part; used for this report, not cached", cluster, n)
+		}
 		if p, ok := s.store.(interface{ PruneRightsizingChunks() }); ok && s.store != nil {
 			p.PruneRightsizingChunks()
 		}
@@ -656,6 +843,16 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	defer stopWatch()
 	epoch := probeEpoch.Load()
 	pr := probeSignals(ctx, cq, t.history, g.end)
+	fresh := pr.err == nil
+	if !fresh {
+		last, ok := lastProbe(probeKey(ctx, t.history), prev)
+		if !ok {
+			rep.Status, rep.Error = StatusError, "could not check which signals the metrics store has: "+trimErr(pr.err)
+			return rep
+		}
+		log.Printf("[Rightsizing] %s: probing signals failed, using the last probe: %v", cluster, pr.err)
+		pr = last
+	}
 	rep.Signals = signalsOf(pr)
 	if pr.cpuSeries == 0 {
 		rep.Status = StatusNoContainerData
@@ -667,20 +864,32 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		hpas = hpaTargets(listHPAs(ctx, cs))
 		pr.inPlace = supportsInPlaceResize(cs)
 	}
+	vpas := listVPAs(ctx, s.k8s, cluster)
 	rates, _ := s.rates.NodeRates(ctx, cluster)
-	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, rates: rates, source: historySource(ctx)}
-	storeProbe(probeKey(ctx, t.history), probeEntry{pr, s.now()}, epoch)
+	rep.evidenceInputs = &evidenceInputs{workloads: workloads, probe: pr, hpas: hpas, vpas: vpas, rates: rates, source: historySource(ctx), now: asOf}
+	if fresh {
+		storeProbe(probeKey(ctx, t.history), probeEntry{pr, s.now()}, epoch)
+	}
 	dismissals := s.dismissalIndex(cluster)
 
+	// Each namespace's workloads, and the history keys (and those of Jobs)
+	// they are read for.
 	byNS := map[string][]*liveWorkload{}
+	wantNS, jobsNS := map[string]map[seriesKey]struct{}{}, map[string]map[seriesKey]struct{}{}
 	for _, w := range workloads {
-		byNS[w.hostNamespace] = append(byNS[w.hostNamespace], w)
+		ns := w.hostNamespace
+		if byNS[ns] == nil {
+			wantNS[ns], jobsNS[ns] = map[seriesKey]struct{}{}, map[seriesKey]struct{}{}
+		}
+		byNS[ns] = append(byNS[ns], w)
+		for _, keys := range w.keys {
+			maps.Copy(wantNS[ns], keys)
+			if w.isJob {
+				maps.Copy(jobsNS[ns], keys)
+			}
+		}
 	}
-	namespaces := make([]string, 0, len(byNS))
-	for ns := range byNS {
-		namespaces = append(namespaces, ns)
-	}
-	sort.Strings(namespaces)
+	namespaces := largestFirst(wantNS)
 
 	prevRecs := previousRecs(prev)
 	var (
@@ -693,31 +902,33 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 	var wg sync.WaitGroup
 	progress(Progress{Done: 0, Total: len(namespaces), Stage: "Reading usage history"})
 	for _, ns := range namespaces {
+		// Taken here, so namespaces start in the order above.
+		sem <- struct{}{}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			sem <- struct{}{}
 			defer func() { <-sem }()
-			want, jobs := map[seriesKey]struct{}{}, map[seriesKey]struct{}{}
-			for _, w := range byNS[ns] {
-				for _, keys := range w.keys {
-					maps.Copy(want, keys)
-					if w.isJob {
-						maps.Copy(jobs, keys)
-					}
-				}
-			}
-			h, err := fetchHistory(ctx, ch, t.history, scope{namespace: ns, want: want, jobs: jobs}, g, pr, window)
 			var out []WorkloadReport
-			if err == nil {
+			err := func() (err error) {
+				// A panic fails this namespace alone; the previous report's
+				// results for it are carried over like for any failure.
+				defer func() {
+					if r := recover(); r != nil {
+						out, err = nil, panicked("analysing namespace "+ns, r)
+					}
+				}()
+				h, err := fetchHistory(ctx, ch, t.history, scope{namespace: ns, want: wantNS[ns], jobs: jobsNS[ns]}, g, pr, window)
+				if err != nil {
+					return err
+				}
 				rep.evidenceInputs.setStarts(ns, h.starts)
 				for _, w := range byNS[ns] {
-					wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, rates, prevRecs)
-					if wr != nil {
+					if wr := s.analyzeWorkload(cluster, w, h, g, pr, profile, hpas, vpas, rates, prevRecs); wr != nil {
 						out = append(out, *wr)
 					}
 				}
-			}
+				return nil
+			}()
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -788,6 +999,19 @@ func trimErr(err error) string {
 	return msg
 }
 
+// panicked reports a panic recovered in a background computation and turns
+// it into an error. Reports run outside any request handler's recovery, and
+// analyse whatever a metrics store returns: a bug there must fail the report
+// or the namespace, not take the whole backend down with it.
+func panicked(where string, r any) error {
+	log.Printf("[PANIC] rightsizing, %s: %v", where, r)
+	faults.CaptureExceptionWithContext(
+		fmt.Errorf("panic in rightsizing, %s: %v", where, r),
+		map[string]any{"panic": r, "stack": string(debug.Stack())},
+	)
+	return fmt.Errorf("internal error %s: %v", where, r)
+}
+
 func seedFor(parts ...string) uint64 {
 	h := fnv.New64a()
 	for _, p := range parts {
@@ -803,11 +1027,12 @@ type containerSeries struct {
 	cpu            *pooled
 	podMeans       []float64
 	mem, throttle  []float64
-	burst          []float64
+	burst          *pooled          // nil when not fetched
 	podFirst       map[string]int64 // pod name -> first CPU sample (unix)
 	oom, restarts  []time.Time
 	startup        float64
 	cpuReq, memReq []float64
+	memLimit       []float64 // hourly, on the requests grid
 }
 
 // supportsInPlaceResize says whether the cluster resizes running pods in
@@ -844,7 +1069,7 @@ func versionSince(hash string, podFirst map[string]int64) time.Time {
 	}
 	first := int64(math.MaxInt64)
 	for pod, t := range podFirst {
-		if strings.Contains(pod, "-"+hash+"-") {
+		if carriesHash(pod, hash) {
 			first = min(first, t)
 		}
 	}
@@ -852,6 +1077,24 @@ func versionSince(hash string, podFirst map[string]int64) time.Time {
 		return time.Time{}
 	}
 	return time.Unix(first, 0).UTC()
+}
+
+// carriesHash says whether a pod name carries a pod-template-hash: whole, as
+// <name>-<hash>-<random>, or cut short when the API server truncated the
+// name to 63 characters, as <name>-<start of hash><random>. At least four
+// characters of the hash must be left to tell versions apart.
+func carriesHash(pod, hash string) bool {
+	if strings.Contains(pod, "-"+hash+"-") {
+		return true
+	}
+	if len(pod) != 63 {
+		return false
+	}
+	i := strings.LastIndexByte(pod, '-')
+	if i < 0 || len(pod)-i-1-5 < 4 {
+		return false
+	}
+	return strings.HasPrefix(hash, pod[i+1:len(pod)-5])
 }
 
 // containerHistory merges the series of every key a container's pods map to.
@@ -862,10 +1105,13 @@ func containerHistory(h *history, keys map[seriesKey]struct{}, n int) containerS
 		ks = append(ks, k)
 	}
 	sort.Slice(ks, func(i, j int) bool { return ks[i].wk < ks[j].wk })
-	var cpus []*pooled
+	var cpus, bursts []*pooled
 	for _, k := range ks {
 		if v, ok := h.cpu[k]; ok {
 			cpus = append(cpus, v)
+		}
+		if v, ok := h.burst[k]; ok {
+			bursts = append(bursts, v)
 		}
 		cs.podMeans = append(cs.podMeans, h.podMeans[k]...)
 		if v, ok := h.mem[k]; ok {
@@ -874,14 +1120,14 @@ func containerHistory(h *history, keys map[seriesKey]struct{}, n int) containerS
 		if v, ok := h.throttle[k]; ok {
 			cs.throttle = mergeSeries(cs.throttle, v, maxF)
 		}
-		if v, ok := h.burst[k]; ok {
-			cs.burst = mergeSeries(cs.burst, v, maxF)
-		}
 		if v, ok := h.cpuReq[k]; ok {
 			cs.cpuReq = mergeSeries(cs.cpuReq, v, maxF)
 		}
 		if v, ok := h.memReq[k]; ok {
 			cs.memReq = mergeSeries(cs.memReq, v, maxF)
+		}
+		if v, ok := h.memLimit[k]; ok {
+			cs.memLimit = mergeSeries(cs.memLimit, v, maxF)
 		}
 		cs.oom = append(cs.oom, h.oom[k]...)
 		cs.restarts = append(cs.restarts, h.restarts[k]...)
@@ -890,6 +1136,9 @@ func containerHistory(h *history, keys map[seriesKey]struct{}, n int) containerS
 		}
 	}
 	cs.cpu = mergePooled(n, cpus)
+	if len(bursts) > 0 {
+		cs.burst = mergePooled(n, bursts)
+	}
 	for _, k := range ks {
 		for pod, t := range h.podFirst[k] {
 			if cs.podFirst == nil {
@@ -939,7 +1188,23 @@ func previousRecs(prev *Report) map[recKey]prevRec {
 	return out
 }
 
-func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g grid, pr probe, profile Profile, hpas map[string]*hpaTarget, rates map[string]finops.Rates, prevRecs map[recKey]prevRec) *WorkloadReport {
+// newContainerInput is what analyze gets for one live container. The report
+// and the evidence drawer's profile presets both build it here, so the
+// preset for the report's own profile is the report's recommendation.
+func newContainerInput(cluster string, w *liveWorkload, c liveContainer, hs containerSeries, g, hourly grid, pr probe, hpas map[string]*hpaTarget, vpas map[string]*vpaTarget, profile Profile) containerInput {
+	return containerInput{
+		container: c.name, start: g.start, step: g.step,
+		cpu: hs.cpu, podMeans: hs.podMeans, mem: hs.mem, throttle: hs.throttle, cpuBurst: hs.burst,
+		throttleKind: pr.throttle, memIsUsage: pr.memMetric == memUsage,
+		oomTimes: hs.oom, restartTimes: hs.restarts, startupCPUPeak: hs.startup,
+		memLimits: hs.memLimit, hourly: hourly,
+		current: c.res, isJob: w.isJob, hpa: hpaFor(hpas, w, c.name), vpa: vpaFor(vpas, w, c.name), profile: profile,
+		seed: seedFor(cluster, w.id(), c.name), jvm: c.jvm, heap: c.heap, versionSince: versionSince(w.newestHash, hs.podFirst),
+		inPlaceResize: pr.inPlace,
+	}
+}
+
+func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g grid, pr probe, profile Profile, hpas map[string]*hpaTarget, vpas map[string]*vpaTarget, rates map[string]finops.Rates, prevRecs map[recKey]prevRec) *WorkloadReport {
 	wr := &WorkloadReport{
 		Namespace:         w.ref.Namespace,
 		Kind:              w.ref.Kind,
@@ -950,20 +1215,11 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 		Containers:        []ContainerReport{},
 		Labels:            w.labels,
 	}
-	hpa := hpaFor(hpas, w)
 	cpuRate, memRate, priced := workloadRates(w.nodes, rates)
 	wr.Priced = priced
 	for _, c := range w.containers {
 		hs := containerHistory(h, w.keys[c.name], g.n)
-		in := containerInput{
-			container: c.name, start: g.start, step: g.step,
-			cpu: hs.cpu, podMeans: hs.podMeans, mem: hs.mem, throttle: hs.throttle, cpuBurst: hs.burst,
-			throttleKind: pr.throttle, memIsUsage: pr.memMetric == memUsage,
-			oomTimes: hs.oom, restartTimes: hs.restarts, startupCPUPeak: hs.startup,
-			current: c.res, isJob: w.isJob, hpa: hpa, profile: profile,
-			seed: seedFor(cluster, w.id(), c.name), jvm: c.jvm, versionSince: versionSince(w.newestHash, hs.podFirst),
-			inPlaceResize: pr.inPlace,
-		}
+		in := newContainerInput(cluster, w, c, hs, g, h.requestsGrid, pr, hpas, vpas, profile)
 		cr := analyze(in)
 		if cr.StartupBoost != nil {
 			cr.StartupBoost.Selector = workloadSelector(w.labels)
@@ -972,6 +1228,10 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 			reps := cr.AvgReplicas
 			if reps == 0 {
 				reps = float64(w.replicas)
+			}
+			if w.isJob && cr.Data.DutyCycle > 0 {
+				// Between runs a Job reserves nothing.
+				reps *= cr.Data.DutyCycle
 			}
 			cr.CPUMonthly = cpuRate * hoursPerMonth * reps
 			cr.MemMonthly = memRate * hoursPerMonth * reps
@@ -983,22 +1243,31 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 			cost := func(cpuCores, memBytes float64) float64 {
 				return cpuCores*cr.CPUMonthly + memBytes/gib*cr.MemMonthly
 			}
+			// A VPA sets the requests it controls itself: a template change
+			// wouldn't hold, and what it saves is the VPA's, already counted.
+			cpuRec, memRec := cr.CPU.Recommended, cr.Memory.Recommended
+			if in.vpa.sets("cpu") {
+				cpuRec = c.res.CPURequest
+			}
+			if in.vpa.sets("memory") {
+				memRec = c.res.MemRequest
+			}
 			now := cost(c.res.CPURequest, c.res.MemRequest)
-			cr.MonthlySavings = now - cost(cr.CPU.Recommended, cr.Memory.Recommended)
+			cr.MonthlySavings = now - cost(cpuRec, memRec)
 			wr.MonthlyCost += now
 			wr.MonthlySavings += cr.MonthlySavings
 			// The range comes from the ends of the need's interval, never
 			// crossing the recommendation itself (rounding can put it past one).
 			// Resources kept as they are stay put at both ends.
-			cpuHi, cpuLo := cr.CPU.Recommended, cr.CPU.Recommended
-			if cr.CPU.Recommended != c.res.CPURequest {
-				cpuHi = max(cr.CPU.Recommended, roundCPU(nanTo(cr.CPU.High, cr.CPU.Recommended)))
-				cpuLo = min(cr.CPU.Recommended, roundCPU(nanTo(cr.CPU.Low, cr.CPU.Recommended)))
+			cpuHi, cpuLo := cpuRec, cpuRec
+			if cpuRec != c.res.CPURequest {
+				cpuHi = max(cpuRec, roundCPU(nanTo(cr.CPU.High, cpuRec)))
+				cpuLo = min(cpuRec, roundCPU(nanTo(cr.CPU.Low, cpuRec)))
 			}
-			memHi, memLo := cr.Memory.Recommended, cr.Memory.Recommended
-			if cr.Memory.Recommended != c.res.MemRequest {
-				memHi = max(cr.Memory.Recommended, roundMem(cr.Memory.High))
-				memLo = min(cr.Memory.Recommended, roundMem(cr.Memory.Low))
+			memHi, memLo := memRec, memRec
+			if memRec != c.res.MemRequest {
+				memHi = max(memRec, roundMem(cr.Memory.High))
+				memLo = min(memRec, roundMem(cr.Memory.Low))
 			}
 			wr.SavingsLow += now - cost(cpuHi, memHi)
 			wr.SavingsHigh += now - cost(cpuLo, memLo)
@@ -1013,6 +1282,7 @@ func (s *Service) analyzeWorkload(cluster string, w *liveWorkload, h *history, g
 	if len(wr.Containers) == 0 {
 		return nil
 	}
+	wr.HPA = workloadHPA(wr.Containers, w, hpas)
 	wr.Verdict, wr.Confidence = rollUp(wr.Containers)
 	wr.RiskScore = riskScore(wr)
 	return wr

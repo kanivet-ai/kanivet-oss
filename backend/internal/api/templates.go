@@ -38,10 +38,13 @@ func (h *Handler) UpdateResource(c *gin.Context) {
 		return
 	}
 
+	// Discovery, not a Kind table: custom resources with irregular plurals
+	// must reach the right endpoint and evict what the detail view cached.
+	resourceName := h.k8s.GetResourceName(cluster, gvk.Group, gvk.Version, gvk.Kind)
 	gvr := schema.GroupVersionResource{
 		Group:    gvk.Group,
 		Version:  gvk.Version,
-		Resource: h.getResourceName(gvk.Kind),
+		Resource: resourceName,
 	}
 
 	namespace := obj.GetNamespace()
@@ -52,8 +55,8 @@ func (h *Handler) UpdateResource(c *gin.Context) {
 		return
 	}
 
-	detailKey := h.cache.BuildKey("detail", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace, name)
-	topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace)
+	detailKey := h.cache.BuildKey("detail", cluster, gvk.Group, gvk.Version, resourceName, namespace, name)
+	topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, gvk.Group, gvk.Version, resourceName, namespace)
 
 	updatedResource, err := h.k8s.UpdateResource(context.Background(), cluster, gvr, namespace, name, obj)
 	if err != nil {
@@ -80,6 +83,10 @@ func (h *Handler) UpdateResource(c *gin.Context) {
 	dashboardKey := h.cache.BuildKey("dashboard", cluster)
 	h.cache.Delete(dashboardKey)
 
+	// The update kept the object's last-applied-configuration, which holds a
+	// Secret's applied values; the editor shows this answer, and the detail
+	// view it came from never carries that annotation.
+	h.cleanVerboseFields(updatedResource)
 	h.respond(c, http.StatusOK, updatedResource, nil)
 }
 
@@ -127,10 +134,11 @@ func (h *Handler) CreateResource(c *gin.Context) {
 			continue
 		}
 
+		resourceName := h.k8s.GetResourceName(cluster, gvk.Group, gvk.Version, gvk.Kind)
 		gvr := schema.GroupVersionResource{
 			Group:    gvk.Group,
 			Version:  gvk.Version,
-			Resource: h.getResourceName(gvk.Kind),
+			Resource: resourceName,
 		}
 
 		namespace := obj.GetNamespace()
@@ -154,7 +162,7 @@ func (h *Handler) CreateResource(c *gin.Context) {
 		}
 
 		createdResources = append(createdResources, createdResource)
-		topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, gvk.Group, gvk.Version, h.getResourceName(gvk.Kind), namespace)
+		topic := fmt.Sprintf("items:%s:%s:%s:%s:%s", cluster, gvk.Group, gvk.Version, resourceName, namespace)
 		if h.invalidationBus != nil {
 			h.invalidationBus.Invalidate(topic)
 		}
@@ -776,47 +784,4 @@ metadata:
   namespace: default
 spec:
   <Fill here - required>`, kind)
-}
-
-func (h *Handler) getResourceName(kind string) string {
-	kindToResource := map[string]string{
-		"Pod": "pods", "Service": "services", "ConfigMap": "configmaps",
-		"Secret": "secrets", "Deployment": "deployments", "StatefulSet": "statefulsets",
-		"DaemonSet": "daemonsets", "ReplicaSet": "replicasets", "Job": "jobs",
-		"CronJob": "cronjobs", "Ingress": "ingresses", "IngressClass": "ingressclasses",
-		"PersistentVolume": "persistentvolumes", "PersistentVolumeClaim": "persistentvolumeclaims",
-		"ServiceAccount": "serviceaccounts", "Role": "roles", "RoleBinding": "rolebindings",
-		"ClusterRole": "clusterroles", "ClusterRoleBinding": "clusterrolebindings",
-		"Namespace": "namespaces", "Node": "nodes", "NetworkPolicy": "networkpolicies",
-		"HorizontalPodAutoscaler": "horizontalpodautoscalers", "VerticalPodAutoscaler": "verticalpodautoscalers",
-		"StorageClass": "storageclasses", "PriorityClass": "priorityclasses",
-		"ResourceQuota": "resourcequotas", "LimitRange": "limitranges",
-		"PodDisruptionBudget": "poddisruptionbudgets", "EndpointSlice": "endpointslices",
-		"Endpoints": "endpoints", "Event": "events", "VolumeAttachment": "volumeattachments",
-		"CSINode": "csinodes", "CSIDriver": "csidrivers", "CSIStorageCapacity": "csistoragecapacities",
-		"ValidatingWebhookConfiguration": "validatingwebhookconfigurations",
-		"MutatingWebhookConfiguration":   "mutatingwebhookconfigurations",
-		"CustomResourceDefinition":       "customresourcedefinitions",
-		"APIService":                     "apiservices", "TokenReview": "tokenreviews",
-		"SubjectAccessReview": "subjectaccessreviews", "SelfSubjectAccessReview": "selfsubjectaccessreviews",
-		"LocalSubjectAccessReview": "localsubjectaccessreviews", "Lease": "leases",
-		"RuntimeClass": "runtimeclasses", "PodTemplate": "podtemplates",
-		"ReplicationController": "replicationcontrollers", "Certificate": "certificates",
-		"CertificateSigningRequest": "certificatesigningrequests",
-		"Issuer":                    "issuers", "ClusterIssuer": "clusterissuers",
-	}
-
-	if resource, ok := kindToResource[kind]; ok {
-		return resource
-	}
-	if strings.HasSuffix(kind, "y") && !strings.HasSuffix(kind, "ay") && !strings.HasSuffix(kind, "ey") && !strings.HasSuffix(kind, "oy") && !strings.HasSuffix(kind, "uy") {
-		return strings.ToLower(kind[:len(kind)-1]) + "ies"
-	}
-	if strings.HasSuffix(kind, "s") || strings.HasSuffix(kind, "x") || strings.HasSuffix(kind, "ch") || strings.HasSuffix(kind, "sh") {
-		if strings.HasSuffix(kind, "ions") {
-			return strings.ToLower(kind)
-		}
-		return strings.ToLower(kind) + "es"
-	}
-	return strings.ToLower(kind) + "s"
 }

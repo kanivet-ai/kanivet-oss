@@ -7,9 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// K8sEvent is one stored Kubernetes event. Besides the single-column indexes,
+// idx_cluster_last serves GetClusterEvents and idx_cluster_recent serves
+// GetRecentClusterEvents as index range scans instead of sorting every row of
+// the cluster.
 type K8sEvent struct {
 	ID                       uint      `gorm:"primaryKey" json:"id"`
-	Cluster                  string    `gorm:"index:idx_cluster;not null" json:"cluster"`
+	Cluster                  string    `gorm:"index:idx_cluster;index:idx_cluster_last,priority:1;index:idx_cluster_recent,priority:1;not null" json:"cluster"`
 	UID                      string    `gorm:"index:idx_uid" json:"uid"`
 	Name                     string    `gorm:"index:idx_name" json:"name"`
 	Namespace                string    `gorm:"index:idx_namespace" json:"namespace"`
@@ -23,8 +27,8 @@ type K8sEvent struct {
 	Message                  string    `json:"message"`
 	Count                    int32     `json:"count"`
 	FirstTimestamp           time.Time `json:"firstTimestamp"`
-	LastTimestamp            time.Time `json:"lastTimestamp"`
-	EventTime                time.Time `gorm:"index:idx_event_time" json:"eventTime"`
+	LastTimestamp            time.Time `gorm:"index:idx_cluster_last,priority:2,sort:desc" json:"lastTimestamp"`
+	EventTime                time.Time `gorm:"index:idx_event_time;index:idx_cluster_last,priority:3,sort:desc;index:idx_cluster_recent,priority:2,sort:desc" json:"eventTime"`
 	SourceComponent          string    `json:"sourceComponent"`
 	SourceHost               string    `json:"sourceHost"`
 	CreatedAt                time.Time `gorm:"index:idx_created_at" json:"createdAt"`
@@ -222,6 +226,19 @@ func (db *DB) GetClusterEvents(cluster string, limit int) ([]K8sEvent, error) {
 	}
 	err := db.Where("cluster = ?", cluster).
 		Order("last_timestamp DESC, event_time DESC").
+		Limit(limit).
+		Find(&events).Error
+	return events, err
+}
+
+// GetRecentClusterEvents returns a cluster's newest events by when they last
+// happened. The listener stores that time in event_time for both legacy events
+// (from lastTimestamp) and events.k8s.io ones (from eventTime, their
+// lastTimestamp being empty), so ordering on it ranks both kinds together.
+func (db *DB) GetRecentClusterEvents(cluster string, limit int) ([]K8sEvent, error) {
+	var events []K8sEvent
+	err := db.Where("cluster = ?", cluster).
+		Order("event_time DESC").
 		Limit(limit).
 		Find(&events).Error
 	return events, err

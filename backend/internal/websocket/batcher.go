@@ -47,6 +47,11 @@ type topicBatch struct {
 	flushMu sync.Mutex
 	timer   *time.Timer
 	batcher *EventBatcher
+	// lastFlush is when events last went out, guarded by mu.
+	lastFlush time.Time
+	// held counts the HoldTopic calls not yet released, guarded by mu. While
+	// it is set events queue: only FlushTopic sends them.
+	held int
 }
 
 func coalesceKey(item map[string]interface{}) string {
@@ -165,6 +170,72 @@ func (eb *EventBatcher) GetSortPreference(topic string) (sortBy, sortOrder strin
 	return "age", "desc"
 }
 
+// lockedBatch returns the topic's batch, created if needed, with its mu held.
+func (eb *EventBatcher) lockedBatch(topic string) *topicBatch {
+	eb.mu.Lock()
+	batch, exists := eb.batches[topic]
+	if !exists {
+		batch = &topicBatch{
+			topic:     topic,
+			events:    make([]batchedEvent, 0, eb.maxBatchSize),
+			index:     make(map[string]int, eb.maxBatchSize),
+			batcher:   eb,
+			lastFlush: time.Now(),
+		}
+		eb.batches[topic] = batch
+	}
+	batch.mu.Lock()
+	eb.mu.Unlock()
+	return batch
+}
+
+// scheduleFlush arms the batch's flush timer. Flush at most once per
+// interval, measured from the last flush rather than from this event: a
+// change on a topic that has been quiet for a whole interval goes out at once
+// instead of waiting the full window, while the rest of its burst still
+// coalesces (the timer runs on its own goroutine) and a busy topic keeps
+// flushing once per interval. batch.mu must be held.
+func (eb *EventBatcher) scheduleFlush(batch *topicBatch) {
+	if batch.timer != nil || batch.held > 0 {
+		return
+	}
+	topic := batch.topic
+	delay := max(eb.batchInterval-time.Since(batch.lastFlush), 0)
+	batch.timer = time.AfterFunc(delay, func() {
+		if eb.ctx.Err() != nil {
+			return
+		}
+		eb.flushBatch(topic, false)
+	})
+}
+
+// HoldTopic queues the topic's events until the returned release is called;
+// FlushTopic still sends them. A resync holds its topic from before it reads
+// the snapshot it sends until its sync_complete is out. Without the hold a
+// change made after the snapshot was read goes out at once on a quiet topic,
+// ahead of the snapshot's pages, and an older page then undoes it on the
+// client: a deleted object comes back, a new one is pruned by the sync.
+func (eb *EventBatcher) HoldTopic(topic string) (release func()) {
+	batch := eb.lockedBatch(topic)
+	batch.held++
+	if batch.timer != nil {
+		batch.timer.Stop()
+		batch.timer = nil
+	}
+	batch.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			batch.mu.Lock()
+			defer batch.mu.Unlock()
+			batch.held--
+			if len(batch.events) > 0 {
+				eb.scheduleFlush(batch)
+			}
+		})
+	}
+}
+
 func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 	data, err := msg.Marshal()
 	if err != nil {
@@ -178,19 +249,7 @@ func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 		action, _ = d["action"].(string)
 	}
 
-	eb.mu.Lock()
-	batch, exists := eb.batches[topic]
-	if !exists {
-		batch = &topicBatch{
-			topic:   topic,
-			events:  make([]batchedEvent, 0, eb.maxBatchSize),
-			index:   make(map[string]int, eb.maxBatchSize),
-			batcher: eb,
-		}
-		eb.batches[topic] = batch
-	}
-	batch.mu.Lock()
-	eb.mu.Unlock()
+	batch := eb.lockedBatch(topic)
 	defer batch.mu.Unlock()
 
 	ev := batchedEvent{data: data, item: item, action: action}
@@ -205,16 +264,9 @@ func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 		batch.events = append(batch.events, ev)
 	}
 
-	if batch.timer == nil {
-		batch.timer = time.AfterFunc(eb.batchInterval, func() {
-			if eb.ctx.Err() != nil {
-				return
-			}
-			eb.flushBatch(topic)
-		})
-	}
+	eb.scheduleFlush(batch)
 
-	if len(batch.events) >= eb.maxBatchSize {
+	if len(batch.events) >= eb.maxBatchSize && batch.held == 0 {
 		if batch.timer != nil {
 			batch.timer.Stop()
 			batch.timer = nil
@@ -222,7 +274,7 @@ func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 		eb.wg.Add(1)
 		go func(t string) {
 			defer eb.wg.Done()
-			if err := eb.flushBatch(t); err != nil {
+			if err := eb.flushBatch(t, false); err != nil {
 				log.Printf("Failed to flush batch for topic %s: %v", t, err)
 			}
 		}(topic)
@@ -231,21 +283,27 @@ func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 	return nil
 }
 
-func (eb *EventBatcher) flushBatch(topic string) error {
+// flushBatch sends the topic's queued events. Unless force is set it leaves a
+// held topic's events queued.
+func (eb *EventBatcher) flushBatch(topic string, force bool) error {
 	eb.mu.RLock()
 	batch, exists := eb.batches[topic]
 	eb.mu.RUnlock()
 	if !exists {
 		return nil
 	}
-	return eb.flushExtracted(batch)
+	return eb.flushExtracted(batch, force)
 }
 
-func (eb *EventBatcher) flushExtracted(batch *topicBatch) error {
+func (eb *EventBatcher) flushExtracted(batch *topicBatch, force bool) error {
 	batch.flushMu.Lock()
 	defer batch.flushMu.Unlock()
 
 	batch.mu.Lock()
+	if batch.held > 0 && !force {
+		batch.mu.Unlock()
+		return nil
+	}
 	if batch.timer != nil {
 		batch.timer.Stop()
 		batch.timer = nil
@@ -257,6 +315,7 @@ func (eb *EventBatcher) flushExtracted(batch *topicBatch) error {
 	events := batch.events
 	batch.events = make([]batchedEvent, 0, eb.maxBatchSize)
 	batch.index = make(map[string]int, eb.maxBatchSize)
+	batch.lastFlush = time.Now()
 	batch.mu.Unlock()
 
 	raws := make([]json.RawMessage, len(events))
@@ -277,7 +336,7 @@ func (eb *EventBatcher) flushExtracted(batch *topicBatch) error {
 }
 
 func (eb *EventBatcher) FlushTopic(topic string) error {
-	return eb.flushBatch(topic)
+	return eb.flushBatch(topic, true)
 }
 
 func (eb *EventBatcher) CleanupTopic(topic string) {
@@ -287,7 +346,7 @@ func (eb *EventBatcher) CleanupTopic(topic string) {
 	delete(eb.sortPrefs, topic)
 	eb.mu.Unlock()
 	if exists {
-		if err := eb.flushExtracted(batch); err != nil {
+		if err := eb.flushExtracted(batch, true); err != nil {
 			log.Printf("CleanupTopic: failed to flush topic %s before cleanup: %v", topic, err)
 		}
 	}
@@ -302,7 +361,7 @@ func (eb *EventBatcher) Shutdown() {
 	}
 	eb.mu.RUnlock()
 	for _, b := range batches {
-		if err := eb.flushExtracted(b); err != nil {
+		if err := eb.flushExtracted(b, true); err != nil {
 			log.Printf("Shutdown: failed to flush batch for topic %s: %v", b.topic, err)
 		}
 	}

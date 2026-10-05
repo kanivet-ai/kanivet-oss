@@ -1,4 +1,12 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -18,15 +26,17 @@ import {
   primaryContainer,
   reasonTags,
   releaseOf,
+  workloadId,
   type GroupKey,
   type WorkloadGroup,
 } from './rightsizingView';
 
-export const workloadId = (w: WorkloadReport) =>
-  `${w.namespace}/${w.vclusterNamespace ?? ''}/${w.kind}/${w.name}`;
-
 const ROWS_PER_GROUP = 10;
 const ROWS_FLAT = 100;
+/** First guesses at item heights; each item is measured once drawn. */
+const ESTIMATE = { group: 30, row: 41, more: 28 } as const;
+/** Until the scroller is measured: a screen, so the first render has rows. */
+const FIRST_SCREEN = { width: 0, height: 1000 };
 
 const Delta: React.FC<{
   resource: 'cpu' | 'memory';
@@ -72,43 +82,47 @@ interface RowProps {
   cursor: boolean;
   selected: boolean;
   showNamespace: boolean;
-  onOpen: () => void;
-  onToggle: () => void;
-  onOpenWorkload?: () => void;
+  canOpenWorkload: boolean;
+  onOpen: (w: WorkloadReport) => void;
+  onToggle: (id: string) => void;
+  onOpenWorkload?: (w: WorkloadReport) => void;
 }
 
-const Row: React.FC<RowProps> = ({
+/** Memoised, with callbacks that never change: a cursor move, a selection or
+ * a report poll re-renders the rows that changed, not every row. */
+const Row = memo(function Row({
   w,
   cursor,
   selected,
   showNamespace,
+  canOpenWorkload,
   onOpen,
   onToggle,
   onOpenWorkload,
-}) => {
+}: RowProps) {
   const p = primaryContainer(w);
   const others = w.containers.length - 1;
   const { tags, more } = reasonTags(w);
   const meta = VERDICT_META[w.verdict];
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (cursor) ref.current?.scrollIntoView({ block: 'nearest' });
-  }, [cursor]);
+  // Tooltips mount on the row's first hover: a Radix tooltip per tag on
+  // every row was about half the cost of drawing the table.
+  const [hovered, setHovered] = useState(false);
+  const tip = (content: React.ReactNode) => (hovered ? content : null);
   const release = releaseOf(w);
   return (
     <div
-      ref={ref}
       className={`rs-row${cursor ? ' is-cursor' : ''}${selected ? ' is-selected' : ''}${isDismissed(w) ? ' is-dismissed' : ''}`}
       role="row"
       aria-selected={selected}
-      onClick={onOpen}
+      onClick={() => onOpen(w)}
+      onPointerEnter={hovered ? undefined : () => setHovered(true)}
     >
       <div className="rs-cell rs-cell-check" role="cell">
         <button
           className={`rs-check${selected ? ' on' : ''}`}
           onClick={(e) => {
             e.stopPropagation();
-            onToggle();
+            onToggle(workloadId(w));
           }}
           aria-label={selected ? `Deselect ${w.name}` : `Select ${w.name}`}
         >
@@ -119,12 +133,12 @@ const Row: React.FC<RowProps> = ({
         <div className="rs-name-block">
           <span className="rs-name">
             {w.name}
-            {onOpenWorkload && (
+            {canOpenWorkload && onOpenWorkload && (
               <button
                 className="row-open-btn"
                 onClick={(e) => {
                   e.stopPropagation();
-                  onOpenWorkload();
+                  onOpenWorkload(w);
                 }}
                 title={`Open ${w.name}`}
                 aria-label={`Open ${w.name}`}
@@ -145,13 +159,13 @@ const Row: React.FC<RowProps> = ({
       </div>
       <div className="rs-cell rs-cell-tags" role="cell">
         {tags.map((t) => (
-          <Tooltip key={t.title} content={t.message}>
+          <Tooltip key={t.title} content={tip(t.message)}>
             <span className={`rs-tag rs-tag-${t.severity}`}>{t.title}</span>
           </Tooltip>
         ))}
         {more > 0 && <span className="rs-tag rs-tag-more">+{more}</span>}
         {w.change && (
-          <Tooltip content={w.change.summary}>
+          <Tooltip content={tip(w.change.summary)}>
             <span
               className={`rs-tag ${w.change.healthy ? 'rs-tag-good' : 'rs-tag-warning'}`}
             >
@@ -174,7 +188,7 @@ const Row: React.FC<RowProps> = ({
           />
         )}
         {others > 0 && (
-          <Tooltip content={<Breakdown w={w} />}>
+          <Tooltip content={tip(<Breakdown w={w} />)}>
             <span
               className="rs-more-containers"
               onClick={(e) => e.stopPropagation()}
@@ -199,12 +213,25 @@ const Row: React.FC<RowProps> = ({
       </div>
       <div className="rs-cell rs-cell-conf" role="cell">
         {w.verdict !== 'insufficient-data' && (
-          <ConfidenceMeter level={w.confidence} label={false} />
+          <ConfidenceMeter
+            level={w.confidence}
+            label={false}
+            tooltip={hovered}
+          />
         )}
       </div>
     </div>
   );
-};
+});
+
+type VisibleGroup = WorkloadGroup & { shown: WorkloadReport[] };
+
+/** What the table draws, top to bottom, as one list: only what is in view
+ * is rendered. */
+type Item =
+  | { kind: 'group'; key: string; g: VisibleGroup }
+  | { kind: 'row'; key: string; w: WorkloadReport }
+  | { kind: 'more'; key: string; g: VisibleGroup };
 
 interface Props {
   groups: WorkloadGroup[];
@@ -213,21 +240,30 @@ interface Props {
   onToggle: (id: string) => void;
   onToggleMany: (ids: string[], on: boolean) => void;
   onOpen: (w: WorkloadReport) => void;
-  openWorkload?: (w: WorkloadReport) => (() => void) | undefined;
+  /** Whether a row links to its workload's detail view. */
+  canOpenWorkload?: (w: WorkloadReport) => boolean;
+  onOpenWorkload?: (w: WorkloadReport) => void;
+  /** The element the table scrolls in. */
+  scrollRef: React.RefObject<HTMLElement>;
+  /** While a sheet is open over the table, the keyboard is the sheet's. */
+  keyboardDisabled?: boolean;
   emptyText: string;
 }
 
 /** The triage table: grouped or flat, keyboard-driven (j/k, Enter, x). */
-export const RightsizingTable: React.FC<Props> = ({
+export const RightsizingTable = memo(function RightsizingTable({
   groups,
   groupBy,
   selected,
   onToggle,
   onToggleMany,
   onOpen,
-  openWorkload,
+  canOpenWorkload,
+  onOpenWorkload,
+  scrollRef,
+  keyboardDisabled,
   emptyText,
-}) => {
+}: Props) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState<string | null>(null);
@@ -246,6 +282,17 @@ export const RightsizingTable: React.FC<Props> = ({
     [groups, collapsed, expanded, limit],
   );
   const flat = useMemo(() => visible.flatMap((g) => g.shown), [visible]);
+  const items = useMemo(() => {
+    const out: Item[] = [];
+    for (const g of visible) {
+      if (groupBy !== 'none')
+        out.push({ kind: 'group', key: `group:${g.key}`, g });
+      for (const w of g.shown) out.push({ kind: 'row', key: workloadId(w), w });
+      if (!collapsed.has(g.key) && g.workloads.length > limit)
+        out.push({ kind: 'more', key: `more:${g.key}`, g });
+    }
+    return out;
+  }, [visible, groupBy, collapsed, limit]);
   const allIds = useMemo(
     () => groups.flatMap((g) => g.workloads.map(workloadId)),
     [groups],
@@ -253,7 +300,66 @@ export const RightsizingTable: React.FC<Props> = ({
   const allSelected =
     allIds.length > 0 && allIds.every((id) => selected.has(id));
 
+  // The rows scroll with the page above them, so the list starts some way
+  // down its scroller, and moves as filters and pills come and go. Measured
+  // after the commit: the scroller is an ancestor, and when both mount
+  // together (a revisit with the report held) React attaches its ref only
+  // after this table's layout effects have run.
+  const list = useRef<HTMLDivElement>(null);
+  const [scrollMargin, setScrollMargin] = useState(0);
+  useEffect(() => {
+    const el = list.current;
+    const scroller = scrollRef.current;
+    if (!el || !scroller) return;
+    const measure = () => {
+      const top = Math.round(
+        el.getBoundingClientRect().top -
+          scroller.getBoundingClientRect().top -
+          scroller.clientTop +
+          scroller.scrollTop,
+      );
+      setScrollMargin((m) => (m === top ? m : top));
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(scroller);
+    const page = el.closest('.rs-table')?.parentElement;
+    if (page) ro.observe(page);
+    return () => ro.disconnect();
+  }, [scrollRef]);
+
+  const estimateSize = useCallback(
+    (i: number) => ESTIMATE[items[i].kind],
+    [items],
+  );
+  const getItemKey = useCallback((i: number) => items[i].key, [items]);
+  const virtualizer = useVirtualizer({
+    count: items.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize,
+    getItemKey,
+    overscan: 10,
+    scrollMargin,
+    initialRect: FIRST_SCREEN,
+  });
+
+  // Keep the cursor in view as j/k moves it.
+  useEffect(() => {
+    if (!cursor) return;
+    const i = items.findIndex((it) => it.key === cursor);
+    if (i >= 0) virtualizer.scrollToIndex(i, { align: 'auto' });
+  }, [cursor]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const openRow = useCallback(
+    (w: WorkloadReport) => {
+      setCursor(workloadId(w));
+      onOpen(w);
+    },
+    [onOpen],
+  );
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if (keyboardDisabled) return;
     if ((e.target as HTMLElement).closest('input, select, textarea')) return;
     const i = flat.findIndex((w) => workloadId(w) === cursor);
     const move = (d: number) => {
@@ -298,6 +404,64 @@ export const RightsizingTable: React.FC<Props> = ({
     update(next);
   };
 
+  const draw = (item: Item) => {
+    switch (item.kind) {
+      case 'group': {
+        const g = item.g;
+        return (
+          <button
+            className="rs-group-header"
+            onClick={() => toggleSet(collapsed, g.key, setCollapsed)}
+            aria-expanded={!collapsed.has(g.key)}
+          >
+            {collapsed.has(g.key) ? <ChevronRightIcon /> : <ChevronDownIcon />}
+            <span className="rs-group-name">{g.key}</span>
+            <span className="rs-group-meta">
+              {g.workloads.length} workload
+              {g.workloads.length === 1 ? '' : 's'}
+              {g.atRisk > 0 && (
+                <span className="rs-group-risk"> · {g.atRisk} at risk</span>
+              )}
+            </span>
+            {g.savings > 0 && (
+              <span className="rs-group-savings">
+                {formatMoney(g.savings)}/mo
+              </span>
+            )}
+          </button>
+        );
+      }
+      case 'row': {
+        const id = item.key;
+        return (
+          <Row
+            w={item.w}
+            cursor={cursor === id}
+            selected={selected.has(id)}
+            showNamespace={groupBy !== 'namespace'}
+            canOpenWorkload={!!canOpenWorkload?.(item.w)}
+            onOpen={openRow}
+            onToggle={onToggle}
+            onOpenWorkload={onOpenWorkload}
+          />
+        );
+      }
+      case 'more': {
+        const g = item.g;
+        return (
+          <button
+            className="rs-more"
+            onClick={() => toggleSet(expanded, g.key, setExpanded)}
+          >
+            {expanded.has(g.key)
+              ? 'Show fewer'
+              : `Show ${g.workloads.length - limit} more`}
+          </button>
+        );
+      }
+    }
+  };
+
   return (
     <div
       className="rs-table"
@@ -339,64 +503,25 @@ export const RightsizingTable: React.FC<Props> = ({
         </div>
       </div>
       {groups.length === 0 && <div className="rs-empty-rows">{emptyText}</div>}
-      {visible.map((g) => (
-        <div key={g.key || 'all'} className="rs-group">
-          {groupBy !== 'none' && (
-            <button
-              className="rs-group-header"
-              onClick={() => toggleSet(collapsed, g.key, setCollapsed)}
-              aria-expanded={!collapsed.has(g.key)}
-            >
-              {collapsed.has(g.key) ? (
-                <ChevronRightIcon />
-              ) : (
-                <ChevronDownIcon />
-              )}
-              <span className="rs-group-name">{g.key}</span>
-              <span className="rs-group-meta">
-                {g.workloads.length} workload
-                {g.workloads.length === 1 ? '' : 's'}
-                {g.atRisk > 0 && (
-                  <span className="rs-group-risk"> · {g.atRisk} at risk</span>
-                )}
-              </span>
-              {g.savings > 0 && (
-                <span className="rs-group-savings">
-                  {formatMoney(g.savings)}/mo
-                </span>
-              )}
-            </button>
-          )}
-          {g.shown.map((w) => {
-            const id = workloadId(w);
-            return (
-              <Row
-                key={id}
-                w={w}
-                cursor={cursor === id}
-                selected={selected.has(id)}
-                showNamespace={groupBy !== 'namespace'}
-                onOpen={() => {
-                  setCursor(id);
-                  onOpen(w);
-                }}
-                onToggle={() => onToggle(id)}
-                onOpenWorkload={openWorkload?.(w)}
-              />
-            );
-          })}
-          {!collapsed.has(g.key) && g.workloads.length > limit && (
-            <button
-              className="rs-more"
-              onClick={() => toggleSet(expanded, g.key, setExpanded)}
-            >
-              {expanded.has(g.key)
-                ? 'Show fewer'
-                : `Show ${g.workloads.length - limit} more`}
-            </button>
-          )}
-        </div>
-      ))}
+      <div
+        ref={list}
+        className="rs-rows"
+        role="presentation"
+        style={{ height: virtualizer.getTotalSize() }}
+      >
+        {virtualizer.getVirtualItems().map((v) => (
+          <div
+            key={v.key}
+            ref={virtualizer.measureElement}
+            data-index={v.index}
+            className="rs-rows-item"
+            role="presentation"
+            style={{ transform: `translateY(${v.start - scrollMargin}px)` }}
+          >
+            {draw(items[v.index])}
+          </div>
+        ))}
+      </div>
     </div>
   );
-};
+});

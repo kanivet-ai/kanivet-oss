@@ -230,9 +230,12 @@ func (h *HelmHandler) watchHelmSecrets(ctx context.Context, cluster, topic strin
 		}
 
 		// First list to get the current ResourceVersion
-		// This ensures we only get NEW events, not replays of existing secrets
+		// This ensures we only get NEW events, not replays of existing secrets.
+		// One item is enough: the list's resourceVersion is the same, and the
+		// full list carried every revision of every release.
 		secrets, err := k8sClient.CoreV1().Secrets("").List(ctx, metav1.ListOptions{
 			LabelSelector: "owner=helm",
+			Limit:         1,
 		})
 		if err != nil {
 			log.Printf("[HelmHandler] Failed to list secrets for watch: %v", err)

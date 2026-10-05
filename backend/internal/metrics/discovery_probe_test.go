@@ -1,12 +1,15 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,25 +23,71 @@ import (
 )
 
 // forwardingClient stands in for a cluster whose port-forwards land on a local
-// HTTP server: CreatePortForward returns a PortForward whose LocalPort is the
-// test server's port, so the probe talks to the fake API exactly as it would
-// talk to a pod.
+// HTTP server: CreatePrivatePortForward returns a PortForward whose LocalPort
+// is the test server's port, so the probe talks to the fake API exactly as it
+// would talk to a pod. Like the real manager it knows which forwards are
+// running until they are stopped.
 type forwardingClient struct {
 	*k8s.MockClient
 	localPort int
+	mu        sync.Mutex
 	forwards  []string
 	stopped   []string
+	live      map[string]*k8s.PortForward
 }
 
-func (f *forwardingClient) CreatePortForward(cluster, namespace, podName string, remotePort int) (*k8s.PortForward, error) {
-	id := fmt.Sprintf("%s/%s:%d", namespace, podName, remotePort)
+func (f *forwardingClient) CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*k8s.PortForward, error) {
+	f.mu.Lock()
+	id := fmt.Sprintf("%s/%s:%d#%d", namespace, podName, remotePort, len(f.forwards)+1)
 	f.forwards = append(f.forwards, id)
-	return &k8s.PortForward{ID: id, Cluster: cluster, Namespace: namespace, PodName: podName, LocalPort: f.localPort, RemotePort: remotePort, Active: true}, nil
+	f.mu.Unlock()
+	pf := &k8s.PortForward{ID: id, Cluster: cluster, Namespace: namespace, PodName: podName, LocalPort: f.localPort, RemotePort: remotePort, Active: true}
+	f.register(pf)
+	return pf, nil
 }
 
 func (f *forwardingClient) StopPortForward(id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.stopped = append(f.stopped, id)
+	delete(f.live, id)
 	return nil
+}
+
+func (f *forwardingClient) GetPortForward(id string) (*k8s.PortForward, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	pf, ok := f.live[id]
+	return pf, ok
+}
+
+// register marks a forward as running, as the manager does once it is up.
+func (f *forwardingClient) register(pf *k8s.PortForward) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.live == nil {
+		f.live = map[string]*k8s.PortForward{}
+	}
+	f.live[pf.ID] = pf
+}
+
+// exit makes a forward die on its own, as when its pod restarts.
+func (f *forwardingClient) exit(id string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	delete(f.live, id)
+}
+
+func (f *forwardingClient) opened() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.forwards)
+}
+
+func (f *forwardingClient) closed() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.stopped)
 }
 
 func serverPort(t *testing.T, srv *httptest.Server) int {
@@ -97,8 +146,41 @@ func TestPrometheusDetectVerifiesAgainstTheAPI(t *testing.T) {
 	if info.Version != "2.53.1" || info.Flavor != "prometheus" || info.Port != 9090 {
 		t.Errorf("version/flavor/port = %q/%q/%d", info.Version, info.Flavor, info.Port)
 	}
-	if len(fc.forwards) != 1 || len(fc.stopped) != 1 {
-		t.Errorf("probe should open exactly one port-forward and close it: opened %v, stopped %v", fc.forwards, fc.stopped)
+	if len(fc.opened()) != 1 || len(fc.closed()) != 0 {
+		t.Errorf("probe should open exactly one port-forward and keep it: opened %v, stopped %v", fc.opened(), fc.closed())
+	}
+}
+
+// The first chart after detection used to look the pod up again and open a
+// second tunnel to it. It now runs over the probe's tunnel.
+func TestFirstChartReusesTheProbeTunnel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/api/v1/status/buildinfo" {
+			_, _ = w.Write([]byte(`{"status":"success","data":{"version":"2.53.1"}}`))
+			return
+		}
+		fmt.Fprintf(w, `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[%s,"42"]]}]}}`, r.URL.Query().Get("end"))
+	}))
+	defer srv.Close()
+	live := svc("monitoring", "prometheus-operated", nil, port("web", 9090, intstr.FromInt32(9090)))
+	clientset := fake.NewSimpleClientset(&live, readySlice("monitoring", "prometheus-operated", "prometheus-0"))
+	fc := &forwardingClient{MockClient: &k8s.MockClient{TypedClient: clientset}, localPort: serverPort(t, srv)}
+	p := &PrometheusProvider{k8s: fc, cache: cache.New(time.Minute, time.Minute)}
+
+	if _, err := p.Detect("test"); err != nil {
+		t.Fatal(err)
+	}
+	apiCalls := len(clientset.Actions())
+	chart, err := p.QueryMetrics(context.Background(), "test", MetricQuery{Namespace: "apps", PodName: "web-0", MetricType: "cpu", TimeRange: "15m"})
+	if err != nil || chart.Values[len(chart.Values)-1] != 42 {
+		t.Fatalf("chart=%+v err=%v", chart, err)
+	}
+	if n := len(clientset.Actions()) - apiCalls; n != 0 {
+		t.Errorf("first chart made %d more API calls to find the pod again", n)
+	}
+	if len(fc.opened()) != 1 || len(fc.closed()) != 0 {
+		t.Errorf("opened %v, stopped %v: want the probe's tunnel reused", fc.opened(), fc.closed())
 	}
 }
 

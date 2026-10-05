@@ -2,13 +2,23 @@ package rightsizing
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"math/rand/v2"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/gin-gonic/gin"
+	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/metrics"
 )
 
@@ -29,7 +39,7 @@ func oneQuery(l *limiter, o outcome) {
 }
 
 func TestLimiterHalvesOnOverloadAndTripsBreaker(t *testing.T) {
-	l, _ := testLimiter()
+	l, clock := testLimiter()
 	l.limit = 4
 	oneQuery(l, outcome{latency: time.Second, work: 24, overload: true})
 	if l.limit != 2 {
@@ -38,10 +48,82 @@ func TestLimiterHalvesOnOverloadAndTripsBreaker(t *testing.T) {
 	if l.state().PausedFor != 0 {
 		t.Fatal("one overload must not open the breaker")
 	}
+	// Each sent after the cut before it: a new congestion event every time.
+	clock.t = clock.t.Add(2 * time.Second)
 	oneQuery(l, outcome{latency: time.Second, work: 24, overload: true})
+	clock.t = clock.t.Add(2 * time.Second)
 	oneQuery(l, outcome{latency: time.Second, work: 24, overload: true})
 	if l.limit != 0.5 || l.state().PausedFor < breakerMin {
 		t.Fatalf("after three overloads: limit %v paused %v", l.limit, l.state().PausedFor)
+	}
+}
+
+// When every query in flight hits a full store at once, that is one
+// congestion event: one cut, as TCP halves once per window, and nothing
+// towards the breaker. Queries sent after the cut start a new event.
+func TestLimiterCutsOncePerCongestionEvent(t *testing.T) {
+	l, clock := testLimiter()
+	l.limit = 6
+	for range 6 {
+		_ = l.acquire(context.Background())
+	}
+	for range 6 {
+		l.release(outcome{latency: 50 * time.Millisecond, overload: true})
+	}
+	if st := l.state(); st.Limit != 3 || st.OverloadCuts != 1 || st.PausedFor != 0 {
+		t.Fatalf("one burst of 6 parallel 429s: limit 6 → %.2f after %d cuts, paused %v", st.Limit, st.OverloadCuts, st.PausedFor)
+	}
+	clock.t = clock.t.Add(time.Second)
+	oneQuery(l, outcome{latency: 50 * time.Millisecond, overload: true})
+	if l.limit != 1.5 {
+		t.Fatalf("limit %v after a second event, want 1.5", l.limit)
+	}
+}
+
+// A latency cut just before doesn't hide the first overload of a new event,
+// and an answer that belongs to an event already cut for still honours the
+// store's Retry-After.
+func TestLimiterOverloadRightAfterALatencyCut(t *testing.T) {
+	l, clock := testLimiter()
+	l.limit = 4
+	l.lastCut = clock.t
+	oneQuery(l, outcome{latency: time.Second, overload: true})
+	if l.limit != 2 {
+		t.Fatalf("limit %v: the overload was taken for part of the latency cut", l.limit)
+	}
+	oneQuery(l, outcome{latency: time.Second, overload: true, retryAfter: 30 * time.Second})
+	if st := l.state(); st.Limit != 2 || st.PausedFor != 30*time.Second {
+		t.Fatalf("same event: limit %v paused %v, want 2 and the store's 30s", st.Limit, st.PausedFor)
+	}
+}
+
+// After a pause the next query probes the store. A late answer to a query
+// sent before the pause belongs to the event that caused it, so it can't
+// fail the probe; the probe's own overload does.
+func TestLimiterLateAnswerDoesNotFailTheProbe(t *testing.T) {
+	l, clock := testLimiter()
+	l.limit = 6
+	for range 2 {
+		_ = l.acquire(context.Background())
+	}
+	// The store turns one query away at once and asks for a second's pause;
+	// the other is still on its way back.
+	l.release(outcome{latency: 50 * time.Millisecond, overload: true, retryAfter: time.Second})
+	clock.t = clock.t.Add(2 * time.Second)
+	probe := make(chan error, 1)
+	go func() { probe <- l.acquire(context.Background()) }()
+	waitQueued(t, l, 1)
+	l.release(outcome{latency: 3 * time.Second, overload: true})
+	if st := l.state(); st.OverloadCuts != 1 || st.PausedFor != 0 {
+		t.Fatalf("a late answer from before the pause: %d overload cuts, paused %v", st.OverloadCuts, st.PausedFor)
+	}
+	if err := <-probe; err != nil {
+		t.Fatal(err)
+	}
+	clock.t = clock.t.Add(100 * time.Millisecond)
+	l.release(outcome{latency: 100 * time.Millisecond, overload: true})
+	if p := l.state().PausedFor; p < breakerMin {
+		t.Fatalf("a failed probe must re-open the breaker: paused %v", p)
 	}
 }
 
@@ -80,6 +162,33 @@ func TestLimiterIdleCapacityIsNotGrowth(t *testing.T) {
 	}
 }
 
+// A query class without enough history to judge its latency is no evidence
+// that the store has room, above one query at a time or below it.
+func TestLimiterColdClassIsNoEvidenceForGrowth(t *testing.T) {
+	l, _ := testLimiter()
+	l.limit = 1 // one slot, so every answer had it fully used
+	for range baselineMinSamples - 1 {
+		oneQuery(l, outcome{latency: 100 * time.Millisecond, work: 24})
+	}
+	if l.limit != 1 {
+		t.Fatalf("limit grew to %v on a class with no history", l.limit)
+	}
+	oneQuery(l, outcome{latency: 100 * time.Millisecond, work: 24})
+	if l.limit <= 1 {
+		t.Fatalf("limit %v: a fast answer in a class with history should earn growth", l.limit)
+	}
+
+	l, clock := testLimiter()
+	l.limit = 0.5
+	for range baselineMinSamples - 1 {
+		oneQuery(l, outcome{latency: 100 * time.Millisecond, work: 24})
+		clock.t = clock.t.Add(time.Second) // past the pacing gap
+	}
+	if l.limit != 0.5 {
+		t.Fatalf("fractional limit climbed to %v on a class with no history", l.limit)
+	}
+}
+
 func TestLimiterCutsWhenLatencyShowsQueueing(t *testing.T) {
 	l, clock := testLimiter()
 	l.limit = 5
@@ -105,6 +214,34 @@ func TestLimiterComparesLatencyPerUnitOfWork(t *testing.T) {
 	oneQuery(l, outcome{latency: 2 * time.Second, work: 24})
 	if l.limit < before*queueDecrease*0.99 {
 		t.Fatalf("a short query should not read as queueing: %v → %v", before, l.limit)
+	}
+}
+
+// Below one query in flight, the pause after each query is measured in how
+// long answered queries take: a 429 that came back at once must not shrink it.
+func TestLimiterPacesByAnsweredLatency(t *testing.T) {
+	l, clock := testLimiter()
+	for range 10 {
+		oneQuery(l, outcome{latency: time.Second, work: 24}) // one at a time: no growth
+	}
+	oneQuery(l, outcome{latency: 20 * time.Millisecond, overload: true})
+	clock.t = clock.t.Add(time.Second)
+	oneQuery(l, outcome{latency: 20 * time.Millisecond, overload: true})
+	if l.limit != 0.5 {
+		t.Fatalf("limit %v, want 0.5", l.limit)
+	}
+	if gap := l.nextAllowed.Sub(clock.t); gap != time.Second {
+		t.Fatalf("pacing gap %v after a fast 429 at limit 0.5, want the 1s an answer takes", gap)
+	}
+}
+
+// Answers are compared only with others of about the same size: every
+// bucket spans a factor of two.
+func TestSizeBucketsSpanAFactorOfTwo(t *testing.T) {
+	for n := 1; n < 1_000_000; n = n*5/4 + 1 {
+		if d := sizeBucket(2*n) - sizeBucket(n); d != 1 {
+			t.Fatalf("%d and %d samples are %d buckets apart, want 1", n, 2*n, d)
+		}
 	}
 }
 
@@ -175,6 +312,85 @@ func TestInteractiveGoesFirst(t *testing.T) {
 	}
 }
 
+// A waiter whose context ends just as wake() hands it the free slot must pass
+// the slot on, or the next waiter sleeps with nothing in flight until some
+// other query returns, if any ever does.
+func TestLimiterCancelledWaiterPassesItsTurnOn(t *testing.T) {
+	l, _ := testLimiter()
+	l.limit = 1
+	_ = l.acquire(context.Background()) // the one slot is busy
+	ctx, cancel := context.WithCancel(context.Background())
+	gaveUp := make(chan error, 1)
+	go func() { gaveUp <- l.acquire(ctx) }()
+	waitQueued(t, l, 1)
+	next := make(chan error, 1)
+	go func() { next <- l.acquire(context.Background()) }()
+	waitQueued(t, l, 2)
+
+	// The first waiter's context ends while the slot is being freed: its
+	// select has taken ctx.Done and it waits for the lock while wake()
+	// picks it for the slot.
+	l.mu.Lock()
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+	l.inflight--
+	l.wake()
+	l.mu.Unlock()
+
+	if err := <-gaveUp; !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancelled waiter: %v", err)
+	}
+	select {
+	case err := <-next:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("the next waiter is stuck although the slot is free")
+	}
+}
+
+// A user told at once that the store is paused gives up the turn wake()
+// handed it, and the turn goes on to the report queued behind, which would
+// otherwise sit with the slot free until some other query returns.
+func TestLimiterBusyUserPassesItsTurnOn(t *testing.T) {
+	l, _ := testLimiter()
+	l.now = time.Now
+	l.limit, l.overloads = 1, breakerTrips-1
+	_ = l.acquire(context.Background()) // the one slot is busy
+	user := make(chan error, 1)
+	go func() { user <- l.acquire(interactive(context.Background())) }()
+	waitQueued(t, l, 1)
+	// The report can't wait out a breaker pause before its deadline, so once
+	// it has the turn it is told at once too.
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	report := make(chan error, 1)
+	go func() { report <- l.acquire(ctx) }()
+	waitQueued(t, l, 2)
+
+	l.release(outcome{latency: time.Second, overload: true}) // trips the breaker
+	if err := <-user; err != ErrStoreBusy {
+		t.Fatalf("user: %v, want ErrStoreBusy", err)
+	}
+	if err := <-report; err != ErrStoreBusy {
+		t.Fatalf("report: %v, want ErrStoreBusy: the user's turn never reached it", err)
+	}
+}
+
+func waitQueued(t *testing.T, l *limiter, n int) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
+		l.mu.Lock()
+		queued := len(l.waiting[priorityBackground]) + len(l.waiting[priorityInteractive])
+		l.mu.Unlock()
+		if queued >= n {
+			return
+		}
+	}
+	t.Fatalf("%d waiters never queued", n)
+}
+
 func TestBreakerFailsFastWhenTheCallerCannotWait(t *testing.T) {
 	l, _ := testLimiter()
 	l.pausedUntil = time.Now().Add(time.Minute)
@@ -183,6 +399,213 @@ func TestBreakerFailsFastWhenTheCallerCannotWait(t *testing.T) {
 	defer cancel()
 	if err := l.acquire(ctx); err != ErrStoreBusy {
 		t.Fatalf("err %v, want ErrStoreBusy", err)
+	}
+}
+
+// A user opening a workload's evidence is told the store is paused rather
+// than kept waiting a minute or two. Only the last seconds of a pause are
+// worth sitting out.
+func TestBreakerTellsAWaitingUserAtOnce(t *testing.T) {
+	l, _ := testLimiter()
+	l.now = time.Now
+	l.pausedUntil = time.Now().Add(time.Minute)
+	done := make(chan error, 1)
+	go func() { done <- l.acquire(interactive(context.Background())) }()
+	select {
+	case err := <-done:
+		if err != ErrStoreBusy {
+			t.Fatalf("err %v, want ErrStoreBusy", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("an interactive query is waiting out a minute's pause")
+	}
+
+	l, _ = testLimiter()
+	l.now = time.Now
+	l.pausedUntil = time.Now().Add(50 * time.Millisecond)
+	if err := l.acquire(interactive(context.Background())); err != nil {
+		t.Fatalf("a pause about to end: %v", err)
+	}
+}
+
+// While the breaker holds a cluster's queries back, the evidence drawer gets
+// a 503 at once saying why and when to ask again. A vcluster's queries go to
+// its host's store, so the host's pause is the one that counts.
+func TestEvidenceSaysWhenTheStoreIsPaused(t *testing.T) {
+	host := t.Name()
+	l := limiterFor(host)
+	defer limiters.Delete(host)
+	l.mu.Lock()
+	l.pausedUntil = time.Now().Add(time.Minute)
+	l.mu.Unlock()
+	s := NewService(&k8s.MockClient{}, &evidenceHistory{calls: map[string]int{}}, evidenceFixtures{}, evidenceFixtures{}, nil)
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	q := url.Values{"cluster": {k8s.VClusterIDPrefix + host + ":vc-apps:vc"}, "provider": {"mimir"}, "namespace": {"apps"}, "kind": {"Deployment"}, "name": {"api"}}
+	c.Request = httptest.NewRequest(http.MethodGet, "/rightsizing/workload?"+q.Encode(), nil)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		NewHandler(s).GetWorkload(c)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the evidence request is waiting out the pause")
+	}
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status %d %s, want 503", w.Code, w.Body.String())
+	}
+	secs, err := strconv.Atoi(w.Header().Get("Retry-After"))
+	if err != nil || secs < 55 || secs > 60 {
+		t.Fatalf("Retry-After %q, want the minute's pause", w.Header().Get("Retry-After"))
+	}
+	var body struct {
+		Error             string `json:"error"`
+		RetryAfterSeconds int    `json:"retryAfterSeconds"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.RetryAfterSeconds != secs || !strings.Contains(body.Error, fmt.Sprintf("Resuming in %ds", secs)) {
+		t.Fatalf("body %+v with Retry-After %d", body, secs)
+	}
+}
+
+// pausingHistory answers like evidenceHistory, but the breaker opens as the
+// store answers the first restarts query.
+type pausingHistory struct {
+	*evidenceHistory
+	l *limiter
+}
+
+func (h pausingHistory) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "kube_pod_container_status_restarts_total") {
+		h.l.mu.Lock()
+		h.l.pausedUntil = time.Now().Add(time.Minute)
+		h.l.mu.Unlock()
+	}
+	return h.evidenceHistory.QueryRange(ctx, cluster, query, start, end, step)
+}
+
+// When the breaker opens partway through, the restarts and OOM kills still
+// to load fail at once. Evidence without them would read as a workload that
+// never ran out of memory, so the drawer is told the store is busy instead.
+func TestEvidenceSaysWhenAPauseCutItShort(t *testing.T) {
+	cluster := t.Name()
+	defer limiters.Delete(cluster)
+	h := pausingHistory{&evidenceHistory{calls: map[string]int{}}, limiterFor(cluster)}
+	s := NewService(&k8s.MockClient{}, h, evidenceFixtures{}, evidenceFixtures{}, nil)
+	_, err := s.GetEvidence(context.Background(), WorkloadQuery{
+		Cluster: cluster, Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api",
+		Profile: ProfileBalanced, Window: defaultWindow,
+	})
+	if err != ErrStoreBusy {
+		t.Fatalf("err %v, want ErrStoreBusy", err)
+	}
+}
+
+// stuckStore never answers on its own: a query ends when its context does,
+// with the error net/http gives for that.
+type stuckStore struct{}
+
+func (stuckStore) QueryRange(ctx context.Context, _, _ string, _, _ time.Time, _ time.Duration) ([]metrics.HistorySeries, error) {
+	<-ctx.Done()
+	return nil, &url.Error{Op: "Get", URL: "http://mimir/api/v1/query_range", Err: ctx.Err()}
+}
+
+func (s stuckStore) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error) {
+	return s.QueryRange(ctx, cluster, query, at, at, time.Minute)
+}
+
+// erringStore answers every query at once with err.
+type erringStore struct{ err error }
+
+func (s erringStore) QueryRange(context.Context, string, string, time.Time, time.Time, time.Duration) ([]metrics.HistorySeries, error) {
+	return nil, s.err
+}
+
+func (s erringStore) QueryInstant(ctx context.Context, cluster, query string, at time.Time) ([]metrics.HistorySeries, error) {
+	return s.QueryRange(ctx, cluster, query, at, at, time.Minute)
+}
+
+func controlledBy(q historyQuerier, l *limiter) *controlled {
+	return &controlled{q: q, sent: new(int64), mu: &sync.Mutex{}, lim: func(string) *limiter { return l }, rand: func() float64 { return 0 }}
+}
+
+// When a report runs out of time, the queries it has in flight fail with its
+// own deadline, which says nothing about the store: no cut, no pause. A
+// timeout of the HTTP client leaves the caller's context alone and still
+// counts as overload.
+func TestControlledOwnDeadlineIsNotOverload(t *testing.T) {
+	l, _ := testLimiter()
+	l.limit = 6
+	c := controlledBy(stuckStore{}, l)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := c.QueryRange(ctx, "c", "q", time.Time{}, time.Time{}.Add(time.Hour), time.Minute); !errors.Is(err, context.DeadlineExceeded) {
+				t.Errorf("err %v, want the report's deadline", err)
+			}
+		}()
+	}
+	wg.Wait()
+	if st := l.state(); st.Limit != 6 || st.OverloadCuts != 0 || st.PausedFor != 0 || st.InFlight != 0 {
+		t.Fatalf("own deadline: limit 6 → %.2f, %d overload cuts, paused %v, %d in flight", st.Limit, st.OverloadCuts, st.PausedFor, st.InFlight)
+	}
+
+	c.q = erringStore{&url.Error{Op: "Get", URL: "http://mimir/api/v1/query_range", Err: context.DeadlineExceeded}}
+	_, _ = c.QueryRange(context.Background(), "c", "q", time.Time{}, time.Time{}.Add(time.Hour), time.Minute)
+	if st := l.state(); st.OverloadCuts == 0 {
+		t.Fatal("an http.Client timeout must still count as overload")
+	}
+}
+
+// A query the store rejected, or one its caller gave up on, took as long as
+// it did for reasons other than load: neither may enter the latency
+// baseline, or every real answer after a fast failure reads as queueing.
+func TestControlledKeepsFailuresOutOfTheBaseline(t *testing.T) {
+	l, _ := testLimiter()
+	c := controlledBy(erringStore{&metrics.QueryError{Type: "bad_data", Message: "parse error"}}, l)
+	if _, err := c.QueryInstant(context.Background(), "c", "count(x)", time.Time{}); err == nil {
+		t.Fatal("want the store's error")
+	}
+	c.q = stuckStore{}
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(time.Millisecond, cancel)
+	if _, err := c.QueryInstant(ctx, "c", "count(x)", time.Time{}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("err %v, want context.Canceled", err)
+	}
+	if len(l.classes) != 0 || l.inflight != 0 {
+		t.Fatalf("failed queries reached the baseline: %d classes, %d in flight", len(l.classes), l.inflight)
+	}
+}
+
+// After a pause the next query is a probe that decides whether to resume,
+// whether or not anyone waited the pause out. A probe its caller gave up on
+// decided nothing, so the breaker stays half-open.
+func TestControlledCancelledProbeKeepsBreakerHalfOpen(t *testing.T) {
+	l, clock := testLimiter()
+	l.limit = 6
+	oneQuery(l, outcome{latency: 50 * time.Millisecond, overload: true, retryAfter: 30 * time.Second})
+	clock.t = clock.t.Add(31 * time.Second)
+	c := controlledBy(stuckStore{}, l)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(20*time.Millisecond, cancel)
+	if _, err := c.QueryRange(ctx, "c", "q", time.Time{}, time.Time{}.Add(time.Hour), time.Minute); !errors.Is(err, context.Canceled) {
+		t.Fatalf("probe: %v", err)
+	}
+	l.mu.Lock()
+	probing, slots := l.probing, l.slots()
+	l.mu.Unlock()
+	if !probing || slots != 1 {
+		t.Fatalf("a cancelled probe closed the breaker: probing=%v, %d slots open", probing, slots)
 	}
 }
 

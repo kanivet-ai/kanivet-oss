@@ -1,18 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { notifyWelcome } from '../services/islandNotifications';
 import TreeSidebar from './TreeSidebar';
 import CenterPaneSplitContainer from './CenterPaneSplitContainer';
 import DetailView from './DetailView';
 import TabBar from './TabBar';
-import CommandPalette from './CommandPalette';
 import BottomDock from './BottomDock';
-import { ThemeSettings } from './ThemeSettings';
-import { ComponentLibrary } from './ComponentLibrary';
 import ToastContainer from './ToastContainer';
-import FeatureTour from './onboarding/FeatureTour';
 import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
+import type { StoreState } from '../store/types';
+import { forgetTreeLoad } from '../store/resourceSlice';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
@@ -24,7 +22,38 @@ import {
   createTabSwitchHandlers,
   createFocusNavigationHandlers,
 } from '../utils/keyboardShortcuts';
+import { lazyView, prefetchLazyViewsWhenIdle } from '../utils/lazyView';
+import { ViewErrorBoundary } from './common/ViewErrorBoundary';
 import './Layout.css';
+
+// Not on the first screen: split out, then warmed once the layout has painted.
+const CommandPalette = lazyView(() => import('./CommandPalette'));
+const FeatureTour = lazyView(() => import('./onboarding/FeatureTour'));
+const ThemeSettings = lazyView(() =>
+  import('./ThemeSettings').then((m) => ({ default: m.ThemeSettings })),
+);
+const ComponentLibrary = lazyView(() =>
+  import('./ComponentLibrary').then((m) => ({ default: m.ComponentLibrary })),
+);
+
+// What the center panes and the detail pane show. A pane that failed to
+// render tries again once the user moves to another tab or selection.
+const centerView = (s: StoreState) => {
+  const t = s.getCurrentTabState();
+  return [s.currentTab, t?.activeResourceListTab, ...Object.values(t?.activeResourceListTabByPane || {}), t?.selectedNode?.id].join('|');
+};
+const detailView = (s: StoreState) => {
+  const t = s.getCurrentTabState();
+  const item = t?.selectedItem;
+  return [t?.activeDetailTab, item?.kind, item?.metadata?.namespace ?? item?.namespace, item?.metadata?.name ?? item?.name].join('|');
+};
+
+// Subscribes on its own, so a new selection re-renders only the boundary,
+// not the layout and every pane under it.
+const PaneBoundary = ({ view, children }: { view: (s: StoreState) => string; children: ReactNode }) => {
+  const resetKey = useStore(view);
+  return <ViewErrorBoundary resetKey={resetKey}>{children}</ViewErrorBoundary>;
+};
 
 const Layout = () => {
   const {
@@ -105,6 +134,10 @@ const Layout = () => {
   useCloudAuthSync();
 
   useEffect(() => {
+    prefetchLazyViewsWhenIdle();
+  }, []);
+
+  useEffect(() => {
     loadClusters().then(() => notifyWelcome(useStore.getState().clusters.length)).catch(() => {});
     loadClusterAliases();
     hydrateFromStorage();
@@ -180,7 +213,6 @@ const Layout = () => {
       const resource = JSON.parse(resourceJson);
       const {
         updateCurrentTabState,
-        loadTreeData,
         selectNode,
         loadListItems,
         selectItem,
@@ -192,8 +224,10 @@ const Layout = () => {
         selectedNamespace: ns,
         selectedNamespaces: parsedMulti,
       });
-      // Ensure categories/tree are present; then select and load items
-      loadTreeData(currentTab).then(async () => {
+      // The list needs neither the categories nor the tree, so it starts now
+      // instead of a round trip later; the tree (requested by hydrate and the
+      // sidebar) loads alongside.
+      (async () => {
         selectNode({ id: '', label: '', type: 'resource', data: resource });
         await loadListItems(currentTab, resource);
         startRealtime();
@@ -217,7 +251,7 @@ const Layout = () => {
             }
           }
         }
-      });
+      })();
     } catch {}
   }, [currentTab]);
 
@@ -396,6 +430,8 @@ const Layout = () => {
         await loadClusterStatus(cluster, true);
         healthy = Boolean(useStore.getState().clusterStatuses[cluster]?.healthy);
         if (healthy) {
+          // Not the load still hanging on the client the refresh replaced.
+          forgetTreeLoad(cluster);
           await loadTreeData(cluster);
           const state = getCurrentTabState();
           if (state?.selectedNode?.type === 'resource' && state.selectedNode.data) {
@@ -582,10 +618,16 @@ const Layout = () => {
                 >
                   {/* Keyed by cluster: pane ids differ between clusters, so each one
                       gets its own layout instead of inheriting the previous tab's. */}
-                  <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
+                  <PaneBoundary view={centerView}>
+                    <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
+                  </PaneBoundary>
                   <BottomDock />
                 </div>
-                {(hasDetailData || hasDetailTabs) && <DetailView />}
+                {(hasDetailData || hasDetailTabs) && (
+                  <PaneBoundary view={detailView}>
+                    <DetailView />
+                  </PaneBoundary>
+                )}
               </div>
             )}
             {hasClusterError && currentTab && <ClusterErrorBanner />}

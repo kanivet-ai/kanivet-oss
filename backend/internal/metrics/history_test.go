@@ -1,7 +1,9 @@
 package metrics
 
 import (
+	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -68,7 +70,7 @@ func TestParsePromStreamFiltersAndSkipsUnknownFields(t *testing.T) {
 		{"values":[[1,"+Inf"],[2,"3"]],"metric":{"pod":"live"},"extra":{"k":[1]}}
 	]},"infos":[]}`
 	keep := func(l map[string]string) bool { return l["pod"] == "live" }
-	got, err := parsePromStream(strings.NewReader(body), keep, 2)
+	got, _, err := parsePromStream(strings.NewReader(body), keep, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,7 +82,48 @@ func TestParsePromStreamFiltersAndSkipsUnknownFields(t *testing.T) {
 
 func TestParsePromStreamRejectsTruncatedBody(t *testing.T) {
 	body := `{"status":"success","data":{"resultType":"matrix","result":[{"metric":{},"values":[[1,"1"],[2,`
-	if _, err := parsePromStream(strings.NewReader(body), nil, 1); err == nil {
+	if _, _, err := parsePromStream(strings.NewReader(body), nil, 1); err == nil {
 		t.Fatal("a truncated response parsed")
+	}
+}
+
+// Thanos and a VictoriaMetrics cluster answer with what they could reach when
+// a store behind them is down, and say so; the caller must hear it.
+func TestParsePromStreamReportsPartialAnswers(t *testing.T) {
+	const data = `"data":{"resultType":"matrix","result":[{"metric":{"pod":"a"},"values":[[1,"1"]]}]}`
+	for _, c := range []struct {
+		extra   string
+		partial bool
+	}{
+		{``, false},
+		{`"warnings":["store gateway unavailable"],`, true},
+		{`"warnings":[],`, false},
+		{`"isPartial":true,`, true},
+		{`"isPartial":false,`, false},
+		{`"infos":["PromQL info: metric might not be a counter"],`, false},
+	} {
+		body := `{"status":"success",` + c.extra + data + `}`
+		got, partial, err := parsePromStream(strings.NewReader(body), nil, 1)
+		if err != nil || len(got) != 1 || partial != c.partial {
+			t.Errorf("%s: series=%d partial=%t err=%v, want partial=%t", body, len(got), partial, err, c.partial)
+		}
+	}
+}
+
+// QueryRange hands the partial flag to the caller that asked for it.
+func TestQueryRangeMarksPartialAnswers(t *testing.T) {
+	for body, want := range map[string]bool{
+		`{"status":"success","data":{"resultType":"matrix","result":[]}}`:                  false,
+		`{"status":"success","isPartial":true,"data":{"resultType":"matrix","result":[]}}`: true,
+	} {
+		s := &Service{providers: map[string]Provider{"prometheus": &historyTestProvider{info: ProviderInfo{Type: "prometheus", Found: true}, body: body}}}
+		var partial atomic.Bool
+		ctx := WithPartialFlag(context.Background(), &partial)
+		if _, err := s.QueryRange(ctx, "c", "up", time.Unix(0, 0), time.Unix(60, 0), time.Minute); err != nil {
+			t.Fatal(err)
+		}
+		if partial.Load() != want {
+			t.Errorf("%s: partial=%t", body, partial.Load())
+		}
 	}
 }

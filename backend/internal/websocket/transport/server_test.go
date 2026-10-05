@@ -69,8 +69,12 @@ func TestServerConfigDefaults(t *testing.T) {
 	if config.CheckOrigin == nil {
 		t.Error("CheckOrigin should have default function")
 	}
-	if !config.EnableCompression {
-		t.Error("Compression should be enabled by default")
+	// The server only listens on loopback, where deflating frames is pure cost.
+	if config.EnableCompression {
+		t.Error("Compression should be disabled by default")
+	}
+	if core.DefaultHubConfig().EnableCompression {
+		t.Error("Hub connections should not compress by default")
 	}
 	for _, origin := range []string{"", "file://", "null", "http://localhost:5173"} {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)

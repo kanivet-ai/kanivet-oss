@@ -5,7 +5,72 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/kanivet/backend/internal/cache"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 )
+
+// A watch event evicts the API's cached detail for its object (keyed on the
+// resolved resource name, as the API keys it), but leaves the category counts
+// alone unless the object came or went, and the cluster status alone unless a
+// node or namespace did.
+func TestResourceEventInvalidatesOnlyWhatItChanges(t *testing.T) {
+	bus := cache.NewInvalidationBus()
+	c := cache.NewCacheWithInvalidation(time.Minute, 0, bus)
+	detail := c.BuildKey("detail", "c", "apps", "v1", "deployments", "ns", "d1")
+	counts := c.BuildKey("resources", "c", "workloads")
+	status := c.BuildKey("status", "c")
+
+	s := newListSyncService(&captureBroadcaster{sortBy: "age", sortOrder: "desc"})
+	s.invalidationBus = bus
+	flushed := make(chan struct{}, 8)
+	s.invalThrottler = newInvalidationThrottler(5*time.Millisecond, func(patterns []string) {
+		for _, p := range patterns {
+			bus.InvalidatePattern(p)
+		}
+		flushed <- struct{}{}
+	})
+	emit := func(topic string, gvr schema.GroupVersionResource, action, name string) {
+		t.Helper()
+		s.emitResourceEvent(topic, gvr, action, map[string]interface{}{"name": name, "namespace": "ns"}, true)
+		select {
+		case <-flushed:
+		case <-time.After(time.Second):
+			t.Fatal("invalidations were never flushed")
+		}
+	}
+	reset := func() {
+		for _, k := range []string{detail, counts, status} {
+			c.Set(k, "cached", time.Minute)
+		}
+	}
+	cached := func(k string) bool { _, ok := c.Get(k); return ok }
+	deployments := schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}
+
+	reset()
+	emit("items:c:apps:v1:deployments:", deployments, "modified", "d1")
+	if cached(detail) {
+		t.Error("modified event left the object's cached detail in place")
+	}
+	if !cached(counts) || !cached(status) {
+		t.Error("modified event dropped the category counts or the cluster status")
+	}
+
+	reset()
+	emit("items:c:apps:v1:deployments:", deployments, "added", "d2")
+	if cached(counts) {
+		t.Error("added event left stale category counts")
+	}
+	if !cached(status) || !cached(detail) {
+		t.Error("adding a deployment dropped the cluster status or another object's detail")
+	}
+
+	reset()
+	emit("items:c::v1:nodes:", schema.GroupVersionResource{Version: "v1", Resource: "nodes"}, "deleted", "n1")
+	if cached(status) {
+		t.Error("deleting a node left the cluster status (and its node count) cached")
+	}
+}
 
 func TestInvalidationThrottlerDedupesAndFlushes(t *testing.T) {
 	var mu sync.Mutex

@@ -1,4 +1,11 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
   Cross2Icon,
@@ -11,13 +18,6 @@ import {
 import CrossplaneIcon from './icons/CrossplaneIcon';
 import ResourceTable from './ResourceTable';
 import ClusterDashboard from './ClusterDashboard';
-import ClusterSettings from './ClusterSettings';
-import ArgoApplicationsPage from './ArgoApplicationsPage';
-import HelmPage from './HelmPage';
-import NatsPage from './NatsPage';
-import FinOpsDashboard from './finops/FinOpsDashboard';
-import RightsizingDashboard from './rightsizing/RightsizingDashboard';
-import IncidentTimelinePage from './incidents/IncidentTimelinePage';
 import ResourceControlsBar from './common/ResourceControlsBar';
 import ResourceListDialogs from './ResourceListDialogs';
 import { BottomTabContent, DetailTabContent } from './ResourceListTabContent';
@@ -33,10 +33,28 @@ import { printerColumnsFromItems } from '../utils/resourceListColumns';
 import { createNavigationHandlers } from '../utils/keyboardShortcuts';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
+import { lazyView } from '../utils/lazyView';
 import './ResourceList.css';
+
+// Full pages other than the cluster overview load on demand (warmed when idle).
+const ClusterSettings = lazyView(() => import('./ClusterSettings'));
+const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
+const HelmPage = lazyView(() => import('./HelmPage'));
+const NatsPage = lazyView(() => import('./NatsPage'));
+const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
+const RightsizingDashboard = lazyView(
+  () => import('./rightsizing/RightsizingDashboard'),
+);
+const IncidentTimelinePage = lazyView(
+  () => import('./incidents/IncidentTimelinePage'),
+);
 
 // Resource-list tabs that show a full page rather than a resource table.
 const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview', 'NatsMonitoring']);
+
+// Scroll offset of each list, by cluster and tree node. Kept out of the store:
+// the table reports it on every scroll frame and only a remount reads it.
+const scrollPositions = new Map<string, number>();
 
 interface ResourceListProps {
   paneId?: string;
@@ -298,6 +316,17 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     }
   };
 
+  // The rows get one function for the life of the list, so a list render does
+  // not re-render every row; it always calls the latest handleItemOpen.
+  const handleItemOpenRef = useRef<
+    (item: any, isPinned?: boolean) => Promise<void>
+  >(async () => {});
+  const onItemOpen = useCallback(
+    (item: any, isPinned?: boolean) =>
+      handleItemOpenRef.current(item, isPinned),
+    [],
+  );
+
   const handleItemOpen = async (item: any, isPinned: boolean = false) => {
     const resource = activeTab?.resource || selectedNode?.data;
     if (resource && currentTab) {
@@ -354,6 +383,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       }
     }
   };
+  handleItemOpenRef.current = handleItemOpen;
 
   useEffect(() => {
     const openScale = (e: any) => {
@@ -393,7 +423,13 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     }
   }, [selectedNode, currentTab, startRealtime]);
 
-  const filteredItems = useMemo(() => getFilteredItems(searchQuery), [getFilteredItems, searchQuery]);
+  // The search box updates on the keystroke; the list follows in a render
+  // React can interrupt when the next keystroke arrives.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const filteredItems = useMemo(
+    () => getFilteredItems(deferredSearchQuery),
+    [getFilteredItems, deferredSearchQuery],
+  );
   filteredItemsRef.current = filteredItems;
 
   useEffect(() => {
@@ -457,7 +493,13 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     lastSelectedKeyRef.current = null;
   }, [setSelectedResources]);
 
-  const navHandlers = createNavigationHandlers(focusArea, filteredItems, selectedItem, handleItemSelect);
+  const navHandlers = createNavigationHandlers(
+    focusArea,
+    filteredItems,
+    selectedItem,
+    handleItemSelect,
+    getResourceKey,
+  );
 
   useRegisteredKeyboard({
     ...Object.fromEntries(
@@ -525,34 +567,30 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     return getDefaultColumns(kind, isNamespaced, printerColumnsFromItems(listItems));
   }, [getDefaultColumns, selectedNode?.data?.namespaced, listItems]);
 
-  const resourceKindForColumns = activeTab?.resource?.kind || selectedNode?.data?.kind || listItems[0]?.kind || 'pods';
-  const displayColumns = useMemo(() => getColumnsForResourceKind(resourceKindForColumns), [resourceKindForColumns, getColumnsForResourceKind]);
+  const resourceKindForColumns =
+    activeTab?.resource?.kind ||
+    selectedNode?.data?.kind ||
+    listItems[0]?.kind ||
+    'pods';
+  // Columns are recomputed for every new list but rarely change; the same
+  // columns keep the same array, so rows do not re-render for them.
+  const columnSignature = useMemo(
+    () => getColumnsForResourceKind(resourceKindForColumns).join('\u0000'),
+    [resourceKindForColumns, getColumnsForResourceKind],
+  );
+  const displayColumns = useMemo(
+    () => columnSignature.split('\u0000'),
+    [columnSignature],
+  );
 
   const scrollPositionKey = `${currentTab}-${selectedNode?.id || 'none'}`;
-  const scrollPosition = tabState?.scrollPositions?.[scrollPositionKey];
-
-  // Persist scroll position outside React state to keep scroll on the
-  // main thread cheap (60Hz events would otherwise trigger setState storms).
-  // We commit to tab state at most once per animation frame.
-  const scrollRafRef = useRef<number | null>(null);
-  const latestScrollRef = useRef<number>(0);
-  const handleScrollChange = useCallback((position: number) => {
-    latestScrollRef.current = position;
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const current = useStore.getState().getCurrentTabState();
-      updateCurrentTabState({
-        scrollPositions: { ...(current?.scrollPositions || {}), [scrollPositionKey]: latestScrollRef.current },
-      });
-    });
-  }, [scrollPositionKey, updateCurrentTabState]);
-  useEffect(() => () => {
-    if (scrollRafRef.current !== null) {
-      cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = null;
-    }
-  }, []);
+  const scrollPosition = scrollPositions.get(scrollPositionKey);
+  const handleScrollChange = useCallback(
+    (position: number) => {
+      scrollPositions.set(scrollPositionKey, position);
+    },
+    [scrollPositionKey],
+  );
 
   const handleSort = useCallback((column: string) => {
     const columnKey = column.toLowerCase();
@@ -573,9 +611,13 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     [sortBy, sortOrder]
   );
 
+  const isDisconnected = useStore(
+    (s) =>
+      s.getOverallState() !== 'connected' ||
+      !!(currentTab && s.clusterErrors[currentTab]),
+  );
+
   const renderResourceList = () => {
-    const { getOverallState, clusterErrors } = useStore.getState();
-    const isDisconnected = getOverallState() !== 'connected' || (currentTab && clusterErrors[currentTab]);
     return (
       <div className={`resource-list-content ${isDisconnected ? 'disconnected' : ''}`} style={{ position: 'relative' }}>
         <DisconnectedOverlay cluster={currentTab || undefined} lastUpdate={tabState?.hasReceivedInitialListData ? Date.now() : undefined} />
@@ -617,7 +659,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
           selectedItem={selectedItem}
           selectedResources={selectedResources}
           displayColumns={displayColumns}
-          onItemOpen={handleItemOpen}
+          onItemOpen={onItemOpen}
           onCheckboxChange={handleCheckboxChange}
           onSelectAll={handleSelectAll}
           onSort={handleSort}

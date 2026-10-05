@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import './CommandPalette.css';
 import api from '../services/api';
+import { search as searchResources } from '../services/api/search';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import type { RecentResource, SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
+import { createLatestRequest } from '../utils/latestRequest';
 import {
   dedupeByIdentity,
   dedupeSearchResults,
@@ -79,6 +81,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // Only the latest search may fill the results, and "Searching..." shows
+  // while it is pending: a cancelled search clears it too.
+  const [searchRequest] = useState(() => createLatestRequest(setLoading));
   const resultsRef = useRef<HTMLDivElement>(null);
   // While the keyboard drives the selection, a row sliding under a resting
   // cursor must not steal it. Hover takes over again once the pointer moves.
@@ -112,6 +117,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         });
     } else {
       // Reset state when closed
+      if (searchTimeoutRef.current) {
+        clearTimeout(searchTimeoutRef.current);
+        searchTimeoutRef.current = null;
+      }
+      searchRequest.cancel();
       setQuery('');
       setResults([]);
       setSelectedIndex(0);
@@ -122,6 +132,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   }, [isOpen, currentTab]);
 
   const primeClusterSwitch = useCallback(async () => {
+    searchRequest.cancel();
     setClusterMode(true);
     setQuery('> switch cluster ');
     setShowRecent(false);
@@ -140,7 +151,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     } catch {
       // Ignore error - history is not critical
     }
-  }, []);
+  }, [searchRequest]);
 
   // Cluster switch mode: listen for hint event and prefill prompt
   useEffect(() => {
@@ -182,12 +193,13 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const performSearch = useCallback(
     async (searchQuery: string, overrideClusters?: string[]) => {
       if (!searchQuery.trim()) {
+        searchRequest.cancel();
         setResults([]);
         setShowRecent(true);
         return;
       }
 
-      setLoading(true);
+      const request = searchRequest.start();
       setShowRecent(false);
 
       try {
@@ -197,11 +209,16 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
             ? effectiveClusters
             : undefined;
         const searchResults = dedupeSearchResults(
-          await api.search(searchQuery, {
-            clusters: useClusters,
-            limit: 50,
-          }),
+          await searchResources(
+            searchQuery,
+            {
+              clusters: useClusters,
+              limit: 50,
+            },
+            request.signal,
+          ),
         );
+        if (!request.isCurrent()) return;
 
         // Prioritize current tab cluster when showing All clusters
         let ordered = searchResults;
@@ -216,13 +233,14 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         setResults(ordered);
         setSelectedIndex(0);
       } catch (error) {
+        if (!request.isCurrent()) return;
         logger.error('Search failed', error);
         setResults([]);
       } finally {
-        setLoading(false);
+        request.finish();
       }
     },
-    [currentTab, selectedClusters],
+    [currentTab, selectedClusters, searchRequest],
   );
 
   // Handle input change with debouncing
@@ -253,6 +271,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       setLoading(false);
       // Do not trigger backend search in command mode
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
       return;
     }
 
@@ -277,6 +296,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       setShowRecent(false);
       setLoading(false);
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
       return;
     }
 
@@ -292,6 +312,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         performSearch(value);
       }, 100);
     } else {
+      searchRequest.cancel();
       setResults([]);
       setShowRecent(true);
       setLoading(false);

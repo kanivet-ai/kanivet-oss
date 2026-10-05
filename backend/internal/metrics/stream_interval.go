@@ -13,10 +13,6 @@ func StreamInterval(timeRange string, requestedSeconds int) time.Duration {
 	if requestedSeconds <= 0 {
 		requestedSeconds = 2
 	}
-	interval := time.Duration(requestedSeconds) * time.Second
-	var p PrometheusProvider
-	if step, err := time.ParseDuration(p.calculateStep(p.parseTimeRange(timeRange))); err == nil && step > interval {
-		interval = step
-	}
+	interval := max(time.Duration(requestedSeconds)*time.Second, chartStep(chartRange(timeRange)))
 	return min(max(interval, minStreamInterval), maxStreamInterval)
 }

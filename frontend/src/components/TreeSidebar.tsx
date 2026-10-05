@@ -1,5 +1,12 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import TreeNode from './TreeNode';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
+import TreeNode, { TreeCursorContext, createTreeCursor } from './TreeNode';
 import { findTreeResourceNode } from '../utils/searchResults';
 import ScrollContainer from './ScrollContainer';
 import DebugPanel from './DebugPanel';
@@ -245,6 +252,13 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
   useEffect(() => {
     if (effectiveSelectedId) setFocusedNodeId(effectiveSelectedId);
   }, [effectiveSelectedId]);
+
+  // Nodes read the cursor and the selection themselves; only the rows whose
+  // highlight changes re-render.
+  const [cursor] = useState(createTreeCursor);
+  useLayoutEffect(() => {
+    cursor.set(focusedNodeId, effectiveSelectedId);
+  }, [cursor, focusedNodeId, effectiveSelectedId]);
 
   const handleNodeClick = useCallback(
     async (node: any, isPinned: boolean = false) => {
@@ -692,21 +706,20 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         className="tree-scroll-area"
         viewportClassName="tree-viewport"
       >
-        <div className="tree-content">
-          {clusterData.map((node: any, index: number) => (
-            <TreeNode
-              key={`${currentTab}-${node.id}`}
-              node={node}
-              level={0}
-              searchQuery={searchQuery}
-              focusedNodeId={focusedNodeId}
-              selectedNodeId={effectiveSelectedId}
-              onNodeClick={handleNodeClick}
-              isLast={index === clusterData.length - 1}
-              ancestorLabels={[]}
-            />
-          ))}
-        </div>
+        <TreeCursorContext.Provider value={cursor}>
+          <div className="tree-content">
+            {clusterData.map((node: any, index: number) => (
+              <TreeNode
+                key={`${currentTab}-${node.id}`}
+                node={node}
+                level={0}
+                searchQuery={searchQuery}
+                onNodeClick={handleNodeClick}
+                isLast={index === clusterData.length - 1}
+              />
+            ))}
+          </div>
+        </TreeCursorContext.Provider>
       </ScrollContainer>
       <DebugPanel
         treeData={clusterData}

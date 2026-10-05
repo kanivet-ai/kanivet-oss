@@ -731,6 +731,12 @@ func (idx *MemoryIndex) RUnlock() {
 	idx.mu.RUnlock()
 }
 
+// maxPrefixTokenLen is the longest Name/Kind word prefix prefixTokens indexes.
+const maxPrefixTokenLen = 6
+
+// maxKindDefResults caps how many kind definitions a search returns.
+const maxKindDefResults = 5
+
 // Search performs a search query with improved fuzzy matching
 func (idx *MemoryIndex) Search(query SearchQuery) ([]SearchResult, error) {
 	if query.Text == "" && len(query.Filters) == 0 {
@@ -740,10 +746,12 @@ func (idx *MemoryIndex) Search(query SearchQuery) ([]SearchResult, error) {
 	idx.mu.RLock()
 	d := idx.getData()
 
+	// Candidates stay compact until they are scored: materializing every
+	// document a broad query touched dominated its cost.
 	type candidateDoc struct {
-		id       uint32
-		resource SearchableResource
-		posting  float32
+		id      uint32
+		compact CompactResource
+		posting float32
 	}
 	var candidateDocs []candidateDoc
 
@@ -759,19 +767,35 @@ func (idx *MemoryIndex) Search(query SearchQuery) ([]SearchResult, error) {
 			if compact, ok := d.compactDocs[id]; ok {
 				if idx.matchesFiltersCompact(d, compact, query) {
 					seen[id] = true
-					candidateDocs = append(candidateDocs, candidateDoc{
-						id:       id,
-						resource: compact.ToSearchable(d.pools),
-						posting:  postingScore,
-					})
+					candidateDocs = append(candidateDocs, candidateDoc{id: id, compact: compact, posting: postingScore})
 				}
 			}
 		}
 
 		qTerms := uniqueStrings(append(append([]string{}, qForms...), tokenize(queryLower)...))
+		var unindexed []string
 		for _, qf := range qTerms {
 			if posting := d.invertedIdx.GetPostingList(qf); posting != nil {
 				posting.Iterate(func(id uint32, score float32) { addCandidate(id, score) })
+			} else if len(qf) > maxPrefixTokenLen {
+				unindexed = append(unindexed, qf)
+			}
+		}
+		// Name and Kind words are indexed by prefixes of at most six characters,
+		// so a longer partial word ("recommend") has no posting list of its own
+		// and used to send the query to the full scan below. Its six-character
+		// prefix list holds every document with a word starting that way; the
+		// ones containing the whole term are kept and score as the scan would
+		// have scored them, with no posting score. As for a query of six
+		// characters or fewer, documents holding the term only mid-word are
+		// then left out; the scan still runs when nothing else matched.
+		for _, qf := range unindexed {
+			if posting := d.invertedIdx.GetPostingList(qf[:maxPrefixTokenLen]); posting != nil {
+				posting.Iterate(func(id uint32, _ float32) {
+					if compact, ok := d.compactDocs[id]; ok && docContains(d.pools, compact, qf) {
+						addCandidate(id, 0)
+					}
+				})
 			}
 		}
 		if len(queryLower) > 2 {
@@ -802,79 +826,203 @@ func (idx *MemoryIndex) Search(query SearchQuery) ([]SearchResult, error) {
 			}
 		}
 		if len(candidateDocs) == 0 {
+			// Nothing in the term index matched: scan for mid-word substrings
+			// and fuzzy matches, keeping only documents that can score at all.
+			m := newScanMatcher(d.pools, qForms)
 			for docID, compact := range d.compactDocs {
-				if idx.matchesFiltersCompact(d, compact, query) {
-					candidateDocs = append(candidateDocs, candidateDoc{
-						id:       docID,
-						resource: compact.ToSearchable(d.pools),
-					})
+				if m.mayScore(compact) && idx.matchesFiltersCompact(d, compact, query) {
+					candidateDocs = append(candidateDocs, candidateDoc{id: docID, compact: compact})
 				}
 			}
 		}
 		idx.mu.RUnlock()
 
-		scores := make(map[uint32]float64, len(candidateDocs))
-		matches := make(map[uint32][]SearchMatch, len(candidateDocs))
+		// The fuzzy term costs a Levenshtein distance per field and query form,
+		// so it is computed last. The other terms are plain string comparisons
+		// and give each candidate a floor; adding the best fuzzy score its
+		// field lengths allow gives a ceiling.
+		type scoredDoc struct {
+			resource SearchableResource
+			posting  float32
+			boost    float64
+			// terms holds each query form's exact, prefix and substring scores
+			// and matches the matches they found.
+			terms          [2][3]float64
+			matches        [2][]SearchMatch
+			floor, ceiling float64
+		}
+		simMemo := map[[2]string]float64{}
+		memoSim := func(query, s string) float64 {
+			k := [2]string{query, s}
+			v, ok := simMemo[k]
+			if !ok {
+				v = fuzzySimilarity(query, strings.ToLower(s))
+				simMemo[k] = v
+			}
+			return v
+		}
+		var kindDefDocs, regularDocs []*scoredDoc
 		for _, cd := range candidateDocs {
-			base := float64(cd.posting)
-			var aggMatches []SearchMatch
-			for _, qf := range qForms {
-				s, m := idx.calculateExactScore(cd.resource, qf)
-				base += s
-				aggMatches = append(aggMatches, m...)
-				s, m = idx.calculatePrefixScore(cd.resource, qf)
-				base += s
-				aggMatches = append(aggMatches, m...)
-				s, m = idx.calculateSubstringScore(cd.resource, qf)
-				base += s
-				aggMatches = append(aggMatches, m...)
+			sd := &scoredDoc{resource: cd.compact.ToSearchable(d.pools), posting: cd.posting}
+			sd.boost = idx.getResourceBoost(sd.resource)
+			base, fuzzyCeiling := float64(cd.posting), 0.0
+			for i, qf := range qForms {
+				s0, m0 := idx.calculateExactScore(sd.resource, qf)
+				s1, m1 := idx.calculatePrefixScore(sd.resource, qf)
+				s2, m2 := idx.calculateSubstringScore(sd.resource, qf)
+				sd.terms[i] = [3]float64{s0, s1, s2}
+				sd.matches[i] = append(append(m0, m1...), m2...)
+				base += s0
+				base += s1
+				base += s2
 				if len(qf) > 2 {
-					s, m = idx.calculateFuzzyScore(cd.resource, qf)
-					base += s
-					aggMatches = append(aggMatches, m...)
+					fuzzyCeiling += fuzzyScoreCeiling(sd.resource, qf, memoSim)
 				}
 			}
-			if base > 0 {
-				boost := idx.getResourceBoost(cd.resource)
-				scores[cd.id] = base * boost
-				matches[cd.id] = idx.deduplicateMatches(aggMatches)
+			sd.floor = base * sd.boost
+			sd.ceiling = (base + fuzzyCeiling) * sd.boost
+			if sd.resource.Kind == "KindDefinition" {
+				kindDefDocs = append(kindDefDocs, sd)
+			} else {
+				regularDocs = append(regularDocs, sd)
 			}
 		}
 
-		var kindDefResults, regularResults []SearchResult
-		for _, cd := range candidateDocs {
-			if score := scores[cd.id]; score > 0 {
-				result := SearchResult{Resource: cd.resource, Score: score, Matches: matches[cd.id]}
-				if cd.resource.Kind == "KindDefinition" {
-					kindDefResults = append(kindDefResults, result)
-				} else {
-					regularResults = append(regularResults, result)
+		// Only the top maxKindDefResults kind definitions and, when a page is
+		// requested, the top offset+limit regular results can be returned. A
+		// candidate whose ceiling is below the floor of that many others can
+		// never make the cut, so its fuzzy term is not computed at all.
+		keepReachable := func(docs []*scoredDoc, k int) []*scoredDoc {
+			if k <= 0 || len(docs) <= k {
+				return docs
+			}
+			floors := make([]float64, len(docs))
+			for i, sd := range docs {
+				floors[i] = sd.floor
+			}
+			sort.Sort(sort.Reverse(sort.Float64Slice(floors)))
+			cut := floors[k-1]
+			kept := docs[:0]
+			for _, sd := range docs {
+				// The margin absorbs rounding differences between the ceiling's
+				// summation order and the final score's.
+				if sd.ceiling*(1+1e-9) >= cut {
+					kept = append(kept, sd)
 				}
 			}
+			return kept
 		}
-		sort.Slice(kindDefResults, func(i, j int) bool { return kindDefResults[i].Score > kindDefResults[j].Score })
-		sort.Slice(regularResults, func(i, j int) bool { return regularResults[i].Score > regularResults[j].Score })
-		if len(kindDefResults) > 5 {
-			kindDefResults = kindDefResults[:5]
+		pageEnd := 0
+		if query.Limit > 0 {
+			pageEnd = query.Offset + query.Limit
+		}
+		kindDefDocs = keepReachable(kindDefDocs, maxKindDefResults)
+		regularDocs = keepReachable(regularDocs, pageEnd)
+
+		finish := func(docs []*scoredDoc) []SearchResult {
+			out := make([]SearchResult, 0, len(docs))
+			for _, sd := range docs {
+				base := float64(sd.posting)
+				var aggMatches []SearchMatch
+				for i, qf := range qForms {
+					base += sd.terms[i][0]
+					base += sd.terms[i][1]
+					base += sd.terms[i][2]
+					aggMatches = append(aggMatches, sd.matches[i]...)
+					if len(qf) > 2 {
+						s, m := idx.calculateFuzzyScore(sd.resource, qf)
+						base += s
+						aggMatches = append(aggMatches, m...)
+					}
+				}
+				if base > 0 {
+					out = append(out, SearchResult{Resource: sd.resource, Score: base * sd.boost, Matches: idx.deduplicateMatches(aggMatches)})
+				}
+			}
+			sort.Slice(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+			return out
+		}
+		kindDefResults := finish(kindDefDocs)
+		regularResults := finish(regularDocs)
+		if len(kindDefResults) > maxKindDefResults {
+			kindDefResults = kindDefResults[:maxKindDefResults]
 		}
 		return paginate(append(kindDefResults, regularResults...), query.Offset, query.Limit), nil
 	}
 
 	for docID, compact := range d.compactDocs {
 		if idx.matchesFiltersCompact(d, compact, query) {
-			candidateDocs = append(candidateDocs, candidateDoc{
-				id:       docID,
-				resource: compact.ToSearchable(d.pools),
-			})
+			candidateDocs = append(candidateDocs, candidateDoc{id: docID, compact: compact})
 		}
 	}
 	idx.mu.RUnlock()
 
 	results := make([]SearchResult, 0, len(candidateDocs))
 	for _, cd := range candidateDocs {
-		results = append(results, SearchResult{Resource: cd.resource, Score: 1.0})
+		results = append(results, SearchResult{Resource: cd.compact.ToSearchable(d.pools), Score: 1.0})
 	}
 	return paginate(results, query.Offset, query.Limit), nil
+}
+
+// docContains reports whether a document's name, kind or namespace contains
+// term, which must be lowercase.
+func docContains(pools *InternPools, c CompactResource, term string) bool {
+	return strings.Contains(strings.ToLower(pools.Names.Get(c.Name)), term) ||
+		strings.Contains(strings.ToLower(pools.Kinds.Get(c.Kind)), term) ||
+		strings.Contains(strings.ToLower(pools.Namespaces.Get(c.Namespace)), term)
+}
+
+// scanMatcher decides, without materializing a document, whether it can score
+// above zero for any query form. A document keeps only its name, kind and
+// namespace as text, and every exact, prefix and substring match is contained
+// in one of them, so a document that contains no query form and is not within
+// fuzzy reach of one cannot score. Kinds and namespaces repeat across many
+// documents, so their verdicts are cached per interned ID.
+type scanMatcher struct {
+	pools      *InternPools
+	qForms     []string
+	kinds      map[uint32]bool
+	namespaces map[uint32]bool
+}
+
+func newScanMatcher(pools *InternPools, qForms []string) *scanMatcher {
+	return &scanMatcher{pools: pools, qForms: qForms, kinds: map[uint32]bool{}, namespaces: map[uint32]bool{}}
+}
+
+func (m *scanMatcher) mayScore(c CompactResource) bool {
+	return m.cachedMatch(m.kinds, m.pools.Kinds, c.Kind) ||
+		m.cachedMatch(m.namespaces, m.pools.Namespaces, c.Namespace) ||
+		m.fieldMatches(m.pools.Names.Get(c.Name))
+}
+
+func (m *scanMatcher) cachedMatch(verdicts map[uint32]bool, pool *StringInternPool, id uint32) bool {
+	v, ok := verdicts[id]
+	if !ok {
+		v = m.fieldMatches(pool.Get(id))
+		verdicts[id] = v
+	}
+	return v
+}
+
+func (m *scanMatcher) fieldMatches(s string) bool {
+	if s == "" {
+		return false
+	}
+	s = strings.ToLower(s)
+	for _, qf := range m.qForms {
+		// Prefix and substring scores need two characters, so a single one
+		// only matches exactly.
+		if len(qf) < 2 {
+			if s == qf {
+				return true
+			}
+			continue
+		}
+		if strings.Contains(s, qf) || (len(qf) > 2 && fuzzySimilarity(qf, s) > fuzzyMatchThreshold) {
+			return true
+		}
+	}
+	return false
 }
 
 func paginate(results []SearchResult, offset, limit int) []SearchResult {
@@ -2075,6 +2223,15 @@ func (idx *MemoryIndex) calculateSubstringScore(resource SearchableResource, que
 	return score, matches
 }
 
+// Fuzzy match weights per field, and the similarity a field must exceed to
+// count as a fuzzy match.
+const (
+	fuzzyNameWeight      = 20.0
+	fuzzyKindWeight      = 30.0
+	fuzzyNamespaceWeight = 10.0
+	fuzzyMatchThreshold  = 0.6
+)
+
 // calculateFuzzyScore gives low score for fuzzy matches
 func (idx *MemoryIndex) calculateFuzzyScore(resource SearchableResource, query string) (float64, []SearchMatch) {
 	var matches []SearchMatch
@@ -2085,26 +2242,64 @@ func (idx *MemoryIndex) calculateFuzzyScore(resource SearchableResource, query s
 	}
 
 	// Fuzzy name match
-	if similarity := fuzzySimilarity(query, strings.ToLower(resource.Name)); similarity > 0.6 {
+	if similarity := fuzzySimilarity(query, strings.ToLower(resource.Name)); similarity > fuzzyMatchThreshold {
 		matches = append(matches, SearchMatch{Field: "name", Value: resource.Name})
-		score += 20.0 * similarity
+		score += fuzzyNameWeight * similarity
 	}
 
 	// Fuzzy kind match (stronger)
-	if similarity := fuzzySimilarity(query, strings.ToLower(resource.Kind)); similarity > 0.6 {
+	if similarity := fuzzySimilarity(query, strings.ToLower(resource.Kind)); similarity > fuzzyMatchThreshold {
 		matches = append(matches, SearchMatch{Field: "kind", Value: resource.Kind})
-		score += 30.0 * similarity
+		score += fuzzyKindWeight * similarity
 	}
 
 	// Fuzzy namespace match
 	if len(resource.Namespace) > 0 {
-		if similarity := fuzzySimilarity(query, strings.ToLower(resource.Namespace)); similarity > 0.6 {
+		if similarity := fuzzySimilarity(query, strings.ToLower(resource.Namespace)); similarity > fuzzyMatchThreshold {
 			matches = append(matches, SearchMatch{Field: "namespace", Value: resource.Namespace})
-			score += 10.0 * similarity
+			score += fuzzyNamespaceWeight * similarity
 		}
 	}
 
 	return score, matches
+}
+
+// fuzzyScoreCeiling is the most calculateFuzzyScore can return for resource
+// and query. Names are judged from their length alone; kinds and namespaces
+// repeat across documents, so their similarity comes from sim, which the
+// caller memoizes.
+func fuzzyScoreCeiling(resource SearchableResource, query string, sim func(query, s string) float64) float64 {
+	if len(query) < 3 {
+		return 0
+	}
+	c := fuzzyNameWeight * similarityCeiling(query, strings.ToLower(resource.Name))
+	if s := sim(query, resource.Kind); s > fuzzyMatchThreshold {
+		c += fuzzyKindWeight * s
+	}
+	if len(resource.Namespace) > 0 {
+		if s := sim(query, resource.Namespace); s > fuzzyMatchThreshold {
+			c += fuzzyNamespaceWeight * s
+		}
+	}
+	return c
+}
+
+// similarityCeiling bounds fuzzySimilarity(s1, s2) from above: the edit
+// distance is at least the difference in length. It is zero when no edit
+// distance could clear fuzzyMatchThreshold.
+func similarityCeiling(s1, s2 string) float64 {
+	maxLen, diff := len(s1), len(s1)-len(s2)
+	if len(s2) > maxLen {
+		maxLen, diff = len(s2), len(s2)-len(s1)
+	}
+	if maxLen == 0 || diff > (2*maxLen-1)/5 {
+		return 0
+	}
+	c := 1.0 - float64(diff)/float64(maxLen)
+	if c <= fuzzyMatchThreshold {
+		return 0
+	}
+	return c
 }
 
 // getResourceBoost applies importance-based scoring boost

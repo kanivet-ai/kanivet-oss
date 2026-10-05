@@ -1,8 +1,12 @@
 import logger from '../../utils/logger';
-import { getWsBase, getApiBase } from './types';
+import { getWsBase, getApiBase, setBackendPort } from './types';
 
 type MessageHandler = (msg: any) => void;
 type ConnectionEventType = 'backend' | 'websocket' | 'cluster';
+
+// The backend sends a heartbeat every 10s; a socket silent for longer than
+// this is treated as dead.
+const HEARTBEAT_TIMEOUT_MS = 20_000;
 
 export class WebSocketManager {
   private ws?: WebSocket;
@@ -11,6 +15,8 @@ export class WebSocketManager {
   private wsConnecting: boolean = false;
   private sessionSecret: string | null = null;
   private backendReady: boolean = false;
+  // Set once waitForBackend has given up on the backend.
+  private backendWaitGaveUp: boolean = false;
   private activeClusters: Set<string> = new Set();
   private backendHealthInterval?: NodeJS.Timeout;
   private reconnectCountdownInterval?: NodeJS.Timeout;
@@ -20,10 +26,12 @@ export class WebSocketManager {
   private wasDisconnected: boolean = false;
   private lastBackendState: 'connected' | 'disconnected' = 'disconnected';
   private sessionSecretPromise: Promise<void>;
+  private backendPortPromise: Promise<void>;
   private lastHeartbeat: number = 0;
   private heartbeatCheckInterval?: NodeJS.Timeout;
 
   constructor() {
+    this.backendPortPromise = this.initBackendPort();
     this.sessionSecretPromise = this.initSessionSecret();
     this.setupConnectivityListeners();
     this.startBackendHealthCheck();
@@ -67,18 +75,54 @@ export class WebSocketManager {
     }
   }
 
+  // The window opens before the backend has picked its port, so the URL's is
+  // only a default: ask the main process for the real one (it answers once the
+  // backend has printed it, or startup has given up on one) rather than rely on
+  // a 'backend:port-changed' push sent before index.tsx subscribed. Browser
+  // mode has no main process to ask and keeps the URL's port.
+  private async initBackendPort() {
+    const getPort = (window as any).electronAPI?.backend?.getPort;
+    if (typeof getPort !== 'function') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const answer = getPort() as Promise<number>;
+      const port = await Promise.race([
+        answer,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), 30000);
+        }),
+      ]);
+      if (port) setBackendPort(port);
+      // Requests stop waiting after 30s, but a slow first start still
+      // answers later: take its port then.
+      else answer.then((p) => p && setBackendPort(p)).catch(() => {});
+    } catch {
+      // Keep the port from the URL.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   getSessionSecret(): string | null {
     return this.sessionSecret;
   }
 
+  // Every request waits for this: it needs the session secret, and the
+  // backend's real port (the theme loads before the backend is up).
   async waitForSessionSecret(): Promise<void> {
-    return this.sessionSecretPromise;
+    await Promise.all([this.sessionSecretPromise, this.backendPortPromise]);
   }
 
   private startBackendHealthCheck() {
     if (this.backendHealthInterval) clearInterval(this.backendHealthInterval);
     this.backendHealthInterval = setInterval(async () => {
-      if (!this.backendReady) return;
+      if (!this.backendReady) {
+        // waitForBackend gave up on a slow first start (the window opens
+        // before the backend): keep asking, so the session comes up with
+        // the backend instead of never connecting its socket.
+        if (this.backendWaitGaveUp) await this.recoverBackend();
+        return;
+      }
       if (this.ws?.readyState === WebSocket.OPEN) {
         if (this.lastBackendState !== 'connected') {
           this.lastBackendState = 'connected';
@@ -108,23 +152,19 @@ export class WebSocketManager {
   }
 
   private setupConnectivityListeners() {
-    let hiddenTimestamp = 0;
-    const STALE_THRESHOLD = 60 * 1000;
-
+    // Messages keep arriving while the window is hidden, so an open socket that
+    // kept its heartbeat has every subscription current: showing the window
+    // again needs no refresh. Only a dead or silent socket is replaced.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenTimestamp = Date.now();
-      } else if (document.visibilityState === 'visible') {
-        console.log('[WS] App became visible, checking connection...');
-        const wasHiddenFor = Date.now() - hiddenTimestamp;
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-          console.log('[WS] Connection lost while hidden, reconnecting...');
-          this.wasDisconnected = true;
-          this.reconnectWebSocket();
-        } else if (wasHiddenFor > STALE_THRESHOLD) {
-          console.log(`[WS] App was hidden for ${Math.round(wasHiddenFor / 1000)}s, refreshing subscriptions`);
-          window.dispatchEvent(new CustomEvent('connection:restored', { detail: { timestamp: Date.now(), reason: 'visibility' } }));
-        }
+      if (document.visibilityState !== 'visible') return;
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        console.log('[WS] Connection lost while hidden, reconnecting...');
+        this.wasDisconnected = true;
+        this.reconnectWebSocket();
+      } else if (Date.now() - this.lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+        console.log('[WS] No heartbeat while hidden, reconnecting...');
+        this.wasDisconnected = true;
+        this.reconnectWebSocket();
       }
     });
 
@@ -148,8 +188,10 @@ export class WebSocketManager {
     this.heartbeatCheckInterval = setInterval(() => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       const elapsed = Date.now() - this.lastHeartbeat;
-      if (elapsed > 20_000) {
-        console.log(`[WS] No heartbeat for ${Math.round(elapsed / 1000)}s, reconnecting...`);
+      if (elapsed > HEARTBEAT_TIMEOUT_MS) {
+        console.log(
+          `[WS] No heartbeat for ${Math.round(elapsed / 1000)}s, reconnecting...`,
+        );
         this.wasDisconnected = true;
         this.reconnectWebSocket();
       }
@@ -217,9 +259,12 @@ export class WebSocketManager {
   }
 
   async waitForBackend(maxWaitMs: number = 30000): Promise<boolean> {
+    this.dispatchConnectionEvent('backend', 'connecting');
+    // Polled at the backend's real port, and for as long as before the window
+    // opened ahead of the backend: the wait starts once the port is known.
+    await this.backendPortPromise;
     const startTime = Date.now();
     const checkInterval = 500;
-    this.dispatchConnectionEvent('backend', 'connecting');
 
     while (Date.now() - startTime < maxWaitMs) {
       try {
@@ -229,11 +274,7 @@ export class WebSocketManager {
         });
         if (response.ok) {
           console.log('[API] Backend is ready');
-          await this.sessionSecretPromise;
-          this.backendReady = true;
-          this.lastBackendState = 'connected';
-          this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
-          this.initWebSocket();
+          await this.markBackendReady();
           return true;
         }
       } catch {
@@ -242,7 +283,28 @@ export class WebSocketManager {
     }
     console.warn('[API] Backend did not become ready within timeout');
     this.dispatchConnectionEvent('backend', 'disconnected');
+    this.backendWaitGaveUp = true;
     return false;
+  }
+
+  private async markBackendReady() {
+    await this.sessionSecretPromise;
+    if (this.backendReady) return;
+    this.backendReady = true;
+    this.lastBackendState = 'connected';
+    this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
+    this.initWebSocket();
+  }
+
+  private async recoverBackend() {
+    try {
+      const response = await fetch(`${getApiBase()}/health`, { method: 'GET', signal: AbortSignal.timeout(2000) });
+      if (!response.ok) return;
+      console.log('[API] Backend is ready after a slow start');
+      await this.markBackendReady();
+    } catch {
+      // Still starting.
+    }
   }
 
   isReady(): boolean {
@@ -497,7 +559,13 @@ export class WebSocketManager {
     }
   }
 
-  private parseItemsTopic(topic: string): { cluster: string; group: string; version: string; kind: string; namespace: string } | null {
+  private parseItemsTopic(topic: string): {
+    cluster: string;
+    group: string;
+    version: string;
+    kind: string;
+    namespace: string;
+  } | null {
     const prefix = 'items:';
     if (!topic.startsWith(prefix)) return null;
     const remainder = topic.slice(prefix.length);

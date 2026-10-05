@@ -21,6 +21,8 @@ type PTYTerminal struct {
 	mu     sync.Mutex
 	closed bool
 	reader *bufio.Reader
+	// readBuf is reused by Read, which has a single caller.
+	readBuf []byte
 }
 
 // NewPTYTerminal creates a new PTY-based terminal
@@ -98,14 +100,18 @@ func (t *PTYTerminal) Read() ([]byte, error) {
 	}
 	t.mu.Unlock()
 
-	// Read up to 4KB at a time
-	buf := make([]byte, 4096)
-	n, err := t.pty.Read(buf)
+	// Read up to 32KB at a time into a buffer kept across reads, and return a
+	// copy of what arrived: an echoed keystroke should not cost a 32KB
+	// allocation. Only the output streamer reads, from one goroutine.
+	if t.readBuf == nil {
+		t.readBuf = make([]byte, 32*1024)
+	}
+	n, err := t.pty.Read(t.readBuf)
 	if err != nil {
 		return nil, err
 	}
 
-	return buf[:n], nil
+	return append([]byte(nil), t.readBuf[:n]...), nil
 }
 
 // Close terminates the terminal
