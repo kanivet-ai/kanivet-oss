@@ -20,17 +20,51 @@ import (
 // point at the same Mimir and none of them coordinate, so each client behaves
 // like a TCP sender: it probes for capacity slowly, backs off quickly at the
 // first sign of congestion, and stops entirely when the store is in trouble.
-// Independent clients following additive-increase / multiplicative-decrease
-// converge to a fair share of capacity without talking to each other.
+// Independent clients following the same rule converge to a fair share of
+// capacity without talking to each other.
 //
-//   - Concurrency: a per-cluster limit that grows by 1/limit per fast response
-//     and shrinks ×0.7 when latency climbs well above the best seen (queueing),
-//     ×0.5 on an overload answer (429, 5xx, timeout, cut-off response). Like
-//     TCP, it cuts once per round trip: the answers to queries already in
-//     flight at a cut are the same congestion event, not new ones.
+//   - Concurrency: a per-cluster limit set the way Netflix's Gradient2 and FAST
+//     TCP set theirs. The gradient is a query class's uncongested latency over
+//     its latency now (at most 1, at least ½); each answer moves the limit a
+//     fifth of the way per round trip towards limit − inUse×(1 − gradient) +
+//     queueSize. At rest a client keeps queueSize of its own queries waiting
+//     at the store (Little's law): 0.3 of a query up to three slots, growing
+//     as √limit above, as Gradient2's does, so a lone user keeps the store
+//     busy. The queue is counted in queries, not as a latency ratio that a
+//     slow port-forward dilutes, so users with different round trips or
+//     query sizes hold the same share of the store; n users keep about 0.3n
+//     queries queued between them. A paced user keeps the same queue as one
+//     holding slots: its own query always finds theirs at the store, theirs
+//     find its only now and then, so it reads more queueing than they do,
+//     and a smaller queue would leave it the smaller share.
+//   - Overload (429, 5xx, timeout, cut-off response) halves the limit, once
+//     per congestion event: the answers to queries already in flight at a cut
+//     are the same event, not new ones.
 //   - Latency is compared per thousand samples returned, within a query shape,
 //     so a big namespace and a small one, or a 4-day batch and today's few
 //     hours, are judged on the same scale.
+//   - Baseline: a busy store's uncongested latency can't be read off its
+//     answers, and a long average or recent minimum of them creeps up with
+//     the congestion it should measure (TCP Vegas's persistent-congestion
+//     problem): latecomers take the queue for the baseline, and everyone
+//     climbs to the ceiling. So every client steps back at the same moments,
+//     as BBR's ProbeRTT does: for the first eight seconds of each minute by
+//     the wall clock, a lull, it gives up half the queries it has in flight,
+//     at most one. With every Kanivet on NTP time the store drains, and the
+//     answers to queries sent from two seconds into the lull measure its
+//     uncongested latency. The answers to the first and second half of that
+//     span are averaged apart, each over its last 32, however many lulls
+//     that takes, so a slow class that gets two a lull is as sure of its
+//     baseline as a fast one, only later; a class's first answers seed it
+//     until a lull measures it. The baseline is the two halves pooled, but
+//     when they disagree by more than their noise explains, the store didn't
+//     stay drained: a Kanivet whose clock is off came back while this one
+//     was still measuring, or load that never steps back, a dashboard,
+//     refilled it. The lower half is then the baseline. Limits hold still
+//     through a lull.
+//   - Below one query in flight the limit paces: one query, then a pause, so
+//     many users on a small store can together send less than one at a time
+//     each.
 //   - Retries: exponential backoff with full jitter, the store's Retry-After
 //     when it gives one, and a budget of about one retry per ten requests so a
 //     struggling store never sees a retry storm.
@@ -48,28 +82,52 @@ const (
 	limitMin     = 0.1
 	limitMax     = 6.0
 	limitInitial = 2.0
-	// fractionalStep is the additive increase below one query in flight.
-	fractionalStep = 0.1
 
-	// Latency well above the best seen means the store is queueing.
-	queueRatio    = 2.0
-	healthyRatio  = 1.5
-	queueDecrease = 0.7
-	errorDecrease = 0.5
-	// baselineWindow is how many recent responses the baseline latency is the
-	// minimum of, per query shape and answer size. A recent minimum, not an
-	// all-time best, keeps clients that started at different times on the
-	// same baseline, so they react to congestion alike (the latecomer problem
-	// of delay-based control). Grouping by answer size matters most: latency
-	// is a fixed overhead plus a cost per sample, so without it a big
-	// namespace reads as congestion next to a small one. A median or quartile
-	// baseline was tried and lost the early warning when clients were
-	// congested from their first query.
-	baselineWindow = 50
+	// smoothing is how far towards its target the limit moves per round trip
+	// (Gradient2's smoothing, FAST's γ). A round trip is limit answers, or
+	// one answer and its pause below one, so a paced user climbs back as fast
+	// per second as a busy one.
+	smoothing = 0.2
+	// gradientMin keeps one slow answer from more than halving the target.
+	gradientMin = 0.5
+	// queueAlpha is the queue a client keeps at the store, in queries, up to
+	// queueKnee slots, and above the knee it grows as √(limit/queueKnee). A
+	// constant pulls users towards equal shares hardest (the additive part
+	// of Chiu and Jain's argument); a little more for a big limit keeps a
+	// lone user's report from idling cores. Users together keep about
+	// queueAlpha each queued: more makes every query wait, and less makes a
+	// share swing with every percent of baseline error, since the queue a
+	// client reads is the small gap between two latencies.
+	queueAlpha = 0.3
+	queueKnee  = 3.0
+	shortEWMA  = 1.0 / 8 // Jacobson's SRTT gain
 	// baselineMinSamples is how many responses a class needs before its
-	// latency is trusted, as a sign of congestion or of room to grow.
+	// latency is trusted, as a sign of congestion or of room to grow. Its
+	// first answers seed the baseline until a lull measures it.
 	baselineMinSamples = 8
-	recentEWMA         = 0.3
+	// baselineSamples is how many lull answers each half of the baseline
+	// averages: a count, not a time, so a class answered twice a lull
+	// averages as many as one answered fifty times, over more lulls.
+	baselineSamples = 32
+	// splitZ is how many standard errors apart the two halves of the lulls'
+	// answers may be before the higher half is taken for a store that didn't
+	// drain.
+	splitZ = 2.0
+
+	// lullEvery and lullFor place the lulls on the wall clock; lullDepth is
+	// the share of its slots in use a client keeps through one, and
+	// lullMaxCut caps the slots it gives up: a client's own queue is a
+	// fraction of a query, so one slot drains its share, and a lone user on a
+	// store it keeps busy idles it little. The answers measured are those to
+	// queries sent from a quarter of the way through, once the queries sent
+	// before the lull have cleared, and early enough for their class to
+	// answer within it.
+	lullEvery  = time.Minute
+	lullFor    = 8 * time.Second
+	lullDepth  = 0.5
+	lullMaxCut = 1.0
+
+	errorDecrease = 0.5
 
 	breakerTrips = 3
 	breakerMin   = 60 * time.Second
@@ -137,10 +195,8 @@ type limiter struct {
 	waiting  [2][]chan struct{} // by priority
 
 	classes map[string]*latencyStats
-	lastCut time.Time
 	// lastOverloadCut tells a new congestion event from the rest of the one
-	// already cut for. It is kept apart from lastCut so a latency cut just
-	// before doesn't swallow the first overload of a new event.
+	// already cut for.
 	lastOverloadCut time.Time
 
 	overloads   int
@@ -155,6 +211,11 @@ type limiter struct {
 	// smoothed latency of answered queries.
 	nextAllowed time.Time
 	srtt        time.Duration
+	// lulls is when the lulls are; inLull is whether the last answer came
+	// during one, when effective() is less than the limit. Like the limit,
+	// it changes only on an answer.
+	lulls  lullSchedule
+	inLull bool
 
 	// Decision counts, for the log.
 	grows, queueCuts, overloadCuts int
@@ -162,7 +223,7 @@ type limiter struct {
 }
 
 func newLimiter(now func() time.Time, rnd func() float64) *limiter {
-	return &limiter{now: now, rand: rnd, limit: limitInitial, budget: retryBudgetMax / 2, pauseMin: breakerMin, pauseMax: breakerMax}
+	return &limiter{now: now, rand: rnd, limit: limitInitial, lulls: lullSchedule{lullEvery, lullFor}, budget: retryBudgetMax / 2, pauseMin: breakerMin, pauseMax: breakerMax}
 }
 
 var limiters sync.Map // cluster -> *limiter
@@ -177,12 +238,29 @@ func (l *limiter) slots() int {
 	if l.probing {
 		return 1
 	}
-	return max(1, int(math.Floor(l.limit)))
+	return max(1, int(math.Floor(l.effective())))
+}
+
+// effective is the limit in force, less through a lull.
+func (l *limiter) effective() float64 {
+	if !l.inLull {
+		return l.limit
+	}
+	if l.limit < 1 {
+		return l.limit * lullDepth
+	}
+	// Half the slots in use, not half the limit: 1.9 is one slot, and
+	// halving it to 0.95 would barely slow it.
+	whole := math.Floor(l.limit)
+	return math.Max(whole*lullDepth, whole-lullMaxCut)
 }
 
 // acquire waits for a slot. It fails fast with ErrStoreBusy while the breaker
 // is open, unless the caller can afford to wait out the pause: a user waiting
 // on the answer only sits out the last few seconds of one.
+//
+// throttle_sim_test.go replays acquire and controlled.do as events, since a
+// simulation can't block: a change to either needs the same change there.
 func (l *limiter) acquire(ctx context.Context) (err error) {
 	p := priorityOf(ctx)
 	// woken is set once wake() has picked this caller for a free slot. If it
@@ -310,7 +388,6 @@ func (l *limiter) release(o outcome) {
 		l.overloadCuts++
 		l.overloads++
 		l.limit = math.Max(limitMin, l.limit*errorDecrease)
-		l.lastCut = now
 		l.lastOverloadCut = now
 		pause := time.Duration(0)
 		if l.probing || l.overloads >= breakerTrips {
@@ -343,75 +420,191 @@ func (l *limiter) release(o outcome) {
 			st = &latencyStats{}
 			l.classes[key] = st
 		}
-		ratio, warm := st.observe(o.latency.Seconds())
+		sent := now.Add(-o.latency)
+		ratio, gradient, warm := st.observe(o.latency.Seconds(), sent, l.lulls)
 		l.maxRatio = math.Max(l.maxRatio, ratio)
-		switch {
-		case !warm:
+		if !warm {
 			// Too little history to tell a fast answer from a slow one, so
 			// it is no evidence for growth, nor for a cut.
-		case ratio > queueRatio:
-			// Cut at most once per round trip, or one slow burst would
-			// collapse the limit before the first cut takes effect.
-			// Latency is a soft signal: it never takes a client below one
-			// query at a time. Only explicit overload does that.
-			if now.Sub(l.lastCut) > o.latency && l.limit > 1 {
-				l.queueCuts++
-				l.limit = math.Max(1, l.limit*queueDecrease)
-				l.lastCut = now
-			}
-		case l.limit < 1 && ratio <= queueRatio:
-			// Below one query at a time a client adds almost nothing to the
-			// queue, so it climbs back on any answer that isn't queued, like
-			// TCP's increase on every ack, at half speed while latency is
-			// elevated. Waiting for clearly healthy latency starved it while
-			// a bigger client kept latency in the 1.5-2x band.
-			step := fractionalStep
-			if ratio >= healthyRatio {
-				step /= 2 // creeping: latency is up, though not queueing
-			}
-			l.limit = math.Min(1, l.limit+step)
-		case ratio < healthyRatio && usedFully:
+			break
+		}
+		if l.lulls.in(sent) || l.lulls.in(now) {
+			// The store was quieter than this client's limit makes it, by
+			// design: no evidence either way.
+			break
+		}
+		// FAST's update in Gradient2's form: the limit settles where its
+		// own queries waiting at the store, inUse×(1 − gradient), number
+		// queueSize. That queue also absorbs latency noise, which only ever
+		// lowers the gradient.
+		target := l.limit - inUse(l.limit)*(1-gradient)
+		if usedFully {
+			// Room shown by a client that didn't use its slots is no
+			// evidence the store has any.
+			target += queueSize(l.limit)
+		}
+		before := l.limit
+		step := math.Min(1, smoothing/l.limit)
+		l.limit = math.Max(limitMin, math.Min(limitMax, l.limit+step*(target-l.limit)))
+		switch {
+		case l.limit > before:
 			l.grows++
-			l.limit = math.Min(limitMax, l.limit+1/l.limit)
+		case l.limit < before:
+			l.queueCuts++
 		}
 	}
-	if l.limit < 1 {
+	l.inLull = l.lulls.in(now)
+	if eff := l.effective(); eff < 1 {
 		// Pace by how long an answered query takes, not by this response:
 		// a 429 comes back in milliseconds.
 		rtt := l.srtt
 		if rtt == 0 {
 			rtt = o.latency
 		}
-		l.nextAllowed = now.Add(time.Duration(float64(rtt) * (1/l.limit - 1)))
+		l.nextAllowed = now.Add(time.Duration(float64(rtt) * (1/eff - 1)))
 	} else {
 		l.nextAllowed = time.Time{}
 	}
 	l.wake()
 }
 
-// latencyStats tracks one query class and answer size: a windowed-median
-// baseline and an EWMA of recent latency.
-type latencyStats struct {
-	window []float64
-	recent float64
+// inUse is how many queries the limit keeps in flight, as the update counts
+// them: the limit itself when paced, and above one the whole slots plus half
+// the fraction. Counting none of the fraction is honest, but then two users
+// holding one slot each on a store with room for less sit content while a
+// third, paced, sees their full queue and yields; counting all of it leaves a
+// user at 1.9 thinking it holds nearly two, stuck on one slot while others
+// hold two.
+func inUse(limit float64) float64 {
+	if limit < 1 {
+		return limit
+	}
+	whole := math.Floor(limit)
+	return whole + (limit-whole)/2
 }
 
-// observe records a latency and returns recent / baseline. Until the class
-// has enough history to judge, the ratio is 1 and warm is false.
-func (s *latencyStats) observe(latency float64) (ratio float64, warm bool) {
-	s.window = append(s.window, latency)
-	if len(s.window) > baselineWindow {
-		s.window = s.window[1:]
+// queueSize is how many of its own queries a client keeps waiting at the
+// store when the gradient settles (FAST's α, Gradient2's queueSize).
+func queueSize(limit float64) float64 {
+	if limit <= queueKnee {
+		return queueAlpha
 	}
-	if s.recent == 0 {
-		s.recent = latency
+	return queueAlpha * math.Sqrt(limit/queueKnee)
+}
+
+// lullSchedule places a lull of length at the start of every period of the
+// wall clock that every Kanivet shares.
+type lullSchedule struct{ every, length time.Duration }
+
+// offset is how far into its period t is.
+func (s lullSchedule) offset(t time.Time) time.Duration {
+	off := time.Duration(t.UnixNano() % int64(s.every))
+	if off < 0 {
+		off += s.every
+	}
+	return off
+}
+
+func (s lullSchedule) in(t time.Time) bool { return s.offset(t) < s.length }
+
+// latencyStats tracks one query class and answer size: short, an EWMA of its
+// latency now, and its latency on an uncongested store, as the lulls measure
+// it.
+type latencyStats struct {
+	n     int
+	short float64
+	// seed is the mean of the class's first answers: its baseline until a
+	// lull measures it.
+	seed float64
+	// halves is its latency to queries sent in each half of the lulls'
+	// measured span (see lullHalf).
+	halves [2]runningMean
+}
+
+// runningMean is the mean of about the last baselineSamples values: a plain
+// mean until there are that many, then an EWMA of that gain. dev is the same
+// average of each value's distance from the mean before it.
+type runningMean struct {
+	mean, dev float64
+	n         int
+}
+
+func (m *runningMean) add(x float64) {
+	m.n = min(m.n+1, baselineSamples)
+	if m.n > 1 {
+		m.dev += (math.Abs(x-m.mean) - m.dev) / float64(m.n)
+	}
+	m.mean += (x - m.mean) / float64(m.n)
+}
+
+// long is the class's uncongested latency: the seed until a lull measures
+// it, then the two halves' means pooled, or the lower of them when they
+// disagree by more than their noise explains.
+func (s *latencyStats) long() float64 {
+	a, b := s.halves[0], s.halves[1]
+	switch {
+	case a.n == 0 && b.n == 0:
+		return s.seed
+	case a.n == 0:
+		return b.mean
+	case b.n == 0:
+		return a.mean
+	}
+	na, nb := float64(a.n), float64(b.n)
+	sd := 1.25 * (a.dev*na + b.dev*nb) / (na + nb) // mean absolute deviation to standard deviation
+	if math.Abs(a.mean-b.mean) > splitZ*sd*math.Sqrt(1/na+1/nb) {
+		return math.Min(a.mean, b.mean)
+	}
+	return (a.mean*na + b.mean*nb) / (na + nb)
+}
+
+// observe records a latency and returns short/long and the gradient,
+// long/short within [gradientMin, 1]. Until the class has enough history to
+// judge, warm is false.
+func (s *latencyStats) observe(latency float64, sent time.Time, lulls lullSchedule) (ratio, gradient float64, warm bool) {
+	s.n++
+	if s.n == 1 {
+		s.short = latency
 	} else {
-		s.recent = recentEWMA*latency + (1-recentEWMA)*s.recent
+		s.short += shortEWMA * (latency - s.short)
 	}
-	if len(s.window) < baselineMinSamples {
-		return 1, false
+	measured := s.halves[0].n+s.halves[1].n > 0
+	if s.n <= baselineMinSamples {
+		s.seed += (latency - s.seed) / float64(s.n)
+	} else if h, ok := s.lullHalf(lulls.offset(sent), lulls.length); ok {
+		s.halves[h].add(latency)
+	} else if !measured && s.seed > 2*s.short {
+		// Gradient2's guard: latency at half the seed means it was taken in
+		// congestion, so pull it down without waiting for a lull. Once a
+		// lull has measured the baseline it stays: in a class whose latency
+		// spreads widely, a run of fast answers would only ratchet it down.
+		s.seed *= 0.95
 	}
-	return s.recent / math.Max(minOf(s.window), 1e-9), true
+	if s.n < baselineMinSamples {
+		return 1, 1, false
+	}
+	long := s.long()
+	ratio = s.short / math.Max(long, 1e-9)
+	gradient = math.Max(gradientMin, math.Min(1, long/math.Max(s.short, 1e-9)))
+	return ratio, gradient, true
+}
+
+// lullHalf says in which half of the lull's measured span a query sent off
+// into the lull falls, if in either. The span starts a quarter of the way in,
+// once the queries sent before the lull have mostly cleared, and ends early
+// enough for the class to answer within the lull. A class too slow for that
+// is still measured to three quarters of the way, a little high, or a
+// baseline seeded during congestion would never come down.
+func (s *latencyStats) lullHalf(off, length time.Duration) (int, bool) {
+	from := length / 4
+	until := max(length-time.Duration(s.long()*float64(time.Second)), length*3/4)
+	switch {
+	case off < from || off >= until:
+		return 0, false
+	case off < (from+until)/2:
+		return 0, true
+	}
+	return 1, true
 }
 
 // sizeBucket groups answers by size on a log scale: latency is a fixed
@@ -565,12 +758,4 @@ func (c *controlled) QueryInstant(ctx context.Context, cluster, query string, at
 // busyMessage is what the report says while the breaker holds queries back.
 func busyMessage(s LoadState) string {
 	return fmt.Sprintf("The metrics store signalled overload, so Kanivet paused its queries. Resuming in %ds.", int(s.PausedFor.Seconds()+0.5))
-}
-
-func minOf(xs []float64) float64 {
-	m := math.Inf(1)
-	for _, x := range xs {
-		m = math.Min(m, x)
-	}
-	return m
 }

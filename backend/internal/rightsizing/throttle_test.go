@@ -80,20 +80,28 @@ func TestLimiterCutsOncePerCongestionEvent(t *testing.T) {
 	}
 }
 
-// A latency cut just before doesn't hide the first overload of a new event,
-// and an answer that belongs to an event already cut for still honours the
-// store's Retry-After.
+// The limit falling on latency just before doesn't hide the first overload
+// of a new event, and an answer that belongs to an event already cut for
+// still honours the store's Retry-After.
 func TestLimiterOverloadRightAfterALatencyCut(t *testing.T) {
 	l, clock := testLimiter()
 	l.limit = 4
-	l.lastCut = clock.t
+	for range baselineMinSamples {
+		oneQuery(l, outcome{latency: 100 * time.Millisecond, work: 24})
+	}
+	clock.t = clock.t.Add(time.Second)
+	oneQuery(l, outcome{latency: time.Second, work: 24}) // queueing: the limit falls
+	fell := l.limit
+	if fell >= 4 {
+		t.Fatalf("limit %v: a 10× slower answer should lower it", fell)
+	}
 	oneQuery(l, outcome{latency: time.Second, overload: true})
-	if l.limit != 2 {
-		t.Fatalf("limit %v: the overload was taken for part of the latency cut", l.limit)
+	if l.limit != fell*errorDecrease {
+		t.Fatalf("limit %v → %v: the overload was taken for part of the latency fall", fell, l.limit)
 	}
 	oneQuery(l, outcome{latency: time.Second, overload: true, retryAfter: 30 * time.Second})
-	if st := l.state(); st.Limit != 2 || st.PausedFor != 30*time.Second {
-		t.Fatalf("same event: limit %v paused %v, want 2 and the store's 30s", st.Limit, st.PausedFor)
+	if st := l.state(); st.Limit != fell*errorDecrease || st.PausedFor != 30*time.Second {
+		t.Fatalf("same event: limit %v paused %v, want %v and the store's 30s", st.Limit, st.PausedFor, fell*errorDecrease)
 	}
 }
 
@@ -137,7 +145,7 @@ func TestLimiterHonoursRetryAfter(t *testing.T) {
 
 func TestLimiterGrowsSlowlyWhenHealthyAndCaps(t *testing.T) {
 	l, _ := testLimiter()
-	for range 200 {
+	for range 400 {
 		// Keep every slot busy so growth is earned, then release one.
 		n := l.slots()
 		for range n {
@@ -205,15 +213,71 @@ func TestLimiterCutsWhenLatencyShowsQueueing(t *testing.T) {
 	}
 }
 
+// lullAt moves the clock to offset into the current minute's lull period.
+func lullAt(c *fakeClock, offset time.Duration) {
+	c.t = c.t.Truncate(lullEvery).Add(lullEvery + offset)
+}
+
+// Through a lull a client gives up half the slots it uses, at most one, and
+// the answers it gets then move its limit neither way: the store is quieter
+// than its limit makes it, by design.
+func TestLimiterLullGivesUpSlotsAndHoldsTheLimit(t *testing.T) {
+	l, clock := testLimiter()
+	l.limit = 4
+	for range baselineMinSamples {
+		oneQuery(l, outcome{latency: 100 * time.Millisecond, work: 24})
+	}
+	lullAt(clock, 2*time.Second)
+	oneQuery(l, outcome{latency: time.Second, work: 24}) // 10× slower, but in the lull
+	if l.limit != 4 || l.slots() != 3 {
+		t.Fatalf("in a lull: limit %v with %d slots, want 4 and 3", l.limit, l.slots())
+	}
+	clock.t = clock.t.Add(lullFor)
+	oneQuery(l, outcome{latency: 100 * time.Millisecond, work: 24})
+	if want := int(l.limit); l.slots() != want {
+		t.Fatalf("after the lull: %d slots at limit %v", l.slots(), l.limit)
+	}
+}
+
+// A baseline seeded while the store was congested reads its queueing as
+// normal. The answers to queries sent late in a lull, with every client
+// stepped back, measure the store as it is uncongested, and the queueing
+// shows again.
+func TestLimiterLullCorrectsABaselineSeededInCongestion(t *testing.T) {
+	l, clock := testLimiter()
+	l.limit = 3
+	for range baselineMinSamples {
+		oneQuery(l, outcome{latency: 1500 * time.Millisecond, work: 24}) // 3× the uncongested latency
+	}
+	lullAt(clock, 6*time.Second)
+	for range 5 {
+		oneQuery(l, outcome{latency: 500 * time.Millisecond, work: 24}) // sent 5.5s into the lull
+	}
+	clock.t = clock.t.Add(20 * time.Second)
+	oneQuery(l, outcome{latency: 1500 * time.Millisecond, work: 24})
+	var long float64
+	for _, st := range l.classes {
+		long = st.long()
+	}
+	if long > 0.75 || l.limit >= 3 {
+		t.Fatalf("baseline %.2fs after a lull measured 0.5s, limit %v: congestion still reads as normal", long, l.limit)
+	}
+}
+
+// Answers are compared with others of about their size: big answers after
+// many tiny ones are slower, not queued.
 func TestLimiterComparesLatencyPerUnitOfWork(t *testing.T) {
 	l, _ := testLimiter()
 	l.limit = 3
-	oneQuery(l, outcome{latency: 2 * time.Second, work: 24})
+	for range 2 * baselineMinSamples {
+		oneQuery(l, outcome{latency: 200 * time.Millisecond, work: 1})
+	}
 	before := l.limit
-	oneQuery(l, outcome{latency: 200 * time.Millisecond, work: 1}) // slower per sample, but a tiny answer
-	oneQuery(l, outcome{latency: 2 * time.Second, work: 24})
-	if l.limit < before*queueDecrease*0.99 {
-		t.Fatalf("a short query should not read as queueing: %v → %v", before, l.limit)
+	for range 2 * baselineMinSamples {
+		oneQuery(l, outcome{latency: 2 * time.Second, work: 24}) // 10× slower, 24× the samples
+	}
+	if l.limit < before {
+		t.Fatalf("big answers after small ones read as queueing: %v → %v", before, l.limit)
 	}
 }
 
@@ -684,7 +748,10 @@ func TestSimulatedUsersShareAnOverloadedStoreFairly(t *testing.T) {
 	for u := range users {
 		l := newLimiter(time.Now, rand.New(rand.NewPCG(uint64(u), 9)).Float64)
 		lims[u] = l
+		// Pauses and lulls on the test's time scale, where a query takes
+		// 10-50ms rather than a second.
 		l.pauseMin, l.pauseMax = 50*time.Millisecond, 100*time.Millisecond
+		l.lulls = testLulls
 		c := &controlled{q: store, sent: new(int64), mu: &sync.Mutex{}, lim: func(string) *limiter { return l }, rand: lockedRand(uint64(u), 7)}
 		for range workers {
 			wg.Add(1)
@@ -741,6 +808,7 @@ func TestSimulatedStoreDegradationMakesClientsBackOff(t *testing.T) {
 	for u := range 3 {
 		l := newLimiter(time.Now, rand.New(rand.NewPCG(uint64(u), 3)).Float64)
 		l.pauseMin, l.pauseMax = 100*time.Millisecond, 200*time.Millisecond
+		l.lulls = testLulls
 		c := &controlled{q: store, sent: new(int64), mu: &sync.Mutex{}, lim: func(string) *limiter { return l }, rand: lockedRand(uint64(u), 5)}
 		for range 10 {
 			wg.Add(1)
@@ -767,17 +835,21 @@ func TestSimulatedStoreDegradationMakesClientsBackOff(t *testing.T) {
 	if lateServed == 0 {
 		t.Fatal("clients stopped completely; they should keep a trickle going")
 	}
-	// Latency alone never takes a client below one query in flight (so a
-	// small client isn't starved by a big one), so three uncoordinated
-	// clients against a store that now rejects above two settle into a
-	// trickle of rejections: 14-24% across runs and machines. Without
-	// backing off nearly everything would be rejected: 30 workers on a
-	// store that takes two. The breaker pause here is 100-200ms; in
-	// production it is a minute or two, which sheds far less.
+	// Three uncoordinated clients against a store that now rejects above
+	// two queries settle into a trickle of rejections, about 10% here: a
+	// paced client's query sometimes lands while the other two hold the
+	// store. Without backing off nearly everything would be rejected: 30
+	// workers on a store that takes two. The breaker pause here is
+	// 100-200ms; in production it is a minute or two, which sheds far less.
 	if share := float64(lateRejected) / float64(lateServed+lateRejected); share > 1.0/3 {
 		t.Errorf("after adapting, %.0f%% of queries still rejected", share*100)
 	}
 }
+
+// testLulls is the lull schedule scaled to the real-time simulations, where a
+// query takes 10-50ms: about the share of time and the number of round trips
+// that eight seconds a minute are for queries of half a second to two.
+var testLulls = lullSchedule{every: time.Second, length: 150 * time.Millisecond}
 
 // lockedRand is a seeded source safe for the many goroutines that share one
 // controlled querier, as the global source is in production.
