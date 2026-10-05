@@ -362,6 +362,7 @@ type simClient struct {
 	// draws more pause jitter doesn't change the queries anyone sends: two
 	// limiter designs face the same workload (common random numbers).
 	rq, rb, rs *rand.Rand // queries; retry backoff; the user's schedule
+	rn         *rand.Rand // the network's delays
 
 	queued  []*simAcquire // in lim.waiting, in queue order
 	inCall  int           // queries holding a slot: lim.inflight must agree
@@ -517,7 +518,7 @@ func (c *simClient) try(p priority, deadline time.Time, q simQuery, attempt int,
 		}
 		c.inCall++
 		start := c.sim.now
-		c.call(deadline, q, func(ans simAnswer, err error) {
+		c.call(deadline, q, func(ans simAnswer, err error, info simInfo) {
 			l := c.lim
 			c.inCall--
 			if err != nil && ctxDone() {
@@ -531,7 +532,8 @@ func (c *simClient) try(p priority, deadline time.Time, q simQuery, attempt int,
 			if err == nil {
 				samples = q.samples
 			}
-			l.release(outcome{latency: c.sim.now.Sub(start), work: float64(samples) / 1000, class: q.class, overload: over, failed: err != nil && !over})
+			l.release(outcome{latency: c.sim.now.Sub(start), work: float64(samples) / 1000, class: q.class, overload: over, failed: err != nil && !over,
+				serverLatency: info.server, storeBytes: info.bytes, storeDate: info.date, receivedAt: info.got})
 			c.dispatch()
 			if err == nil || !over || attempt+1 >= maxAttempts || !l.allowRetry() {
 				done(err)
@@ -547,20 +549,38 @@ func (c *simClient) try(p priority, deadline time.Time, q simQuery, attempt int,
 	})
 }
 
+// simInfo is what the store says about an answer when it reports its own
+// account of the query.
+type simInfo struct {
+	server time.Duration
+	bytes  int64
+	date   time.Time // the store's clock, to the second
+	got    time.Time // the user's clock when it arrived
+}
+
+// leg is one way of the round trip: half the RTT, with the network's jitter.
+func (c *simClient) leg() time.Duration {
+	half := float64(c.rtt) / 2
+	if j := c.sc.rttJitter; j > 0 && half > 0 {
+		half *= math.Exp(c.rn.NormFloat64()*j - j*j/2)
+	}
+	return time.Duration(half)
+}
+
 // call is the query's HTTP round trip: half the RTT there, the store, half
 // back. Like a request on an http.Client it fails with the context's error
 // once the deadline passes, and the store then drops the query.
-func (c *simClient) call(deadline time.Time, q simQuery, done func(simAnswer, error)) {
+func (c *simClient) call(deadline time.Time, q simQuery, done func(simAnswer, error, simInfo)) {
 	if !deadline.IsZero() && !c.sim.now.Before(deadline) {
-		done(simOK, context.DeadlineExceeded)
+		done(simOK, context.DeadlineExceeded, simInfo{})
 		return
 	}
 	ended := false
 	var job *simJob
-	end := func(ans simAnswer, err error) {
+	end := func(ans simAnswer, err error, info simInfo) {
 		if !ended {
 			ended = true
-			done(ans, err)
+			done(ans, err, info)
 		}
 	}
 	if !deadline.IsZero() {
@@ -568,15 +588,25 @@ func (c *simClient) call(deadline time.Time, q simQuery, done func(simAnswer, er
 			if !ended {
 				c.store.cancel(job)
 			}
-			end(simOK, context.DeadlineExceeded)
+			end(simOK, context.DeadlineExceeded, simInfo{})
 		})
 	}
-	c.sim.after(c.rtt/2, func() {
+	c.sim.after(c.leg(), func() {
 		if ended {
 			return
 		}
+		arrived := c.sim.now
 		job = c.store.submit(c.id, q, func(ans simAnswer) {
-			c.sim.after(c.rtt/2, func() { end(ans, ans.err()) })
+			stamped := c.sim.now
+			c.sim.after(c.leg(), func() {
+				var info simInfo
+				if c.sc.serverSignal && ans == simOK {
+					// Work in bytes: 16 per sample answered, as a stand-in
+					// for what the store processed.
+					info = simInfo{server: stamped.Sub(arrived), bytes: int64(q.samples) * 16, date: stamped.Truncate(time.Second), got: c.now()}
+				}
+				end(ans, ans.err(), info)
+			})
 		})
 	})
 }
@@ -724,9 +754,17 @@ type simScenario struct {
 	stagger  time.Duration   // user i starts at i×stagger
 	rtts     []time.Duration // per user, cycled
 	skews    []time.Duration // per user, cycled: its clock less the store's
-	queries  []simQueries    // per user, cycled
-	dur      time.Duration
-	warmup   time.Duration // metrics count from here
+	// rttJitter is the log-sd of a lognormal factor of mean 1 on each leg of
+	// every query's round trip: a port-forward's delay moves with the tunnel,
+	// not with the store.
+	rttJitter float64
+	// serverSignal: the store answers with its own time for the query, the
+	// work it did and its clock (Mimir's Server-Timing and Date), and the
+	// limiter uses them.
+	serverSignal bool
+	queries      []simQueries // per user, cycled
+	dur          time.Duration
+	warmup       time.Duration // metrics count from here
 
 	// background > 0: a source no limiter controls also keeps this many
 	// queries at the store, drawn from queries[0] (see simBackground).
@@ -798,6 +836,12 @@ func (sc simScenario) shape() string {
 		}
 		b = append(b, "rtt "+strings.Join(r, "/"))
 	}
+	if sc.rttJitter > 0 {
+		b = append(b, fmt.Sprintf("rtt jitter %.1f", sc.rttJitter))
+	}
+	if sc.serverSignal {
+		b = append(b, "server signal")
+	}
 	if len(sc.skews) > 0 {
 		var r []string
 		for _, x := range sc.skews {
@@ -865,6 +909,44 @@ func simContention() []simScenario {
 			s.background, s.queries = 2, q(0.3)
 		}),
 	}
+}
+
+// simServerSignal is the N set: the same users and store with the network
+// shaking, each as a pair, a without and b with the store reporting its own
+// time and clock (serverSignal).
+func simServerSignal() []simScenario {
+	q := func(sigma float64) []simQueries { return []simQueries{simLognormal(0.5, sigma, 4000)} }
+	base := simScenario{clients: 3, workers: 12, cap: 4, reject: 2, dur: 30 * time.Minute, warmup: 5 * time.Minute, queries: q(0.3), rtts: []time.Duration{300 * time.Millisecond}, rttJitter: 0.5}
+	var out []simScenario
+	pair := func(id, name string, f func(*simScenario)) {
+		for i, signal := range []bool{false, true} {
+			s := base
+			f(&s)
+			s.id, s.serverSignal = fmt.Sprintf("%s%c", id, 'a'+i), signal
+			s.name = name
+			out = append(out, s)
+		}
+	}
+	pair("N1", "slow shaky tunnel, same for all", func(*simScenario) {})
+	pair("N2", "different tunnels 50ms/300ms/800ms", func(s *simScenario) {
+		s.rtts = []time.Duration{50 * time.Millisecond, 300 * time.Millisecond, 800 * time.Millisecond}
+	})
+	pair("N3", "laptop clocks 10s behind, right, 7s ahead", func(s *simScenario) {
+		s.rtts, s.rttJitter = []time.Duration{100 * time.Millisecond}, 0.3
+		s.skews = []time.Duration{-10 * time.Second, 0, 7 * time.Second}
+	})
+	pair("N4", "staggered starts, shaky tunnel", func(s *simScenario) { s.stagger = 120 * time.Second })
+	pair("N5", "one user alone, store with room, shaky tunnel", func(s *simScenario) {
+		s.clients, s.workers, s.cap, s.reject = 1, 30, 32, 0
+	})
+	pair("N6", "unresponsive background load, shaky tunnel", func(s *simScenario) { s.background = 2 })
+	pair("N7", "clean fast network (the case it must not lose)", func(s *simScenario) {
+		s.rtts, s.rttJitter = []time.Duration{5 * time.Millisecond}, 0
+	})
+	pair("N8", "many users on a small store, shaky tunnel", func(s *simScenario) {
+		s.clients, s.workers, s.cap = 8, 8, 2
+	})
+	return out
 }
 
 // simUncontended is the U set: one user alone on a store with room to
@@ -979,7 +1061,7 @@ func simRun(sc simScenario, seed uint64, t0 time.Time) simResult {
 	clients := make([]*simClient, sc.clients)
 	for i := range clients {
 		stream := func(k uint64) *rand.Rand { return rand.New(rand.NewPCG(seed, uint64(i)*4+k)) }
-		c := &simClient{id: i, sc: &sc, sim: s, store: st, query: sc.queries[i%len(sc.queries)], rq: stream(0), rb: stream(2), rs: stream(3)}
+		c := &simClient{id: i, sc: &sc, sim: s, store: st, query: sc.queries[i%len(sc.queries)], rq: stream(0), rb: stream(2), rs: stream(3), rn: rand.New(rand.NewPCG(seed, 1<<41+uint64(i)))}
 		if len(sc.skews) > 0 {
 			c.skew = sc.skews[i%len(sc.skews)]
 		}
@@ -1449,6 +1531,12 @@ func simTable(t *testing.T, title string, scenarios []simScenario, columns []sim
 // TestThrottleSim is the S set: users contending for one store.
 func TestThrottleSim(t *testing.T) {
 	simTable(t, "S: contention", simContention(), simContinuousColumns)
+}
+
+// TestThrottleSimServerSignal is the N set: a shaky network, with and without
+// the store's own account of its time.
+func TestThrottleSimServerSignal(t *testing.T) {
+	simTable(t, "N: shaky network, store timing off (a) and on (b)", simServerSignal(), simContinuousColumns)
 }
 
 // TestThrottleSimUncontended is the U set: one user on a store with room.

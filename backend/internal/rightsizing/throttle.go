@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"math/rand/v2"
 	"net"
+	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -37,6 +40,15 @@ import (
 //     holding slots: its own query always finds theirs at the store, theirs
 //     find its only now and then, so it reads more queueing than they do,
 //     and a smaller queue would leave it the smaller share.
+//   - The store's own account of a query, when it gives one (Mimir's
+//     Server-Timing: the time the store took, and the bytes it processed), is
+//     what latency is judged on. The round trip also holds the network, which
+//     on a port-forward is as large as the store's own time and moves with
+//     the tunnel, not with the store's load; it would read as congestion or
+//     as room, and differ from user to user. Without that header the round
+//     trip is used, as before. The same responses carry the store's clock
+//     (Date), so the lulls are placed on it: every user of the store reads
+//     the same clock, whatever their own says.
 //   - Overload (429, 5xx, timeout, cut-off response) halves the limit, once
 //     per congestion event: the answers to queries already in flight at a cut
 //     are the same event, not new ones.
@@ -144,6 +156,10 @@ const (
 	maxAttempts           = 4
 )
 
+// limiterTrace logs every answer's contribution to the limiter, for tuning it
+// against a real store: KANIVET_LIMITER_TRACE=1.
+var limiterTrace = os.Getenv("KANIVET_LIMITER_TRACE") == "1"
+
 // ErrStoreBusy means the circuit breaker is open: the store recently signalled
 // overload and queries are paused.
 var ErrStoreBusy = errors.New("metrics store is busy; queries are paused")
@@ -182,6 +198,15 @@ type outcome struct {
 	// rejected: the store answered, but the latency measures nothing.
 	failed     bool
 	retryAfter time.Duration
+
+	// What the store said about the query, when it said anything (see
+	// metrics.ResponseInfo); zero otherwise. serverLatency is the store's own
+	// time, storeBytes the work it did, storeDate its clock when it answered
+	// (one second resolution) and receivedAt ours when the headers arrived.
+	serverLatency time.Duration
+	storeBytes    int64
+	storeDate     time.Time
+	receivedAt    time.Time
 }
 
 // limiter is the adaptive concurrency limit for one metrics store.
@@ -216,6 +241,15 @@ type limiter struct {
 	// it changes only on an answer.
 	lulls  lullSchedule
 	inLull bool
+	// offset is the store's clock less this one, learnt from its Date headers,
+	// so the lulls fall on the same moments for every user of the store.
+	// Zero until enough answers have shown it.
+	clock  clockOffset
+	offset time.Duration
+	// storeShare is the part of a query's round trip the store itself took,
+	// as the answers report it (smoothed): the rest is the network, where a
+	// query in flight holds no place in the store's queue.
+	storeShare float64
 
 	// Decision counts, for the log.
 	grows, queueCuts, overloadCuts int
@@ -232,6 +266,9 @@ func limiterFor(cluster string) *limiter {
 	l, _ := limiters.LoadOrStore(cluster, newLimiter(time.Now, rand.Float64))
 	return l.(*limiter)
 }
+
+// storeTime is t on the store's clock, which is where the lulls are.
+func (l *limiter) storeTime(t time.Time) time.Time { return t.Add(l.offset) }
 
 // slots is how many queries may run at once now.
 func (l *limiter) slots() int {
@@ -414,21 +451,44 @@ func (l *limiter) release(o outcome) {
 		if l.classes == nil {
 			l.classes = map[string]*latencyStats{}
 		}
-		key := fmt.Sprintf("%s#%d", o.class, sizeBucket(int(o.work*1000)))
+		// Judge the store on its own account of the query when it gave one:
+		// the network is no sign of its load. Such answers are a class of
+		// their own, as are those of different sizes, and the work the store
+		// says it did is a better size than the samples we got back.
+		latency, key := o.latency, fmt.Sprintf("%s#%d", o.class, sizeBucket(int(o.work*1000)))
+		queueScale := 1.0
+		if o.serverLatency > 0 {
+			latency = o.serverLatency
+			key = fmt.Sprintf("%s#s%d", o.class, byteBucket(o.storeBytes))
+			l.learnClock(o)
+			if o.latency > 0 {
+				share := math.Min(1, float64(o.serverLatency)/float64(o.latency))
+				if l.storeShare == 0 {
+					l.storeShare = share
+				} else {
+					l.storeShare += (share - l.storeShare) / 8
+				}
+				queueScale = l.storeShare
+			}
+		}
 		st := l.classes[key]
 		if st == nil {
 			st = &latencyStats{}
 			l.classes[key] = st
 		}
-		sent := now.Add(-o.latency)
-		ratio, gradient, warm := st.observe(o.latency.Seconds(), sent, l.lulls)
+		sent := l.storeTime(now.Add(-o.latency))
+		ratio, gradient, warm := st.observe(latency.Seconds(), sent, l.lulls)
 		l.maxRatio = math.Max(l.maxRatio, ratio)
+		if limiterTrace {
+			log.Printf("[LIMITER] class=%.40q latency=%v server=%v bytes=%d limit=%.2f inflight=%d ratio=%.2f gradient=%.2f warm=%v lull=%v offset=%v",
+				o.class, o.latency.Round(time.Millisecond), o.serverLatency.Round(time.Millisecond), o.storeBytes, l.limit, l.inflight, ratio, gradient, warm, l.lulls.in(sent), l.offset.Round(time.Millisecond))
+		}
 		if !warm {
 			// Too little history to tell a fast answer from a slow one, so
 			// it is no evidence for growth, nor for a cut.
 			break
 		}
-		if l.lulls.in(sent) || l.lulls.in(now) {
+		if l.lulls.in(sent) || l.lulls.in(l.storeTime(now)) {
 			// The store was quieter than this client's limit makes it, by
 			// design: no evidence either way.
 			break
@@ -437,7 +497,14 @@ func (l *limiter) release(o outcome) {
 		// own queries waiting at the store, inUse×(1 − gradient), number
 		// queueSize. That queue also absorbs latency noise, which only ever
 		// lowers the gradient.
-		target := l.limit - inUse(l.limit)*(1-gradient)
+		//
+		// The gradient is the store's: it says how much of the time at the
+		// store was queueing, not of the round trip. A query on a slow tunnel
+		// is in the store's queue for only part of the time it is in flight,
+		// so it holds only that part of a place there (queueScale, Little's
+		// law again), and users on different tunnels hold the same queue at
+		// the same gradient.
+		target := l.limit - inUse(l.limit)*(1-gradient)*queueScale
 		if usedFully {
 			// Room shown by a client that didn't use its slots is no
 			// evidence the store has any.
@@ -453,7 +520,7 @@ func (l *limiter) release(o outcome) {
 			l.queueCuts++
 		}
 	}
-	l.inLull = l.lulls.in(now)
+	l.inLull = l.lulls.in(l.storeTime(now))
 	if eff := l.effective(); eff < 1 {
 		// Pace by how long an answered query takes, not by this response:
 		// a 429 comes back in milliseconds.
@@ -615,6 +682,66 @@ func sizeBucket(samples int) int {
 	return int(math.Floor(math.Log2(float64(max(samples, 1)) / 1000 * 4)))
 }
 
+// clockSamples is how many of the latest readings of the store's clock the
+// offset is the median of; clockMinSamples is how many it needs before it is
+// used at all.
+const (
+	clockSamples    = 15
+	clockMinSamples = 3
+)
+
+// clockOffset estimates the store's clock less ours from the Date headers of
+// its answers. Each reading is good to about a second (the header's
+// resolution, and the time its answer took to reach us); the median of the
+// latest ones throws out the stray, and a second is small beside a lull.
+type clockOffset struct {
+	readings []time.Duration
+	next     int
+}
+
+func (c *clockOffset) add(d time.Duration) {
+	if len(c.readings) < clockSamples {
+		c.readings = append(c.readings, d)
+		return
+	}
+	c.readings[c.next] = d
+	c.next = (c.next + 1) % clockSamples
+}
+
+// estimate is the median reading, and false until there are enough.
+func (c *clockOffset) estimate() (time.Duration, bool) {
+	if len(c.readings) < clockMinSamples {
+		return 0, false
+	}
+	sorted := slices.Clone(c.readings)
+	slices.Sort(sorted)
+	return sorted[len(sorted)/2], true
+}
+
+// learnClock takes a reading of the store's clock from an answer that has its
+// Date and its own account of how long it took.
+func (l *limiter) learnClock(o outcome) {
+	if o.storeDate.IsZero() || o.receivedAt.IsZero() {
+		return
+	}
+	// The header is truncated to the second, so the store's clock was half a
+	// second past it on average; and it was stamped as the answer left the
+	// store, before the way back to us, about half of what the round trip
+	// held beyond the store's own time.
+	back := max(0, o.latency-o.serverLatency) / 2
+	l.clock.add(o.storeDate.Add(500 * time.Millisecond).Add(back).Sub(o.receivedAt))
+	if off, ok := l.clock.estimate(); ok {
+		l.offset = off
+	}
+}
+
+// byteBucket groups the work a store reports on a log scale, a factor of two
+// per bucket from 4 KiB (the unit below, where answers served from its cache
+// and the smallest queries fall).
+func byteBucket(bytes int64) int {
+	return int(math.Floor(math.Log2(float64(max(bytes, 1)) / 4096)))
+}
+
 var namespaceValue = regexp.MustCompile(`(namespace|pod)(=~?)"[^"]*"`)
 
 // queryClass is a query with its namespace and pod values blanked: the same
@@ -698,7 +825,7 @@ func (c *controlled) count() int64 {
 	return *c.sent
 }
 
-func (c *controlled) do(ctx context.Context, cluster, class string, call func() ([]metrics.HistorySeries, error)) ([]metrics.HistorySeries, error) {
+func (c *controlled) do(ctx context.Context, cluster, class string, call func(context.Context) ([]metrics.HistorySeries, error)) ([]metrics.HistorySeries, error) {
 	lim := c.lim(cluster)
 	for attempt := 0; ; attempt++ {
 		if err := lim.acquire(ctx); err != nil {
@@ -708,7 +835,8 @@ func (c *controlled) do(ctx context.Context, cluster, class string, call func() 
 		*c.sent++
 		c.mu.Unlock()
 		start := time.Now()
-		res, err := call()
+		info := &metrics.ResponseInfo{}
+		res, err := call(metrics.WithResponseInfo(ctx, info))
 		if err != nil && ctx.Err() != nil {
 			// Our caller cancelled or ran out of time, which says nothing
 			// about the store. An http.Client timeout leaves ctx alone, so
@@ -724,7 +852,11 @@ func (c *controlled) do(ctx context.Context, cluster, class string, call func() 
 		for _, s := range res {
 			samples += len(s.Times)
 		}
-		lim.release(outcome{latency: time.Since(start), work: float64(samples) / 1000, class: class, overload: over, failed: err != nil && !over, retryAfter: retryAfter})
+		o := outcome{latency: time.Since(start), work: float64(samples) / 1000, class: class, overload: over, failed: err != nil && !over, retryAfter: retryAfter}
+		if serverTime, bytes, date, received, single := info.Snapshot(); single && err == nil {
+			o.serverLatency, o.storeBytes, o.storeDate, o.receivedAt = serverTime, bytes, date, received
+		}
+		lim.release(o)
 		if err == nil || !over || attempt+1 >= maxAttempts || !lim.allowRetry() {
 			return res, err
 		}
@@ -741,7 +873,7 @@ func (c *controlled) QueryRange(ctx context.Context, cluster, query string, star
 	if chunksOnly(ctx) {
 		return nil, errNotCached
 	}
-	return c.do(ctx, cluster, queryClass(query), func() ([]metrics.HistorySeries, error) {
+	return c.do(ctx, cluster, queryClass(query), func(ctx context.Context) ([]metrics.HistorySeries, error) {
 		return c.q.QueryRange(ctx, cluster, query, start, end, step)
 	})
 }
@@ -750,7 +882,7 @@ func (c *controlled) QueryInstant(ctx context.Context, cluster, query string, at
 	if chunksOnly(ctx) {
 		return nil, errNotCached
 	}
-	return c.do(ctx, cluster, "instant:"+queryClass(query), func() ([]metrics.HistorySeries, error) {
+	return c.do(ctx, cluster, "instant:"+queryClass(query), func(ctx context.Context) ([]metrics.HistorySeries, error) {
 		return c.q.QueryInstant(ctx, cluster, query, at)
 	})
 }
