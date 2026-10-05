@@ -5,11 +5,23 @@ interface UseResizableOptions {
   maxWidth: number;
   defaultWidth: number;
   onResize?: (width: number) => void;
+  /** localStorage key; when set, the width the user drags to is kept across restarts. */
+  storageKey?: string;
 }
 
 const useResizable = (options: UseResizableOptions) => {
-  const { minWidth, maxWidth, defaultWidth, onResize } = options;
-  const [width, setWidth] = useState(defaultWidth);
+  const { minWidth, maxWidth, defaultWidth, onResize, storageKey } = options;
+  const [width, setWidth] = useState(() => {
+    if (storageKey) {
+      try {
+        const saved = parseInt(localStorage.getItem(storageKey) || '', 10);
+        if (Number.isFinite(saved)) return Math.max(minWidth, Math.min(saved, maxWidth));
+      } catch {}
+    }
+    return defaultWidth;
+  });
+  const widthRef = useRef(width);
+  widthRef.current = width;
   const [isResizing, setIsResizing] = useState(false);
   const startXRef = useRef(0);
   const startWidthRef = useRef(0);
@@ -46,6 +58,11 @@ const useResizable = (options: UseResizableOptions) => {
 
     const handleMouseUp = () => {
       setIsResizing(false);
+      if (storageKey) {
+        try {
+          localStorage.setItem(storageKey, String(Math.round(widthRef.current)));
+        } catch {}
+      }
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
@@ -65,7 +82,7 @@ const useResizable = (options: UseResizableOptions) => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     };
-  }, [isResizing, minWidth, maxWidth, onResize]);
+  }, [isResizing, minWidth, maxWidth, onResize, storageKey]);
 
   const startResize = (e: React.MouseEvent) => {
     startXRef.current = e.clientX;

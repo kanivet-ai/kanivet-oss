@@ -76,6 +76,8 @@ export interface TabState {
   selectedItem: any;
   detailData: any;
   searchQuery: string;
+  /** The filter typed above the resource list; saved so a restart keeps it. */
+  listFilter?: string;
   searchMatches: string[];
   focusArea: FocusArea;
   isDetailsPanelCollapsed: boolean;
@@ -218,6 +220,8 @@ export interface StoreState extends
   setMonitoringSettings: (settings: Partial<MonitoringSettings>) => void;
   getDefaultColumns: (resourceKind: string, isNamespaced?: boolean, printerColumns?: import('../utils/resourceListColumns').PrinterColumnCell[] | null) => string[];
   hydrateFromStorage: () => void;
+  /** Loads the objects behind a cluster's restored tabs; runs once per cluster. */
+  restoreWorkspaceContent: (cluster: string) => void;
 }
 
 export interface ClusterSlice {

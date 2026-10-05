@@ -6,6 +6,12 @@ const { spawn, execSync } = require('child_process');
 const {
   runLegacyHostedIdentityCleanup,
 } = require('./legacyHostedIdentityMigration');
+const {
+  STATE_FILE: WINDOW_STATE_FILE,
+  readWindowState,
+  resolveWindowOptions,
+  trackWindowState,
+} = require('./windowState');
 const isDev = !app.isPackaged && process.argv.includes('--dev');
 
 if (!app.requestSingleInstanceLock()) {
@@ -678,9 +684,25 @@ function createWindow() {
 
   const preloadPath = path.join(__dirname, 'preload.js');
 
+  // Open where the window was left: size, position (if that display is still
+  // connected), and maximized / full-screen state.
+  const windowStateFile = path.join(app.getPath('userData'), WINDOW_STATE_FILE);
+  let restoredWindow = { options: { width: 1440, height: 900 }, maximize: false, fullScreen: false };
+  try {
+    const { screen } = require('electron');
+    restoredWindow = resolveWindowOptions({
+      saved: readWindowState(windowStateFile),
+      displays: screen.getAllDisplays(),
+      defaults: restoredWindow.options,
+      minWidth: 900,
+      minHeight: 560,
+    });
+  } catch (error) {
+    writeLog(`[Window] Could not restore the window state: ${error.message}`);
+  }
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...restoredWindow.options,
     minWidth: 900,
     minHeight: 560,
     // macOS: hide the native title bar and let the renderer's tab bar sit
@@ -696,6 +718,14 @@ function createWindow() {
       devTools: isDev || process.env.KANIVET_DEVTOOLS === '1',
     },
   });
+
+  try {
+    if (restoredWindow.maximize) mainWindow.maximize();
+    if (restoredWindow.fullScreen) mainWindow.setFullScreen(true);
+    trackWindowState(mainWindow, { file: windowStateFile });
+  } catch (error) {
+    writeLog(`[Window] Could not track the window state: ${error.message}`);
+  }
 
   mainWindow.loadURL(getRendererUrl());
 

@@ -45,7 +45,11 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     return { treeData: t?.treeData || EMPTY_TREE, searchQuery: t?.searchQuery || '', focusArea: t?.focusArea || 'tree', selectedNode: t?.selectedNode || null };
   }));
 
-  const [localSearch, setLocalSearch] = useState('');
+  // The tree filter comes back after a restart: it starts from the saved query.
+  const [localSearch, setLocalSearch] = useState(
+    () => useStore.getState().getCurrentTabState()?.searchQuery || '',
+  );
+  const seededSearchTabs = useRef<Set<string>>(new Set());
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   // What moved the cursor last. The row ring is drawn only for keyboard moves;
   // a mouse click selects (blue fill) and must not leave a ring behind.
@@ -198,7 +202,21 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     };
   }, [currentTab]);
 
+  // A tab restored after this sidebar mounted brings its saved query with it.
   useEffect(() => {
+    if (!currentTab || seededSearchTabs.current.has(currentTab)) return;
+    seededSearchTabs.current.add(currentTab);
+    if (searchQuery && !localSearch) setLocalSearch(searchQuery);
+  }, [currentTab, searchQuery, localSearch]);
+
+  const searchPushed = useRef(false);
+  useEffect(() => {
+    // The first run only mirrors the initial state; pushing it would wipe the
+    // saved query before it has been shown.
+    if (!searchPushed.current) {
+      searchPushed.current = true;
+      return;
+    }
     setSearchQuery(debouncedSearch);
   }, [debouncedSearch, setSearchQuery]);
 

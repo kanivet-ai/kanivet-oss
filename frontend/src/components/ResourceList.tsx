@@ -1,3 +1,5 @@
+import useDebounce from '../hooks/useDebounce';
+import { getScrollPosition, setScrollPosition } from '../utils/scrollMemory';
 import {
   useRef,
   useEffect,
@@ -52,9 +54,9 @@ const IncidentTimelinePage = lazyView(
 // Resource-list tabs that show a full page rather than a resource table.
 const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview', 'NatsMonitoring']);
 
-// Scroll offset of each list, by cluster and tree node. Kept out of the store:
-// the table reports it on every scroll frame and only a remount reads it.
-const scrollPositions = new Map<string, number>();
+// Scroll offset of each list, by cluster and list. Kept out of the store: the
+// table reports it on every scroll frame and only a remount reads it. It is
+// saved to localStorage (utils/scrollMemory) so a restart restores it.
 
 interface ResourceListProps {
   paneId?: string;
@@ -133,7 +135,18 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   const [showRemoveFinalizersConfirm, setShowRemoveFinalizersConfirm] = useState(false);
   const [actionMenu, setActionMenu] = useState<{ item: any; x: number; y: number } | null>(null);
   const [restartingItems, setRestartingItems] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
+  // The filter above the list comes back after a restart: it starts from the
+  // saved one and writes changes back (debounced) for the snapshot.
+  const [searchQuery, setSearchQuery] = useState(
+    () => useStore.getState().getCurrentTabState()?.listFilter || '',
+  );
+  const debouncedListFilter = useDebounce(searchQuery, 500);
+  useEffect(() => {
+    const saved = useStore.getState().getCurrentTabState()?.listFilter || '';
+    if (saved !== debouncedListFilter) {
+      useStore.getState().updateCurrentTabState({ listFilter: debouncedListFilter });
+    }
+  }, [debouncedListFilter]);
   const [scaleDialog, setScaleDialog] = useState<{ item: any; currentReplicas: number } | null>(null);
   const [isScaling, setIsScaling] = useState(false);
   const [taintDialog, setTaintDialog] = useState<{ item: any } | null>(null);
@@ -583,11 +596,17 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     [columnSignature],
   );
 
-  const scrollPositionKey = `${currentTab}-${selectedNode?.id || 'none'}`;
-  const scrollPosition = scrollPositions.get(scrollPositionKey);
+  // Keyed by the resource, not the tree node id: a restored node is rebuilt
+  // from the resource alone.
+  const scrollListKey =
+    selectedNode?.type === 'resource' && selectedNode.data?.name
+      ? `${selectedNode.data.group || ''}/${selectedNode.data.version}/${selectedNode.data.name}`
+      : selectedNode?.id || 'none';
+  const scrollPositionKey = `${currentTab}-${scrollListKey}`;
+  const scrollPosition = getScrollPosition(scrollPositionKey);
   const handleScrollChange = useCallback(
     (position: number) => {
-      scrollPositions.set(scrollPositionKey, position);
+      setScrollPosition(scrollPositionKey, position);
     },
     [scrollPositionKey],
   );
