@@ -624,7 +624,8 @@ func sortCachedItems(items []map[string]interface{}, sortBy, sortOrder string) {
 const maxSnapshotItems = 2500
 
 // snapshotEligible reports whether a topic's items should be persisted for
-// stale-then-fresh cold starts. Events already have a DB-backed instant path.
+// stale-then-fresh cold starts. Core events expire within an hour, so a
+// snapshot from an earlier session would mostly hold events that are gone.
 func snapshotEligible(topic string) (cluster string, ok bool) {
 	cluster, group, _, kind, _, parsed := topics.ParseItemsTopic(topic)
 	if !parsed || (group == "" && kind == "events") {
@@ -1001,165 +1002,104 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 	epoch := s.nextEpoch(topic)
 	currentItems := make(map[string]bool)
 	var listResourceVersion string
-	isFirstPage := true
 
-	if gvr.Resource == "events" && s.db != nil {
-		// Stored events are not the cluster's current set, so this sync is
-		// not authoritative: without an epoch the client keeps its rows.
-		epoch = 0
-		log.Printf("Fetching events from DB for cluster %s", cluster)
-		events, dbErr := s.db.GetClusterEvents(cluster, 1000)
-		if dbErr != nil {
-			log.Printf("Failed to fetch events from DB: %v", dbErr)
-			return "", dbErr
+	// Events are listed from the cluster like every other kind: the event
+	// listener's store keeps rows for 30 days whether or not the events still
+	// exist.
+	scoped := resource
+	if namespace != "" {
+		scoped = resource.Namespace(namespace)
+	}
+	// The full list is fetched concurrently with the quick first page,
+	// with ResourceVersion=0 so the apiserver serves its watch cache in a
+	// single round trip — sequential Continue pages made large lists take
+	// pages×RTT on slow links.
+	type fullListResult struct {
+		list *unstructured.UnstructuredList
+		err  error
+	}
+	// Returning early (the first page failed) cancels the full list
+	// instead of downloading a whole list nobody reads.
+	listCtx, cancelList := context.WithCancel(ctx)
+	defer cancelList()
+	fullCh := make(chan fullListResult, 1)
+	go func() {
+		list, err := scoped.List(listCtx, metav1.ListOptions{ResourceVersion: "0"})
+		fullCh <- fullListResult{list, err}
+	}()
+	colsCh := make(chan []printercolumns.Column, 1)
+	go func() {
+		colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
+	}()
+
+	firstList, err := scoped.List(ctx, metav1.ListOptions{Limit: firstPageSize})
+	if err != nil {
+		log.Printf("k8s watcher: failed to list %s: %v", topic, err)
+		if isCredErr, code, msg := isCredentialError(err); isCredErr {
+			s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
 		}
-		var pageItems []map[string]interface{}
-		for _, e := range events {
-			item := map[string]interface{}{
-				"metadata": map[string]interface{}{
-					"name":              e.Name,
-					"namespace":         e.Namespace,
-					"uid":               e.UID,
-					"creationTimestamp": e.CreatedAt.Format(time.RFC3339),
-					"resourceVersion":   "",
-				},
-				"involvedObject": map[string]interface{}{
-					"kind":            e.InvolvedObjectKind,
-					"namespace":       e.InvolvedObjectNamespace,
-					"name":            e.InvolvedObjectName,
-					"uid":             e.InvolvedObjectUID,
-					"apiVersion":      e.InvolvedObjectAPIVersion,
-					"resourceVersion": "",
-				},
-				"type":           e.Type,
-				"reason":         e.Reason,
-				"message":        e.Message,
-				"count":          e.Count,
-				"firstTimestamp": e.FirstTimestamp.Format(time.RFC3339),
-				"lastTimestamp":  e.LastTimestamp.Format(time.RFC3339),
-				"eventTime":      e.EventTime.Format(time.RFC3339),
-				"source": map[string]interface{}{
-					"component": e.SourceComponent,
-					"host":      e.SourceHost,
-				},
-				"kind":       "Event",
-				"apiVersion": "v1",
-				"name":       e.Name,
-				"namespace":  e.Namespace,
-				"uid":        e.UID,
-				"cluster":    e.Cluster,
+		return "", err
+	}
+	// Items already sent in the full first page are skipped in the RV=0
+	// sweep unless their resourceVersion moved in between.
+	sentRV := make(map[string]string)
+	cols := <-colsCh
+	if firstList != nil && len(firstList.Items) > 0 {
+		pre := listadapters.IsPresimplified(firstList)
+		pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
+		fullPageItems := make([]map[string]interface{}, 0, len(firstList.Items))
+		for i := range firstList.Items {
+			var full, minimal map[string]interface{}
+			if pre {
+				full = firstList.Items[i].Object
+				minimal = listadapters.MinimalProjection(full)
+			} else {
+				full = s.simplifyListed(&firstList.Items[i], gvr, cols)
+				minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
+				copyPrinterColumns(minimal, full)
 			}
-			item["creationTimestamp"] = e.FirstTimestamp.Format(time.RFC3339)
-			if e.FirstTimestamp.IsZero() {
-				item["creationTimestamp"] = e.EventTime.Format(time.RFC3339)
+			pageItems = append(pageItems, minimal)
+			fullPageItems = append(fullPageItems, full)
+			rv, _ := full["resourceVersion"].(string)
+			sentRV[itemKeyOf(full)] = rv
+		}
+		// Membership comes from the full list alone: the watch resumes
+		// from its resourceVersion, so an object the first page saw but
+		// that was deleted before the full list would never get a delete
+		// event. The stale diff below removes it instead.
+		s.broadcastPage(topic, pageItems, nil, sortBy, sortOrder, true, epoch)
+		s.broadcastPage(topic, fullPageItems, nil, sortBy, sortOrder, false, epoch)
+	}
+
+	res := <-fullCh
+	if res.err != nil {
+		log.Printf("k8s watcher: failed to list %s: %v", topic, res.err)
+		if isCredErr, code, msg := isCredentialError(res.err); isCredErr {
+			s.sendClusterErrorWithDetails(cluster, code, msg, res.err.Error(), true)
+		}
+		return "", res.err
+	}
+	if res.list == nil {
+		return "", fmt.Errorf("list for %s returned no result", topic)
+	}
+	listResourceVersion = res.list.GetResourceVersion()
+	pre := listadapters.IsPresimplified(res.list)
+	for start := 0; start < len(res.list.Items); start += pageSize {
+		end := min(start+pageSize, len(res.list.Items))
+		pageItems := make([]map[string]interface{}, 0, end-start)
+		for i := start; i < end; i++ {
+			item := res.list.Items[i].Object
+			if !pre {
+				item = s.simplifyListed(&res.list.Items[i], gvr, cols)
+			}
+			key := itemKeyOf(item)
+			currentItems[key] = true
+			if rv, seen := sentRV[key]; seen && rv == item["resourceVersion"] {
+				continue
 			}
 			pageItems = append(pageItems, item)
-			if len(pageItems) >= pageSize {
-				s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, isFirstPage, epoch)
-				isFirstPage = false
-				pageItems = pageItems[:0]
-			}
 		}
-		if len(pageItems) > 0 {
-			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, isFirstPage, epoch)
-		}
-		listResourceVersion = "0"
-	} else {
-		scoped := resource
-		if namespace != "" {
-			scoped = resource.Namespace(namespace)
-		}
-		// The full list is fetched concurrently with the quick first page,
-		// with ResourceVersion=0 so the apiserver serves its watch cache in a
-		// single round trip — sequential Continue pages made large lists take
-		// pages×RTT on slow links.
-		type fullListResult struct {
-			list *unstructured.UnstructuredList
-			err  error
-		}
-		// Returning early (the first page failed) cancels the full list
-		// instead of downloading a whole list nobody reads.
-		listCtx, cancelList := context.WithCancel(ctx)
-		defer cancelList()
-		fullCh := make(chan fullListResult, 1)
-		go func() {
-			list, err := scoped.List(listCtx, metav1.ListOptions{ResourceVersion: "0"})
-			fullCh <- fullListResult{list, err}
-		}()
-		colsCh := make(chan []printercolumns.Column, 1)
-		go func() {
-			colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
-		}()
-
-		firstList, err := scoped.List(ctx, metav1.ListOptions{Limit: firstPageSize})
-		if err != nil {
-			log.Printf("k8s watcher: failed to list %s: %v", topic, err)
-			if isCredErr, code, msg := isCredentialError(err); isCredErr {
-				s.sendClusterErrorWithDetails(cluster, code, msg, err.Error(), true)
-			}
-			return "", err
-		}
-		// Items already sent in the full first page are skipped in the RV=0
-		// sweep unless their resourceVersion moved in between.
-		sentRV := make(map[string]string)
-		cols := <-colsCh
-		if firstList != nil && len(firstList.Items) > 0 {
-			pre := listadapters.IsPresimplified(firstList)
-			pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
-			fullPageItems := make([]map[string]interface{}, 0, len(firstList.Items))
-			for i := range firstList.Items {
-				var full, minimal map[string]interface{}
-				if pre {
-					full = firstList.Items[i].Object
-					minimal = listadapters.MinimalProjection(full)
-				} else {
-					full = s.simplifyListed(&firstList.Items[i], gvr, cols)
-					minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
-					copyPrinterColumns(minimal, full)
-				}
-				pageItems = append(pageItems, minimal)
-				fullPageItems = append(fullPageItems, full)
-				rv, _ := full["resourceVersion"].(string)
-				sentRV[itemKeyOf(full)] = rv
-			}
-			// Membership comes from the full list alone: the watch resumes
-			// from its resourceVersion, so an object the first page saw but
-			// that was deleted before the full list would never get a delete
-			// event. The stale diff below removes it instead.
-			s.broadcastPage(topic, pageItems, nil, sortBy, sortOrder, true, epoch)
-			s.broadcastPage(topic, fullPageItems, nil, sortBy, sortOrder, false, epoch)
-		}
-
-		res := <-fullCh
-		if res.err != nil {
-			log.Printf("k8s watcher: failed to list %s: %v", topic, res.err)
-			if isCredErr, code, msg := isCredentialError(res.err); isCredErr {
-				s.sendClusterErrorWithDetails(cluster, code, msg, res.err.Error(), true)
-			}
-			return "", res.err
-		}
-		if res.list == nil {
-			return "", fmt.Errorf("list for %s returned no result", topic)
-		}
-		listResourceVersion = res.list.GetResourceVersion()
-		pre := listadapters.IsPresimplified(res.list)
-		for start := 0; start < len(res.list.Items); start += pageSize {
-			end := min(start+pageSize, len(res.list.Items))
-			pageItems := make([]map[string]interface{}, 0, end-start)
-			for i := start; i < end; i++ {
-				item := res.list.Items[i].Object
-				if !pre {
-					item = s.simplifyListed(&res.list.Items[i], gvr, cols)
-				}
-				key := itemKeyOf(item)
-				currentItems[key] = true
-				if rv, seen := sentRV[key]; seen && rv == item["resourceVersion"] {
-					continue
-				}
-				pageItems = append(pageItems, item)
-			}
-			s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch)
-		}
+		s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch)
 	}
 
 	// The quick first page and the full RV=0 list overlap, so the true item

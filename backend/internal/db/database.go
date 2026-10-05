@@ -70,6 +70,22 @@ type SSOSession struct {
 	UpdatedAt int64  `json:"updatedAt"`
 }
 
+// mainDSN opens the main database in WAL mode with a private cache per pooled
+// connection. Shared-cache mode would put every connection behind one pager
+// with table-level locks, so the event listener's writes would block reads of
+// the events and incidents views that WAL otherwise lets run alongside them.
+// Pragmas are DSN parameters so each connection the pool opens gets them; an
+// Exec after opening reaches only one of them. The page cache is per
+// connection, so it is kept modest; mmap covers reads across all of them.
+// Transactions begin IMMEDIATE: a deferred one that reads first cannot take
+// the write lock once another connection has committed, and fails at once
+// instead of waiting out busy_timeout like a writer queued at BEGIN does.
+func mainDSN(path string) string {
+	return "file:" + path + "?mode=rwc&_txlock=immediate" +
+		"&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)" +
+		"&_pragma=cache_size(-16000)&_pragma=temp_store(MEMORY)&_pragma=mmap_size(268435456)"
+}
+
 func New() (*DB, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
@@ -82,15 +98,13 @@ func New() (*DB, error) {
 	}
 
 	dbPath := filepath.Join(dbDir, "kanivet.db")
-	dsn := "file:" + dbPath + "?cache=shared&mode=rwc&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(5000)"
-	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
+	db, err := gorm.Open(sqlite.Open(mainDSN(dbPath)), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	// Optimize SQLite for better performance
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
@@ -99,14 +113,6 @@ func New() (*DB, error) {
 	// Set connection pool settings - SQLite only supports one writer but can have multiple readers
 	sqlDB.SetMaxOpenConns(10) // Allow multiple readers
 	sqlDB.SetMaxIdleConns(5)
-
-	// Execute PRAGMA statements for better performance
-	db.Exec("PRAGMA cache_size = -128000") // 128MB cache (increased from 64MB)
-	db.Exec("PRAGMA temp_store = MEMORY")
-	db.Exec("PRAGMA mmap_size = 536870912")   // 512MB memory-mapped I/O (increased from 256MB)
-	db.Exec("PRAGMA page_size = 8192")        // Larger page size for better performance
-	db.Exec("PRAGMA locking_mode = NORMAL")   // Allow concurrent access
-	db.Exec("PRAGMA read_uncommitted = true") // Allow dirty reads for better concurrency
 
 	if err := db.AutoMigrate(&ClusterGroup{}, &ClusterAssignment{}, &ClusterAlias{}, &SSOSession{}, &ClusterMetricsSettings{}, &ClusterAWSBinding{}); err != nil {
 		return nil, err

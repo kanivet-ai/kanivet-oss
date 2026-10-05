@@ -315,6 +315,9 @@ func main() {
 	defer podCache.Close()
 	dashboardHandler := handlers.NewDashboardHandler(k8sClient, wsServer.Hub())
 	dashboardHandler.SetPodLister(podCache)
+	if el := apiHandler.GetEventListener(); el != nil {
+		dashboardHandler.SetRecentEvents(el.RecentEvents)
+	}
 	wsServer.RegisterHandler("dashboard", dashboardHandler)
 
 	// Setup themes service

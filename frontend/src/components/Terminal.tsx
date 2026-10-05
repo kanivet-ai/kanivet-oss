@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import TerminalManager from '../services/terminalManager';
 import TerminalSearch, { SearchOptions } from './TerminalSearch';
 import { getWsBase } from '../services/api/types';
+import { terminalOutputData } from '../utils/terminalOutput';
 import 'xterm/css/xterm.css';
 import './Terminal.css';
 
@@ -173,10 +174,9 @@ const Terminal = ({
               session?.terminal.focus();
             } else if (payload.type === 'output' && payload.data) {
               const session = manager.getSession(tabId);
-              const data = payload.encoding === 'base64'
-                ? atob(payload.data)
-                : payload.data;
-              session?.terminal.write(data);
+              session?.terminal.write(
+                terminalOutputData(payload.data, payload.encoding),
+              );
             } else if (payload.type === 'error') {
               const session = manager.getSession(tabId);
               session?.terminal.writeln(`\r\nError: ${payload.error}`);

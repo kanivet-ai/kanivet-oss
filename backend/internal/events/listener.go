@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/db"
@@ -30,6 +31,9 @@ type clusterListener struct {
 	cancel   context.CancelFunc
 	isActive bool
 	lastSync time.Time
+	// synced is set once the initial list has been stored, from when the
+	// database holds the cluster's current events.
+	synced atomic.Bool
 }
 
 func NewEventListener(k8sClient k8s.Interface, database *db.DB) *EventListener {
@@ -86,6 +90,34 @@ func (el *EventListener) IsListening(cluster string) bool {
 	return exists && listener.isActive
 }
 
+// RecentEvents returns the cluster's n most recent stored events, starting the
+// cluster's listener if it is not running. It reports false until that
+// listener has stored its initial list: rows kept from an earlier session are
+// up to 30 days old and would hide what is happening now.
+func (el *EventListener) RecentEvents(cluster string, n int) ([]db.K8sEvent, bool) {
+	if el.db == nil {
+		return nil, false
+	}
+	if !el.IsListening(cluster) {
+		if err := el.StartListening(cluster); err != nil {
+			log.Printf("Failed to start event listener for cluster %s: %v", cluster, err)
+			return nil, false
+		}
+	}
+	el.mu.RLock()
+	listener := el.listeners[cluster]
+	el.mu.RUnlock()
+	if listener == nil || !listener.synced.Load() {
+		return nil, false
+	}
+	events, err := el.db.GetRecentClusterEvents(cluster, n)
+	if err != nil {
+		log.Printf("Failed to read recent events for cluster %s: %v", cluster, err)
+		return nil, false
+	}
+	return events, true
+}
+
 // watchEvents lists once, then watches from the list's resourceVersion and keeps
 // following the latest seen version across reconnects. Watching without a
 // version made the apiserver replay every existing event on each reconnect.
@@ -103,6 +135,8 @@ func (el *EventListener) watchEvents(ctx context.Context, listener *clusterListe
 			listRV, err := el.syncExistingEvents(ctx, listener)
 			if err != nil {
 				log.Printf("Failed to sync existing events for cluster %s: %v", listener.cluster, err)
+			} else {
+				listener.synced.Store(true)
 			}
 			rv = listRV
 		}

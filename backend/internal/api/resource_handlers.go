@@ -17,6 +17,17 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
 
+// Discovery results and category resource counts are refreshed in the
+// background once their TTL passes, and served stale meanwhile for up to their
+// max-stale window. Watch events only mark the counts stale; CRD changes and
+// explicit invalidation drop discovery results outright.
+const (
+	apiResourcesTTL        = 5 * time.Minute
+	apiResourcesMaxStale   = time.Hour
+	categoryCountsTTL      = 2 * time.Minute
+	categoryCountsMaxStale = 15 * time.Minute
+)
+
 func (h *Handler) GetCategoriesQuery(c *gin.Context) {
 	cluster, ok := h.requireCluster(c)
 	if !ok {
@@ -45,7 +56,7 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 		switch category {
 		case "custom":
 			cacheKey := h.cache.BuildKey("api-resources", cluster)
-			data, err := h.cache.GetOrSet(cacheKey, 5*time.Minute, func() (interface{}, error) {
+			data, err := h.cache.GetOrSetSWR(cacheKey, apiResourcesTTL, apiResourcesMaxStale, func() (interface{}, error) {
 				return h.k8s.ListAPIResources(cluster)
 			})
 			if err != nil {
@@ -90,7 +101,7 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 	}
 
 	cacheKey := h.cache.BuildKey("resources", cluster, category)
-	data, err := h.cache.GetOrSet(cacheKey, 2*time.Minute, func() (interface{}, error) {
+	data, err := h.cache.GetOrSetSWR(cacheKey, categoryCountsTTL, categoryCountsMaxStale, func() (interface{}, error) {
 		switch category {
 		case "custom":
 			resources, err := h.k8s.ListAPIResources(cluster)
@@ -683,7 +694,7 @@ func (h *Handler) ListAPIResources(c *gin.Context) {
 		return
 	}
 	cacheKey := h.cache.BuildKey("api-resources", cluster)
-	data, err := h.cache.GetOrSet(cacheKey, 5*time.Minute, func() (interface{}, error) {
+	data, err := h.cache.GetOrSetSWR(cacheKey, apiResourcesTTL, apiResourcesMaxStale, func() (interface{}, error) {
 		return h.k8s.ListAPIResources(cluster)
 	})
 	if err != nil {
