@@ -125,6 +125,10 @@ type Client struct {
 	mu                  sync.RWMutex
 	portForwardManager  *PortForwardManager
 	resourceNameCache   map[string]string
+	// resourceNameGuesses marks resourceNameCache entries guessed after a
+	// failed discovery lookup, with when to retry it. Guarded by
+	// resourceNameMu.
+	resourceNameGuesses map[string]time.Time
 	// preferredVersions records, per cluster, the version each API group
 	// serves as preferred (from discovery), so indexers can skip the other
 	// served versions of the same resources. Guarded by resourceNameMu.
@@ -852,20 +856,34 @@ func (c *Client) ResolveKindToResource(cluster, group, version, kind string) (st
 func (c *Client) GetResourceName(cluster, group, version, kind string) string {
 	cacheKey := cluster + ":" + group + ":" + version + ":" + kind
 	c.resourceNameMu.RLock()
-	if cached, ok := c.resourceNameCache[cacheKey]; ok {
-		c.resourceNameMu.RUnlock()
+	cached, ok := c.resourceNameCache[cacheKey]
+	guessedUntil, guessed := c.resourceNameGuesses[cacheKey]
+	c.resourceNameMu.RUnlock()
+	if ok && (!guessed || time.Now().Before(guessedUntil)) {
 		return cached
 	}
-	c.resourceNameMu.RUnlock()
 	resourceName, err := c.ResolveKindToResource(cluster, group, version, kind)
-	if err != nil {
-		resourceName = utils.PluralizeKind(kind)
-	}
 	c.resourceNameMu.Lock()
+	if err != nil {
+		// A transient discovery failure must not pin a guessed plural for
+		// good: a custom resource with an irregular one would be watched
+		// and edited at the wrong endpoint until the cluster is refreshed.
+		resourceName = utils.PluralizeKind(kind)
+		if c.resourceNameGuesses == nil {
+			c.resourceNameGuesses = make(map[string]time.Time)
+		}
+		c.resourceNameGuesses[cacheKey] = time.Now().Add(resourceNameGuessTTL)
+	} else {
+		delete(c.resourceNameGuesses, cacheKey)
+	}
 	c.resourceNameCache[cacheKey] = resourceName
 	c.resourceNameMu.Unlock()
 	return resourceName
 }
+
+// resourceNameGuessTTL is how long GetResourceName serves a plural guessed
+// after discovery failed before asking discovery again.
+const resourceNameGuessTTL = 30 * time.Second
 
 type ClusterStatus struct {
 	Name           string `json:"name"`
@@ -1634,6 +1652,7 @@ func (c *Client) UpdateResource(ctx context.Context, cluster string, gvr schema.
 		resourceInterface = dynamicClient.Resource(gvr)
 	}
 
+	keepLastApplied(ctx, resourceInterface, name, obj)
 	result, err := resourceInterface.Update(ctx, obj, metav1.UpdateOptions{})
 	if err != nil {
 		if apierrors.IsNotFound(err) {
@@ -1646,6 +1665,33 @@ func (c *Client) UpdateResource(ctx context.Context, cluster string, gvr schema.
 	}
 
 	return result, nil
+}
+
+const lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// keepLastApplied carries the live object's kubectl last-applied-configuration
+// over to obj when obj has none. The editor loads objects through the detail
+// endpoint, which hides that annotation, so a full Update of what it saves
+// would delete it from the object and break later `kubectl apply` diffs and
+// pruning. A failed lookup leaves obj as it is.
+func keepLastApplied(ctx context.Context, ri dynamic.ResourceInterface, name string, obj *unstructured.Unstructured) {
+	ann := obj.GetAnnotations()
+	if _, ok := ann[lastAppliedAnnotation]; ok {
+		return
+	}
+	live, err := ri.Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return
+	}
+	applied, ok := live.GetAnnotations()[lastAppliedAnnotation]
+	if !ok {
+		return
+	}
+	if ann == nil {
+		ann = map[string]string{}
+	}
+	ann[lastAppliedAnnotation] = applied
+	obj.SetAnnotations(ann)
 }
 
 func (c *Client) CreateResource(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace, name string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error) {

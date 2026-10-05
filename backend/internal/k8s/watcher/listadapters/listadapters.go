@@ -1,6 +1,8 @@
 package listadapters
 
 import (
+	"strings"
+
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -42,7 +44,9 @@ func baseMeta(u *unstructured.Unstructured, gvr schema.GroupVersionResource) map
 			item["labels"] = v
 		}
 		if v, ok := meta["annotations"]; ok {
-			item["annotations"] = v
+			if ann := listAnnotations(v); ann != nil {
+				item["annotations"] = ann
+			}
 		}
 		if v, ok := meta["ownerReferences"]; ok {
 			item["ownerReferences"] = v
@@ -58,6 +62,61 @@ func baseMeta(u *unstructured.Unstructured, gvr schema.GroupVersionResource) map
 	}
 	item["apiVersion"] = u.GetAPIVersion()
 	return item
+}
+
+// lastAppliedAnnotation is where kubectl apply keeps the whole applied
+// manifest, Secret data included.
+const lastAppliedAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// omittedAnnotationPrefixes are other copies of the applied manifest (kapp,
+// banzaicloud) and the service account tokens vcluster stamps on synced
+// objects.
+var omittedAnnotationPrefixes = []string{"kapp.k14s.io/original", "banzaicloud.io/last-applied", "vcluster.loft.sh/token-"}
+
+// omitAnnotation reports whether a list row leaves an annotation out. List
+// rows go to the renderer, are filtered on every keystroke and are persisted
+// as snapshots, so they never carry these blobs; the detail view still loads
+// the full object.
+func omitAnnotation(key string) bool {
+	if key == lastAppliedAnnotation {
+		return true
+	}
+	for _, p := range omittedAnnotationPrefixes {
+		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// listAnnotations returns the annotations a list row keeps. The object's own
+// map is never modified: it is returned as is when nothing is omitted, and a
+// filtered copy otherwise (nil when nothing is left).
+func listAnnotations(v interface{}) interface{} {
+	ann, ok := v.(map[string]interface{})
+	if !ok {
+		return v
+	}
+	omit := false
+	for k := range ann {
+		if omitAnnotation(k) {
+			omit = true
+			break
+		}
+	}
+	if !omit {
+		return ann
+	}
+	out := make(map[string]interface{}, len(ann))
+	for k, val := range ann {
+		if !omitAnnotation(k) {
+			out[k] = val
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func setStr(dst, src map[string]interface{}, srcKey, dstKey string) {

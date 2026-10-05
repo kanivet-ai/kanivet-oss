@@ -30,7 +30,10 @@ func DefaultHubConfig() *HubConfig {
 		HeartbeatInterval: 30 * time.Second,
 		MaxConnections:    10000,
 		MaxMessageSize:    10 * 1024 * 1024,
-		EnableCompression: true,
+		// The backend only listens on loopback, where permessage-deflate
+		// saves no transfer time and costs a deflate in the write pump and an
+		// inflate in the renderer's network process for every frame.
+		EnableCompression: false,
 		EnableMetrics:     true,
 		SendChannelSize:   2048,
 	}

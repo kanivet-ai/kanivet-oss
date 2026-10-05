@@ -15,7 +15,7 @@ import (
 // once per database and is recorded as soon as it completes, so a database
 // created by any earlier release is brought forward on its first start after
 // an update.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // searchRowRetention bounds how long a searchable_resources row survives
 // without being refreshed by a watch event or an indexing sweep. Rows are a
@@ -48,6 +48,7 @@ func (db *DB) runVersionedMigrations() error {
 	}{
 		{1, "drop legacy search indexes, purge stale rows, reclaim space", db.migrateV1},
 		{2, "purge search rows whose kind or id predate kind normalization", db.migrateV2},
+		{3, "purge list snapshots that carried last-applied annotations", db.migrateV3},
 	}
 	for _, step := range steps {
 		if current >= step.version {
@@ -114,6 +115,25 @@ func (db *DB) migrateV2() error {
 	}
 	if removed > 0 {
 		log.Printf("[DB] purged %d search rows written before kind normalization", removed)
+	}
+	db.reclaimSpace(false)
+	return nil
+}
+
+// migrateV3 deletes every list snapshot. Earlier releases copied all of an
+// object's annotations into list rows, including kubectl's
+// last-applied-configuration, so Secret snapshots held the Secret's values in
+// plain text. Snapshots are a cache the next list of each topic rewrites.
+func (db *DB) migrateV3() error {
+	if !db.Migrator().HasTable(&ListSnapshot{}) {
+		return nil
+	}
+	res := db.Exec("DELETE FROM list_snapshots")
+	if res.Error != nil {
+		return res.Error
+	}
+	if res.RowsAffected > 0 {
+		log.Printf("[DB] purged %d list snapshots", res.RowsAffected)
 	}
 	db.reclaimSpace(false)
 	return nil

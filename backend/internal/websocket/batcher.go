@@ -47,6 +47,8 @@ type topicBatch struct {
 	flushMu sync.Mutex
 	timer   *time.Timer
 	batcher *EventBatcher
+	// lastFlush is when events last went out, guarded by mu.
+	lastFlush time.Time
 }
 
 func coalesceKey(item map[string]interface{}) string {
@@ -182,10 +184,11 @@ func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 	batch, exists := eb.batches[topic]
 	if !exists {
 		batch = &topicBatch{
-			topic:   topic,
-			events:  make([]batchedEvent, 0, eb.maxBatchSize),
-			index:   make(map[string]int, eb.maxBatchSize),
-			batcher: eb,
+			topic:     topic,
+			events:    make([]batchedEvent, 0, eb.maxBatchSize),
+			index:     make(map[string]int, eb.maxBatchSize),
+			batcher:   eb,
+			lastFlush: time.Now(),
 		}
 		eb.batches[topic] = batch
 	}
@@ -206,7 +209,14 @@ func (eb *EventBatcher) AddEvent(topic string, msg core.Message) error {
 	}
 
 	if batch.timer == nil {
-		batch.timer = time.AfterFunc(eb.batchInterval, func() {
+		// Flush at most once per interval, measured from the last flush
+		// rather than from this event: a change on a topic that has been
+		// quiet for a whole interval goes out at once instead of waiting
+		// the full window, while the rest of its burst still coalesces
+		// (the timer runs on its own goroutine) and a busy topic keeps
+		// flushing once per interval.
+		delay := max(eb.batchInterval-time.Since(batch.lastFlush), 0)
+		batch.timer = time.AfterFunc(delay, func() {
 			if eb.ctx.Err() != nil {
 				return
 			}
@@ -257,6 +267,7 @@ func (eb *EventBatcher) flushExtracted(batch *topicBatch) error {
 	events := batch.events
 	batch.events = make([]batchedEvent, 0, eb.maxBatchSize)
 	batch.index = make(map[string]int, eb.maxBatchSize)
+	batch.lastFlush = time.Now()
 	batch.mu.Unlock()
 
 	raws := make([]json.RawMessage, len(events))

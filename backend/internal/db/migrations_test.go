@@ -249,3 +249,37 @@ func TestVersionedMigrationV2PurgesNonCanonicalSearchRows(t *testing.T) {
 		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
 	}
 }
+
+// Snapshots written by earlier releases kept kubectl's last-applied
+// annotation in list rows, Secret values included, so the update drops them
+// all once; snapshots written afterwards are left alone.
+func TestVersionedMigrationV3PurgesListSnapshots(t *testing.T) {
+	d := newMigratedTestDB(t)
+	if err := d.setSchemaVersion(2); err != nil {
+		t.Fatal(err)
+	}
+	leaked := `[{"name":"db","annotations":{"kubectl.kubernetes.io/last-applied-configuration":"{\"data\":{\"password\":\"aHVudGVyMg==\"}}"}}]`
+	if err := d.SaveListSnapshot("items:c1::v1:secrets:", "c1", []byte(leaked)); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := d.runVersionedMigrations(); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if got := countRows(t, d, "list_snapshots"); got != 0 {
+		t.Fatalf("list_snapshots rows = %d, want 0", got)
+	}
+	if v := d.currentSchemaVersion(); v != schemaVersion {
+		t.Fatalf("user_version = %d, want %d", v, schemaVersion)
+	}
+
+	if err := d.SaveListSnapshot("items:c1::v1:secrets:", "c1", []byte(`[{"name":"db"}]`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.runVersionedMigrations(); err != nil {
+		t.Fatalf("second migrate: %v", err)
+	}
+	if got := countRows(t, d, "list_snapshots"); got != 1 {
+		t.Fatalf("a later start must keep new snapshots, rows = %d", got)
+	}
+}
