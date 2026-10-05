@@ -1,3 +1,5 @@
+// The NATS.io logo (Simple Icons, CC0), single colour like the other brand
+// icons so it follows the text colour in every theme and selection state.
 const NatsIcon = ({
   className = '',
   width = 15,
@@ -11,26 +13,12 @@ const NatsIcon = ({
     width={width}
     height={height}
     viewBox="0 0 24 24"
-    fill="none"
+    fill="currentColor"
     xmlns="http://www.w3.org/2000/svg"
     className={className}
+    aria-hidden="true"
   >
-    <circle cx="6" cy="12" r="2.4" fill="currentColor" />
-    <path
-      d="M11 8.2a5.4 5.4 0 0 1 0 7.6M14.4 5.4a9.4 9.4 0 0 1 0 13.2"
-      stroke="currentColor"
-      strokeWidth="1.7"
-      strokeLinecap="round"
-      fill="none"
-    />
-    <path
-      d="M17.6 3a12.6 12.6 0 0 1 0 18"
-      stroke="currentColor"
-      strokeWidth="1.4"
-      strokeLinecap="round"
-      fill="none"
-      opacity="0.55"
-    />
+    <path d="M12.004 0H.404v18.807h9.938l1.714 1.602v-.026L15.966 24v-5.193h7.63V0H12.003zm7.578 14.45H15.38L6.898 6.519v7.93H4.116V4.376h4.349l8.344 7.784V4.375h2.773V14.45z" />
   </svg>
 );
 
