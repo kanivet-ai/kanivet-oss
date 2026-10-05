@@ -406,7 +406,8 @@ func (s *Service) GetEvidence(ctx context.Context, q WorkloadQuery) (*Evidence, 
 		}
 		ev.Profiles[c.name] = snaps
 
-		var evs []Event
+		// Never nil: a container without events is an empty list, not null.
+		evs := []Event{}
 		oomAt := map[int64]bool{}
 		for _, t := range oom {
 			oomAt[t.Unix()] = true

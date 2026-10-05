@@ -1,4 +1,11 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   Cross2Icon,
   DownloadIcon,
@@ -16,11 +23,11 @@ import { parseClusterName } from '../../utils/clusterUtils';
 import { Tooltip } from '../common/Tooltip';
 import { workloadResource } from '../finops/finopsView';
 import { useFinOpsNavigation } from '../finops/useFinOpsNavigation';
-import { HistorySourceState } from './RightsizingParts';
+import { HistorySourceState, RelativeTime } from './RightsizingParts';
 import { EvidenceSheet } from './lazyEvidenceSheet';
 import { MethodologySheet } from './MethodologySheet';
 import { FacetMenu } from './FacetMenu';
-import { RightsizingTable, workloadId } from './RightsizingTable';
+import { RightsizingTable } from './RightsizingTable';
 import {
   PROFILE_META,
   VERDICT_META,
@@ -35,12 +42,12 @@ import {
   groupWorkloads,
   hasChange,
   namespaceOf,
-  relativeTime,
   releaseOf,
   sortWorkloads,
   teamOf,
   toCSV,
   toMarkdown,
+  workloadId,
   type GroupKey,
   type SortKey,
   type TriageFilters,
@@ -151,6 +158,10 @@ function saveView(cluster: string, v: ViewState) {
   }
 }
 
+/** Rows link to the workload's detail view where there is one to open. */
+const canOpenWorkload = (w: WorkloadReport) =>
+  !!workloadResource(w.kind) && !w.vclusterNamespace;
+
 const activeCount = (f: TriageFilters) =>
   f.verdicts.size +
   f.namespaces.size +
@@ -260,9 +271,17 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
   const [exportOpen, setExportOpen] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const nav = useFinOpsNavigation(cluster);
 
-  useEffect(() => setView(loadView(cluster)), [cluster]);
+  // The first view comes from the initial state; reloading it on mount would
+  // hand every memo below a new, equal object.
+  const viewCluster = useRef(cluster);
+  useEffect(() => {
+    if (viewCluster.current === cluster) return;
+    viewCluster.current = cluster;
+    setView(loadView(cluster));
+  }, [cluster]);
   useEffect(() => saveView(cluster, view), [cluster, view]);
 
   const f = view.filters;
@@ -270,7 +289,9 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
     setView((v) => ({ ...v, filters: { ...v.filters, ...patch } }));
 
   const workloads = report?.workloads ?? [];
-  const filters = useMemo(() => ({ ...f, search }), [f, search]);
+  // Typing stays responsive however many workloads the search runs over.
+  const query = useDeferredValue(search);
+  const filters = useMemo(() => ({ ...f, search: query }), [f, query]);
   const filtered = useMemo(
     () => filterWorkloads(workloads, filters),
     [workloads, filters],
@@ -333,6 +354,34 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
       setTimeout(() => setCopied(null), 1600);
     });
 
+  // Stable, so the memoised table and its rows skip renders that change
+  // nothing they show.
+  const toggleSelected = useCallback(
+    (id: string) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      }),
+    [],
+  );
+  const toggleMany = useCallback(
+    (ids: string[], on: boolean) =>
+      setSelected((prev) => {
+        const next = new Set(prev);
+        ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
+        return next;
+      }),
+    [],
+  );
+  const openDetail = nav.openWorkload;
+  const openWorkload = useCallback(
+    (w: WorkloadReport) => openDetail(w.kind, w.namespace, w.name),
+    [openDetail],
+  );
+  const closeSheet = useCallback(() => setOpen(null), []);
+
   const toggleVerdict = (v: Verdict) => {
     const next = new Set(f.verdicts);
     if (next.has(v)) next.delete(v);
@@ -341,11 +390,13 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
   };
 
   const onRootKey = (e: React.KeyboardEvent) => {
+    // Keys in the sheet bubble here through its portal; they are the sheet's.
+    if (open) return;
     const typing = (e.target as HTMLElement).closest('input, select, textarea');
     if (e.key === '/' && !typing) {
       e.preventDefault();
       searchRef.current?.focus();
-    } else if (e.key === 'Escape' && !open) {
+    } else if (e.key === 'Escape') {
       if (typing) (e.target as HTMLElement).blur();
       if (selected.size > 0) setSelected(new Set());
       else if (search) setSearch('');
@@ -432,7 +483,7 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
               (p) => (
                 <Tooltip
                   key={p}
-                  content={`CPU covers ${PROFILE_META[p].cpu} of replica-time; memory gets ${PROFILE_META[p].mem} over its peak`}
+                  content={`CPU covers ${PROFILE_META[p].cpu} of replica-time; memory gets ${PROFILE_META[p].mem} over its peak, at least ${PROFILE_META[p].memFloor}`}
                 >
                   <button
                     aria-pressed={profile === p}
@@ -456,7 +507,7 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
           </select>
           {ready && report && (
             <span className="rs-updated">
-              Updated {relativeTime(report.computedAt)}
+              Updated <RelativeTime iso={report.computedAt} />
             </span>
           )}
           <Tooltip content="How recommendations are made">
@@ -545,8 +596,8 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
         <div className="finops-error finops-info" role="status">
           <InfoCircledIcon />
           <span>
-            Showing results from {relativeTime(report.computedAt)}; the latest
-            refresh failed: {report.refreshError}
+            Showing results from <RelativeTime iso={report.computedAt} />; the
+            latest refresh failed: {report.refreshError}
           </span>
           <button className="finops-banner-action" onClick={refresh}>
             Retry
@@ -561,7 +612,7 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
       )}
       {ready && report.progress && <Progress report={report} slim />}
 
-      <div className="rs-content">
+      <div className="rs-content" ref={contentRef}>
         {!report && !error && <Progress report={null} />}
         {report &&
           (report.status === 'computing' ||
@@ -844,27 +895,13 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
               groups={groups}
               groupBy={view.group}
               selected={selected}
-              onToggle={(id) =>
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  if (next.has(id)) next.delete(id);
-                  else next.add(id);
-                  return next;
-                })
-              }
-              onToggleMany={(ids, on) =>
-                setSelected((prev) => {
-                  const next = new Set(prev);
-                  ids.forEach((id) => (on ? next.add(id) : next.delete(id)));
-                  return next;
-                })
-              }
+              onToggle={toggleSelected}
+              onToggleMany={toggleMany}
               onOpen={setOpen}
-              openWorkload={(w) =>
-                workloadResource(w.kind) && !w.vclusterNamespace
-                  ? () => nav.openWorkload(w.kind, w.namespace, w.name)
-                  : undefined
-              }
+              canOpenWorkload={canOpenWorkload}
+              onOpenWorkload={openWorkload}
+              scrollRef={contentRef}
+              keyboardDisabled={!!open}
               emptyText={
                 workloads.length === 0
                   ? 'No running workloads'
@@ -940,12 +977,15 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
       {copied === 'md' && <div className="rs-toast">Markdown table copied</div>}
 
       {open && (
+        // Keyed: another workload is a new sheet, not this one's sliders
+        // and container tab carried over.
         <EvidenceSheet
+          key={workloadId(open)}
           cluster={cluster}
           workload={open}
           profile={profile}
           window={window}
-          onClose={() => setOpen(null)}
+          onClose={closeSheet}
           onChanged={reload}
         />
       )}

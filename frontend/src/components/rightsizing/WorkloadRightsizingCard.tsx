@@ -7,7 +7,7 @@ import {
   VerdictBadge,
 } from './RightsizingParts';
 import { EvidenceSheet } from './lazyEvidenceSheet';
-import { formatMoney, reasonTags } from './rightsizingView';
+import { formatMoney, reasonTags, workloadId } from './rightsizingView';
 import { Tooltip } from '../common/Tooltip';
 import {
   useRightsizingPrefs,
@@ -155,6 +155,7 @@ export const WorkloadRightsizingCard: React.FC<Props> = ({
       )}
       {open && (
         <EvidenceSheet
+          key={workloadId(w)}
           cluster={cluster}
           workload={w}
           profile={profile}

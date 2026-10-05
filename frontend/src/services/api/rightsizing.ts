@@ -37,6 +37,8 @@ export interface WorkloadRef {
   vclusterNamespace?: string;
 }
 
+/** A workload's evidence. While the metrics store is paused the backend
+ * answers 503 with Retry-After and `{ error, retryAfterSeconds }`. */
 export async function getRightsizingWorkload(
   cluster: string,
   ref: WorkloadRef,
@@ -44,6 +46,7 @@ export async function getRightsizingWorkload(
   window: RightsizingWindow,
   provider?: string,
   mode?: 'cached' | 'refresh',
+  signal?: AbortSignal,
 ): Promise<Evidence | null> {
   const response = await apiClient.getAxios().get('/rightsizing/workload', {
     params: {
@@ -59,6 +62,7 @@ export async function getRightsizingWorkload(
           : {}),
     },
     timeout: 120_000,
+    signal,
   });
   return response.status === 204 ? null : response.data.data;
 }

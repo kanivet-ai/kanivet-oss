@@ -1,9 +1,13 @@
+import type { CostRecommendation } from '../../types/finops';
 import type {
   StartupBoost,
   ContainerReport,
+  Evidence,
+  EvidenceEvent,
   Finding,
   Distribution,
   RightsizingProfile,
+  RightsizingSummary,
   Verdict,
   WorkloadReport,
 } from '../../types/rightsizing';
@@ -61,13 +65,25 @@ export const VERDICT_META: Record<
   },
 };
 
+/** Mirrors the backend's profile parameters (types.go): memory headroom over
+ * the peak is a share of it or a floor, whichever is larger. */
 export const PROFILE_META: Record<
   RightsizingProfile,
-  { label: string; cpu: string; mem: string }
+  { label: string; cpu: string; mem: string; memFloor: string }
 > = {
-  conservative: { label: 'Conservative', cpu: 'P99', mem: '+30%' },
-  balanced: { label: 'Balanced', cpu: 'P95', mem: '+15%' },
-  aggressive: { label: 'Aggressive', cpu: 'P90', mem: '+5%' },
+  conservative: {
+    label: 'Conservative',
+    cpu: 'P99',
+    mem: '30%',
+    memFloor: '64Mi',
+  },
+  balanced: { label: 'Balanced', cpu: 'P95', mem: '15%', memFloor: '32Mi' },
+  aggressive: {
+    label: 'Aggressive',
+    cpu: 'P90',
+    mem: '10%',
+    memFloor: '16Mi',
+  },
 };
 
 // ---- Formatting --------------------------------------------------------------
@@ -182,12 +198,18 @@ export function quantileAt(
 
 export interface CandidateEval {
   cpuTimeAbove: number;
+  /** Read off the report's few quantiles: the distribution isn't loaded. */
+  cpuApproximate: boolean;
   memPeakHeadroom: number; // candidate / observed peak - 1
   memDaysOver: number; // daily peaks above the candidate
   monthlyDelta: number; // positive = saves money
 }
 
-/** What a candidate request would have meant over the window. */
+const COARSE_Q = [0, 0.5, 0.9, 0.95, 0.99, 1];
+
+/** What a candidate request would have meant over the window. Until the
+ * evidence's distribution arrives, the report's own quantiles stand in for
+ * it, so the readout follows the slider from the first frame. */
 export function evaluateCandidate(
   c: ContainerReport,
   dist: Distribution | undefined,
@@ -196,7 +218,11 @@ export function evaluateCandidate(
 ): CandidateEval {
   const cpuTimeAbove = dist
     ? exceedance(dist.q, dist.cpu, cpu)
-    : c.cpu.timeAboveRequest;
+    : exceedance(
+        COARSE_Q,
+        [0, c.cpu.p50, c.cpu.p90, c.cpu.p95, c.cpu.p99, c.cpu.peak],
+        cpu,
+      );
   const peak = c.memory.peak || 0;
   const memDaysOver = dist
     ? dist.dailyMemPeaks.filter((p) => p > mem).length
@@ -206,6 +232,7 @@ export function evaluateCandidate(
     ((c.memory.request - mem) / GI) * c.memMonthly;
   return {
     cpuTimeAbove,
+    cpuApproximate: !dist,
     memPeakHeadroom: peak > 0 ? mem / peak - 1 : 0,
     memDaysOver,
     monthlyDelta,
@@ -243,17 +270,28 @@ export interface ContainerChoice {
   memoryLimit: number;
 }
 
-/** The recommendation as a choice, honouring the limit actions. */
+/** The recommendation as a choice, honouring the limit actions. A limit the
+ * engine keeps stays as it is (0: still unset), a CPU one rising only to a
+ * request picked above it; any other memory value, the recommendation's or
+ * one picked on the slider, is both request and limit. */
 export function choiceFromRec(
   c: ContainerReport,
   cpu = c.cpu.recommended,
   memory = c.memory.recommended,
 ): ContainerChoice {
   let cpuLimit = 0;
-  if (c.cpu.limitAction === 'keep' || c.cpu.limitAction === 'raise') {
+  if (
+    (c.cpu.limitAction === 'keep' && c.cpu.recommendedLimit > 0) ||
+    c.cpu.limitAction === 'raise'
+  ) {
     cpuLimit = Math.max(c.cpu.recommendedLimit, cpu);
   }
-  return { container: c.container, cpu, memory, cpuLimit, memoryLimit: memory };
+  const memoryLimit =
+    c.memory.limitAction === 'keep' &&
+    Math.abs(memory - c.memory.recommended) < 1
+      ? c.memory.recommendedLimit
+      : memory;
+  return { container: c.container, cpu, memory, cpuLimit, memoryLimit };
 }
 
 const TEMPLATE_PATH: Record<string, string[]> = {
@@ -487,6 +525,10 @@ export const emptyFilters = (): TriageFilters => ({
   kinds: new Set(),
   minSavings: 0,
 });
+
+/** A workload's identity, stable across reports. */
+export const workloadId = (w: WorkloadReport) =>
+  `${w.namespace}/${w.vclusterNamespace ?? ''}/${w.kind}/${w.name}`;
 
 export const isDismissed = (w: WorkloadReport): boolean => {
   const d = w.dismissed ?? [];
@@ -830,10 +872,27 @@ export function rightsizingSavingsIndex(ws: WorkloadReport[]) {
 
 const MIN_LISTED_SAVINGS = 5;
 
+/** FinOps' potential savings: the report's own total, which counts every
+ * workload that would cost less however little, plus the other (node)
+ * opportunities. The rightsizing rows listed stop at MIN_LISTED_SAVINGS;
+ * `smaller` counts the workloads they leave out. */
+export function potentialSavings(
+  summary: RightsizingSummary | undefined,
+  listed: CostRecommendation[],
+): { total: number; smaller: number } {
+  let total = summary?.monthlySavings ?? 0;
+  let rows = 0;
+  for (const r of listed) {
+    if (r.rightsizing) rows++;
+    else total += r.projectedSavings || 0;
+  }
+  return { total, smaller: Math.max(0, (summary?.shrinking ?? 0) - rows) };
+}
+
 /** The engine's findings as FinOps savings rows: what can shrink, priced. */
 export function rightsizingRecommendations(
   ws: WorkloadReport[],
-): import('../../types/finops').CostRecommendation[] {
+): CostRecommendation[] {
   return ws
     .filter(
       (w) =>
@@ -905,13 +964,40 @@ export function patchObject(
     : { spec: { template } };
 }
 
-/** Whether a workload's recommendation changes anything worth patching. */
-export const hasChange = (w: WorkloadReport) =>
-  w.containers.some(
-    (c) =>
-      Math.abs(c.cpu.recommended - c.cpu.request) > 1e-9 ||
-      Math.abs(c.memory.recommended - c.memory.request) > 0.5,
+/** Whether applying a container's recommendation changes its requests or
+ * limits: a raised CPU limit is a change even when the request stays. */
+const changes = (c: ContainerReport) => {
+  const k = choiceFromRec(c);
+  return (
+    Math.abs(k.cpu - c.cpu.request) > 1e-9 ||
+    Math.abs(k.memory - c.memory.request) > 0.5 ||
+    Math.abs(k.cpuLimit - c.cpu.limit) > 1e-9 ||
+    Math.abs(k.memoryLimit - c.memory.limit) > 0.5
   );
+};
+
+/** Whether a workload's recommendation changes anything worth patching. */
+export const hasChange = (w: WorkloadReport) => w.containers.some(changes);
+
+/** The choices a bulk patch applies: containers that change, nothing else. */
+const changedChoices = (w: WorkloadReport) =>
+  w.containers.filter(changes).map((c) => choiceFromRec(c));
+
+/** One line per HPA of a workload. Its containers can each suggest a target;
+ * they share the HPA, so it gets the lowest, which scales out no later than
+ * today's target does with the old requests. */
+function hpaTargetLines(w: WorkloadReport): string[] {
+  const targets = new Map<string, NonNullable<ContainerReport['hpa']>>();
+  for (const c of w.containers) {
+    const prev = c.hpa && targets.get(c.hpa.name);
+    if (c.hpa && (!prev || c.hpa.suggestedTarget < prev.suggestedTarget))
+      targets.set(c.hpa.name, c.hpa);
+  }
+  return [...targets.values()].map(
+    (h) =>
+      `# and set HPA ${h.name} ${h.resource} target to ${h.suggestedTarget}%`,
+  );
+}
 
 /** One `kubectl patch` per workload, for every kind, as a runnable script. */
 export function bulkKubectl(ws: WorkloadReport[]): string {
@@ -923,24 +1009,14 @@ export function bulkKubectl(ws: WorkloadReport[]): string {
   ];
   for (const w of ws.filter(hasChange)) {
     const ns = w.vclusterNamespace || w.namespace;
-    const body = JSON.stringify(
-      patchObject(
-        w.kind,
-        w.containers.map((c) => choiceFromRec(c)),
-      ),
-    );
+    const body = JSON.stringify(patchObject(w.kind, changedChoices(w)));
     lines.push(
       `# ${w.kind} ${ns}/${w.name}${w.vclusterNamespace ? ' (inside its vcluster)' : ''}`,
     );
     lines.push(
       `kubectl -n ${ns} patch ${w.kind.toLowerCase()}/${w.name} --type strategic -p '${body}'`,
     );
-    for (const c of w.containers) {
-      if (c.hpa)
-        lines.push(
-          `# and set HPA ${c.hpa.name} ${c.hpa.resource} target to ${c.hpa.suggestedTarget}%`,
-        );
-    }
+    lines.push(...hpaTargetLines(w));
     lines.push('');
   }
   return lines.join('\n');
@@ -952,13 +1028,17 @@ export function bulkYAML(ws: WorkloadReport[]): string {
     .filter(hasChange)
     .map((w) => {
       const ns = w.vclusterNamespace || w.namespace;
-      return `# ${w.kind} ${ns}/${w.name}\n${patchYAML(
-        w.kind,
-        w.containers.map((c) => choiceFromRec(c)),
-      )}`;
+      return `# ${w.kind} ${ns}/${w.name}\n${patchYAML(w.kind, changedChoices(w))}`;
     })
     .join('\n---\n');
 }
+
+const NO_EVENTS: EvidenceEvent[] = [];
+
+/** A container's events. The backend may send none as null; the same empty
+ * list every time keeps the memoised charts from redrawing on each render. */
+export const eventsOf = (evidence: Evidence | null, container: string) =>
+  evidence?.events[container] ?? NO_EVENTS;
 
 /** Minutes or hours of a day, the unit the duration curve speaks in. */
 export function formatDayTime(hours: number): string {

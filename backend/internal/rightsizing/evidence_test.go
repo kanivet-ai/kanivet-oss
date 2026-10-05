@@ -2,6 +2,7 @@ package rightsizing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
@@ -160,6 +161,35 @@ func TestEvidenceReusesReportQueriesAndFiltersWorkload(t *testing.T) {
 				t.Fatalf("evidence grid=%v report grid=%v", ev.AsOf, rep.AsOf)
 			}
 		})
+	}
+}
+
+// quietHistory is evidenceHistory without restarts, so without OOM kills.
+type quietHistory struct{ *evidenceHistory }
+
+func (h quietHistory) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if strings.Contains(query, "restarts_total") {
+		return nil, nil
+	}
+	return h.evidenceHistory.QueryRange(ctx, cluster, query, start, end, step)
+}
+
+// A container without events has an empty list, not null: the drawer would
+// make a new array for null on every render and redraw its charts each time.
+func TestEvidenceWithoutEventsIsAnEmptyList(t *testing.T) {
+	now := time.Date(2026, 10, 2, 14, 0, 0, 0, time.UTC)
+	s := NewService(&k8s.MockClient{}, quietHistory{&evidenceHistory{calls: map[string]int{}}}, evidenceFixtures{}, evidenceFixtures{}, nil)
+	s.now = func() time.Time { return now }
+	ctx := metrics.WithHistoryProvider(context.Background(), "mimir")
+	ev, err := s.GetEvidence(ctx, WorkloadQuery{
+		Cluster: t.Name(), Provider: "mimir", Namespace: "apps", Kind: "Deployment", Name: "api",
+		Profile: ProfileBalanced, Window: defaultWindow,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := json.Marshal(ev.Events); string(b) != `{"main":[]}` {
+		t.Fatalf("events=%s", b)
 	}
 }
 
