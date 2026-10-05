@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   ]),
   getResources: vi.fn(async () => []),
   listVClusters: vi.fn(async () => []),
+  getNatsDetection: vi.fn(async () => ({ installed: false })),
   getClusterStatus: vi.fn(async () => ({ healthy: true })),
   registerActiveCluster: vi.fn(),
   indexCluster: vi.fn(async () => {}),

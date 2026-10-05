@@ -36,6 +36,12 @@ export const forgetTreeLoad = (cluster: string) => {
   api.invalidateCache(`/resources/categories:${JSON.stringify({ cluster })}`);
 };
 
+// Whether a cluster runs NATS, once detection has answered. The sidebar lists
+// the NATS entry only for a cluster known to have it, so one without NATS never
+// shows it, and a rebuilt tree keeps it instead of dropping it until detection
+// answers again.
+const natsInstalled = new Map<string, boolean>();
+
 // Puts an object's events on the detail panel and the detail tabs showing it.
 const applyResourceEvents = (
   set: (fn: (state: StoreState) => Partial<StoreState>) => void,
@@ -88,7 +94,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const isVCluster = cluster.startsWith('vcluster:');
       const rawCategories = await api.getCategories(cluster);
       const hasCount = (resources: any[]) => resources.some((res: any) => (res.count ?? 0) > 0);
-      const disabledActionables: Record<string, boolean> = { crossplane: false, argocd: false, nats: false, vclusters: isVCluster };
+      const disabledActionables: Record<string, boolean> = { crossplane: false, argocd: false, vclusters: isVCluster };
       const setNodeDisabled = (nodeId: string, disabled: boolean) => {
         set((state) => {
           const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
@@ -106,21 +112,35 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
           return { activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) };
         });
       };
-      const removeNode = (nodeId: string) => {
+      const natsNode: TreeNode = { id: 'nats-monitoring', label: 'NATS', type: 'nats', data: { cluster } };
+      const setNatsListed = (listed: boolean) => {
         set((state) => {
           const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
           if (tabIndex === -1) return state;
           const currentState = state.activeTabs[tabIndex].state;
-          const treeData = currentState.treeData.filter((node) => node.id !== nodeId);
-          if (treeData.length === currentState.treeData.length) return state;
+          const present = currentState.treeData.some((node) => node.id === natsNode.id);
+          if (present === listed) return state;
+          let treeData: TreeNode[];
+          if (listed) {
+            const helmIdx = currentState.treeData.findIndex((node) => node.id === 'helm-releases');
+            treeData = [...currentState.treeData];
+            treeData.splice(helmIdx >= 0 ? helmIdx + 1 : treeData.length, 0, natsNode);
+          } else {
+            treeData = currentState.treeData.filter((node) => node.id !== natsNode.id);
+          }
           const updatedTabs = [...state.activeTabs];
           updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...currentState, treeData } };
           return { activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) };
         });
       };
       const checkNats = () => {
-        api.getNatsDetection(cluster).catch(() => ({ installed: false }) as any)
-          .then((det) => setNodeDisabled('nats-monitoring', !det.installed));
+        // A failed check says nothing: keep what was last known.
+        api.getNatsDetection(cluster).catch(() => null)
+          .then((det) => {
+            if (!det) return;
+            natsInstalled.set(cluster, !!det.installed);
+            setNatsListed(!!det.installed);
+          });
       };
       api.getResources(cluster, 'crossplane', false).catch(() => [])
         .then((resources) => setNodeDisabled('crossplane', !hasCount(resources)));
@@ -135,8 +155,10 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
             setNodeDisabled('virtual-clusters', vcs.length === 0);
             // A host with virtual clusters delegates NATS to each vcluster's own
             // tree instead of showing it (possibly misleadingly) at host level.
-            if (vcs.length > 0) removeNode('nats-monitoring');
-            else checkNats();
+            if (vcs.length > 0) {
+              natsInstalled.set(cluster, false);
+              setNatsListed(false);
+            } else checkNats();
           });
       }
       const categoryMap = new Map<string, any>(rawCategories.map((cat: any) => [cat.id, cat]));
@@ -151,7 +173,6 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const overviewNode: TreeNode = { id: 'cluster-overview', label: 'Overview', type: 'overview', data: { cluster } };
       const eventsNode: TreeNode = { id: 'cluster-events', label: 'Events', type: 'resource', hideCount: true, data: { name: 'events', group: '', version: 'v1', kind: 'Event', namespaced: true, cluster } };
       const helmNode: TreeNode = { id: 'helm-releases', label: 'Helm Releases', type: 'helm', data: { cluster } };
-      const natsNode: TreeNode = { id: 'nats-monitoring', label: 'NATS', type: 'nats', data: { cluster }, disabled: disabledActionables.nats };
       const incidentsNode: TreeNode = { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline', data: { cluster } };
       const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
       const settingsNode: TreeNode = { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings', data: { cluster } };
@@ -180,7 +201,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, natsNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, ...(natsInstalled.get(cluster) ? [natsNode] : []), vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };
