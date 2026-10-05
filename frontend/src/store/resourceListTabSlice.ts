@@ -97,7 +97,8 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
     }
 
     const topic = itemsTopic(cluster, resource);
-    const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache || new Map();
+    const cacheMap: Map<string, any[]> =
+      (window as any).__kanivetItemsCache || new Map();
     const topicCache = cacheMap.get(topic);
     const items = liveItemsFor(topic) ?? (topicCache ? Array.from(topicCache.values()) : []);
 

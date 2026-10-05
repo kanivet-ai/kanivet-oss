@@ -1,7 +1,16 @@
 import { describe, it, expect } from 'vitest';
-import { applyRealtimeEvents, newRealtimeSession, itemKey } from './realtimeReducer';
+import {
+  applyRealtimeEvents,
+  newRealtimeSession,
+  itemKey,
+  findItem,
+} from './realtimeReducer';
 
-const pod = (name: string, extra: any = {}) => ({ name, namespace: 'ns', ...extra });
+const pod = (name: string, extra: any = {}) => ({
+  name,
+  namespace: 'ns',
+  ...extra,
+});
 const names = (items: any[]) => items.map((i) => i.name);
 
 describe('applyRealtimeEvents', () => {
@@ -157,5 +166,218 @@ describe('applyRealtimeEvents', () => {
 
   it('itemKey treats empty namespace consistently', () => {
     expect(itemKey({ name: 'n' })).toBe(itemKey({ name: 'n', namespace: '' }));
+  });
+
+  it('keeps a modified row in place and puts new and re-added rows last', () => {
+    const s = newRealtimeSession();
+    const r1 = applyRealtimeEvents(
+      [pod('a'), pod('b'), pod('c')],
+      [
+        { action: 'modified', item: pod('a', { phase: 'Failed' }) },
+        { action: 'added', item: pod('d') },
+      ],
+      s,
+    );
+    expect(names(r1.items)).toEqual(['a', 'b', 'c', 'd']);
+    const r2 = applyRealtimeEvents(
+      r1.items,
+      [
+        { action: 'deleted', item: pod('b') },
+        { action: 'added', item: pod('b') },
+        { action: 'deleted', item: pod('c') },
+      ],
+      s,
+    );
+    expect(names(r2.items)).toEqual(['a', 'd', 'b']);
+    expect(r2.items[0].phase).toBe('Failed');
+  });
+
+  it('never mutates the list it was given', () => {
+    const s = newRealtimeSession();
+    const base = [pod('a'), pod('b')];
+    const r1 = applyRealtimeEvents(
+      base,
+      [{ action: 'modified', item: pod('a', { phase: 'Running' }) }],
+      s,
+    );
+    const r2 = applyRealtimeEvents(
+      r1.items,
+      [{ action: 'deleted', item: pod('a') }],
+      s,
+    );
+    expect(names(base)).toEqual(['a', 'b']);
+    expect(base[0].phase).toBeUndefined();
+    expect(names(r1.items)).toEqual(['a', 'b']);
+    expect(names(r2.items)).toEqual(['b']);
+  });
+
+  it('a repeated key keeps its first position and its last value', () => {
+    const s = newRealtimeSession();
+    const r = applyRealtimeEvents(
+      [pod('a', { v: 1 }), pod('b'), pod('a', { v: 2 })],
+      [{ action: 'added', item: pod('c') }],
+      s,
+    );
+    expect(names(r.items)).toEqual(['a', 'b', 'c']);
+    expect(r.items[0].v).toBe(2);
+  });
+
+  it('touches only the changed rows once the list is indexed', () => {
+    let reads = 0;
+    const counted = (name: string) => {
+      const item: any = { namespace: 'ns' };
+      Object.defineProperty(item, 'name', {
+        get: () => {
+          reads++;
+          return name;
+        },
+        enumerable: true,
+      });
+      return item;
+    };
+    const s = newRealtimeSession();
+    const base = Array.from({ length: 5000 }, (_, i) => counted(`p${i}`));
+    const r1 = applyRealtimeEvents(
+      base,
+      [{ action: 'modified', item: pod('p10') }],
+      s,
+    );
+    reads = 0;
+    const r2 = applyRealtimeEvents(
+      r1.items,
+      [
+        { action: 'modified', item: pod('p20') },
+        { action: 'added', item: pod('new') },
+      ],
+      s,
+    );
+    expect(reads).toBeLessThan(10);
+    expect(r2.items).toHaveLength(5001);
+    // A list replaced from outside is indexed again.
+    const replaced = [pod('x'), pod('p20')];
+    const r3 = applyRealtimeEvents(
+      replaced,
+      [{ action: 'deleted', item: pod('p20') }],
+      s,
+    );
+    expect(names(r3.items)).toEqual(['x']);
+  });
+
+  it('findItem returns the stored object for a key', () => {
+    const s = newRealtimeSession();
+    const r = applyRealtimeEvents(
+      [pod('a')],
+      [{ action: 'modified', item: pod('a', { phase: 'Running' }) }],
+      s,
+    );
+    expect(findItem(s, r.items, itemKey(pod('a'))).phase).toBe('Running');
+    expect(findItem(s, r.items, itemKey(pod('zz')))).toBeUndefined();
+    const other = [pod('b')];
+    expect(findItem(s, other, itemKey(pod('b')))).toBe(other[0]);
+  });
+
+  it('matches a full rebuild over random batches', () => {
+    // The reducer as it was before it kept an index: rebuild a Map per call.
+    const reference = (baseItems: any[], events: any[], s: any) => {
+      const map = new Map<string, any>();
+      for (const item of baseItems) map.set(itemKey(item), item);
+      let changed = false;
+      for (const ev of events) {
+        if (ev.action === 'sync') {
+          const e = ev.epoch || 0;
+          if (e > 0) {
+            const seen = s.epochSeen.get(e) || new Set<string>();
+            const started = s.epochStart.get(e) ?? s.seq + 1;
+            if (typeof ev.itemCount !== 'number' || seen.size >= ev.itemCount) {
+              for (const key of [...map.keys()]) {
+                if (!seen.has(key) && (s.touch.get(key) || 0) < started) {
+                  map.delete(key);
+                  changed = true;
+                }
+              }
+            }
+            for (const k of [...s.epochSeen.keys()])
+              if (k <= e) {
+                s.epochSeen.delete(k);
+                s.epochStart.delete(k);
+              }
+          }
+          continue;
+        }
+        const item = ev.item;
+        const key = itemKey(item);
+        s.seq++;
+        if (ev.epoch) {
+          if (!s.epochStart.has(ev.epoch)) {
+            s.epochStart.set(ev.epoch, s.seq);
+            s.epochSeen.set(ev.epoch, new Set());
+          }
+          s.epochSeen.get(ev.epoch).add(key);
+        }
+        const prev = map.get(key);
+        if (ev.action === 'deleted') {
+          if (prev) {
+            if (item.uid && prev.uid && item.uid !== prev.uid) continue;
+            map.delete(key);
+            changed = true;
+            s.touch.set(key, s.seq);
+          }
+          continue;
+        }
+        if (prev && (!item.uid || !prev.uid || item.uid === prev.uid)) {
+          const p = parseInt(prev.resourceVersion, 10) || 0;
+          const n = parseInt(item.resourceVersion, 10) || 0;
+          if (p && n && n < p) {
+            s.touch.set(key, s.seq);
+            continue;
+          }
+        }
+        map.set(key, item);
+        changed = true;
+        s.touch.set(key, s.seq);
+      }
+      return changed ? [...map.values()] : baseItems;
+    };
+
+    let seed = 7;
+    const rand = (n: number) => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed % n;
+    };
+    const actions = ['added', 'modified', 'modified', 'deleted'] as const;
+    const s = newRealtimeSession();
+    const sRef = newRealtimeSession();
+    let items: any[] = [];
+    let expected: any[] = [];
+    let rv = 1;
+    for (let batch = 0; batch < 300; batch++) {
+      const events: any[] = [];
+      const epoch = batch % 40 === 0 ? batch + 1 : undefined;
+      const count = 1 + rand(12);
+      for (let k = 0; k < count; k++) {
+        const name = `p${rand(30)}`;
+        const action = epoch ? 'added' : actions[rand(actions.length)];
+        events.push({
+          action,
+          item: pod(name, {
+            uid: `${name}-${rand(2)}`,
+            resourceVersion: String(rv++ - rand(3)),
+          }),
+          epoch,
+        });
+      }
+      if (epoch)
+        events.push({
+          action: 'sync',
+          epoch,
+          itemCount: rand(2)
+            ? new Set(events.map((e) => e.item.name)).size
+            : 999,
+        });
+      const r = applyRealtimeEvents(items, events, s);
+      expected = reference(expected, events, sRef);
+      expect(r.items).toEqual(expected);
+      items = r.items;
+    }
   });
 });

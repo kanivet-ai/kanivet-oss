@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { useStore } from '../store';
+
+const NO_RELEASES: any[] = [];
 
 interface HelmStreamProgress {
   namespacesTotal: number;
@@ -29,19 +32,22 @@ export const useHelmReleasesStream = (
   const clusterRef = useRef(options.cluster);
   clusterRef.current = options.cluster;
 
-  // Get state from store - use shallow selectors to prevent unnecessary re-renders
-  const tab = useStore(
-    useCallback(
-      (state) => state.activeTabs.find((t) => t.id === options.cluster),
-      [options.cluster]
-    )
+  // Only the helm fields of the cluster's tab: other writes to the tab (list
+  // updates, tree counts) do not re-render the releases page.
+  const { releases, loading, streaming, progress, error } = useStore(
+    useShallow((state) => {
+      const tabState = state.activeTabs.find(
+        (t) => t.id === options.cluster,
+      )?.state;
+      return {
+        releases: tabState?.helmReleases || NO_RELEASES,
+        loading: tabState?.helmReleasesLoading ?? true,
+        streaming: tabState?.helmReleasesStreaming ?? false,
+        progress: tabState?.helmReleasesProgress ?? null,
+        error: tabState?.helmReleasesError ?? null,
+      };
+    }),
   );
-  
-  const releases = tab?.state.helmReleases || [];
-  const loading = tab?.state.helmReleasesLoading ?? true;
-  const streaming = tab?.state.helmReleasesStreaming ?? false;
-  const progress = tab?.state.helmReleasesProgress ?? null;
-  const error = tab?.state.helmReleasesError ?? null;
 
   // Get actions from store - these are stable references
   const addHelmReleases = useStore((state) => state.addHelmReleases);

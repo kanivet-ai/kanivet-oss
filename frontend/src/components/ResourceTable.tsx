@@ -1,9 +1,12 @@
-import { useRef, useEffect, useState, memo, useMemo, useCallback, useId } from 'react';
-import { useVirtualizer, observeElementRect, type Virtualizer } from '@tanstack/react-virtual';
+import { useRef, useEffect, useState, memo, useMemo, useCallback } from 'react';
+import {
+  useVirtualizer,
+  observeElementRect,
+  type Virtualizer,
+} from '@tanstack/react-virtual';
 import ResourceRow from './ResourceRow';
 import { useResizableColumns } from '../hooks/useResizableColumns';
 import { hasActions as hasResourceActions } from '../utils/resourceActions';
-import { rowItemBus } from '../store/rowItemBus';
 
 interface ResourceTableProps {
   listItems: any[];
@@ -80,7 +83,6 @@ const ResourceTable = memo(
     hasNamespaceFilter = false,
     onClearNamespaceFilter,
   }: ResourceTableProps) => {
-    const selectedRowRef = useRef<HTMLTableRowElement | null>(null);
     const headerContainerRef = useRef<HTMLDivElement | null>(null);
     const effectiveResourceKind = resourceKind || selectedNode?.data?.kind || 'default';
     const selectedKey = selectedItem ? getResourceKey(selectedItem) : null;
@@ -89,8 +91,7 @@ const ResourceTable = memo(
     const [showLoading, setShowLoading] = useState(false);
     const lastNodeIdRef = useRef<string | null>(null);
     const [awaitingData, setAwaitingData] = useState(false);
-    const reconciledItemsRef = useRef<any[]>([]);
-    const reconciledMapRef = useRef<Map<string, any>>(new Map());
+    const shownItemsRef = useRef<any[]>([]);
     const cachedColumnsRef = useRef<string[]>(displayColumns);
     const cacheNodeIdRef = useRef<string | null>(null);
     const isUserScrollingRef = useRef(false);
@@ -107,54 +108,36 @@ const ResourceTable = memo(
       return displayColumns;
     }, [displayColumns, awaitingData, hasReceivedData, loadError, showLoading]);
 
+    // While the next list is on its way, keep showing the last one for the same
+    // node. Unchanged rows are already the same objects (the realtime reducer
+    // replaces only what changed), so rows skip their render on identity alone.
     const displayItems = useMemo(() => {
       const nodeId = selectedNode?.id ?? null;
       const isWaiting = (awaitingData || (!hasReceivedData && !loadError)) && !showLoading;
       const cacheMatchesCurrent = cacheNodeIdRef.current === nodeId;
-      if (isWaiting && reconciledItemsRef.current.length > 0 && cacheMatchesCurrent) {
-        return reconciledItemsRef.current;
-      }
-      if (listItems.length === 0) {
-        reconciledItemsRef.current = [];
-        reconciledMapRef.current.clear();
-        cacheNodeIdRef.current = nodeId;
-        return reconciledItemsRef.current;
+      if (
+        isWaiting &&
+        shownItemsRef.current.length > 0 &&
+        cacheMatchesCurrent
+      ) {
+        return shownItemsRef.current;
       }
       cacheNodeIdRef.current = nodeId;
-      const result: any[] = [];
-      const oldMap = reconciledMapRef.current;
-      const newMap = new Map<string, any>();
-      const shallowEqual = (a: any, b: any) => {
-        const keysA = Object.keys(a);
-        const keysB = Object.keys(b);
-        if (keysA.length !== keysB.length) return false;
-        for (const k of keysA) {
-          if (a[k] !== b[k]) return false;
-        }
-        return true;
-      };
-      for (const newItem of listItems) {
-        const key = getResourceKey(newItem);
-        const existing = oldMap.get(key);
-        if (existing && (existing === newItem || shallowEqual(existing, newItem))) {
-          result.push(existing);
-        } else {
-          result.push(newItem);
-        }
-        newMap.set(key, result[result.length - 1]);
-      }
-      reconciledItemsRef.current = result;
-      reconciledMapRef.current = newMap;
-      return result;
-    }, [listItems, awaitingData, hasReceivedData, loadError, showLoading, getResourceKey, selectedNode?.id]);
+      shownItemsRef.current = listItems;
+      return listItems;
+    }, [
+      listItems,
+      awaitingData,
+      hasReceivedData,
+      loadError,
+      showLoading,
+      selectedNode?.id,
+    ]);
 
-    const itemKeys = useMemo(() => displayItems.map(getResourceKey), [displayItems, getResourceKey]);
-
-    const busScope = useId();
-    useEffect(() => {
-      rowItemBus.publishList(busScope, displayItems, getResourceKey);
-    }, [busScope, displayItems, getResourceKey]);
-    useEffect(() => () => rowItemBus.clearScope(busScope), [busScope]);
+    const itemKeys = useMemo(
+      () => displayItems.map(getResourceKey),
+      [displayItems, getResourceKey],
+    );
 
     useEffect(() => {
       const nodeId = selectedNode?.id ?? null;
@@ -206,20 +189,19 @@ const ResourceTable = memo(
 
     const overscan = displayItems.length > VERY_LARGE_LIST_THRESHOLD ? LARGE_LIST_OVERSCAN : DEFAULT_OVERSCAN;
 
-    const getItemKey = useCallback((index: number) => itemKeys[index] ?? index, [itemKeys]);
-
+    // Rows have a fixed height and are never measured, so the virtualizer keys
+    // them by index: a key function that changed with every list update made
+    // it recompute the layout of every row on each update.
     const virtualizer = useVirtualizer({
       count: displayItems.length,
       getScrollElement,
       estimateSize: estimateRowSize,
       overscan,
-      getItemKey,
       observeElementRect: observeVisibleRect,
     });
 
     const virtualItems = virtualizer.getVirtualItems();
     const totalHeight = virtualizer.getTotalSize();
-    const visibleRangeStart = virtualItems[0]?.index ?? 0;
     const shouldVirtualize = displayItems.length >= VIRTUALIZATION_THRESHOLD;
 
     useEffect(() => {
@@ -377,16 +359,17 @@ const ResourceTable = memo(
       [selectedNode],
     );
 
+    // Independent of the selection, so selecting a row re-renders only the
+    // rows whose selected state changes.
     const stableOnRowRef = useCallback(
       (uid: string | null, el: HTMLTableRowElement | null) => {
         if (uid && el) {
           rowRefs.current.set(uid, el);
-          if (selectedKey && uid === selectedKey) selectedRowRef.current = el;
         } else if (uid) {
           rowRefs.current.delete(uid);
         }
       },
-      [selectedKey],
+      [],
     );
 
     return (
@@ -514,15 +497,12 @@ const ResourceTable = memo(
                   const isRestarting = restartingItems.has(key);
                   return (
                     <ResourceRow
-                      busScope={busScope}
                       key={key}
-                      itemKey={key}
-                      fallbackItem={item}
-                      index={virtualRow.index - visibleRangeStart}
+                      item={item}
+                      rowIndex={virtualRow.index}
                       isSelected={isSelected}
                       isChecked={isChecked}
                       isRestarting={isRestarting}
-                      visibleRangeStart={visibleRangeStart}
                       onCheckboxChange={onCheckboxChange}
                       onItemOpen={onItemOpen}
                       onActionClick={onActionClick}
@@ -557,15 +537,12 @@ const ResourceTable = memo(
                   const isRestarting = restartingItems.has(key);
                   return (
                     <ResourceRow
-                      busScope={busScope}
                       key={key}
-                      itemKey={key}
-                      fallbackItem={item}
-                      index={index}
+                      item={item}
+                      rowIndex={index}
                       isSelected={isSelected}
                       isChecked={isChecked}
                       isRestarting={isRestarting}
-                      visibleRangeStart={0}
                       onCheckboxChange={onCheckboxChange}
                       onItemOpen={onItemOpen}
                       onActionClick={onActionClick}

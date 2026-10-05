@@ -305,6 +305,7 @@ const BottomDock = () => {
                       name={tab.resource.metadata?.name || ''}
                       containers={tab.resource.spec?.containers}
                       initContainers={tab.resource.spec?.initContainers}
+                      active={activeBottomTab === tab.id}
                     />
                   )}
                   {tab.type === 'deployment-logs' && (
@@ -315,6 +316,7 @@ const BottomDock = () => {
                       }
                       name={tab.resource.metadata?.name || ''}
                       resourceType={tab.resource.kind}
+                      active={activeBottomTab === tab.id}
                     />
                   )}
                   {tab.type === 'shell' && tab.resource.kind === 'Pod' && (

@@ -49,6 +49,9 @@ export const sharedClock = {
     };
   },
   getSnapshot(): number {
+    // No running clock keeps the time current (nothing subscribed yet, or the
+    // window is hidden), so read it.
+    if (!timer) now = nowMs();
     return now;
   },
 };

@@ -28,6 +28,8 @@ interface LogViewerProps {
   name: string;
   kind: string;
   containers?: ContainerInfo[];
+  /** False while the viewer's tab is hidden: new lines then render nothing. */
+  active?: boolean;
 }
 
 const TAIL_OPTIONS = [100, 500, 1000, 2000, 5000, 10000];
@@ -103,7 +105,7 @@ function renderContent(line: LogLine, matcher: Matcher | null) {
   );
 }
 
-const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers }: LogViewerProps) => {
+const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers, active = true }: LogViewerProps) => {
   const isWorkload = kind !== 'pod';
   const [container, setContainer] = useState(() => {
     if (kind !== 'pod') return '';
@@ -121,7 +123,7 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers }
     container,
     tailLines,
     previous,
-  });
+  }, active);
 
   const containers = ownContainers?.length ? ownContainers : streamContainers;
   const effectiveContainer = container || containers.find((c) => !c.init)?.name || containers[0]?.name || '';
@@ -227,7 +229,7 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers }
   }, [wrap]);
 
   useEffect(() => {
-    if (!follow || pausedAt != null || !view.count) return;
+    if (!active || !follow || pausedAt != null || !view.count) return;
     const el = scrollRef.current;
     if (!el) return;
     virtualizer.scrollToIndex(view.count - 1, { align: 'end' });
@@ -237,7 +239,7 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers }
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version, follow, pausedAt, view.count, wrap]);
+  }, [active, version, follow, pausedAt, view.count, wrap]);
 
   const detach = useCallback(() => {
     setFollow(false);

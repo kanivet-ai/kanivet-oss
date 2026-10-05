@@ -176,7 +176,10 @@ const isTransientOnlyUpdate = (updates: Partial<TabState>): boolean => {
   return true;
 };
 
-const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingSaves = new Map<
+  string,
+  { handle: ReturnType<typeof setTimeout>; save: () => void }
+>();
 const PERSIST_DEBOUNCE_MS = 750;
 
 const stripItems = (rt: any) => {
@@ -189,8 +192,8 @@ const stripItems = (rt: any) => {
 
 const scheduleTabStateSave = (cluster: string, newState: TabState) => {
   const existing = pendingSaves.get(cluster);
-  if (existing) clearTimeout(existing);
-  const handle = setTimeout(() => {
+  if (existing) clearTimeout(existing.handle);
+  const save = () => {
     pendingSaves.delete(cluster);
     try {
       const toSave = {
@@ -211,14 +214,20 @@ const scheduleTabStateSave = (cluster: string, newState: TabState) => {
       };
       localStorage.setItem(`kanivet.tabstate.${cluster}`, JSON.stringify(toSave));
     } catch {}
-  }, PERSIST_DEBOUNCE_MS);
-  pendingSaves.set(cluster, handle);
+  };
+  pendingSaves.set(cluster, {
+    handle: setTimeout(save, PERSIST_DEBOUNCE_MS),
+    save,
+  });
 };
 
-// Flush any pending writes on tab close / app exit
+// Write pending snapshots at once on reload / app exit, so the last changes
+// before quitting are kept.
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeunload', () => {
-    for (const handle of pendingSaves.values()) clearTimeout(handle);
-    pendingSaves.clear();
+    for (const { handle, save } of [...pendingSaves.values()]) {
+      clearTimeout(handle);
+      save();
+    }
   });
 }

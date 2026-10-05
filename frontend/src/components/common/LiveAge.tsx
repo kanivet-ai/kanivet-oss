@@ -1,5 +1,5 @@
-import { memo, useSyncExternalStore } from 'react';
-import { formatAge } from '../../utils/formatters';
+import { memo, useCallback, useMemo, useSyncExternalStore } from 'react';
+import { formatAgeSince } from '../../utils/formatters';
 import { sharedClock } from '../../utils/sharedClock';
 
 interface LiveAgeProps {
@@ -9,8 +9,19 @@ interface LiveAgeProps {
 const noop = () => () => {};
 
 const LiveAge = memo(({ timestamp }: LiveAgeProps) => {
-  useSyncExternalStore(timestamp ? sharedClock.subscribe : noop, sharedClock.getSnapshot, sharedClock.getSnapshot);
-  return <>{formatAge(timestamp)}</>;
+  const time = useMemo(() => new Date(timestamp).getTime(), [timestamp]);
+  // The text is the snapshot, so a clock tick that leaves it as it was (any
+  // age past a minute, most ticks) renders nothing.
+  const getText = useCallback(
+    () => (timestamp ? formatAgeSince(time, sharedClock.getSnapshot()) : '-'),
+    [timestamp, time],
+  );
+  const text = useSyncExternalStore(
+    timestamp ? sharedClock.subscribe : noop,
+    getText,
+    getText,
+  );
+  return <>{text}</>;
 });
 
 LiveAge.displayName = 'LiveAge';

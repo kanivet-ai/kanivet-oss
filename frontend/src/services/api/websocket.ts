@@ -4,6 +4,10 @@ import { getWsBase, getApiBase, setBackendPort } from './types';
 type MessageHandler = (msg: any) => void;
 type ConnectionEventType = 'backend' | 'websocket' | 'cluster';
 
+// The backend sends a heartbeat every 10s; a socket silent for longer than
+// this is treated as dead.
+const HEARTBEAT_TIMEOUT_MS = 20_000;
+
 export class WebSocketManager {
   private ws?: WebSocket;
   private wsHandlers: Map<string, Set<MessageHandler>> = new Map();
@@ -136,23 +140,19 @@ export class WebSocketManager {
   }
 
   private setupConnectivityListeners() {
-    let hiddenTimestamp = 0;
-    const STALE_THRESHOLD = 60 * 1000;
-
+    // Messages keep arriving while the window is hidden, so an open socket that
+    // kept its heartbeat has every subscription current: showing the window
+    // again needs no refresh. Only a dead or silent socket is replaced.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenTimestamp = Date.now();
-      } else if (document.visibilityState === 'visible') {
-        console.log('[WS] App became visible, checking connection...');
-        const wasHiddenFor = Date.now() - hiddenTimestamp;
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-          console.log('[WS] Connection lost while hidden, reconnecting...');
-          this.wasDisconnected = true;
-          this.reconnectWebSocket();
-        } else if (wasHiddenFor > STALE_THRESHOLD) {
-          console.log(`[WS] App was hidden for ${Math.round(wasHiddenFor / 1000)}s, refreshing subscriptions`);
-          window.dispatchEvent(new CustomEvent('connection:restored', { detail: { timestamp: Date.now(), reason: 'visibility' } }));
-        }
+      if (document.visibilityState !== 'visible') return;
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        console.log('[WS] Connection lost while hidden, reconnecting...');
+        this.wasDisconnected = true;
+        this.reconnectWebSocket();
+      } else if (Date.now() - this.lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+        console.log('[WS] No heartbeat while hidden, reconnecting...');
+        this.wasDisconnected = true;
+        this.reconnectWebSocket();
       }
     });
 
@@ -176,8 +176,10 @@ export class WebSocketManager {
     this.heartbeatCheckInterval = setInterval(() => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       const elapsed = Date.now() - this.lastHeartbeat;
-      if (elapsed > 20_000) {
-        console.log(`[WS] No heartbeat for ${Math.round(elapsed / 1000)}s, reconnecting...`);
+      if (elapsed > HEARTBEAT_TIMEOUT_MS) {
+        console.log(
+          `[WS] No heartbeat for ${Math.round(elapsed / 1000)}s, reconnecting...`,
+        );
         this.wasDisconnected = true;
         this.reconnectWebSocket();
       }
@@ -528,7 +530,13 @@ export class WebSocketManager {
     }
   }
 
-  private parseItemsTopic(topic: string): { cluster: string; group: string; version: string; kind: string; namespace: string } | null {
+  private parseItemsTopic(topic: string): {
+    cluster: string;
+    group: string;
+    version: string;
+    kind: string;
+    namespace: string;
+  } | null {
     const prefix = 'items:';
     if (!topic.startsWith(prefix)) return null;
     const remainder = topic.slice(prefix.length);

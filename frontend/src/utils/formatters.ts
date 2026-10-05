@@ -1,9 +1,11 @@
 export const formatAge = (timestamp: string): string => {
   if (!timestamp) return '-';
+  return formatAgeSince(new Date(timestamp).getTime(), Date.now());
+};
 
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
+// The age at `now` of something created at `time`, both in epoch milliseconds.
+export const formatAgeSince = (time: number, now: number): string => {
+  const diff = now - time;
 
   const seconds = Math.floor(diff / 1000);
   const minutes = Math.floor(seconds / 60);
