@@ -265,7 +265,9 @@ func (s *VClusterSupervisor) connectOnce() error {
 		return fmt.Errorf("resolve pod: %w", err)
 	}
 
-	pf, err := s.owner.portForwardManager.CreatePortForward(s.host, s.namespace, pod, targetPort)
+	// A private forward: a user port-forward to the same pod must neither be
+	// handed this tunnel nor be able to stop it.
+	pf, err := s.owner.portForwardManager.CreatePrivatePortForward(s.host, s.namespace, pod, targetPort)
 	if err != nil {
 		return fmt.Errorf("port-forward: %w", err)
 	}

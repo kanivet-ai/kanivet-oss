@@ -532,26 +532,11 @@ func promBody(resp *http.Response, what string) (io.ReadCloser, error) {
 
 // chartQueryParams aligns the range to the step, so successive refreshes
 // land on the same sample grid and Mimir's results cache can reuse them.
-func chartQueryParams(query, window, stepText string) (url.Values, error) {
-	var p PrometheusProvider
-	rangeDuration := p.parseTimeRange(window)
-	if stepText == "" {
-		stepText = p.calculateStep(rangeDuration)
-	}
-	step, err := time.ParseDuration(stepText)
-	if err != nil {
-		secs, e := strconv.ParseInt(stepText, 10, 64)
-		if e != nil {
-			return nil, fmt.Errorf("invalid metrics step %q", stepText)
-		}
-		step = time.Duration(secs) * time.Second
-	}
-	if step < time.Second || step%time.Second != 0 {
-		return nil, fmt.Errorf("metrics step must be a positive whole number of seconds")
-	}
+// step is a whole number of seconds (see chartWindow).
+func chartQueryParams(query string, rangeDuration, step time.Duration) url.Values {
 	end := time.Now().Unix() / int64(step/time.Second) * int64(step/time.Second)
 	start := end - int64(rangeDuration/step)*int64(step/time.Second)
-	return url.Values{"query": {query}, "start": {strconv.FormatInt(start, 10)}, "end": {strconv.FormatInt(end, 10)}, "step": {strconv.FormatInt(int64(step/time.Second), 10)}}, nil
+	return url.Values{"query": {query}, "start": {strconv.FormatInt(start, 10)}, "end": {strconv.FormatInt(end, 10)}, "step": {strconv.FormatInt(int64(step/time.Second), 10)}}
 }
 
 // querySource keys chart answers by the store they came from.

@@ -66,6 +66,7 @@ type Interface interface {
 	CreateResource(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace, name string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
 	CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error)
+	CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error)
 	StopPortForward(id string) error
 	GetPortForward(id string) (*PortForward, bool)
 
@@ -1670,6 +1671,10 @@ func (c *Client) CreateResource(ctx context.Context, cluster string, gvr schema.
 
 func (c *Client) CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
 	return c.portForwardManager.CreatePortForward(cluster, namespace, podName, remotePort)
+}
+
+func (c *Client) CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
+	return c.portForwardManager.CreatePrivatePortForward(cluster, namespace, podName, remotePort)
 }
 
 func (c *Client) StopPortForward(id string) error {

@@ -19,6 +19,9 @@ type DB struct {
 	rsCache        *gorm.DB
 	metricsCache   *gorm.DB
 	metricsCacheMu sync.Mutex
+	// metricsCacheBytes is the sum of metrics_queries.bytes, kept up to date
+	// by SaveMetricsQuery under metricsCacheMu.
+	metricsCacheBytes int64
 }
 
 type ClusterGroup struct {

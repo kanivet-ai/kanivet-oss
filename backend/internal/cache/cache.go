@@ -115,6 +115,26 @@ func (c *Cache) Set(key string, value interface{}, ttl time.Duration) {
 	c.mu.Unlock()
 }
 
+// Replace sets key to value only while it still holds old, expired or not,
+// so a slow refresh cannot overwrite an entry deleted or replaced since it
+// began. old must be comparable.
+func (c *Cache) Replace(key string, old, value interface{}, ttl time.Duration) bool {
+	if ttl == 0 {
+		ttl = c.def
+	}
+	var exp int64
+	if ttl > 0 {
+		exp = time.Now().Add(ttl).UnixNano()
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if e, ok := c.items[key]; !ok || e.value != old {
+		return false
+	}
+	c.items[key] = entry{value, exp}
+	return true
+}
+
 func (c *Cache) Get(key string) (interface{}, bool) {
 	c.mu.RLock()
 	e, ok := c.items[key]

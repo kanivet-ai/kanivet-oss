@@ -43,6 +43,9 @@ func pooledMimir(t *testing.T, client k8s.Interface, localPort int) (*MimirProvi
 	httpClient := &http.Client{Transport: &http.Transport{}}
 	p.authenticateClient(httpClient, "cluster", info)
 	pf := &PortForwardInfo{PortForward: &k8s.PortForward{ID: "pf-1", LocalPort: localPort}, HTTPClient: httpClient, LastUsed: time.Now()}
+	if live, ok := client.(interface{ register(*k8s.PortForward) }); ok {
+		live.register(pf.PortForward)
+	}
 	p.portForwardPool.Store(mimirPoolKey("cluster", info), pf)
 	return p, info, pf
 }
@@ -226,8 +229,11 @@ func TestHistoryQueryStreamsPastChartCache(t *testing.T) {
 	info := &ProviderInfo{Type: "prometheus", Found: true, URL: srv.URL, Namespace: "monitoring", Service: "prometheus", Port: 9090}
 	metadata := cache.New(time.Hour, 0)
 	metadata.Set(metadata.BuildKey("prometheus-info", "cluster"), &detectEntry{info: info, expires: time.Now().Add(time.Hour)}, time.Hour)
-	p := &PrometheusProvider{cache: metadata, queries: newQueryCache(nil, MetricsCacheBytes)}
-	p.portForwardPool.Store(prometheusPoolKey("cluster", info), &PortForwardInfo{PortForward: &k8s.PortForward{LocalPort: serverPort(t, srv)}, HTTPClient: srv.Client(), LastUsed: time.Now()})
+	fc := &forwardingClient{MockClient: &k8s.MockClient{}}
+	pf := &k8s.PortForward{ID: "pf-1", LocalPort: serverPort(t, srv)}
+	fc.register(pf)
+	p := &PrometheusProvider{k8s: fc, cache: metadata, queries: newQueryCache(nil, MetricsCacheBytes)}
+	p.portForwardPool.Store(prometheusPoolKey("cluster", info), &PortForwardInfo{PortForward: pf, HTTPClient: srv.Client(), LastUsed: time.Now()})
 	s := &Service{providers: map[string]Provider{"prometheus": p}}
 
 	ctx := WithSeriesFilter(WithHistoryProvider(context.Background(), "prometheus"), func(l map[string]string) bool { return l["pod"] == "pod-7" })

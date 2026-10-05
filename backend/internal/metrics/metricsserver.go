@@ -130,8 +130,8 @@ func (m *MetricsServerProvider) Install(cluster string, namespace string) error 
 	return fmt.Errorf("metrics-server installation not supported - please install via Helm or kubectl")
 }
 
-func (m *MetricsServerProvider) QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (m *MetricsServerProvider) QueryMetrics(ctx context.Context, cluster string, query MetricQuery) (*MetricResponse, error) {
+	ctx, cancel := context.WithTimeout(ctx, chartQueryTimeout)
 	defer cancel()
 	type snapshot struct {
 		Pod       *unstructured.Unstructured
@@ -173,9 +173,10 @@ func (m *MetricsServerProvider) QueryMetrics(cluster string, query MetricQuery) 
 		}
 	}
 	response := &MetricResponse{
-		Labels: []string{sampledAt.Format("15:04:05")},
-		Values: []float64{0},
-		Unit:   m.getMetricUnit(query.MetricType),
+		Labels:     []string{sampledAt.Format("15:04:05")},
+		Timestamps: []int64{sampledAt.Unix()},
+		Values:     Samples{0},
+		Unit:       m.getMetricUnit(query.MetricType),
 	}
 
 	var totalValue float64
@@ -209,7 +210,7 @@ func (m *MetricsServerProvider) QueryMetrics(cluster string, query MetricQuery) 
 		}
 	}
 
-	response.Values = []float64{totalValue}
+	response.Values = Samples{totalValue}
 	return response, nil
 }
 

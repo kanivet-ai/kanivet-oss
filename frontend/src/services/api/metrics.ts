@@ -331,37 +331,163 @@ export async function discoverMimirTenants(cluster: string, hints: string[] = []
 }
 
 export interface MetricsSeries {
+  /** Axis labels, one per value: clock times, with the date once a chart spans a day. */
   labels: string[];
+  /** One sample per label; NaN where the store had none, which charts draw as a gap. */
   values: number[];
   unit?: string;
 }
 
-export function startMetricsStream(
+/** A workload chart: every pod on one time axis. */
+export interface WorkloadSeries {
+  labels: string[];
+  /** Pod name → one sample per label (NaN for a gap). */
+  pods: Record<string, number[]>;
+  unit?: string;
+}
+
+/** A chart series as the backend sends it. */
+interface WireSeries {
+  labels?: string[];
+  /** Unix seconds of the query's step grid; `values` has one entry per timestamp. */
+  timestamps?: number[];
+  values?: Array<number | null>;
+  step?: number;
+  /** Each value is the highest sample within its step. */
+  peak?: boolean;
+  unit?: string;
+}
+
+interface WireWorkloadSeries {
+  timestamps?: number[];
+  step?: number;
+  peak?: boolean;
+  pods?: Record<string, WireSeries>;
+}
+
+const DAY_SECONDS = 24 * 60 * 60;
+
+const pad2 = (n: number) => n.toString().padStart(2, '0');
+
+const describeSeconds = (seconds: number): string => {
+  if (seconds % 3600 === 0) return `${seconds / 3600}h`;
+  if (seconds % 60 === 0) return `${seconds / 60}m`;
+  return `${seconds}s`;
+};
+
+// One formatter for every label: toLocaleDateString with options builds a
+// new one per call, ~7ms for the 145 labels of a 24h chart on each refresh.
+let dayFormat: Intl.DateTimeFormat | undefined;
+const formatDay = (d: Date): string => {
+  if (!dayFormat)
+    dayFormat = new Intl.DateTimeFormat(undefined, {
+      month: 'short',
+      day: 'numeric',
+    });
+  return dayFormat.format(d);
+};
+
+/**
+ * Axis labels for sample times (unix seconds), in local time: "HH:MM:SS", or
+ * "Oct 5 14:30" once the chart spans a day, so the two ends of a 24h chart
+ * no longer read the same. When each value is the peak of its step the label
+ * says so after " · " — the axis shows only the time, the tooltip all of it.
+ */
+export function timeAxisLabels(
+  timestamps: number[],
+  peakStepSeconds?: number,
+): string[] {
+  if (timestamps.length === 0) return [];
+  const withDate =
+    timestamps[timestamps.length - 1] - timestamps[0] >= DAY_SECONDS;
+  const suffix = peakStepSeconds
+    ? ` · peak of ${describeSeconds(peakStepSeconds)}`
+    : '';
+  return timestamps.map((ts) => {
+    const d = new Date(ts * 1000);
+    const hm = `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+    const label = withDate
+      ? `${formatDay(d)} ${hm}`
+      : `${hm}:${pad2(d.getSeconds())}`;
+    return label + suffix;
+  });
+}
+
+const samples = (values: Array<number | null> | undefined): number[] =>
+  (values || []).map((v) => (typeof v === 'number' ? v : NaN));
+
+/** Backend series → what the charts draw: gaps as NaN, labels from the timestamps. */
+export function normalizeSeries(data: WireSeries): MetricsSeries {
+  const labels = data.timestamps?.length
+    ? timeAxisLabels(data.timestamps, data.peak ? data.step : undefined)
+    : data.labels || [];
+  return { labels, values: samples(data.values), unit: data.unit };
+}
+
+export function normalizeWorkloadSeries(
+  data: WireWorkloadSeries,
+): WorkloadSeries {
+  const pods: Record<string, number[]> = {};
+  let unit: string | undefined;
+  for (const [name, series] of Object.entries(data.pods || {})) {
+    pods[name] = samples(series.values);
+    unit = unit || series.unit;
+  }
+  return {
+    labels: timeAxisLabels(
+      data.timestamps || [],
+      data.peak ? data.step : undefined,
+    ),
+    pods,
+    unit,
+  };
+}
+
+/** The topic the backend answers a pod, container or node stream on (buildTopic in metrics_handler.go). */
+export function metricsStreamTopic(
   cluster: string,
   namespace: string,
   pod: string,
   metricType: string,
   timeRange: string,
-  onData: (data: MetricsSeries) => void,
-  onError: (error: string) => void,
   containerName?: string,
-  provider?: string,
-  streamingRate: number = 2,
-  nodeName?: string
-): () => void {
-  if (isMockMetricsEnabled()) {
-    return startMockMetricsStream(pod || nodeName || 'mock', metricType, timeRange, onData);
-  }
+  nodeName?: string,
+): string {
+  const target = (nodeName || pod) + (containerName ? `/${containerName}` : '');
+  return `metrics:${cluster}:${namespace}:${target}:${metricType}:${timeRange}`;
+}
 
+/** The topic of a workload stream: the pod set is part of it, so two workloads never share one. */
+export function workloadStreamTopic(
+  cluster: string,
+  namespace: string,
+  podNames: string[],
+  metricType: string,
+  timeRange: string,
+): string {
+  const pods = [...new Set(podNames)].sort().join(',');
+  return `workload_metrics:${cluster}:${namespace}:${metricType}:${timeRange}:${pods}`;
+}
+
+interface MetricsStreamOptions<T> {
+  cluster: string;
+  messageType: 'metrics' | 'workload_metrics';
+  topic: string;
+  /** What the stream charts. Sent with both start and stop, so the stop addresses the stream the start opened. */
+  identity: Record<string, unknown>;
+  settings: Record<string, unknown>;
+  normalize: (data: any) => T;
+  onData: (data: T) => void;
+  onError: (error: string) => void;
+}
+
+function openMetricsStream<T>(options: MetricsStreamOptions<T>): () => void {
+  const { cluster, messageType, topic, onData, onError } = options;
   const cachedUnavailable = getCachedUnavailableProviders(cluster);
   if (cachedUnavailable) {
     onError(cachedUnavailable.unavailableReason || 'Metrics provider is unavailable');
     return () => undefined;
   }
-
-  const topicId = nodeName || pod;
-  const topic = `metrics:${cluster}:${namespace}:${topicId}:${metricType}:${timeRange}`;
-  const messageType = 'metrics';
 
   const handlers = wsManager.getHandlers();
   if (!handlers.has(messageType)) handlers.set(messageType, new Set());
@@ -375,21 +501,25 @@ export function startMetricsStream(
   }, METRICS_STREAM_INITIAL_TIMEOUT_MS);
 
   const handler = (msg: any) => {
-    if (msg.payload) {
-      const payload = msg.payload;
-      if (payload.topic === topic) {
-        receivedInitialResponse = true;
-        window.clearTimeout(initialResponseTimeout);
-        if (payload.error) {
-          if (isMetricsProviderUnavailableError(payload.error)) {
-            markMetricsProviderUnavailable(cluster, payload.error);
-          }
-          onError(payload.error);
-        } else if (payload.data) {
-          markMetricsProviderAvailable(cluster);
-          onData(payload.data);
-        }
+    const payload = msg?.payload;
+    if (!payload || payload.topic !== topic) return;
+    receivedInitialResponse = true;
+    window.clearTimeout(initialResponseTimeout);
+    if (payload.error) {
+      // A transient failure is one the stream retries on its own. It only
+      // gets here before any data or once it has repeated, and says nothing
+      // about the provider being gone.
+      if (
+        !payload.transient &&
+        isMetricsProviderUnavailableError(payload.error)
+      ) {
+        markMetricsProviderUnavailable(cluster, payload.error);
       }
+      onError(payload.error);
+    } else if (payload.data) {
+      // A preview from the cache says nothing about reaching the provider now.
+      if (!payload.stale) markMetricsProviderAvailable(cluster);
+      onData(options.normalize(payload.data));
     }
   };
 
@@ -397,10 +527,7 @@ export function startMetricsStream(
 
   wsManager.sendWS({
     type: 'metrics',
-    payload: {
-      action: 'start', cluster, namespace, pod: nodeName ? '' : pod, nodeName,
-      container: containerName, metricType, timeRange, provider, streamingRate,
-    },
+    payload: { action: 'start', ...options.identity, ...options.settings },
   });
 
   return () => {
@@ -410,8 +537,97 @@ export function startMetricsStream(
       h.delete(handler);
       if (h.size === 0) handlers.delete(messageType);
     }
-    wsManager.sendWS({ type: 'metrics', payload: { action: 'stop', cluster, namespace, pod, metricType, timeRange } });
+    wsManager.sendWS({
+      type: 'metrics',
+      payload: { action: 'stop', ...options.identity },
+    });
   };
+}
+
+export function startMetricsStream(
+  cluster: string,
+  namespace: string,
+  pod: string,
+  metricType: string,
+  timeRange: string,
+  onData: (data: MetricsSeries) => void,
+  onError: (error: string) => void,
+  containerName?: string,
+  provider?: string,
+  streamingRate: number = 2,
+  nodeName?: string,
+): () => void {
+  if (isMockMetricsEnabled()) {
+    return startMockMetricsStream(
+      pod || nodeName || 'mock',
+      metricType,
+      timeRange,
+      onData,
+    );
+  }
+  return openMetricsStream({
+    cluster,
+    messageType: 'metrics',
+    topic: metricsStreamTopic(
+      cluster,
+      namespace,
+      pod,
+      metricType,
+      timeRange,
+      containerName,
+      nodeName,
+    ),
+    identity: {
+      cluster,
+      namespace,
+      pod: nodeName ? '' : pod,
+      nodeName,
+      container: containerName,
+      metricType,
+      timeRange,
+    },
+    settings: { provider, streamingRate },
+    normalize: normalizeSeries,
+    onData,
+    onError,
+  });
+}
+
+/** One stream for a workload's pods: one store query and one message per refresh, whatever the pod count. */
+export function startWorkloadMetricsStream(
+  cluster: string,
+  namespace: string,
+  podNames: string[],
+  metricType: string,
+  timeRange: string,
+  onData: (data: WorkloadSeries) => void,
+  onError: (error: string) => void,
+  provider?: string,
+  streamingRate: number = 2,
+): () => void {
+  const pods = [...new Set(podNames)].sort();
+  if (isMockMetricsEnabled()) {
+    const latest: WorkloadSeries = { labels: [], pods: {} };
+    const stops = pods.map((pod) =>
+      startMockMetricsStream(pod, metricType, timeRange, (data) => {
+        latest.labels = data.labels;
+        latest.unit = data.unit;
+        latest.pods = { ...latest.pods, [pod]: data.values };
+        onData({ ...latest });
+      }),
+    );
+    return () => stops.forEach((stop) => stop());
+  }
+  return openMetricsStream({
+    cluster,
+    messageType: 'workload_metrics',
+    topic: workloadStreamTopic(cluster, namespace, pods, metricType, timeRange),
+    identity: { cluster, namespace, podNames: pods, metricType, timeRange },
+    settings: { provider, streamingRate },
+    normalize: normalizeWorkloadSeries,
+    onData,
+    onError,
+  });
 }
 
 export async function queryPodMetrics(
@@ -435,7 +651,7 @@ export async function queryPodMetrics(
       { params: { cluster }, timeout: 300000 }
     );
     markMetricsProviderAvailable(cluster);
-    return response.data;
+    return normalizeSeries(response.data);
   } catch (error: any) {
     const message = error?.response?.data?.error || error?.message || String(error);
     if (isMetricsProviderUnavailableError(message)) {
