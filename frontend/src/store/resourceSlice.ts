@@ -1,3 +1,4 @@
+import { vclusterGate } from './vclusterRestore';
 import { StateCreator } from 'zustand';
 import api from '../services/api';
 import { notifyDrainComplete, notifyRolloutComplete } from '../services/islandNotifications';
@@ -5,7 +6,6 @@ import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } 
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
 import { applyLoadedDetails } from './applyLoadedDetails';
 import { keepKnownCounts } from './keepKnownCounts';
-import { persistedItem } from './persistedItem';
 import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
@@ -72,6 +72,9 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
   rolloutPollingInterval: null,
 
   loadTreeData: sharedTreeLoad(async (cluster: string, data?: TreeNode[]) => {
+    // A vcluster restored after a restart reconnects first.
+    const ready = vclusterGate(cluster);
+    if (ready && !(await ready)) return;
     if (data) {
       set((state) => {
         const tabIndex = state.tabIndexMap.get(cluster) ?? -1;
@@ -370,6 +373,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
   },
 
   loadListItems: async (cluster: string, resource: any) => {
+    const ready = vclusterGate(cluster);
+    if (ready && !(await ready)) return false;
     const topic = `items:${cluster}:${resource.group || ''}:${resource.version}:${resource.name}:`;
     const cacheMap: Map<string, any[]> =
       (window as any).__kanivetItemsCache || new Map();
@@ -512,33 +517,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     const updatedTabs = [...activeTabs];
     updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...currentState, treeData: toggleExpanded(currentState.treeData), expandedNodes } };
     set({ activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) });
-    try {
-      if (currentTab) {
-        const snapshot = updatedTabs.find((t) => t.id === currentTab)?.state;
-        if (snapshot) {
-          const toSave = {
-            activeResourceListTab: snapshot.activeResourceListTab, activeResourceListTabByPane: snapshot.activeResourceListTabByPane,
-            resourceListTabs: snapshot.resourceListTabs.map((rt) => ({
-              id: rt.id, title: rt.title, resource: rt.resource, cluster: rt.cluster, selectedNamespaces: rt.selectedNamespaces,
-              sortBy: rt.sortBy, sortOrder: rt.sortOrder, isPinned: rt.isPinned, paneId: rt.paneId, selectedItem: persistedItem(rt.selectedItem),
-              items: [],
-            })),
-            detailTabs: snapshot.detailTabs.map((dt) => ({
-              id: dt.id, title: dt.title, resource: dt.resource, cluster: dt.cluster, isPinned: dt.isPinned, location: dt.location, paneId: dt.paneId,
-              item: persistedItem(dt.item),
-            })),
-            activeDetailTab: snapshot.activeDetailTab, bottomTabs: get().bottomTabs.map((bt) => ({
-              id: bt.id, type: bt.type, title: bt.title, customTitle: bt.customTitle, resource: bt.resource,
-              cluster: bt.cluster, selectedContainer: bt.selectedContainer, location: bt.location, paneId: bt.paneId,
-            })),
-            activeBottomTab: get().activeBottomTab, focusedCenterPaneId: snapshot.focusedCenterPaneId, centerPaneLayout: snapshot.centerPaneLayout,
-            expandedNodes: Array.from(snapshot.expandedNodes || []),
-            selectedNode: snapshot.selectedNode ? { id: snapshot.selectedNode.id, label: snapshot.selectedNode.label, type: snapshot.selectedNode.type, data: snapshot.selectedNode.data } : null,
-          };
-          localStorage.setItem(`kanivet.tabstate.${currentTab}`, JSON.stringify(toSave));
-        }
-      }
-    } catch {}
+    // The expanded nodes are saved with the rest of the workspace snapshot by
+    // the persistence subscriber.
   },
 
   pinDetail: (detail: any) => {

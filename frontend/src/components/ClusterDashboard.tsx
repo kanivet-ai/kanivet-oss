@@ -147,6 +147,8 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
       criticalAlerts: (source?.criticalAlerts || []) as CriticalAlert[],
       resourceCapacity: source?.resourceCapacity || null as { cpu: { requested: number; allocatable: number; percentage: number; unit: string }; memory: { requested: number; allocatable: number; percentage: number; unit: string } } | null,
       isLoading: !source,
+      // Counts the dashboard messages applied; the effect below publishes each one.
+      streamSeq: 0,
     };
   }, [cluster, cachedDashboard]);
 
@@ -180,6 +182,19 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
     }
   }, [cluster, cachedDashboard, isActiveTab]);
 
+  // Keeps the latest dashboard message in the module cache and the tab state, so
+  // a remount or another tab starts from it. Keyed on the message counter, not
+  // the state, so applying cached data back does not publish it again.
+  useEffect(() => {
+    if (dashboardState.streamSeq === 0) return;
+    hasReceivedDataRef.current = true;
+    const { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, podStatus, nodeStatus, workloadStatus, events, clusterInfo } = dashboardState;
+    const published = { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, podStatus, nodeStatus, workloadStatus, events, clusterInfo, isLoading: false };
+    clusterDashboardCache.set(cluster, published);
+    updateTabStateRef.current?.({ dashboardData: published } as any);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dashboardState.streamSeq]);
+
   useEffect(() => {
     if (!cluster || !isActiveTab) return;
 
@@ -207,13 +222,10 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           isLoading: false,
         };
 
-        if (hasResourceCounts) {
-          hasReceivedDataRef.current = true;
-          clusterDashboardCache.set(cluster, newState);
-          updateTabStateRef.current?.({ dashboardData: newState } as any);
-        }
-
-        return { ...prev, ...newState };
+        // No side effects here: React may run this updater while rendering, and
+        // a store update from it warns about updating one component while
+        // rendering another. The message is published by the effect below.
+        return { ...prev, ...newState, streamSeq: hasResourceCounts ? prev.streamSeq + 1 : prev.streamSeq };
       });
     };
 

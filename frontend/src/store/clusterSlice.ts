@@ -1,3 +1,4 @@
+import { vclusterGate } from './vclusterRestore';
 import { StateCreator } from 'zustand';
 import api from '../services/api';
 import { runInWindows } from '../utils/batching';
@@ -85,6 +86,8 @@ export const createClusterSlice: StateCreator<StoreState, [], [], ClusterSlice> 
   },
 
   loadClusterStatus: async (cluster: string, force = false) => {
+    const ready = vclusterGate(cluster);
+    if (ready && !(await ready)) return;
     try {
       const status = await api.getClusterStatus(cluster, force);
       set((state) => ({ clusterStatuses: { ...state.clusterStatuses, [cluster]: status } }));

@@ -1,3 +1,4 @@
+import { restoreSelectedRow } from '../store/waitForListItem';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { notifyWelcome } from '../services/islandNotifications';
 import TreeSidebar from './TreeSidebar';
@@ -192,67 +193,110 @@ const Layout = () => {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [showThemeSettings, showComponentLibrary]);
 
-  // After hydration, auto-restore resource list and last selected item (and detail tab) if present
+  // After hydration, bring the shown cluster back to where it was left: the
+  // objects behind its restored tabs load again, and the selected resource's
+  // list, its selected row and the open detail are loaded. Runs whenever the
+  // shown cluster changes, so a cluster switched to later is restored too.
   useEffect(() => {
-    console.log('Layout: restore effect running, currentTab:', currentTab);
     if (!currentTab) return;
-    const ns = localStorage.getItem(`kanivet.namespace.${currentTab}`) || 'all';
-    const nsMulti = localStorage.getItem(
-      `kanivet.selectedNamespaces.${currentTab}`,
-    );
-    const resourceJson = localStorage.getItem(
-      `kanivet.lastResource.${currentTab}`,
-    );
-    const itemJson = localStorage.getItem(`kanivet.lastItem.${currentTab}`);
-    const lastDetailTab = localStorage.getItem(
-      `kanivet.lastDetailTab.${currentTab}`,
-    );
-    console.log('Layout: checking for saved resource:', resourceJson ? 'found' : 'not found');
-    if (!resourceJson) return;
-    try {
-      const resource = JSON.parse(resourceJson);
-      const {
-        updateCurrentTabState,
-        selectNode,
-        loadListItems,
-        selectItem,
-        loadDetails,
-        startRealtime,
-      } = useStore.getState();
-      const parsedMulti = nsMulti ? JSON.parse(nsMulti) : [];
-      updateCurrentTabState({
-        selectedNamespace: ns,
-        selectedNamespaces: parsedMulti,
-      });
-      // The list needs neither the categories nor the tree, so it starts now
-      // instead of a round trip later; the tree (requested by hydrate and the
-      // sidebar) loads alongside.
-      (async () => {
-        selectNode({ id: '', label: '', type: 'resource', data: resource });
-        await loadListItems(currentTab, resource);
-        startRealtime();
-        if (itemJson) {
-          const savedItem = JSON.parse(itemJson);
-          const itemsNow =
-            useStore.getState().getCurrentTabState()?.listItems || [];
-          const match = itemsNow.find(
-            (i: any) =>
-              i.name === savedItem.name &&
-              (i.namespace || '') === (savedItem.namespace || ''),
-          );
-          if (match) {
-            selectItem(match);
-            await loadDetails(currentTab, resource, match);
-            if (lastDetailTab) {
-              const evt = new CustomEvent('detail:setActiveTab', {
-                detail: lastDetailTab,
-              });
-              window.dispatchEvent(evt);
-            }
-          }
+    const store = useStore.getState();
+    store.restoreWorkspaceContent(currentTab);
+
+    const tabState = store.getCurrentTabState();
+    const node = tabState?.selectedNode;
+    let resource: any = null;
+    if (node) {
+      // Pages (overview, settings, NATS, ...) draw themselves; only a resource
+      // list has to be loaded here.
+      if (node.type === 'resource' && node.data) resource = node.data;
+    } else {
+      // No workspace was saved for this cluster: reopen the last resource.
+      try {
+        const resourceJson = localStorage.getItem(`kanivet.lastResource.${currentTab}`);
+        if (resourceJson) resource = JSON.parse(resourceJson);
+      } catch {}
+    }
+    if (!resource) return;
+
+    let savedItem: { name: string; namespace?: string } | null = null;
+    const listTab = tabState?.resourceListTabs.find((rt) => rt.id === tabState.activeResourceListTab);
+    if (listTab?.selectedItem?.name) {
+      savedItem = { name: listTab.selectedItem.name, namespace: listTab.selectedItem.namespace };
+    } else {
+      try {
+        const itemJson = localStorage.getItem(`kanivet.lastItem.${currentTab}`);
+        if (itemJson) savedItem = JSON.parse(itemJson);
+      } catch {}
+    }
+    const detailsWereCollapsed = !!tabState?.isDetailsPanelCollapsed;
+    const ns = tabState?.selectedNamespace
+      ?? localStorage.getItem(`kanivet.namespace.${currentTab}`)
+      ?? 'all';
+    const nsMulti = tabState?.selectedNamespaces
+      ?? (() => {
+        try {
+          return JSON.parse(localStorage.getItem(`kanivet.selectedNamespaces.${currentTab}`) || '[]');
+        } catch {
+          return [];
         }
       })();
-    } catch {}
+
+    const { updateCurrentTabState, selectNode, loadListItems, selectItem, loadDetails, startRealtime } = store;
+    updateCurrentTabState({ selectedNamespace: ns, selectedNamespaces: nsMulti });
+    // A namespace deleted while the app was closed would leave an empty list
+    // with a filter nobody can see why; fall back to what still exists.
+    if (resource.namespaced && (nsMulti.length > 0 || ns !== 'all')) {
+      api
+        .getNamespaces(currentTab)
+        .then((existing: string[]) => {
+          const state = useStore.getState().getCurrentTabState();
+          if (useStore.getState().currentTab !== currentTab || !state || !Array.isArray(existing) || existing.length === 0) return;
+          const known = new Set(existing);
+          const keep = (state.selectedNamespaces || []).filter((n: string) => known.has(n));
+          const nsStillThere = state.selectedNamespace === 'all' || known.has(state.selectedNamespace);
+          if (keep.length === (state.selectedNamespaces || []).length && nsStillThere) return;
+          const { updateCurrentTabState: update, updateResourceListTab } = useStore.getState();
+          update({ selectedNamespaces: keep, selectedNamespace: keep.length > 0 ? keep[0] : 'all' });
+          // The list reads the namespaces of its own tab first.
+          if (state.activeResourceListTab) updateResourceListTab(state.activeResourceListTab, { selectedNamespaces: keep });
+        })
+        .catch(() => {});
+    }
+    // The list needs neither the categories nor the tree, so it starts now
+    // instead of a round trip later; the tree (requested by hydrate and the
+    // sidebar) loads alongside.
+    (async () => {
+      try {
+        // Selecting the node again keeps its id, which the saved scroll
+        // position and tree highlight are keyed on.
+        selectNode(node && node.type === 'resource' ? node : { id: '', label: '', type: 'resource', data: resource });
+        // False when a restored vcluster could not be reconnected.
+        if (!(await loadListItems(currentTab, resource))) return;
+        startRealtime();
+        if (savedItem) {
+          // The list streams in after it is requested, so wait for the row; and
+          // keep it selected through other loads that reset the list.
+          const status = await restoreSelectedRow(useStore, currentTab, savedItem, async (item) => {
+            selectItem(item);
+            const now = useStore.getState().getCurrentTabState();
+            if (now?.activeResourceListTab) useStore.getState().updateResourceListTab(now.activeResourceListTab, { selectedItem: item });
+            await loadDetails(currentTab, resource, item);
+            // Loading details opens the panel; a panel left collapsed stays so.
+            if (detailsWereCollapsed) useStore.getState().updateCurrentTabState({ isDetailsPanelCollapsed: true });
+          });
+          console.log('Layout: restored selection', savedItem.name, status);
+          if (status === 'gone') {
+            // Deleted while the app was closed: forget the selection, so it is
+            // not looked for again.
+            const now = useStore.getState().getCurrentTabState();
+            if (now?.activeResourceListTab) useStore.getState().updateResourceListTab(now.activeResourceListTab, { selectedItem: null });
+            try {
+              localStorage.removeItem(`kanivet.lastItem.${currentTab}`);
+            } catch {}
+          }
+        }
+      } catch {}
+    })();
   }, [currentTab]);
 
   useRegisteredKeyboard({
