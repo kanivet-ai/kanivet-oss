@@ -16,6 +16,7 @@ import (
 	"github.com/kanivet/backend/internal/topics"
 	"github.com/kanivet/backend/internal/websocket/core"
 	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"log"
@@ -399,12 +400,21 @@ func (h *Handler) parallelResourceCount(ctx context.Context, cluster string, res
 			// Unknown, not zero: the sidebar renders a nil count as "–" and the
 			// watcher publishes the real number once the list stream starts.
 			resources[result.index].Count = nil
+			resources[result.index].CountPending = countWorthRetrying(result.err)
 		} else {
 			c := result.count
 			resources[result.index].Count = &c
 		}
 	}
 	close(resultChan)
+}
+
+// countWorthRetrying reports whether a failed count may succeed if asked
+// again. A resource the cluster does not serve (a CRD that is not installed)
+// or that the user may not list fails the same way every time; anything else,
+// expired credentials and timeouts included, is taken as passing.
+func countWorthRetrying(err error) bool {
+	return !apierrors.IsNotFound(err) && !apierrors.IsForbidden(err) && !apierrors.IsMethodNotSupported(err)
 }
 
 func (h *Handler) publishCrossplaneCounts(cluster string, resources []models.Resource) {
