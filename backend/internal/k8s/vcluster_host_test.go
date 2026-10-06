@@ -85,3 +85,19 @@ func TestFindVClusterHostPod_NotFound(t *testing.T) {
 		t.Fatalf("expected ErrVClusterHostPodNotFound, got %v", err)
 	}
 }
+
+func TestFindVClusterHostPods_OneListForManyPods(t *testing.T) {
+	client := fake.NewSimpleClientset(
+		syncedPod("vc-ns", "a-x-work-x-vc1", "vc1", "work", "a", "n1"),
+		syncedPod("vc-ns", "hashed-3f9a1c", "vc1", "work", "b", "n2"),
+		syncedPod("vc-ns", "c-x-other-x-vc1", "vc1", "other", "c", "n3"),
+		syncedPod("vc-ns", "d-x-work-x-vc2", "vc2", "work", "d", "n4"),
+	)
+	got, err := findVClusterHostPods(context.Background(), client, "host", "vc-ns", "vc1", "work", []string{"a", "b", "c", "d", "gone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["a"].Name != "a-x-work-x-vc1" || got["b"].Name != "hashed-3f9a1c" {
+		t.Fatalf("got %v", got)
+	}
+}

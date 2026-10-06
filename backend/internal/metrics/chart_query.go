@@ -380,6 +380,11 @@ func fetchChartSeries(ctx context.Context, src chartSource, store, cluster strin
 	return answer.Data.Result, nil
 }
 
+// emptyChart is a chart with no samples.
+func emptyChart(metricType string) *MetricResponse {
+	return &MetricResponse{Labels: []string{}, Values: Samples{}, Unit: metricUnit(metricType)}
+}
+
 // queryChart answers a pod, container or node chart.
 func queryChart(ctx context.Context, src chartSource, store, cluster string, q MetricQuery) (*MetricResponse, error) {
 	window, step, err := chartWindow(q.TimeRange, q.Step)
@@ -391,7 +396,7 @@ func queryChart(ctx context.Context, src chartSource, store, cluster string, q M
 	if err != nil {
 		return nil, err
 	}
-	response := &MetricResponse{Labels: []string{}, Values: Samples{}, Unit: metricUnit(q.MetricType)}
+	response := emptyChart(q.MetricType)
 	if len(series) == 0 {
 		return response, nil
 	}
