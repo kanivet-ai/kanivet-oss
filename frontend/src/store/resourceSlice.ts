@@ -6,6 +6,7 @@ import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } 
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
 import { applyLoadedDetails } from './applyLoadedDetails';
 import { keepKnownCounts } from './keepKnownCounts';
+import { anyCountPending, countsSettled, refetchCountsLater } from './countRefetch';
 import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
@@ -66,6 +67,35 @@ const applyResourceEvents = (
       };
     }),
   }));
+};
+
+
+/**
+ * After a category's counts were asked for: repeat while any is pending, as
+ * long as the tab is open and the category still expanded.
+ */
+const settleOrRefetchCounts = (
+  get: () => StoreState,
+  cluster: string,
+  nodeId: string,
+  metadata: any,
+  pending: boolean,
+) => {
+  const key = `${cluster}\u0000${nodeId}`;
+  if (!pending) {
+    countsSettled(key);
+    return;
+  }
+  refetchCountsLater(key, () => {
+    const tab = get().activeTabs.find((t) => t.id === cluster);
+    if (!tab || !tab.state.expandedNodes.has(nodeId)) {
+      countsSettled(key);
+      return;
+    }
+    // A category whose resource list cannot be read at all asks again too.
+    get().expandNode(cluster, nodeId, 'category', metadata)
+      .catch(() => settleOrRefetchCounts(get, cluster, nodeId, metadata, true));
+  });
 };
 
 export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice> = (set, get) => ({
@@ -252,11 +282,13 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
               const updatedTabs2 = [...activeTabs];
               updatedTabs2[tabIdx] = {
                 ...updatedTabs2[tabIdx],
-                state: { ...updatedTabs2[tabIdx].state, treeData: updateTreeNode(updatedTabs2[tabIdx].state.treeData, nodeId, formattedResourcesWithCounts, updatedTabs2[tabIdx].state.expandedNodes) },
+                // A count the backend could not read keeps the number on screen.
+                state: { ...updatedTabs2[tabIdx].state, treeData: updateTreeNode(updatedTabs2[tabIdx].state.treeData, nodeId, keepKnownCounts(findNodeById(updatedTabs2[tabIdx].state.treeData, nodeId)?.children, formattedResourcesWithCounts), updatedTabs2[tabIdx].state.expandedNodes) },
               };
               set({ activeTabs: updatedTabs2, tabIndexMap: rebuildTabIndex(updatedTabs2) });
             }
-          }).catch(() => {});
+            settleOrRefetchCounts(get, cluster, nodeId, metadata, anyCountPending(resourcesWithCounts));
+          }).catch(() => settleOrRefetchCounts(get, cluster, nodeId, metadata, true));
         return;
       }
 
@@ -354,10 +386,12 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
             const updatedTabs2 = [...activeTabs];
             updatedTabs2[tabIdx] = {
               ...updatedTabs2[tabIdx],
-              state: { ...updatedTabs2[tabIdx].state, treeData: updateTreeNode(updatedTabs2[tabIdx].state.treeData, nodeId, formattedResourcesWithCounts, updatedTabs2[tabIdx].state.expandedNodes) },
+              // A count the backend could not read keeps the number on screen.
+              state: { ...updatedTabs2[tabIdx].state, treeData: updateTreeNode(updatedTabs2[tabIdx].state.treeData, nodeId, keepKnownCounts(findNodeById(updatedTabs2[tabIdx].state.treeData, nodeId)?.children, formattedResourcesWithCounts), updatedTabs2[tabIdx].state.expandedNodes) },
             };
             set({ activeTabs: updatedTabs2, tabIndexMap: rebuildTabIndex(updatedTabs2) });
-          }).catch(() => {});
+            settleOrRefetchCounts(get, cluster, nodeId, metadata, anyCountPending(filteredResourcesWithCounts));
+          }).catch(() => settleOrRefetchCounts(get, cluster, nodeId, metadata, true));
       }
     }
   },
