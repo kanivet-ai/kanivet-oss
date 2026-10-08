@@ -8,6 +8,8 @@ import GCPIcon from './GCPIcon';
 import KanivetMark from './icons/KanivetMark';
 import { useTheme } from './ThemeProvider';
 import {
+  ArrowLeftIcon,
+  ArrowRightIcon,
   MoonIcon,
   SunIcon,
   KeyboardIcon,
@@ -41,6 +43,8 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
     reorderTabs,
     clusterErrors,
   } = useStore(useShallow((s) => ({ currentTab: s.currentTab, setCurrentTab: s.setCurrentTab, closeTab: s.closeTab, openBottomTab: s.openBottomTab, clusterAliases: s.clusterAliases, clusterProviders: s.clusterProviders, reorderTabs: s.reorderTabs, clusterErrors: s.clusterErrors })));
+  const navigateBack = useStore((s) => s.navigateBack);
+  const navigateForward = useStore((s) => s.navigateForward);
   const tabIds = useStore(useShallow((s) => s.activeTabs.map((t) => t.id)));
   const tabNames = useStore(useShallow((s) => s.activeTabs.map((t) => t.name)));
   const activeTabs = useMemo(() => tabIds.map((id, i) => ({ id, name: tabNames[i] })), [tabIds, tabNames]);
@@ -254,6 +258,28 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
         <KanivetMark className="tab-bar-logo-icon" size={20} tile />
         <span className="tab-bar-logo-text">Kanivet</span>
       </button>
+      <div className="tab-bar-history" role="group" aria-label="History navigation">
+        <button
+          type="button"
+          className="theme-toggle"
+          title="Navigate back"
+          aria-label="Navigate back"
+          disabled={!currentTab}
+          onClick={() => void navigateBack()}
+        >
+          <ArrowLeftIcon aria-hidden="true" />
+        </button>
+        <button
+          type="button"
+          className="theme-toggle"
+          title="Navigate forward"
+          aria-label="Navigate forward"
+          disabled={!currentTab}
+          onClick={() => void navigateForward()}
+        >
+          <ArrowRightIcon aria-hidden="true" />
+        </button>
+      </div>
       <div className="tab-bar-divider" />
       <div className="tabs-container" ref={tabsContainerRef}>
         {activeTabs.map((tab, index) => {

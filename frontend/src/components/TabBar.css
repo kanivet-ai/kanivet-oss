@@ -63,6 +63,19 @@
   color: var(--text);
 }
 
+.tab-bar-history {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.tab-bar-history button:focus-visible {
+  outline: 2px solid var(--text2);
+  outline-offset: 1px;
+}
+
 .tab-bar-divider {
   width: 1px;
   height: 18px;
