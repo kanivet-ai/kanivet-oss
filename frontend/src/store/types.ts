@@ -69,6 +69,12 @@ export interface BottomTab {
   paneId?: string;
 }
 
+// How much of a list that is still arriving has arrived.
+export interface ListSync {
+  loaded: number;
+  total?: number;
+}
+
 export interface TabState {
   treeData: TreeNode[];
   selectedNode: TreeNode | null;
@@ -104,6 +110,9 @@ export interface TabState {
   focusedCenterPaneId?: string | null;
   isLoadingListItems?: boolean;
   hasReceivedInitialListData?: boolean;
+  // Set while the list on screen is still arriving: how many of its rows are
+  // in, and of how many when the server said.
+  listSync?: ListSync | null;
   loadError?: string;
   dashboardData?: any;
   helmReleases?: any[];

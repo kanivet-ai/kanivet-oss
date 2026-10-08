@@ -1,6 +1,6 @@
 import { StateCreator } from 'zustand';
 import api from '../services/api';
-import { RealtimeSlice, StoreState } from './types';
+import { ListSync, RealtimeSlice, StoreState } from './types';
 import { isRolloutComplete } from './utils';
 import { notifyRolloutComplete } from '../services/islandNotifications';
 import {
@@ -8,6 +8,7 @@ import {
   findItem,
   itemKey,
   newRealtimeSession,
+  pendingListing,
   RealtimeEvent,
   RealtimeSession,
 } from './realtimeReducer';
@@ -26,6 +27,8 @@ interface RealtimeRuntime {
   items: any[];
   // True once the stream has delivered a snapshot, so items can be shown as live.
   synced: boolean;
+  // The size of the listing the backend is sending, when it gave one.
+  listTotal?: { epoch: number; total: number };
   // When the subscription was sent (Date.now()).
   startedAt: number;
   interaction: { last: number; deferredSince: number };
@@ -45,6 +48,24 @@ const FRAME_FALLBACK_MS = 500;
 const MAX_CACHED_TOPICS = 12;
 // How long a list may take to arrive before the load is reported as failed.
 const LOAD_TIMEOUT_MS = 30000;
+
+// A list that is still arriving is re-sorted and re-rendered whole on every
+// flush, so its flushes are spaced out as it grows: the usual window up to
+// 6,000 rows, a second from 50,000.
+const FLUSH_MS = 120;
+const flushWindow = (rt: RealtimeRuntime) =>
+  pendingListing(rt.session) ? Math.min(1000, Math.max(FLUSH_MS, rt.items.length / 50)) : FLUSH_MS;
+
+// How much of rt's list has arrived, or null once it is all there. shown is
+// what the tab holds now, returned as it is when nothing changed so that the
+// tab's state keeps its identity.
+const listSyncOf = (rt: RealtimeRuntime, shown?: ListSync | null): ListSync | null => {
+  const pending = pendingListing(rt.session);
+  if (!pending) return null;
+  const total = rt.listTotal?.epoch === pending.epoch ? rt.listTotal.total : undefined;
+  if (shown && shown.loaded === pending.loaded && shown.total === total) return shown;
+  return total === undefined ? { loaded: pending.loaded } : { loaded: pending.loaded, total };
+};
 
 const runtime = () => (window as any).__kanivetRealtime as RealtimeRuntime | undefined;
 
@@ -215,7 +236,7 @@ export const createRealtimeSlice: StateCreator<
         return;
       }
       requestFlushFrame(rt);
-    }, 120) as unknown as number;
+    }, flushWindow(rt)) as unknown as number;
     rt.batchTimer = handle;
     rt.batchTimerKind = 'timeout';
   };
@@ -306,10 +327,12 @@ export const createRealtimeSlice: StateCreator<
     const authoritative = result.completedEpoch !== undefined;
     const live = result.syncSeen || authoritative || (result.changed && result.items.length > 0);
     if (live) rt.synced = true;
+    const listSync = listSyncOf(rt, state.listSync);
     const needsListCommit = result.changed || selectedItem !== state.selectedItem
-      || (result.syncSeen && (state.isLoadingListItems || !state.hasReceivedInitialListData));
+      || (result.syncSeen && (state.isLoadingListItems || !state.hasReceivedInitialListData))
+      || listSync !== (state.listSync ?? null);
     if (needsListCommit) {
-      const patch: any = {};
+      const patch: any = { listSync };
       if (live) {
         patch.isLoadingListItems = false;
         patch.hasReceivedInitialListData = true;
@@ -482,6 +505,7 @@ export const createRealtimeSlice: StateCreator<
         rt.pendingEvents.push({ action, item: event.item || event.Item || {}, epoch: evt.bulk ? evt.epoch : undefined });
         pushed = true;
       }
+      if (evt.bulk && evt.epoch && typeof evt.total === 'number') rt.listTotal = { epoch: evt.epoch, total: evt.total };
 
       if (pushed && !rt.batchTimer) {
         interaction.deferredSince = performance.now();
@@ -608,8 +632,9 @@ export const createRealtimeSlice: StateCreator<
           state?.hasReceivedInitialListData &&
           !state?.isLoadingListItems &&
           selectedItem === (state?.selectedItem ?? null);
-        if (!upToDate) {
-          commitList(res, parked.items, { isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined }, selectedItem);
+        const listSync = listSyncOf(parked, state?.listSync);
+        if (!upToDate || listSync !== (state?.listSync ?? null)) {
+          commitList(res, parked.items, { isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined, listSync }, selectedItem);
         }
         // Events that arrived while parked are flushed on the on-screen cadence.
         if (parked.pendingEvents.length > 0) {
@@ -639,6 +664,7 @@ export const createRealtimeSlice: StateCreator<
         isLoadingListItems: true,
         hasReceivedInitialListData: false,
         loadError: undefined,
+        listSync: null,
         listItems: preservedItems,
       });
 

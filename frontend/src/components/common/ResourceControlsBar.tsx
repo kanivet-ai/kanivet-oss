@@ -2,6 +2,7 @@ import { useRef, ReactNode } from 'react';
 import NamespaceSelector from './NamespaceSelector';
 import BulkActionsDropdown from './BulkActionsDropdown';
 import SearchInput from './SearchInput';
+import type { ListSync } from '../../store/types';
 import './ResourceControlsBar.css';
 
 interface ResourceControlsBarProps {
@@ -23,7 +24,14 @@ interface ResourceControlsBarProps {
   showSearch?: boolean;
   onRefresh?: () => void;
   customStatus?: ReactNode;
+  // Set while the list is still arriving, so the count is not read as final.
+  listSync?: ListSync | null;
 }
+
+// The share of a list that has arrived. It stops short of 100: the list is
+// only complete when listSync is cleared.
+const loadedPercent = ({ loaded, total }: ListSync) =>
+  total ? Math.min(99, Math.floor((loaded / total) * 100)) : null;
 
 const ResourceControlsBar = ({
   namespaces = [],
@@ -44,9 +52,11 @@ const ResourceControlsBar = ({
   showSearch = true,
   onRefresh,
   customStatus,
+  listSync,
 }: ResourceControlsBarProps) => {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const effectiveTotalCount = itemCount ?? totalCount;
+  const percent = listSync ? loadedPercent(listSync) : null;
 
   return (
     <div className="resource-controls">
@@ -60,8 +70,13 @@ const ResourceControlsBar = ({
         showNamespaces && <div className="namespace-controls-placeholder"></div>
       )}
 
-      <div className="item-count">
+      <div className="item-count" aria-busy={!!listSync}>
         {effectiveTotalCount} {effectiveTotalCount === 1 ? 'item' : 'items'}
+        {listSync && (
+          <span className="item-count-loading">
+            {' · '}loading{percent === null ? '…' : ` ${percent}%`}
+          </span>
+        )}
       </div>
 
       {showBulkActions && (

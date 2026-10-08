@@ -618,8 +618,9 @@ export class WebSocketManager {
       const handlers = this.wsHandlers.get(topic);
       if (handlers) {
         const epoch = msg.epoch || msg.Epoch || 0;
+        const total = msg.total || msg.Total || undefined;
         const events = items.map((item: any) => ({ channel: 'items', action: 'added', item }));
-        handlers.forEach((h) => { try { h({ isBatch: true, events, topic, epoch, bulk: true }); } catch (e) { console.error('[WS] Bulk list handler failed:', e); } });
+        handlers.forEach((h) => { try { h({ isBatch: true, events, topic, epoch, total, bulk: true }); } catch (e) { console.error('[WS] Bulk list handler failed:', e); } });
       } else {
         this.unsubscribe(topic);
       }

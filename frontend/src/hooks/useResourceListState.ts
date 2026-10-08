@@ -80,6 +80,7 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
         sortOrder: t?.sortOrder,
         isLoadingListItems: t?.isLoadingListItems,
         hasReceivedInitialListData: t?.hasReceivedInitialListData,
+        listSync: t?.listSync,
         loadError: t?.loadError,
       };
     }),

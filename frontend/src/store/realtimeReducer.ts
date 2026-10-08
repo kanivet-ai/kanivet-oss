@@ -34,6 +34,15 @@ export const newRealtimeSession = (): RealtimeSession => ({
 
 export const itemKey = (item: any) => `${item?.namespace || ''}/${item?.name || ''}`;
 
+// The listing still on its way, if there is one: its epoch and how many of
+// its rows have arrived. A listing is under way from its first page until
+// the sync that closes it.
+export const pendingListing = (s: RealtimeSession): { epoch: number; loaded: number } | null => {
+  let epoch = 0;
+  for (const e of s.epochSeen.keys()) if (e > epoch) epoch = e;
+  return epoch ? { epoch, loaded: s.epochSeen.get(epoch)!.size } : null;
+};
+
 const rvNum = (item: any) => {
   const rv = item?.resourceVersion;
   if (!rv) return 0;
