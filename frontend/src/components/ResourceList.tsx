@@ -456,7 +456,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     lastSelectedKeyRef.current = null;
   }, [setSelectedResources]);
 
-  const navHandlers = createNavigationHandlers(focusArea, filteredItems, selectedItem, handleItemSelect);
+  // All split panes share focusArea; only the active pane owns list shortcuts.
+  const isListFocused = focusArea === 'list' &&
+    (!paneId || paneId === (tabState?.focusedCenterPaneId || 'root'));
+  const navHandlers = createNavigationHandlers(isListFocused ? 'list' : '', filteredItems, selectedItem, handleItemSelect);
 
   useRegisteredKeyboard({
     ...Object.fromEntries(
@@ -469,22 +472,29 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       category: 'list',
       description: 'Open resource details',
       handler: async () => {
-        if (focusArea !== 'list') return;
+        if (!isListFocused) return;
         if (selectedItem) await handleItemOpen(selectedItem);
       },
     },
     h: {
       category: 'list',
       description: 'Back to tree',
-      handler: () => {
-        if (focusArea === 'list') setFocusArea('tree');
+      handler: (e) => {
+        if (!isListFocused) return;
+        e.stopImmediatePropagation();
+        setFocusArea('tree');
       },
     },
     l: {
       category: 'list',
       description: 'Open details',
-      handler: async () => {
-        if (focusArea === 'list' && selectedItem) await handleItemOpen(selectedItem);
+      handler: (e) => {
+        if (!isListFocused || !selectedItem) return;
+        e.stopImmediatePropagation();
+        // The tab opens synchronously. Move focus before the detail fetch so a
+        // slow response cannot steal it back after the user presses H.
+        void handleItemOpen(selectedItem);
+        setFocusArea('detail');
       },
     },
     escape: {
@@ -494,7 +504,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
         if (searchQuery) {
           setSearchQuery('');
           searchInputRef.current?.blur();
-        } else if (focusArea === 'list') {
+        } else if (isListFocused) {
           setFocusArea('tree');
         }
       },
@@ -503,7 +513,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       category: 'list',
       description: 'Focus search',
       handler: (e) => {
-        if (focusArea === 'list') {
+        if (isListFocused) {
           e.preventDefault();
           searchInputRef.current?.focus();
         }
@@ -513,7 +523,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       category: 'list',
       description: 'Reload list',
       handler: async () => {
-        if (focusArea === 'list') await reloadListItems();
+        if (isListFocused) await reloadListItems();
       },
     },
   }, `resourceList-${paneId}`);
@@ -658,7 +668,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
 
   return (
     <div
-      className={`resource-list ${focusArea === 'list' ? 'focused' : ''}`}
+      className={`resource-list ${isListFocused ? 'focused' : ''}`}
       onClick={() => setFocusArea('list')}
       onDragOver={(e) => {
         const isTabDrag = e.dataTransfer.types.includes('tab-type');

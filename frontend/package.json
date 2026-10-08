@@ -30,7 +30,8 @@
     "clean:dist": "rm -rf dist && find build -name '*.map' -delete 2>/dev/null || true",
     "prettier": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,scss,md}\"",
     "prettier:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,scss,md}\"",
-    "prepare": "husky"
+    "prepare": "husky",
+    "test:navigation": "node scripts/test-vim-navigation.cjs"
   },
   "build": {
     "appId": "com.kanivet.app",

@@ -199,7 +199,11 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
   );
 
   useKeyboard({
-    h: () => focusArea === 'detail' && setFocusArea('list'),
+    h: (e) => {
+      if (focusArea !== 'detail') return;
+      e.stopImmediatePropagation();
+      setFocusArea('list');
+    },
     'meta+\\': toggleDetailsPanel,
     escape: () => !isDetailsPanelCollapsed && toggleDetailsPanel(),
   });
@@ -452,6 +456,8 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
               } ${isDetailsPanelCollapsed ? 'collapsed' : ''} ${isResizing ? 'resizing' : ''
               } ${panelWidthClass} ${isResourceDragOver ? 'resource-drag-over' : ''}`}
             style={{ width: isDetailsPanelCollapsed ? '40px' : `${width}px` }}
+            onMouseDownCapture={() => setFocusArea('detail')}
+            onFocusCapture={() => setFocusArea('detail')}
             onDragOver={(e) => {
               const hasTabType = e.dataTransfer.types.includes('tab-type');
               const hasJson = e.dataTransfer.types.includes('application/json');

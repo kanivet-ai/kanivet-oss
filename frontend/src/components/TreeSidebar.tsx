@@ -490,6 +490,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         if (focusArea !== 'tree' || document.activeElement?.id === 'tree-search')
           return;
         e.preventDefault();
+        e.stopImmediatePropagation();
         if (!focusedNodeId) return;
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
@@ -525,17 +526,20 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     },
     l: {
       category: 'tree',
-      description: 'Expand / go to first child',
+      description: 'Focus resource list / expand tree',
       handler: async (e) => {
         if (focusArea !== 'tree' || document.activeElement?.id === 'tree-search')
           return;
         e.preventDefault();
+        e.stopImmediatePropagation();
         if (!focusedNodeId) return;
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
         if (node.type === 'resource' || node.type === 'argo-overview') {
-          await handleNodeClick(node, false);
+          // Returning to the selected list must preserve its cursor and data.
+          if (node.id !== effectiveSelectedId) await handleNodeClick(node, false);
+          setFocusArea('list');
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
             toggleNodeExpansion(node.id);
