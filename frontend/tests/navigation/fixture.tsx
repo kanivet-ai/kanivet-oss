@@ -165,6 +165,7 @@ function reset({ empty = false, split = false, descending = false } = {}) {
       )?.selectedItem?.name,
       detail: detail?.item?.metadata?.name || detail?.item?.name,
       collapsed: state.isDetailsPanelCollapsed,
+      detailLoaded: !!detail?.item?.spec,
       listLoads,
       selectedNode: state.selectedNode?.data?.name,
       activeResource: state.resourceListTabs.find(

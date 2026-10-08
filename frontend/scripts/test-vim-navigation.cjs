@@ -114,8 +114,11 @@ async function runRendererTests() {
     await key('h');
     await focus('list');
     assert.equal((await snapshot()).selected, 'pod-b');
+    assert.equal((await snapshot()).collapsed, true, 'H must collapse details');
     await evaluate('window.navigationTest.finishDetails()');
+    await waitFor(async () => (await snapshot()).detailLoaded, 'Details should finish loading');
     await focus('list');
+    assert.equal((await snapshot()).collapsed, true, 'Late details must not reopen the panel');
     await key('h');
     await focus('tree');
     await key('l');
@@ -132,7 +135,8 @@ async function runRendererTests() {
     await evaluate('window.navigationTest.collapseDetails()');
     await key('l');
     await focus('detail');
-    await key('h');
+    assert.equal((await snapshot()).collapsed, false, 'L reopens collapsed details');
+    await click('.resource-list tr.resource-row td:nth-child(2)');
     await focus('list');
     const point = await evaluate(
       `(() => { const r = document.querySelector('.detail-view').getBoundingClientRect(); return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + 100) }; })()`,
@@ -152,8 +156,9 @@ async function runRendererTests() {
     await focus('detail');
     await key('h');
     await focus('list');
+    assert.equal((await snapshot()).collapsed, true, 'H collapses mouse-focused details');
     console.log(
-      'PASS: reopening collapsed details and returning from mouse-focused details',
+      'PASS: reopening collapsed details and collapsing mouse-focused details with H',
     );
 
     await reset({ descending: true });

@@ -37,7 +37,13 @@ export function applyLoadedDetails(tabs: Tab[], cluster: string, details: any): 
   const next = [...tabs];
   next[tabIndex] = {
     ...tabs[tabIndex],
-    state: { ...state, detailData: details, isDetailsPanelCollapsed: false, detailTabs },
+    state: {
+      ...state,
+      detailData: details,
+      // Opening a tab reveals it; a later response must preserve a manual collapse.
+      isDetailsPanelCollapsed: state.activeDetailTab ? state.isDetailsPanelCollapsed : false,
+      detailTabs,
+    },
   };
   return next;
 }

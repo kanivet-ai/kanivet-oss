@@ -202,6 +202,7 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     h: (e) => {
       if (focusArea !== 'detail') return;
       e.stopImmediatePropagation();
+      setDetailsPanelCollapsed(true);
       setFocusArea('list');
     },
     'meta+\\': toggleDetailsPanel,
