@@ -23,6 +23,10 @@ func (s *NavigationService) AddEntry(tabID, clusterID string, entry models.Navig
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	if entry.ClusterID == "" {
+		entry.ClusterID = clusterID
+	}
+
 	history, exists := s.histories[tabID]
 	if !exists {
 		history = &models.TabHistory{

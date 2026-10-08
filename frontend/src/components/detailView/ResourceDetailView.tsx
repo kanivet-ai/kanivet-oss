@@ -9,8 +9,6 @@ import ConditionsView from './shared/ConditionsView';
 import SpecificationSection from './shared/SpecificationSection';
 import EventsSection from './shared/EventsSection';
 import ContainerDropdown from '../ContainerDropdown';
-import { PodMetrics } from '../PodMetrics';
-import { WorkloadMetrics } from '../WorkloadMetrics';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
@@ -20,15 +18,12 @@ import CRDDefinitionView from '../CRDDefinitionView';
 import APIResourceDefinitionView from '../APIResourceDefinitionView';
 import CustomResourceDetailView from './resourceTypes/CustomResourceDetailView';
 import ServiceDetailView from './resourceTypes/ServiceDetailView';
-import ConfigMapDetailView from './resourceTypes/ConfigMapDetailView';
-import SecretDetailView from './resourceTypes/SecretDetailView';
 import EndpointsDetailView from './resourceTypes/EndpointsDetailView';
 import RoleDetailView from './resourceTypes/RoleDetailView';
 import RoleBindingDetailView from './resourceTypes/RoleBindingDetailView';
 import ServiceAccountDetailView from './resourceTypes/ServiceAccountDetailView';
 import NodeDetailView from './resourceTypes/NodeDetailView';
 import EventDetailView from './resourceTypes/EventDetailView';
-import ApplicationDetailView from './resourceTypes/ApplicationDetailView';
 import MetadataSection from './shared/MetadataSection';
 import VClusterHostRows from './shared/VClusterHostRows';
 import PropertyRow from '../common/PropertyRow';
@@ -36,6 +31,20 @@ import ScaleDialog from '../dialogs/ScaleDialog';
 import Dialog from '../common/Dialog';
 import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
+import { lazyView } from '../../utils/lazyView';
+
+// Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
+const PodMetrics = lazyView(() => import('../PodMetrics'));
+const WorkloadMetrics = lazyView(() => import('../WorkloadMetrics'));
+const ConfigMapDetailView = lazyView(
+  () => import('./resourceTypes/ConfigMapDetailView'),
+);
+const SecretDetailView = lazyView(
+  () => import('./resourceTypes/SecretDetailView'),
+);
+const ApplicationDetailView = lazyView(
+  () => import('./resourceTypes/ApplicationDetailView'),
+);
 
 const getContainerState = (container: any) => {
   if (container.state) {

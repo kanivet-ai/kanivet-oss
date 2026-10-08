@@ -372,6 +372,7 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     minWidth: dynamicMinWidth,
     maxWidth: responsiveMax,
     defaultWidth: Math.max(dynamicMinWidth, Math.floor(viewportWidth * 0.2)),
+    storageKey: 'kanivet.detailPanelWidth',
   });
 
   // Dynamic panel width classification

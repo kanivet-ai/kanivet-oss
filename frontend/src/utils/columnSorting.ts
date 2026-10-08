@@ -56,6 +56,28 @@ const getSortValue = (item: any, column: string): any => {
   }
 };
 
+type SortKey = { v: any; s: string | null };
+
+// Sort keys per column, cached per item. Items are replaced on change, never
+// edited in place, so a key stays valid for the life of its item and a list
+// that changed in a few rows is re-sorted without re-reading every row.
+const sortKeys = new Map<string, WeakMap<object, SortKey>>();
+
+const sortKeyOf = (
+  item: any,
+  column: string,
+  cache: WeakMap<object, SortKey>,
+): SortKey => {
+  const cacheable = typeof item === 'object' && item !== null;
+  let key = cacheable ? cache.get(item) : undefined;
+  if (!key) {
+    const v = getSortValue(item, column);
+    key = { v, s: typeof v === 'string' ? v.toLowerCase() : null };
+    if (cacheable) cache.set(item, key);
+  }
+  return key;
+};
+
 export const sortItems = <T>(
   items: T[],
   { sortBy, sortOrder }: SortConfig,
@@ -63,9 +85,14 @@ export const sortItems = <T>(
   if (!sortBy) return items;
 
   const dir = sortOrder === 'asc' ? 1 : -1;
+  let cache = sortKeys.get(sortBy);
+  if (!cache) {
+    cache = new WeakMap();
+    sortKeys.set(sortBy, cache);
+  }
   const keyed = items.map((item) => {
-    const v = getSortValue(item, sortBy);
-    return { item, v, s: typeof v === 'string' ? v.toLowerCase() : null };
+    const { v, s } = sortKeyOf(item, sortBy, cache!);
+    return { item, v, s };
   });
   keyed.sort((a, b) => {
     if (a.s !== null && b.s !== null) return dir * a.s.localeCompare(b.s);

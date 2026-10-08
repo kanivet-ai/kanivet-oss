@@ -180,9 +180,21 @@ async function runRendererTests() {
     await reset();
     await key('j');
     await key('l');
-    await focus('list');
+    await focus('tree');
     assert.equal((await snapshot()).selectedNode, 'services');
-    console.log('PASS: L on a different tree resource opens its list');
+    assert.equal((await snapshot()).activeResource, 'services');
+    await key('l');
+    await focus('list');
+    await key('h');
+    await focus('tree');
+    await key('k');
+    await key('l');
+    await focus('tree');
+    assert.equal((await snapshot()).activeResource, 'pods');
+    await key('l');
+    await focus('list');
+    assert.equal((await snapshot()).selected, 'pod-a');
+    console.log('PASS: first L opens a different list in the sidebar; second L enters its first row');
 
     await reset({ split: true });
     await key('l');
@@ -193,6 +205,17 @@ async function runRendererTests() {
       (await snapshot()).detail,
       'pod-a',
       'An inactive split pane must not open its row',
+    );
+    await key('h');
+    await focus('list');
+    await evaluate("window.navigationTest.focusPane('other')");
+    await focus('list');
+    await key('l');
+    await focus('detail');
+    assert.equal(
+      (await snapshot()).detail,
+      'pod-b',
+      'Changing the focused split pane must transfer its shortcuts',
     );
     await key('h');
     await focus('list');

@@ -5,6 +5,7 @@ interface DeploymentLogsProps {
   namespace: string;
   name: string;
   resourceType?: string;
+  active?: boolean;
 }
 
 const KINDS = ['deployment', 'statefulset', 'daemonset', 'replicaset', 'job'];
@@ -16,12 +17,13 @@ const normalizeKind = (k?: string) => {
   return KINDS.includes(singular) ? singular : 'deployment';
 };
 
-const DeploymentLogs = ({ cluster, namespace, name, resourceType }: DeploymentLogsProps) => (
+const DeploymentLogs = ({ cluster, namespace, name, resourceType, active }: DeploymentLogsProps) => (
   <LogViewer
     cluster={cluster}
     namespace={namespace}
     name={name}
     kind={normalizeKind(resourceType)}
+    active={active}
   />
 );
 

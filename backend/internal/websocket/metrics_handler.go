@@ -1,9 +1,14 @@
 package websocket
 
 import (
+	"bytes"
 	"context"
+	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -12,12 +17,45 @@ import (
 	"github.com/kanivet/backend/internal/websocket/core"
 )
 
-const metricsFetchTimeout = 10 * time.Second
+const (
+	// metricsAttempts bounds how often one refresh asks again after a
+	// transient failure (a dropped tunnel, an overloaded store) before it
+	// leaves the rest to the next tick.
+	metricsAttempts = 3
+	// metricsMaxBackoff caps how far a stream whose store keeps failing
+	// spaces its refreshes out.
+	metricsMaxBackoff = time.Minute
+	// metricsReportAfter is how many refreshes in a row may fail transiently
+	// before the chart is told; until then it keeps what it shows.
+	metricsReportAfter = 3
+	// metricsSlowMessage avoids every phrase the frontend reads as "the
+	// provider is unavailable": a slow refresh must not grey out every chart
+	// of the cluster for a minute.
+	metricsSlowMessage = "The metrics store is slow to answer; retrying"
+)
+
+// metricsRetryPause is the pause before the first retry within a refresh; a
+// var so tests can shrink it.
+var metricsRetryPause = 500 * time.Millisecond
+
+// metricsQuerier is what streams read from: metrics.Service.
+type metricsQuerier interface {
+	QueryMetrics(ctx context.Context, cluster, providerType string, query metrics.MetricQuery) (*metrics.MetricResponse, error)
+	QueryWorkloadMetrics(ctx context.Context, cluster, providerType string, query metrics.WorkloadMetricQuery) (*metrics.WorkloadMetricResponse, error)
+}
+
+// streamConn is what streams write to: a core.Connection.
+type streamConn interface {
+	ID() core.ConnectionID
+	Send(data []byte) error
+}
 
 type MetricsStreamHandler struct {
-	metricsService *metrics.Service
-	streams        sync.Map // connectionID:topic -> streamCancel
+	metricsService metricsQuerier
+	streams        sync.Map // connectionID:topic -> *activeStream
 }
+
+type activeStream struct{ cancel context.CancelFunc }
 
 type MetricsStreamRequest struct {
 	Action        string   `json:"action"`
@@ -33,22 +71,23 @@ type MetricsStreamRequest struct {
 	StreamingRate int      `json:"streamingRate,omitempty"` // seconds between updates, default 5
 }
 
-type MetricsStreamResponse struct {
-	Type      string                  `json:"type"`
-	Topic     string                  `json:"topic"`
-	Timestamp int64                   `json:"timestamp"`
-	Data      *metrics.MetricResponse `json:"data,omitempty"`
-	Error     string                  `json:"error,omitempty"`
+// streamPayload is one update of a stream. Stale marks an answer served from
+// the chart cache while the live one is fetched; Transient marks an error the
+// stream expects to recover from on its own.
+type streamPayload[D any] struct {
+	Type      string `json:"type"`
+	Topic     string `json:"topic"`
+	Timestamp int64  `json:"timestamp"`
+	Data      *D     `json:"data,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Stale     bool   `json:"stale,omitempty"`
+	Transient bool   `json:"transient,omitempty"`
 }
 
+type MetricsStreamResponse = streamPayload[metrics.MetricResponse]
+
 // WorkloadMetricsResponse for batch pod metrics
-type WorkloadMetricsResponse struct {
-	Type      string                          `json:"type"`
-	Topic     string                          `json:"topic"`
-	Timestamp int64                           `json:"timestamp"`
-	Data      *metrics.WorkloadMetricResponse `json:"data,omitempty"`
-	Error     string                          `json:"error,omitempty"`
-}
+type WorkloadMetricsResponse = streamPayload[metrics.WorkloadMetricResponse]
 
 func NewMetricsStreamHandler(metricsService *metrics.Service) *MetricsStreamHandler {
 	return &MetricsStreamHandler{
@@ -69,7 +108,10 @@ func (h *MetricsStreamHandler) Handle(ctx context.Context, conn *core.Connection
 	if err := msg.UnmarshalPayload(&req); err != nil {
 		return fmt.Errorf("failed to unmarshal metrics request: %w", err)
 	}
+	return h.handle(ctx, conn, req)
+}
 
+func (h *MetricsStreamHandler) handle(ctx context.Context, conn streamConn, req MetricsStreamRequest) error {
 	topic := h.buildTopic(req)
 	streamKey := fmt.Sprintf("%s:%s", conn.ID(), topic)
 
@@ -83,7 +125,7 @@ func (h *MetricsStreamHandler) Handle(ctx context.Context, conn *core.Connection
 	}
 }
 
-func (h *MetricsStreamHandler) startStream(ctx context.Context, conn *core.Connection, req MetricsStreamRequest, streamKey, topic string) error {
+func (h *MetricsStreamHandler) startStream(ctx context.Context, conn streamConn, req MetricsStreamRequest, streamKey, topic string) error {
 	// Stop any existing stream for this connection/topic
 	_ = h.stopStream(streamKey)
 
@@ -91,14 +133,44 @@ func (h *MetricsStreamHandler) startStream(ctx context.Context, conn *core.Conne
 
 	// Create a cancellable context for this stream
 	streamCtx, cancel := context.WithCancel(ctx)
-	h.streams.Store(streamKey, cancel)
+	stream := &activeStream{cancel: cancel}
+	h.streams.Store(streamKey, stream)
+	done := func() {
+		cancel()
+		h.streams.CompareAndDelete(streamKey, stream)
+	}
 
 	// Check if this is a workload batch query (has PodNames)
 	if len(req.PodNames) > 0 {
-		go h.streamWorkloadMetrics(streamCtx, conn, req, topic, interval)
+		query := metrics.WorkloadMetricQuery{PodNames: req.PodNames, Namespace: req.Namespace, MetricType: req.MetricType, TimeRange: req.TimeRange}
+		go runStream(streamCtx, conn, interval, done, "workload_metrics", topic,
+			func(ctx context.Context) (*metrics.WorkloadMetricResponse, error) {
+				return h.metricsService.QueryWorkloadMetrics(ctx, req.Cluster, req.Provider, query)
+			},
+			func(d *metrics.WorkloadMetricResponse) bool { return len(d.Pods) > 0 },
+			nil)
 	} else {
 		// Start the streaming goroutine for single pod/node
-		go h.streamMetrics(streamCtx, conn, req, topic, interval)
+		query := metrics.MetricQuery{PodName: req.Pod, Namespace: req.Namespace, ContainerName: req.Container, NodeName: req.NodeName, MetricType: req.MetricType, TimeRange: req.TimeRange}
+		fetch := func(query metrics.MetricQuery) func(context.Context) (*metrics.MetricResponse, error) {
+			return func(ctx context.Context) (*metrics.MetricResponse, error) {
+				return h.metricsService.QueryMetrics(ctx, req.Cluster, req.Provider, query)
+			}
+		}
+		// Switching between CPU and memory is the usual next click: once
+		// this chart is up, warm the cache for the other so it paints from
+		// the cache at once. Bounded to those two, once per stream.
+		var siblings []func(context.Context) (*metrics.MetricResponse, error)
+		for _, metric := range []string{"cpu", "memory"} {
+			if metric != req.MetricType {
+				sibling := query
+				sibling.MetricType = metric
+				siblings = append(siblings, fetch(sibling))
+			}
+		}
+		go runStream(streamCtx, conn, interval, done, "metrics", topic, fetch(query),
+			func(d *metrics.MetricResponse) bool { return len(d.Values) > 0 },
+			siblings)
 	}
 
 	log.Printf("[MetricsStream] Started streaming for %s at %s intervals", streamKey, interval)
@@ -106,227 +178,175 @@ func (h *MetricsStreamHandler) startStream(ctx context.Context, conn *core.Conne
 }
 
 func (h *MetricsStreamHandler) stopStream(streamKey string) error {
-	if cancel, ok := h.streams.LoadAndDelete(streamKey); ok {
-		cancel.(context.CancelFunc)()
+	if stream, ok := h.streams.LoadAndDelete(streamKey); ok {
+		stream.(*activeStream).cancel()
 		log.Printf("[MetricsStream] Stopped streaming for %s", streamKey)
 	}
 	return nil
 }
 
-func (h *MetricsStreamHandler) streamMetrics(ctx context.Context, conn *core.Connection, req MetricsStreamRequest, topic string, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
+type fetchResult[D any] struct {
+	data *D
+	err  error
+}
 
-	if !h.fetchAndSendWithTimeout(ctx, conn, req, topic) {
-		return
+// runStream refreshes one chart until ctx ends or the connection closes.
+//
+// It first sends whatever the chart cache already holds, marked stale, so a
+// chart opened again (or after a restart) paints at once; then the live
+// answer. Only one refresh runs at a time: a tick that finds the last one
+// still running is skipped rather than piling another query on a slow store.
+// A slow or failing store never ends the stream — refreshes back off while
+// failures repeat, and the chart keeps what it shows until they have repeated
+// a few times. An update identical to the last one sent is not sent again.
+func runStream[D any](ctx context.Context, conn streamConn, interval time.Duration, done func(), msgType, topic string,
+	fetch func(context.Context) (*D, error), hasData func(*D) bool, warm []func(context.Context) (*D, error)) {
+	defer done()
+
+	var last []byte
+	// send reports false when the connection is gone. An update dropped
+	// because the client is behind is simply superseded by the next one.
+	send := func(payload streamPayload[D]) bool {
+		payload.Type, payload.Topic = msgType, topic
+		key, err := jsonv2.Marshal(payload)
+		if err != nil {
+			log.Printf("[MetricsStream] Failed to encode %s: %v", topic, err)
+			return true
+		}
+		if bytes.Equal(key, last) {
+			return true
+		}
+		payload.Timestamp = time.Now().Unix()
+		b, err := core.NewOutgoingMessage(core.MessageType(msgType), payload).Marshal()
+		if err == nil {
+			err = conn.Send(b)
+		}
+		switch {
+		case errors.Is(err, core.ErrConnectionClosed):
+			return false
+		case err != nil:
+			log.Printf("[MetricsStream] Failed to send %s: %v", topic, err)
+		default:
+			last = key
+		}
+		return true
 	}
 
+	// answered is set once the chart has something to show.
+	answered := false
+	if data, err := fetch(metrics.WithCacheOnly(ctx, true)); err == nil && hasData(data) {
+		if !send(streamPayload[D]{Data: data, Stale: true}) {
+			return
+		}
+		answered = true
+	}
+
+	results := make(chan fetchResult[D], 1)
+	running := false
+	refresh := func() {
+		running = true
+		go func() {
+			data, err := fetchWithRetry(ctx, fetch)
+			results <- fetchResult[D]{data, err}
+		}()
+	}
+	refresh()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	var (
+		failures int
+		notUntil time.Time
+		warmed   bool
+	)
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("[MetricsStream] Context cancelled for topic %s", topic)
 			return
 		case <-ticker.C:
-			if !h.fetchAndSendWithTimeout(ctx, conn, req, topic) {
+			if running || time.Now().Before(notUntil) {
+				continue
+			}
+			refresh()
+		case r := <-results:
+			running = false
+			if ctx.Err() != nil {
 				return
+			}
+			var payload streamPayload[D]
+			if r.err == nil {
+				failures, notUntil = 0, time.Time{}
+				payload.Data = r.data
+			} else {
+				failures++
+				notUntil = time.Now().Add(backoff(interval, failures))
+				log.Printf("[MetricsStream] Refresh %d of %s failed: %v", failures, topic, r.err)
+				if metrics.IsTransient(r.err) {
+					if answered && failures < metricsReportAfter {
+						continue
+					}
+					payload.Error, payload.Transient = metricsSlowMessage, true
+				} else {
+					payload.Error = r.err.Error()
+				}
+			}
+			if !send(payload) {
+				return
+			}
+			answered = true
+			if r.err == nil && !warmed {
+				warmed = true
+				for _, f := range warm {
+					go func() { _, _ = f(ctx) }()
+				}
 			}
 		}
 	}
 }
 
-// streamWorkloadMetrics streams metrics for multiple pods using a single Prometheus query
-func (h *MetricsStreamHandler) streamWorkloadMetrics(ctx context.Context, conn *core.Connection, req MetricsStreamRequest, topic string, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	if !h.fetchAndSendWorkloadWithTimeout(ctx, conn, req, topic) {
-		return
-	}
-
-	for {
+// fetchWithRetry asks again, after a short jittered pause, when a refresh
+// fails for a reason that may pass at once — the tunnel was replaced, the
+// store shed load. A bad query or a missing store is answered straight away.
+func fetchWithRetry[D any](ctx context.Context, fetch func(context.Context) (*D, error)) (*D, error) {
+	pause := metricsRetryPause
+	for attempt := 1; ; attempt++ {
+		data, err := fetch(ctx)
+		if err == nil || attempt == metricsAttempts || !metrics.IsTransient(err) || ctx.Err() != nil {
+			return data, err
+		}
 		select {
 		case <-ctx.Done():
-			log.Printf("[MetricsStream] Context cancelled for workload topic %s", topic)
-			return
-		case <-ticker.C:
-			if !h.fetchAndSendWorkloadWithTimeout(ctx, conn, req, topic) {
-				return
-			}
+			return nil, ctx.Err()
+		case <-time.After(pause/2 + rand.N(pause)):
 		}
+		pause *= 2
 	}
 }
 
-func (h *MetricsStreamHandler) fetchAndSendWorkloadWithTimeout(ctx context.Context, conn *core.Connection, req MetricsStreamRequest, topic string) bool {
-	responseCh := make(chan WorkloadMetricsResponse, 1)
-	go func() {
-		responseCh <- h.buildWorkloadMetricsResponse(req, topic)
-	}()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case response := <-responseCh:
-		if err := h.sendWorkload(conn, response); err != nil {
-			log.Printf("[MetricsStream] Failed to send workload metrics: %v", err)
-			streamKey := fmt.Sprintf("%s:%s", conn.ID(), topic)
-			_ = h.stopStream(streamKey)
-			return false
-		}
-		return true
-	case <-time.After(metricsFetchTimeout):
-		response := WorkloadMetricsResponse{
-			Type:      "workload_metrics",
-			Topic:     topic,
-			Timestamp: time.Now().Unix(),
-			Error:     "metrics provider unavailable: query timed out",
-		}
-		_ = h.sendWorkload(conn, response)
-		streamKey := fmt.Sprintf("%s:%s", conn.ID(), topic)
-		_ = h.stopStream(streamKey)
-		return false
-	}
-}
-
-func (h *MetricsStreamHandler) buildWorkloadMetricsResponse(req MetricsStreamRequest, topic string) WorkloadMetricsResponse {
-	query := metrics.WorkloadMetricQuery{
-		PodNames:   req.PodNames,
-		Namespace:  req.Namespace,
-		MetricType: req.MetricType,
-		TimeRange:  req.TimeRange,
-	}
-
-	data, err := h.metricsService.QueryWorkloadMetrics(req.Cluster, query)
-
-	response := WorkloadMetricsResponse{
-		Type:      "workload_metrics",
-		Topic:     topic,
-		Timestamp: time.Now().Unix(),
-	}
-
-	if err != nil {
-		response.Error = err.Error()
-		log.Printf("[MetricsStream] Error fetching workload metrics: %v", err)
-	} else {
-		response.Data = data
-		log.Printf("[MetricsStream] Successfully fetched workload metrics for %d pods", len(data.Pods))
-	}
-
-	return response
-}
-
-func (h *MetricsStreamHandler) sendWorkload(conn *core.Connection, payload WorkloadMetricsResponse) error {
-	msg := core.NewOutgoingMessage("workload_metrics", payload)
-	b, err := msg.Marshal()
-	if err != nil {
-		return err
-	}
-	return conn.Send(b)
-}
-
-func (h *MetricsStreamHandler) fetchAndSendWithTimeout(ctx context.Context, conn *core.Connection, req MetricsStreamRequest, topic string) bool {
-	responseCh := make(chan MetricsStreamResponse, 1)
-	go func() {
-		responseCh <- h.buildMetricsResponse(req, topic)
-	}()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case response := <-responseCh:
-		if err := h.send(conn, response); err != nil {
-			log.Printf("[MetricsStream] Failed to send metrics: %v", err)
-			streamKey := fmt.Sprintf("%s:%s", conn.ID(), topic)
-			_ = h.stopStream(streamKey)
-			return false
-		}
-		return true
-	case <-time.After(metricsFetchTimeout):
-		response := MetricsStreamResponse{
-			Type:      "metrics",
-			Topic:     topic,
-			Timestamp: time.Now().Unix(),
-			Error:     "metrics provider unavailable: query timed out",
-		}
-		_ = h.send(conn, response)
-		streamKey := fmt.Sprintf("%s:%s", conn.ID(), topic)
-		_ = h.stopStream(streamKey)
-		return false
-	}
-}
-
-func (h *MetricsStreamHandler) buildMetricsResponse(req MetricsStreamRequest, topic string) MetricsStreamResponse {
-	query := metrics.MetricQuery{
-		PodName:       req.Pod,
-		Namespace:     req.Namespace,
-		ContainerName: req.Container,
-		NodeName:      req.NodeName,
-		MetricType:    req.MetricType,
-		TimeRange:     req.TimeRange,
-	}
-
-	// Retry logic for Prometheus errors
-	var data *metrics.MetricResponse
-	var err error
-	maxRetries := 3
-	retryDelay := time.Second
-
-	for attempt := 1; attempt <= maxRetries; attempt++ {
-		data, err = h.metricsService.QueryMetrics(req.Cluster, req.Provider, query)
-
-		if err == nil {
-			break // Success
-		}
-
-		log.Printf("[MetricsStream] Attempt %d/%d failed for %s: %v", attempt, maxRetries, topic, err)
-
-		// "No provider" is a verified, cached answer — retrying it only delays
-		// the empty state the UI is about to show.
-		if strings.Contains(err.Error(), "no metrics provider") || strings.Contains(err.Error(), "not found in cluster") {
-			break
-		}
-
-		if attempt < maxRetries {
-			time.Sleep(retryDelay)
-			retryDelay *= 2 // Exponential backoff
-		}
-	}
-
-	response := MetricsStreamResponse{
-		Type:      "metrics",
-		Topic:     topic,
-		Timestamp: time.Now().Unix(),
-	}
-
-	if err != nil {
-		response.Error = fmt.Sprintf("Failed after %d attempts: %v", maxRetries, err)
-		log.Printf("[MetricsStream] Final error after retries for %s: %v", topic, err)
-	} else {
-		response.Data = data
-		log.Printf("[MetricsStream] Successfully fetched metrics for %s", topic)
-	}
-
-	return response
-}
-
-func (h *MetricsStreamHandler) send(conn *core.Connection, payload MetricsStreamResponse) error {
-	msg := core.NewOutgoingMessage("metrics", payload)
-	b, err := msg.Marshal()
-	if err != nil {
-		return err
-	}
-	return conn.Send(b)
+// backoff spaces out the refreshes of a stream whose store keeps failing.
+func backoff(interval time.Duration, failures int) time.Duration {
+	d := interval << min(failures, 6)
+	return min(d, metricsMaxBackoff)
 }
 
 func (h *MetricsStreamHandler) buildTopic(req MetricsStreamRequest) string {
-	// Use workload identifier if PodNames is set
+	// Use workload identifier if PodNames is set: two workloads of one
+	// namespace must not share a stream.
 	if len(req.PodNames) > 0 {
-		return fmt.Sprintf("workload_metrics:%s:%s:%s:%s",
-			req.Cluster, req.Namespace, req.MetricType, req.TimeRange)
+		pods := slices.Clone(req.PodNames)
+		slices.Sort(pods)
+		return fmt.Sprintf("workload_metrics:%s:%s:%s:%s:%s",
+			req.Cluster, req.Namespace, req.MetricType, req.TimeRange, strings.Join(slices.Compact(pods), ","))
 	}
-	// Use NodeName if present (for node metrics), otherwise use Pod
+	// Use NodeName if present (for node metrics), otherwise use Pod; the
+	// container keeps two container charts of one pod apart.
 	identifier := req.Pod
 	if req.NodeName != "" {
 		identifier = req.NodeName
+	}
+	if req.Container != "" {
+		identifier += "/" + req.Container
 	}
 	return fmt.Sprintf("metrics:%s:%s:%s:%s:%s",
 		req.Cluster, req.Namespace, identifier, req.MetricType, req.TimeRange)

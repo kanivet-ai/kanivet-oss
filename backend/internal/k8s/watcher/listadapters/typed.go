@@ -32,9 +32,13 @@ func TypedList(obj runtime.Object, gvr schema.GroupVersionResource) (*unstructur
 	if !ok {
 		return nil, false
 	}
+	md := map[string]interface{}{"resourceVersion": pl.ResourceVersion, "continue": pl.Continue}
+	if pl.RemainingItemCount != nil {
+		md["remainingItemCount"] = *pl.RemainingItemCount
+	}
 	ul := &unstructured.UnstructuredList{Object: map[string]interface{}{
 		PresimplifiedKey: true,
-		"metadata":       map[string]interface{}{"resourceVersion": pl.ResourceVersion, "continue": pl.Continue},
+		"metadata":       md,
 	}}
 	ul.Items = make([]unstructured.Unstructured, len(pl.Items))
 	for i := range pl.Items {
@@ -73,6 +77,21 @@ func stringMap(m map[string]string) map[string]interface{} {
 	return out
 }
 
+// annotationMap is stringMap for annotations, leaving out what omitAnnotation
+// keeps out of list rows.
+func annotationMap(m map[string]string) map[string]interface{} {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]interface{}, len(m))
+	for k, v := range m {
+		if !omitAnnotation(k) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
 func typedPod(p *v1.Pod, gvr schema.GroupVersionResource) map[string]interface{} {
 	item := map[string]interface{}{"name": p.Name, "uid": string(p.UID), "apiVersion": p.APIVersion}
 	if p.Namespace != "" {
@@ -87,8 +106,8 @@ func typedPod(p *v1.Pod, gvr schema.GroupVersionResource) map[string]interface{}
 	if len(p.Labels) > 0 {
 		item["labels"] = stringMap(p.Labels)
 	}
-	if len(p.Annotations) > 0 {
-		item["annotations"] = stringMap(p.Annotations)
+	if ann := annotationMap(p.Annotations); len(ann) > 0 {
+		item["annotations"] = ann
 	}
 	if len(p.OwnerReferences) > 0 {
 		refs := make([]interface{}, len(p.OwnerReferences))

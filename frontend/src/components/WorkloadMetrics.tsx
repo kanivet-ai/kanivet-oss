@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import api from '../services/api';
+import {
+  startWorkloadMetricsStream,
+  type WorkloadSeries,
+} from '../services/api/metrics';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import MonitoringSettingsModal from './MonitoringSettingsModal';
@@ -13,6 +17,11 @@ import { MetricsToolbar } from './metrics/MetricsToolbar';
 import { MetricsHeadline } from './metrics/MetricsHeadline';
 import { MetricsChartFrame, type ChartFrameState } from './metrics/MetricsChartFrame';
 import { MetricsProviderState } from './metrics/MetricsProviderState';
+import {
+  perPodReference,
+  sumPods,
+  totalRequest,
+} from './metrics/workloadSeries';
 import './PodMetrics.css';
 import './WorkloadMetrics.css';
 
@@ -37,12 +46,6 @@ interface PodInfo {
   resourceRequests: { cpu: number; memory: number };
 }
 
-interface PodMetricsData {
-  labels: string[];
-  values: number[];
-  unit?: string;
-}
-
 // Series colours: the system palette, read from the tokens at runtime
 const POD_COLOR_KEYS: (keyof ChartTheme)[] = ['blue', 'green', 'orange', 'red', 'purple', 'pink', 'teal', 'yellow', 'indigo', 'gray'];
 
@@ -53,7 +56,7 @@ const MAX_PODS_DISPLAYED = 8;
 // Legend chips shown before "+N more"
 const MAX_LEGEND_CHIPS = 20;
 
-const REFERENCE_LABELS = ['Limit', 'Request'];
+const REFERENCE_LABELS = ['Limit per pod', 'Request per pod'];
 
 const shortPodName = (fullName: string): string => {
   const parts = fullName.split('-');
@@ -71,36 +74,37 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
   const [podsError, setPodsError] = useState<string | null>(null);
   const [selectedMetric, setSelectedMetric] = useState<MetricType>('cpu');
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('15m');
-  const [podMetricsData, setPodMetricsData] = useState<Record<string, PodMetricsData>>({});
+  const [series, setSeries] = useState<WorkloadSeries | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
   const [visiblePods, setVisiblePods] = useState<Set<string>>(new Set());
   const [streamRun, setStreamRun] = useState(0);
   const chartRef = useRef<any>(null);
-  const cleanupFnsRef = useRef<Map<string, () => void>>(new Map());
+  const podsRequest = useRef(0);
 
   const ready = phase === 'ready';
   const preferred = requestedProvider(monitoringSettings.preferredProvider);
 
-  const stopStreams = useCallback(() => {
-    cleanupFnsRef.current.forEach((cleanup) => cleanup());
-    cleanupFnsRef.current.clear();
-  }, []);
-
-  // Pods of the workload
+  // Pods of the workload. Only the latest request may land: switching
+  // workloads quickly must not show the previous one's pods.
   const fetchPods = useCallback(async () => {
+    const request = ++podsRequest.current;
     setPodsLoading(true);
     setPodsError(null);
     try {
       const result = await api.getWorkloadPods(cluster, kind, namespace, name);
+      if (request !== podsRequest.current) return;
       setPods(result.pods);
-      setVisiblePods(new Set(result.pods.slice(0, MAX_PODS_DISPLAYED).map((p) => p.name)));
-      setPodMetricsData({});
+      setVisiblePods(
+        new Set(result.pods.slice(0, MAX_PODS_DISPLAYED).map((p) => p.name)),
+      );
+      setSeries(null);
     } catch (err: any) {
+      if (request !== podsRequest.current) return;
       setPodsError(err?.message || 'Failed to fetch pods');
     } finally {
-      setPodsLoading(false);
+      if (request === podsRequest.current) setPodsLoading(false);
     }
   }, [cluster, kind, namespace, name]);
 
@@ -108,50 +112,64 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
     void fetchPods();
   }, [fetchPods]);
 
-  // One stream per visible pod. Old series stay until replaced so toggling
-  // a pod or switching metric does not blank the chart.
+  // The pods drawn, in workload order.
+  const streamedPods = useMemo(
+    () =>
+      pods
+        .filter((p) => visiblePods.has(p.name))
+        .slice(0, MAX_PODS_DISPLAYED)
+        .map((p) => p.name),
+    [pods, visiblePods],
+  );
+  const streamedKey = streamedPods.join(',');
+
+  // One stream for all of them: one store query and one message per
+  // refresh. The last series stays until replaced, so toggling a pod or
+  // switching metric does not blank the chart.
   useEffect(() => {
-    stopStreams();
-    if (!ready || pods.length === 0) return;
+    if (!ready || !streamedKey) return;
     setStreamError(null);
-
-    const podsToStream = pods.filter((p) => visiblePods.has(p.name)).slice(0, MAX_PODS_DISPLAYED);
-    podsToStream.forEach((pod) => {
-      const cleanup = api.startMetricsStream(
-        cluster,
-        namespace,
-        pod.name,
-        selectedMetric,
-        selectedTimeRange,
-        (data) => {
-          setPodMetricsData((prev) => ({ ...prev, [pod.name]: data }));
-        },
-        (err) => {
-          if (api.isMetricsProviderUnavailableError(err)) {
-            stopStreams();
-            setPodMetricsData({});
-            markUnavailable(err);
-            return;
-          }
-          setStreamError(err);
-        },
-        undefined,
-        preferred,
-        2,
-      );
-      cleanupFnsRef.current.set(pod.name, cleanup);
-    });
-
-    return stopStreams;
-  }, [ready, pods, visiblePods, cluster, namespace, selectedMetric, selectedTimeRange, preferred, revision, streamRun, stopStreams, markUnavailable]);
+    return startWorkloadMetricsStream(
+      cluster,
+      namespace,
+      streamedKey.split(','),
+      selectedMetric,
+      selectedTimeRange,
+      (data) => {
+        setSeries(data);
+        setStreamError(null);
+      },
+      (err) => {
+        if (api.isMetricsProviderUnavailableError(err)) {
+          setSeries(null);
+          markUnavailable(err);
+          return;
+        }
+        setStreamError(err);
+      },
+      preferred,
+      2,
+    );
+  }, [
+    ready,
+    streamedKey,
+    cluster,
+    namespace,
+    selectedMetric,
+    selectedTimeRange,
+    preferred,
+    revision,
+    streamRun,
+    markUnavailable,
+  ]);
 
   useEffect(() => {
-    setPodMetricsData({});
+    setSeries(null);
     setIsZoomed(false);
   }, [selectedMetric, selectedTimeRange, preferred, revision]);
 
   const handleRefresh = () => {
-    setPodMetricsData({});
+    setSeries(null);
     setIsZoomed(false);
     setStreamRun((n) => n + 1);
   };
@@ -175,62 +193,44 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
     });
   };
 
-  // Aggregated limits/requests across all pods of the workload
-  const aggregated = useMemo(() => {
-    const sum = { limitCpu: 0, limitMemory: 0, requestCpu: 0, requestMemory: 0 };
-    pods.forEach((pod) => {
-      sum.limitCpu += pod.resourceLimits?.cpu || 0;
-      sum.limitMemory += pod.resourceLimits?.memory || 0;
-      sum.requestCpu += pod.resourceRequests?.cpu || 0;
-      sum.requestMemory += pod.resourceRequests?.memory || 0;
-    });
-    return sum;
-  }, [pods]);
+  const labels = series?.labels;
 
-  const limit = selectedMetric === 'cpu' ? aggregated.limitCpu : selectedMetric === 'memory' ? aggregated.limitMemory : 0;
-  const request = selectedMetric === 'cpu' ? aggregated.requestCpu : selectedMetric === 'memory' ? aggregated.requestMemory : 0;
+  // Each line is one pod, so the reference lines are one pod's limit and
+  // request.
+  const { limit, request: podRequest } = useMemo(
+    () =>
+      perPodReference(
+        pods.filter((p) => visiblePods.has(p.name)),
+        selectedMetric,
+      ),
+    [pods, visiblePods, selectedMetric],
+  );
 
-  // Longest label set across pods drives the x axis
-  const longestLabels = useMemo(() => {
-    let longest: string[] = [];
-    Object.values(podMetricsData).forEach((data) => {
-      if (data.labels.length > longest.length) longest = data.labels;
-    });
-    return longest;
-  }, [podMetricsData]);
-
-  // Sum of the latest sample of every visible pod → the headline
-  const aggregateSeries = useMemo(() => {
-    const visible = pods.filter((p) => visiblePods.has(p.name) && podMetricsData[p.name]?.values.length);
-    if (visible.length === 0) return undefined;
-    const length = longestLabels.length;
-    const values: number[] = [];
-    for (let i = 0; i < length; i++) {
-      let total = 0;
-      let any = false;
-      visible.forEach((p) => {
-        const series = podMetricsData[p.name].values;
-        const offset = length - series.length;
-        const v = series[i - offset];
-        if (typeof v === 'number' && Number.isFinite(v)) {
-          total += v;
-          any = true;
-        }
-      });
-      values.push(any ? total : NaN);
-    }
-    return values.filter((v) => Number.isFinite(v));
-  }, [pods, visiblePods, podMetricsData, longestLabels]);
+  // The headline: the visible pods' total, read against those same pods'
+  // requests.
+  const headline = useMemo(() => {
+    if (!series || !labels) return undefined;
+    const { values, counted } = sumPods(
+      series.pods,
+      streamedPods,
+      labels.length,
+    );
+    if (counted.length === 0) return undefined;
+    return {
+      values,
+      request: totalRequest(pods, counted, selectedMetric),
+    };
+  }, [series, labels, streamedPods, pods, selectedMetric]);
 
   const chartData = useMemo(() => {
     const datasets: any[] = [];
+    const length = labels?.length || 0;
     pods.forEach((pod, index) => {
       if (!visiblePods.has(pod.name)) return;
-      const data = podMetricsData[pod.name];
       const color = podColor(theme, index);
       datasets.push({
         label: shortPodName(pod.name),
-        data: data?.values || [],
+        data: series?.pods[pod.name] || [],
         borderColor: color,
         backgroundColor: withAlpha(color, 0.08),
         borderWidth: 1.75,
@@ -245,12 +245,30 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
         pointHoverBorderWidth: 2,
       });
     });
-    if (limit > 0) datasets.push(referenceDataset('Limit', limit, longestLabels.length, theme.orange, [4, 4]));
-    if (request > 0) datasets.push(referenceDataset('Request', request, longestLabels.length, theme.text3, [3, 3]));
-    return { labels: longestLabels, datasets };
-  }, [theme, pods, visiblePods, podMetricsData, longestLabels, limit, request]);
+    if (limit > 0)
+      datasets.push(
+        referenceDataset(
+          REFERENCE_LABELS[0],
+          limit,
+          length,
+          theme.orange,
+          [4, 4],
+        ),
+      );
+    if (podRequest > 0)
+      datasets.push(
+        referenceDataset(
+          REFERENCE_LABELS[1],
+          podRequest,
+          length,
+          theme.text3,
+          [3, 3],
+        ),
+      );
+    return { labels: labels || [], datasets };
+  }, [theme, pods, visiblePods, series, labels, limit, podRequest]);
 
-  const unit = Object.values(podMetricsData)[0]?.unit;
+  const unit = series?.unit;
 
   const chartOptions = useLineChartOptions({
     theme,
@@ -314,17 +332,22 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
     );
   }
 
-  const hasData = Object.values(podMetricsData).some((d) => d.values.length > 0);
-  const streamsActive = cleanupFnsRef.current.size > 0 || visiblePods.size > 0;
-  const frameState: ChartFrameState = streamError && !hasData
-    ? 'error'
-    : hasData
-      ? 'ready'
-      : streamsActive
-        ? 'loading'
-        : 'empty';
+  const hasData =
+    !!series && Object.values(series.pods).some((v) => v.length > 0);
+  // An answer with no pod in it is "no samples", not still loading.
+  const frameState: ChartFrameState =
+    streamError && !hasData
+      ? 'error'
+      : hasData
+        ? 'ready'
+        : visiblePods.size > 0 && !series
+          ? 'loading'
+          : 'empty';
 
-  const legendPods = pods.slice(0, Math.max(MAX_PODS_DISPLAYED, Math.min(pods.length, MAX_LEGEND_CHIPS)));
+  const legendPods = pods.slice(
+    0,
+    Math.max(MAX_PODS_DISPLAYED, Math.min(pods.length, MAX_LEGEND_CHIPS)),
+  );
   const atLimit = visiblePods.size >= MAX_PODS_DISPLAYED;
 
   return (
@@ -338,9 +361,11 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
 
       <MetricsHeadline
         metric={selectedMetric}
-        values={aggregateSeries}
+        values={headline?.values}
         unit={unit}
-        reference={request > 0 ? request : undefined}
+        reference={
+          headline && headline.request > 0 ? headline.request : undefined
+        }
         referenceLabel="requested"
         suffix={`${visiblePods.size} of ${pods.length} pods`}
       />

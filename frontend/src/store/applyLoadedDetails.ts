@@ -17,6 +17,9 @@ export function applyLoadedDetails(tabs: Tab[], cluster: string, details: any): 
   if (tabIndex === -1) return tabs;
   const state = tabs[tabIndex].state;
 
+  // A page/list navigation can close the preview while its request is in flight.
+  if (!state.activeDetailTab && state.selectedNode && (!state.selectedItem || state.selectedNode.type !== 'resource')) return tabs;
+
   let detailTabs = state.detailTabs;
   if (state.activeDetailTab) {
     const active = state.detailTabs.find((dt) => dt.id === state.activeDetailTab);
@@ -24,6 +27,10 @@ export function applyLoadedDetails(tabs: Tab[], cluster: string, details: any): 
     const loaded = nameOf(details);
     // The active detail tab moved on to another resource while this one loaded.
     if (loaded && shown && (shown !== loaded || namespaceOf(active?.item) !== namespaceOf(details))) return tabs;
+    const shownKind = active?.resource?.kind || active?.item?.kind;
+    if (shownKind && details?.kind && shownKind !== details.kind) return tabs;
+    const shownVersion = active?.item?.apiVersion;
+    if (shownVersion && details?.apiVersion && shownVersion !== details.apiVersion) return tabs;
     detailTabs = state.detailTabs.map((dt) => (dt.id === state.activeDetailTab ? { ...dt, item: details } : dt));
   }
 

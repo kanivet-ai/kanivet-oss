@@ -123,6 +123,23 @@ func (cb *CompositeBroadcaster) FlushTopic(topic string) error {
 	return errors.Join(errs...)
 }
 
+var _ watcher.TopicHolder = (*CompositeBroadcaster)(nil)
+
+// HoldTopic holds the topic on every broadcaster that batches live events.
+func (cb *CompositeBroadcaster) HoldTopic(topic string) (release func()) {
+	var releases []func()
+	for _, b := range cb.broadcasters {
+		if h, ok := b.(watcher.TopicHolder); ok {
+			releases = append(releases, h.HoldTopic(topic))
+		}
+	}
+	return func() {
+		for _, r := range releases {
+			r()
+		}
+	}
+}
+
 func (cb *CompositeBroadcaster) SetSortPreference(topic, sortBy, sortOrder string) {
 	for _, b := range cb.broadcasters {
 		b.SetSortPreference(topic, sortBy, sortOrder)
@@ -309,12 +326,16 @@ func main() {
 	wsServer.RegisterHandler("logs", logsHandler)
 
 	// Register dashboard handler
-	// One watch-backed pod cache per cluster, shared by the overview and
-	// FinOps, so neither re-lists every pod on each refresh.
-	podCache := podcache.New(k8sClient.GetClientForCluster, podcache.DefaultIdleTimeout)
+	// One pod cache per cluster, shared by the overview, FinOps and
+	// rightsizing, so none re-lists every pod on each refresh. It is fed by
+	// the watcher's pods watch, the one the Pods list runs on.
+	podCache := podcache.New(watcherService, podcache.DefaultIdleTimeout)
 	defer podCache.Close()
 	dashboardHandler := handlers.NewDashboardHandler(k8sClient, wsServer.Hub())
 	dashboardHandler.SetPodLister(podCache)
+	if el := apiHandler.GetEventListener(); el != nil {
+		dashboardHandler.SetRecentEvents(el.RecentEvents, el.StartListening)
+	}
 	wsServer.RegisterHandler("dashboard", dashboardHandler)
 
 	// Setup themes service

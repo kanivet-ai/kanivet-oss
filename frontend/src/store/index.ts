@@ -16,8 +16,24 @@ import { createCloudAuthSlice } from './cloudAuthSlice';
 import { createConnectionSlice } from './connectionSlice';
 import { createMonitoringSlice } from './monitoringSlice';
 import api from '../services/api';
+import {
+  TABSTATE_KEY,
+  installPersistence,
+  markHydrated,
+  parseTabSnapshot,
+  pruneClusterScopedKeys,
+  safeSetItem,
+  snapshotToTabState,
+  type TabSnapshot,
+} from './persistence';
+import { restoreBottomTabs, restoreDetailTabs } from './restoreWorkspace';
+import { reconnectRestoredVCluster, vclusterGate } from './vclusterRestore';
 
 export type { BottomTab, MonitoringSettings, ClusterError, ConnectionState, ClusterConnectionState };
+
+// Saved tabs whose objects are loaded again the first time their cluster is
+// shown, so a launch with many clusters does not query all of them at once.
+const pendingContentRestores = new Map<string, TabSnapshot>();
 
 const useStore = create<StoreState>()((...a) => ({
   ...createClusterSlice(...a),
@@ -39,6 +55,15 @@ const useStore = create<StoreState>()((...a) => ({
     return resolveListColumns({ kind: resourceKind, namespaced: isNamespaced, printerColumns });
   },
 
+  restoreWorkspaceContent: (cluster: string) => {
+    const [set, get] = a;
+    const snap = pendingContentRestores.get(cluster);
+    if (!snap) return;
+    pendingContentRestores.delete(cluster);
+    restoreDetailTabs(cluster, get, set).catch(() => {});
+    restoreBottomTabs(cluster, snap.bottomTabs, snap.activeBottomTab, get, set).catch(() => {});
+  },
+
   hydrateFromStorage: () => {
     const [set, get] = a;
     try {
@@ -52,39 +77,51 @@ const useStore = create<StoreState>()((...a) => ({
         restoredClusters.forEach((cid) => {
           const exists = newTabs.find((t) => t.id === cid);
           if (!exists) newTabs.push({ id: cid, name: cid, state: createInitialTabState() });
+          // A vcluster has no connection after a restart: make it again first.
+          reconnectRestoredVCluster(cid);
           api.registerActiveCluster(cid);
-          api.indexCluster(cid).catch(() => {});
+          (vclusterGate(cid) ?? Promise.resolve(true))
+            .then((ok) => (ok ? api.indexCluster(cid) : undefined))
+            .catch(() => {});
         });
         const shouldUpdateCurrentTab = !get().currentTab;
         set({ activeTabs: newTabs, tabIndexMap: rebuildTabIndex(newTabs), currentTab: shouldUpdateCurrentTab ? (saved || restoredClusters[0] || null) : get().currentTab });
+        restoredClusters.forEach((cid) => get().loadClusterStatus(cid));
+        pruneClusterScopedKeys(restoredClusters);
         restoredClusters.forEach((cid) => {
-          get().loadClusterStatus(cid);
-          get().loadTreeData(cid).catch(() => {});
+          const snap = parseTabSnapshot(localStorage.getItem(TABSTATE_KEY(cid)));
+          if (!snap) return;
+          // Snapshots of earlier releases saved whole objects (a Secret's
+          // data, last-applied copies); the parse keeps and the rewrite below
+          // stores only what finds them again.
+          const restored = snapshotToTabState(snap);
+          if (restored.selectedNamespace === undefined) {
+            const ns = localStorage.getItem(`kanivet.namespace.${cid}`);
+            if (ns) restored.selectedNamespace = ns;
+          }
+          if (restored.selectedNamespaces === undefined) {
+            try {
+              const multi = JSON.parse(localStorage.getItem(`kanivet.selectedNamespaces.${cid}`) || 'null');
+              if (Array.isArray(multi)) restored.selectedNamespaces = multi;
+            } catch {}
+          }
+          set((state) => ({
+            activeTabs: state.activeTabs.map((t) => {
+              if (t.id !== cid) return t;
+              const hasExistingTabs = t.state.resourceListTabs && t.state.resourceListTabs.length > 0;
+              if (hasExistingTabs) return t;
+              return { ...t, state: { ...t.state, ...restored } };
+            }),
+          }));
+          pendingContentRestores.set(cid, snap);
+          safeSetItem(TABSTATE_KEY(cid), JSON.stringify(snap));
         });
+        // After the snapshots: the tree load expands the nodes they restore,
+        // and the sidebar's and the restore effect's loads join this one.
         restoredClusters.forEach((cid) => {
-          try {
-            const snapRaw = localStorage.getItem(`kanivet.tabstate.${cid}`);
-            if (snapRaw) {
-              const snap = JSON.parse(snapRaw);
-              set((state) => ({
-                activeTabs: state.activeTabs.map((t) => {
-                  if (t.id === cid) {
-                    const hasExistingTabs = t.state.resourceListTabs && t.state.resourceListTabs.length > 0;
-                    if (hasExistingTabs) return t;
-                    return {
-                      ...t, state: {
-                        ...t.state, activeResourceListTab: snap.activeResourceListTab || null, activeResourceListTabByPane: snap.activeResourceListTabByPane || {},
-                        resourceListTabs: (snap.resourceListTabs || []).map((rt: any) => ({ ...rt, items: Array.isArray(rt.items) ? rt.items : [], selectedItem: rt.selectedItem || null })),
-                        detailTabs: snap.detailTabs || [], activeDetailTab: snap.activeDetailTab || null, focusedCenterPaneId: snap.focusedCenterPaneId || 'root',
-                        centerPaneLayout: snap.centerPaneLayout, expandedNodes: new Set(snap.expandedNodes || []), selectedNode: snap.selectedNode || null,
-                      },
-                    };
-                  }
-                  return t;
-                }),
-              }));
-            }
-          } catch {}
+          get()
+            .loadTreeData(cid)
+            .catch(() => {});
         });
       } else if (saved) {
         const exists = activeTabs.find((t) => t.id === saved);
@@ -133,8 +170,13 @@ const useStore = create<StoreState>()((...a) => ({
           }
         }, 100);
       }
-    } catch {}
+    } catch {
+    } finally {
+      markHydrated();
+    }
   },
 }));
+
+installPersistence(useStore);
 
 export { useStore };

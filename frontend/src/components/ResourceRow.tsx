@@ -1,17 +1,14 @@
-import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import clsx from 'clsx';
 import ResourceCell from './ResourceCell';
-import { rowItemBus } from '../store/rowItemBus';
 
 interface ResourceRowProps {
-  busScope: string;
-  itemKey: string;
-  fallbackItem: any;
+  item: any;
   isSelected: boolean;
   isChecked: boolean;
   isRestarting: boolean;
-  visibleRangeStart: number;
-  index: number;
+  /** Position in the whole list, not in the rendered window. */
+  rowIndex: number;
   onCheckboxChange: (item: any, event: any) => void;
   onItemOpen: (item: any, isDoubleClick: boolean) => void;
   onActionClick: (event: any, item: any) => void;
@@ -34,14 +31,11 @@ interface ResourceRowProps {
 
 const ResourceRow = memo(
   ({
-    busScope,
-    itemKey,
-    fallbackItem,
+    item,
     isSelected,
     isChecked,
     isRestarting,
-    visibleRangeStart,
-    index,
+    rowIndex,
     onCheckboxChange,
     onItemOpen,
     onActionClick,
@@ -55,10 +49,6 @@ const ResourceRow = memo(
     cluster,
     hasFiller,
   }: ResourceRowProps) => {
-    const subscribe = useCallback((listener: () => void) => rowItemBus.subscribe(busScope, itemKey, listener), [busScope, itemKey]);
-    const getSnapshot = useCallback(() => rowItemBus.get(busScope, itemKey) ?? fallbackItem, [busScope, itemKey, fallbackItem]);
-    const item = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
-
     const [isUpdated, setIsUpdated] = useState(false);
     const prevRvRef = useRef<string | null>(null);
     const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -160,7 +150,7 @@ const ResourceRow = memo(
         onMouseUp={handlePointerUp}
         onMouseLeave={handlePointerUp}
         data-uid={item.uid}
-        data-index={visibleRangeStart + index}
+        data-index={rowIndex}
         className={clsx('resource-row', {
           'resource-row-selected': isSelected,
           'resource-row-checked': isChecked,

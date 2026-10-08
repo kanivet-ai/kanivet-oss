@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -14,9 +15,14 @@ import (
 type Provider interface {
 	Detect(cluster string) (*ProviderInfo, error)
 	Install(cluster string, namespace string) error
-	QueryMetrics(cluster string, query MetricQuery) (*MetricResponse, error)
+	QueryMetrics(ctx context.Context, cluster string, query MetricQuery) (*MetricResponse, error)
 	GetName() string
 	IsInstalled(cluster string) bool
+}
+
+// workloadProvider charts several pods of a workload with one query.
+type workloadProvider interface {
+	QueryWorkloadMetrics(ctx context.Context, cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error)
 }
 
 type Service struct {
@@ -26,6 +32,7 @@ type Service struct {
 	providers       map[string]Provider
 	lastCacheClear  atomic.Int64
 	queries         *queryCache
+	hostPods        hostPodCache
 }
 
 // ProviderInfo is the result of detecting one provider in one cluster. Found
@@ -148,7 +155,7 @@ func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, 
 		wg.Add(1)
 		go func(n string, p Provider) {
 			defer wg.Done()
-			info, err := p.Detect(cluster)
+			info, err := p.Detect(providerCluster(cluster, p))
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -167,8 +174,15 @@ func (s *Service) DetectAllProviders(cluster string) (map[string]*ProviderInfo, 
 // the next DetectAllProviders call probes again. Used by the UI's "Detect
 // again" and after an install.
 func (s *Service) InvalidateDetection(cluster string) {
-	for _, name := range []string{"prometheus-info", "mimir-info", "mimir-candidates", "metrics-server-info"} {
-		s.cache.Delete(s.cache.BuildKey(name, cluster))
+	// A vcluster's Prometheus and Mimir are its host's.
+	clusters := []string{cluster}
+	if host := StoreCluster(cluster); host != cluster {
+		clusters = append(clusters, host)
+	}
+	for _, c := range clusters {
+		for _, name := range []string{"prometheus-info", "mimir-info", "mimir-candidates", "metrics-server-info"} {
+			s.cache.Delete(s.cache.BuildKey(name, c))
+		}
 	}
 }
 
@@ -178,7 +192,7 @@ func (s *Service) DetectProvider(cluster string, providerType string) (*Provider
 		return nil, fmt.Errorf("provider %s not registered", providerType)
 	}
 
-	return provider.Detect(cluster)
+	return provider.Detect(providerCluster(cluster, provider))
 }
 
 func (s *Service) InstallProvider(cluster string, providerType string, namespace string) error {
@@ -194,11 +208,13 @@ func (s *Service) InstallProvider(cluster string, providerType string, namespace
 	return provider.Install(cluster, namespace)
 }
 
-func (s *Service) QueryMetrics(cluster string, providerType string, query MetricQuery) (*MetricResponse, error) {
+// chartProvider is the provider a chart reads: the one asked for, or in auto
+// mode the first one installed of Prometheus, Mimir and metrics-server.
+func (s *Service) chartProvider(cluster, providerType string) (Provider, error) {
 	if providerType == "" {
 		providerOrder := []string{"prometheus", "mimir", "metrics-server"}
 		for _, name := range providerOrder {
-			if provider, exists := s.providers[name]; exists && provider.IsInstalled(cluster) {
+			if provider, exists := s.providers[name]; exists && provider.IsInstalled(providerCluster(cluster, provider)) {
 				providerType = name
 				break
 			}
@@ -213,34 +229,71 @@ func (s *Service) QueryMetrics(cluster string, providerType string, query Metric
 	if !exists {
 		return nil, fmt.Errorf("provider %s not registered", providerType)
 	}
-
-	return provider.QueryMetrics(cluster, query)
+	return provider, nil
 }
 
-// QueryWorkloadMetrics queries metrics for multiple pods in a single request (more efficient)
-func (s *Service) QueryWorkloadMetrics(cluster string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
-	if mimirProvider, exists := s.providers["mimir"]; exists {
-		if mp, ok := mimirProvider.(*MimirProvider); ok && mp.IsInstalled(cluster) {
-			return mp.QueryWorkloadMetrics(cluster, query)
+func (s *Service) QueryMetrics(ctx context.Context, cluster string, providerType string, query MetricQuery) (*MetricResponse, error) {
+	provider, err := s.chartProvider(cluster, providerType)
+	if err != nil {
+		return nil, err
+	}
+	if host := providerCluster(cluster, provider); host != cluster {
+		hostQuery, ok, err := s.hostQuery(cluster, query)
+		if err != nil {
+			return nil, err
 		}
+		if !ok {
+			return emptyChart(query.MetricType), nil
+		}
+		return provider.QueryMetrics(ctx, host, hostQuery)
 	}
-	provider, exists := s.providers["prometheus"]
-	if !exists {
-		return nil, fmt.Errorf("prometheus provider not registered")
-	}
-	promProvider, ok := provider.(*PrometheusProvider)
-	if !ok {
-		return nil, fmt.Errorf("provider is not PrometheusProvider")
-	}
+	return provider.QueryMetrics(ctx, cluster, query)
+}
 
-	return promProvider.QueryWorkloadMetrics(cluster, query)
+// QueryWorkloadMetrics charts several pods at once, from the same provider
+// QueryMetrics would pick. Prometheus-compatible stores answer with one
+// query; metrics-server, which only knows current values, pod by pod.
+func (s *Service) QueryWorkloadMetrics(ctx context.Context, cluster string, providerType string, query WorkloadMetricQuery) (*WorkloadMetricResponse, error) {
+	provider, err := s.chartProvider(cluster, providerType)
+	if err != nil {
+		return nil, err
+	}
+	if wp, ok := provider.(workloadProvider); ok {
+		if providerCluster(cluster, provider) != cluster {
+			return s.queryVClusterWorkload(ctx, wp, cluster, query)
+		}
+		return wp.QueryWorkloadMetrics(ctx, cluster, query)
+	}
+	response := &WorkloadMetricResponse{Pods: map[string]*MetricResponse{}}
+	var firstErr error
+	for _, pod := range query.PodNames {
+		data, err := provider.QueryMetrics(ctx, cluster, MetricQuery{PodName: pod, Namespace: query.Namespace, MetricType: query.MetricType, TimeRange: query.TimeRange, Step: query.Step})
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if len(data.Values) == 0 {
+			continue
+		}
+		// One current value per pod, read at about the same moment.
+		if len(data.Timestamps) > 0 && (len(response.Timestamps) == 0 || data.Timestamps[0] > response.Timestamps[0]) {
+			response.Timestamps = data.Timestamps[:1]
+		}
+		response.Pods[pod] = &MetricResponse{Values: data.Values[:1], Unit: data.Unit}
+	}
+	if len(response.Pods) == 0 && firstErr != nil {
+		return nil, firstErr
+	}
+	return response, nil
 }
 
 func (s *Service) GetWorkingProvider(cluster string) (*ProviderInfo, error) {
 	providerOrder := []string{"prometheus", "mimir", "metrics-server"}
 	for _, name := range providerOrder {
 		if provider, exists := s.providers[name]; exists {
-			info, err := provider.Detect(cluster)
+			info, err := provider.Detect(providerCluster(cluster, provider))
 			if err == nil && info.Found {
 				return info, nil
 			}

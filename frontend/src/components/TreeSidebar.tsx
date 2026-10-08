@@ -1,5 +1,12 @@
-import { useEffect, useState, useCallback, useRef, useMemo } from 'react';
-import TreeNode from './TreeNode';
+import {
+  useEffect,
+  useLayoutEffect,
+  useState,
+  useCallback,
+  useRef,
+  useMemo,
+} from 'react';
+import TreeNode, { TreeCursorContext, createTreeCursor } from './TreeNode';
 import { findTreeResourceNode } from '../utils/searchResults';
 import ScrollContainer from './ScrollContainer';
 import DebugPanel from './DebugPanel';
@@ -38,7 +45,11 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     return { treeData: t?.treeData || EMPTY_TREE, searchQuery: t?.searchQuery || '', focusArea: t?.focusArea || 'tree', selectedNode: t?.selectedNode || null };
   }));
 
-  const [localSearch, setLocalSearch] = useState('');
+  // The tree filter comes back after a restart: it starts from the saved query.
+  const [localSearch, setLocalSearch] = useState(
+    () => useStore.getState().getCurrentTabState()?.searchQuery || '',
+  );
+  const seededSearchTabs = useRef<Set<string>>(new Set());
   const [focusedNodeId, setFocusedNodeId] = useState<string | null>(null);
   // What moved the cursor last. The row ring is drawn only for keyboard moves;
   // a mouse click selects (blue fill) and must not leave a ring behind.
@@ -191,7 +202,21 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     };
   }, [currentTab]);
 
+  // A tab restored after this sidebar mounted brings its saved query with it.
   useEffect(() => {
+    if (!currentTab || seededSearchTabs.current.has(currentTab)) return;
+    seededSearchTabs.current.add(currentTab);
+    if (searchQuery && !localSearch) setLocalSearch(searchQuery);
+  }, [currentTab, searchQuery, localSearch]);
+
+  const searchPushed = useRef(false);
+  useEffect(() => {
+    // The first run only mirrors the initial state; pushing it would wipe the
+    // saved query before it has been shown.
+    if (!searchPushed.current) {
+      searchPushed.current = true;
+      return;
+    }
     setSearchQuery(debouncedSearch);
   }, [debouncedSearch, setSearchQuery]);
 
@@ -245,6 +270,13 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
   useEffect(() => {
     if (effectiveSelectedId) setFocusedNodeId(effectiveSelectedId);
   }, [effectiveSelectedId]);
+
+  // Nodes read the cursor and the selection themselves; only the rows whose
+  // highlight changes re-render.
+  const [cursor] = useState(createTreeCursor);
+  useLayoutEffect(() => {
+    cursor.set(focusedNodeId, effectiveSelectedId);
+  }, [cursor, focusedNodeId, effectiveSelectedId]);
 
   const handleNodeClick = useCallback(
     async (node: any, isPinned: boolean = false) => {
@@ -361,6 +393,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             isPinned,
             freshPaneId || undefined,
           );
+          void recordNavigation('cluster-settings', node.id, node.data);
         }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');
@@ -538,10 +571,11 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         if (!node || node.disabled) return;
         if (node.type === 'resource' || node.type === 'argo-overview') {
           const isSelectedNode = node.id === effectiveSelectedId;
-          if (!isSelectedNode) await handleNodeClick(node, false);
-          setFocusArea('list');
           if (isSelectedNode) {
+            setFocusArea('list');
             window.dispatchEvent(new Event('resourcelist:focus-first'));
+          } else {
+            await handleNodeClick(node, false);
           }
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
@@ -680,21 +714,20 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         className="tree-scroll-area"
         viewportClassName="tree-viewport"
       >
-        <div className="tree-content">
-          {clusterData.map((node: any, index: number) => (
-            <TreeNode
-              key={`${currentTab}-${node.id}`}
-              node={node}
-              level={0}
-              searchQuery={searchQuery}
-              focusedNodeId={focusedNodeId}
-              selectedNodeId={effectiveSelectedId}
-              onNodeClick={handleNodeClick}
-              isLast={index === clusterData.length - 1}
-              ancestorLabels={[]}
-            />
-          ))}
-        </div>
+        <TreeCursorContext.Provider value={cursor}>
+          <div className="tree-content">
+            {clusterData.map((node: any, index: number) => (
+              <TreeNode
+                key={`${currentTab}-${node.id}`}
+                node={node}
+                level={0}
+                searchQuery={searchQuery}
+                onNodeClick={handleNodeClick}
+                isLast={index === clusterData.length - 1}
+              />
+            ))}
+          </div>
+        </TreeCursorContext.Provider>
       </ScrollContainer>
       <DebugPanel
         treeData={clusterData}

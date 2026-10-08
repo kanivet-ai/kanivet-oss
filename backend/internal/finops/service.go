@@ -19,6 +19,9 @@ import (
 
 const (
 	dashboardTTL = 60 * time.Second
+	// dashboardMaxStale is how long past dashboardTTL a dashboard is still
+	// shown while its recomputation runs in the background.
+	dashboardMaxStale = 15 * time.Minute
 	// usageRetryAfter spaces out retries against a metrics-server that failed.
 	usageRetryAfter = 5 * time.Minute
 	// computeTimeout bounds one dashboard computation. It runs detached from
@@ -95,9 +98,11 @@ func NewService(k8sClient k8s.Interface, cacheInstance *cache.Cache) *Service {
 func dashboardKey(cluster string) string { return "finops:dashboard:" + cluster }
 
 // GetDashboard returns the cluster's cost dashboard, computing it at most once
-// per dashboardTTL. Every other endpoint is a view of it.
+// per dashboardTTL. Every other endpoint is a view of it. An expired dashboard
+// is returned at once while a fresh one is computed in the background; only a
+// first visit, or one after dashboardMaxStale, waits for the computation.
 func (s *Service) GetDashboard(ctx context.Context, cluster string) (*Dashboard, error) {
-	data, err := s.cache.GetOrSet(dashboardKey(cluster), dashboardTTL, func() (interface{}, error) {
+	data, err := s.cache.GetOrSetSWR(dashboardKey(cluster), dashboardTTL, dashboardMaxStale, func() (interface{}, error) {
 		cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), computeTimeout)
 		defer cancel()
 		return s.calculateDashboard(cctx, cluster)
@@ -306,11 +311,11 @@ func (s *Service) priceFunc(provider string) priceFunc {
 }
 
 // ensurePricing never blocks a request on a cold offer-file download: costs
-// render as missing and the finops cache is invalidated once pricing lands so
-// the next poll fills them in.
+// render as missing and the finops cache is dropped once pricing lands so the
+// next poll fills them in, rather than being served the stale dashboard.
 func (s *Service) ensurePricing(provider string, nodes []v1.Node) {
 	s.pricing.EnsureRegions(provider, uniqueRegions(nodes), func() {
-		s.cache.Invalidate("finops:*")
+		s.cache.DeleteByPrefix("finops:")
 	})
 }
 

@@ -3,34 +3,50 @@ import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { sortItems } from '../utils/columnSorting';
 import { formatStatus } from '../utils/formatters';
+import { getResourceCategory } from '../utils/resourceUtils';
 
 interface UseResourceListStateProps {
   paneId?: string;
 }
 
 const EMPTY_ROLLOUT_STATUSES = new Map<string, any>();
+// One empty selection for every render, so the table can skip a render that
+// changes nothing. Selections are replaced, never edited in place.
+const NO_SELECTION: Set<string> = new Set();
 
-function matchesSearch(item: any, query: string): boolean {
-  if (item.name?.toLowerCase().includes(query)) return true;
-  if (item.namespace?.toLowerCase().includes(query)) return true;
-  if (item.kind?.toLowerCase().includes(query)) return true;
-  if (item.message?.toLowerCase().includes(query)) return true;
-  if (item.reason?.toLowerCase().includes(query)) return true;
+// The lower-cased text a search looks in, built once per item. Items are
+// replaced on change, never edited in place, so an entry stays valid for the
+// life of its item. Fields are separated by a newline, which a typed query
+// cannot contain, so a match never spans two fields; `key=value` covers a
+// match on the key or the value alone.
+const searchTexts = new WeakMap<object, string>();
+
+function searchTextOf(item: any): string {
+  let text = searchTexts.get(item);
+  if (text !== undefined) return text;
+  const fields: string[] = [
+    item.name,
+    item.namespace,
+    item.kind,
+    item.message,
+    item.reason,
+  ].filter((f) => typeof f === 'string');
   // Where the pod is scheduled, so a node name narrows the list to its pods.
   const nodeName = item.nodeName || item.spec?.nodeName;
-  if (typeof nodeName === 'string' && nodeName.toLowerCase().includes(query)) return true;
-  if (formatStatus(item).toLowerCase().includes(query)) return true;
+  if (typeof nodeName === 'string') fields.push(nodeName);
+  fields.push(formatStatus(item));
   const labels = item.labels || {};
-  for (const key in labels) {
-    const val = String(labels[key]);
-    if (key.toLowerCase().includes(query) || val.toLowerCase().includes(query) || `${key}=${val}`.toLowerCase().includes(query)) return true;
-  }
+  for (const key in labels) fields.push(`${key}=${String(labels[key])}`);
   const annotations = item.annotations || {};
-  for (const key in annotations) {
-    const val = String(annotations[key]);
-    if (key.toLowerCase().includes(query) || val.toLowerCase().includes(query) || `${key}=${val}`.toLowerCase().includes(query)) return true;
-  }
-  return false;
+  for (const key in annotations)
+    fields.push(`${key}=${String(annotations[key])}`);
+  text = fields.join('\n').toLowerCase();
+  searchTexts.set(item, text);
+  return text;
+}
+
+export function matchesSearch(item: any, query: string): boolean {
+  return searchTextOf(item).includes(query);
 }
 
 export function useResourceListState({ paneId }: UseResourceListStateProps) {
@@ -44,7 +60,32 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
     setActiveResourceListTab,
   } = useStore(useShallow((s) => ({ currentTab: s.currentTab, bottomTabs: s.bottomTabs, updateCurrentTabState: s.updateCurrentTabState, updateResourceListTab: s.updateResourceListTab, setActiveDetailTab: s.setActiveDetailTab, setActiveBottomTab: s.setActiveBottomTab, setActiveResourceListTab: s.setActiveResourceListTab })));
 
-  const tabState = useStore((s) => s.getCurrentTabState());
+  // Only the fields the list renders from, so writes it does not show (tree
+  // counts, detail refreshes) leave it alone.
+  const tabState = useStore(
+    useShallow((s) => {
+      const t = s.getCurrentTabState();
+      return {
+        resourceListTabs: t?.resourceListTabs,
+        detailTabs: t?.detailTabs,
+        activeResourceListTab: t?.activeResourceListTab,
+        activeDetailTab: t?.activeDetailTab,
+        activeResourceListTabByPane: t?.activeResourceListTabByPane,
+        selectedNode: t?.selectedNode,
+        focusArea: t?.focusArea,
+        focusedCenterPaneId: t?.focusedCenterPaneId,
+        namespaces: t?.namespaces,
+        selectedNamespaces: t?.selectedNamespaces,
+        rolloutStatuses: t?.rolloutStatuses,
+        sortBy: t?.sortBy,
+        sortOrder: t?.sortOrder,
+        isLoadingListItems: t?.isLoadingListItems,
+        hasReceivedInitialListData: t?.hasReceivedInitialListData,
+        listSync: t?.listSync,
+        loadError: t?.loadError,
+      };
+    }),
+  );
 
   const resourceListTabs = useMemo(() => {
     const tabs = tabState?.resourceListTabs || [];
@@ -170,7 +211,34 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
   }, [isResourceListTab, activeTab]);
 
   const selectedItem = (isResourceListTab && activeTab?.selectedItem) || null;
-  const selectedNode = activeTab ? tabState?.selectedNode || null : null;
+  // The tree selection names the list of the pane activated last. A split
+  // pane showing another resource type keys and formats its rows as its own.
+  const tabNode = tabState?.selectedNode || null;
+  const hasActiveTab = !!activeTab;
+  const listResource = isResourceListTab ? activeTab?.resource : null;
+  const selectedNode = useMemo(() => {
+    if (!hasActiveTab) return null;
+    if (
+      !listResource?.version ||
+      !listResource?.name ||
+      tabNode?.type !== 'resource'
+    )
+      return tabNode;
+    const shown = tabNode.data || {};
+    if (
+      (shown.group || '') === (listResource.group || '') &&
+      shown.version === listResource.version &&
+      shown.name === listResource.name
+    )
+      return tabNode;
+    const id = `${getResourceCategory(listResource.group || '', listResource.name)}-${listResource.group || 'core'}-${listResource.version}-${listResource.name}`;
+    return {
+      id,
+      label: listResource.name,
+      type: 'resource' as const,
+      data: listResource,
+    };
+  }, [hasActiveTab, listResource, tabNode]);
   const focusArea = tabState?.focusArea || 'tree';
   const namespaces = activeTab ? tabState?.namespaces || [] : [];
 
@@ -198,7 +266,8 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
   const activeTabIdRef = useRef<string>('default');
   activeTabIdRef.current = activeTab?.id || 'default';
 
-  const selectedResources = selectedResourcesByTab[activeTabIdRef.current] || new Set<string>();
+  const selectedResources =
+    selectedResourcesByTab[activeTabIdRef.current] || NO_SELECTION;
   const setSelectedResources = useCallback((newSet: Set<string>) => {
     const tabId = activeTabIdRef.current;
     setSelectedResourcesByTab((prev) => ({ ...prev, [tabId]: newSet }));
@@ -220,33 +289,66 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
   // and the unchanged array lets the table skip its per-item work.
   const filteredCacheRef = useRef(new WeakMap<any[], Map<string, any[]>>());
 
-  const getFilteredItems = useCallback((searchQuery: string) => {
-    const query = searchQuery?.toLowerCase() || '';
-    const cacheKey = `${sortBy}\u0000${sortOrder}\u0000${query}`;
-    let perList = filteredCacheRef.current.get(namespaceFilteredItems);
-    const cached = perList?.get(cacheKey);
-    if (cached) return cached;
-    const result = sortItems(query ? namespaceFilteredItems.filter((item: any) => matchesSearch(item, query)) : namespaceFilteredItems, { sortBy, sortOrder });
-    if (!perList) {
-      perList = new Map();
-      filteredCacheRef.current.set(namespaceFilteredItems, perList);
-    }
-    // A list is typically viewed with a handful of sorts and searches; keep the latest few.
-    if (perList.size >= 8) perList.delete(perList.keys().next().value as string);
-    perList.set(cacheKey, result);
-    return result;
-  }, [namespaceFilteredItems, sortBy, sortOrder]);
+  const getFilteredItems = useCallback(
+    (searchQuery: string) => {
+      const query = searchQuery?.toLowerCase() || '';
+      const cacheKey = `${sortBy}\u0000${sortOrder}\u0000${query}`;
+      let perList = filteredCacheRef.current.get(namespaceFilteredItems);
+      const cached = perList?.get(cacheKey);
+      if (cached) return cached;
+      // A query containing an earlier one (the empty query included) matches a
+      // subset of that one's rows, which are already sorted: narrow those.
+      const sortPrefix = `${sortBy}\u0000${sortOrder}\u0000`;
+      let narrower: any[] | undefined;
+      let narrowerLength = -1;
+      if (query && perList) {
+        for (const [key, rows] of perList) {
+          if (!key.startsWith(sortPrefix)) continue;
+          const earlier = key.slice(sortPrefix.length);
+          if (earlier.length > narrowerLength && query.includes(earlier)) {
+            narrower = rows;
+            narrowerLength = earlier.length;
+          }
+        }
+      }
+      const result = narrower
+        ? narrower.filter((item: any) => matchesSearch(item, query))
+        : sortItems(
+            query
+              ? namespaceFilteredItems.filter((item: any) =>
+                  matchesSearch(item, query),
+                )
+              : namespaceFilteredItems,
+            { sortBy, sortOrder },
+          );
+      if (!perList) {
+        perList = new Map();
+        filteredCacheRef.current.set(namespaceFilteredItems, perList);
+      }
+      // A list is typically viewed with a handful of sorts and searches; keep the latest few.
+      if (perList.size >= 8)
+        perList.delete(perList.keys().next().value as string);
+      perList.set(cacheKey, result);
+      return result;
+    },
+    [namespaceFilteredItems, sortBy, sortOrder],
+  );
 
-  const handleNamespaceChange = useCallback(async (namespace: string) => {
-    const newNamespaces = namespace === 'all' ? [] : [namespace];
-    updateCurrentTabState({
-      selectedNamespace: namespace,
-      selectedNamespaces: newNamespaces,
-    });
-    if (activeTabId) {
-      updateResourceListTab(activeTabId, { selectedNamespaces: newNamespaces });
-    }
-  }, [updateCurrentTabState, activeTabId, updateResourceListTab]);
+  const handleNamespaceChange = useCallback(
+    async (namespace: string) => {
+      const newNamespaces = namespace === 'all' ? [] : [namespace];
+      updateCurrentTabState({
+        selectedNamespace: namespace,
+        selectedNamespaces: newNamespaces,
+      });
+      if (activeTabId) {
+        updateResourceListTab(activeTabId, {
+          selectedNamespaces: newNamespaces,
+        });
+      }
+    },
+    [updateCurrentTabState, activeTabId, updateResourceListTab],
+  );
 
   useEffect(() => {
     return () => {

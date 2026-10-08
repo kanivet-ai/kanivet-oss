@@ -28,11 +28,19 @@ func (h *Handler) DetectMetricsProvider(c *gin.Context) {
 	h.respond(c, http.StatusOK, gin.H{"providers": providers, "checkedAt": time.Now().Unix()}, err)
 }
 
+// requireStoreCluster is requireCluster for the endpoints that configure a
+// cluster's Prometheus-compatible store. A vcluster reads its host's store, so
+// its settings are the host's: there is one tenant and one service to choose.
+func (h *Handler) requireStoreCluster(c *gin.Context) (string, bool) {
+	cluster, ok := h.requireCluster(c)
+	return metrics.StoreCluster(cluster), ok
+}
+
 // GetMetricsSettings returns the saved per-cluster metrics overrides (currently
 // just the Mimir tenant). Returns an empty object if nothing has been saved
 // for this cluster.
 func (h *Handler) GetMetricsSettings(c *gin.Context) {
-	cluster, ok := h.requireCluster(c)
+	cluster, ok := h.requireStoreCluster(c)
 	if !ok {
 		return
 	}
@@ -48,7 +56,7 @@ func (h *Handler) GetMetricsSettings(c *gin.Context) {
 // (X-Scope-OrgID) and/or the chosen Mimir service. Fields are pointers so a
 // request updates only the keys it sends; an empty string clears that override.
 func (h *Handler) PutMetricsSettings(c *gin.Context) {
-	cluster, ok := h.requireCluster(c)
+	cluster, ok := h.requireStoreCluster(c)
 	if !ok {
 		return
 	}
@@ -123,7 +131,7 @@ func (h *Handler) OnMetricsSettingsChanged(fn func(cluster string)) {
 // expose more than one (a host-level Mimir plus vcluster-mapped copies) and
 // only some hold the container metrics, so the choice can't be inferred.
 func (h *Handler) ListMimirServices(c *gin.Context) {
-	cluster, ok := h.requireCluster(c)
+	cluster, ok := h.requireStoreCluster(c)
 	if !ok {
 		return
 	}
@@ -144,7 +152,7 @@ func (h *Handler) ListMimirServices(c *gin.Context) {
 // index returns data. Optional ?hint=foo&hint=bar lets the user prime the
 // candidate list with values they suspect (e.g. their org name).
 func (h *Handler) DiscoverMetricsTenants(c *gin.Context) {
-	cluster, ok := h.requireCluster(c)
+	cluster, ok := h.requireStoreCluster(c)
 	if !ok {
 		return
 	}
@@ -227,7 +235,7 @@ func (h *Handler) QueryPodMetrics(c *gin.Context) {
 		TimeRange:     request.TimeRange,
 	}
 
-	result, err := h.metrics.QueryMetrics(cluster, request.Provider, query)
+	result, err := h.metrics.QueryMetrics(c.Request.Context(), cluster, request.Provider, query)
 	if err != nil {
 		h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to query metrics: %v", err))
 		return

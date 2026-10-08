@@ -1,8 +1,66 @@
 import logger from '../../utils/logger';
-import { getWsBase, getApiBase } from './types';
+import { getWsBase, getApiBase, setBackendPort } from './types';
 
 type MessageHandler = (msg: any) => void;
 type ConnectionEventType = 'backend' | 'websocket' | 'cluster';
+
+// The backend sends a heartbeat every 10s; a socket silent for longer than
+// this is treated as dead.
+const HEARTBEAT_TIMEOUT_MS = 20_000;
+
+// Reconnect delay: the first retry is quick so a backend that restarts is
+// picked up at once, later ones back off with jitter up to the cap.
+const RECONNECT_BASE_MS = 1000;
+const RECONNECT_MAX_MS = 30_000;
+
+// Messages sent while the socket is down wait here until it opens. Bounded so
+// a long outage cannot grow it.
+const OUTBOX_LIMIT = 500;
+
+// Streams the backend keeps per connection: after a reconnect they are asked
+// for again, since the new connection knows nothing of them. Logs are not
+// here, they restart themselves on `connection:restored`.
+const REPLAYABLE_TYPES = new Set(['dashboard', 'helm', 'metrics', 'cloud.discover']);
+
+type MessageOp = 'start' | 'stop';
+interface MessageInfo {
+  key: string | null;
+  op: MessageOp | null;
+}
+
+// What a message starts or stops. Two messages with the same key address the
+// same subscription.
+function classifyMessage(message: any): MessageInfo {
+  const none: MessageInfo = { key: null, op: null };
+  const type = message?.type;
+  const p = message?.payload;
+  if (typeof type !== 'string' || !p || typeof p !== 'object') return none;
+  if (type === 'subscribe') {
+    if (p.channel === 'items') {
+      return { key: `items:${p.cluster}:${p.group || ''}:${p.version}:${p.kind}:${p.namespace || ''}`, op: 'start' };
+    }
+    if (typeof p.topic === 'string') return { key: p.topic, op: 'start' };
+    return none;
+  }
+  if (type === 'unsubscribe') {
+    return typeof p.topic === 'string' ? { key: p.topic, op: 'stop' } : none;
+  }
+  const op: MessageOp | null =
+    p.action === 'start' || p.action === 'subscribe' ? 'start'
+      : p.action === 'stop' || p.action === 'unsubscribe' ? 'stop'
+        : null;
+  if (!op) return none;
+  let id: unknown;
+  if (type === 'logs' || type === 'cloud.discover') id = p.key;
+  else if (type === 'dashboard' || type === 'helm') id = p.cluster;
+  else if (type === 'metrics') {
+    // A stop carries only what identifies the stream; a start adds settings.
+    const { action: _action, provider: _provider, streamingRate: _rate, ...identity } = p;
+    id = JSON.stringify(identity, Object.keys(identity).sort());
+  } else return none;
+  if (id === undefined || id === null || id === '') return none;
+  return { key: `${type}:${String(id)}`, op };
+}
 
 export class WebSocketManager {
   private ws?: WebSocket;
@@ -11,6 +69,8 @@ export class WebSocketManager {
   private wsConnecting: boolean = false;
   private sessionSecret: string | null = null;
   private backendReady: boolean = false;
+  // Set once waitForBackend has given up on the backend.
+  private backendWaitGaveUp: boolean = false;
   private activeClusters: Set<string> = new Set();
   private backendHealthInterval?: NodeJS.Timeout;
   private reconnectCountdownInterval?: NodeJS.Timeout;
@@ -20,10 +80,23 @@ export class WebSocketManager {
   private wasDisconnected: boolean = false;
   private lastBackendState: 'connected' | 'disconnected' = 'disconnected';
   private sessionSecretPromise: Promise<void>;
+  private backendPortPromise: Promise<void>;
   private lastHeartbeat: number = 0;
   private heartbeatCheckInterval?: NodeJS.Timeout;
+  private reconnectTimer?: ReturnType<typeof setTimeout>;
+  private reconnectAttempt: number = 0;
+  private sessionFailureNotified: boolean = false;
+  // Messages waiting for the socket, by what they address (insertion order).
+  private outbox: Map<string, any> = new Map();
+  private outboxSeq: number = 0;
+  // Start messages to send again after a reconnect, by what they address.
+  private replayable: Map<string, any> = new Map();
+  // What has been started on the current connection, so a topic that a
+  // `connection:restored` listener already restarted is not asked for twice.
+  private sentOnConnection: Set<string> = new Set();
 
   constructor() {
+    this.backendPortPromise = this.initBackendPort();
     this.sessionSecretPromise = this.initSessionSecret();
     this.setupConnectivityListeners();
     this.startBackendHealthCheck();
@@ -67,18 +140,54 @@ export class WebSocketManager {
     }
   }
 
+  // The window opens before the backend has picked its port, so the URL's is
+  // only a default: ask the main process for the real one (it answers once the
+  // backend has printed it, or startup has given up on one) rather than rely on
+  // a 'backend:port-changed' push sent before index.tsx subscribed. Browser
+  // mode has no main process to ask and keeps the URL's port.
+  private async initBackendPort() {
+    const getPort = (window as any).electronAPI?.backend?.getPort;
+    if (typeof getPort !== 'function') return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const answer = getPort() as Promise<number>;
+      const port = await Promise.race([
+        answer,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), 30000);
+        }),
+      ]);
+      if (port) setBackendPort(port);
+      // Requests stop waiting after 30s, but a slow first start still
+      // answers later: take its port then.
+      else answer.then((p) => p && setBackendPort(p)).catch(() => {});
+    } catch {
+      // Keep the port from the URL.
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
   getSessionSecret(): string | null {
     return this.sessionSecret;
   }
 
+  // Every request waits for this: it needs the session secret, and the
+  // backend's real port (the theme loads before the backend is up).
   async waitForSessionSecret(): Promise<void> {
-    return this.sessionSecretPromise;
+    await Promise.all([this.sessionSecretPromise, this.backendPortPromise]);
   }
 
   private startBackendHealthCheck() {
     if (this.backendHealthInterval) clearInterval(this.backendHealthInterval);
     this.backendHealthInterval = setInterval(async () => {
-      if (!this.backendReady) return;
+      if (!this.backendReady) {
+        // waitForBackend gave up on a slow first start (the window opens
+        // before the backend): keep asking, so the session comes up with
+        // the backend instead of never connecting its socket.
+        if (this.backendWaitGaveUp) await this.recoverBackend();
+        return;
+      }
       if (this.ws?.readyState === WebSocket.OPEN) {
         if (this.lastBackendState !== 'connected') {
           this.lastBackendState = 'connected';
@@ -108,23 +217,19 @@ export class WebSocketManager {
   }
 
   private setupConnectivityListeners() {
-    let hiddenTimestamp = 0;
-    const STALE_THRESHOLD = 60 * 1000;
-
+    // Messages keep arriving while the window is hidden, so an open socket that
+    // kept its heartbeat has every subscription current: showing the window
+    // again needs no refresh. Only a dead or silent socket is replaced.
     document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'hidden') {
-        hiddenTimestamp = Date.now();
-      } else if (document.visibilityState === 'visible') {
-        console.log('[WS] App became visible, checking connection...');
-        const wasHiddenFor = Date.now() - hiddenTimestamp;
-        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-          console.log('[WS] Connection lost while hidden, reconnecting...');
-          this.wasDisconnected = true;
-          this.reconnectWebSocket();
-        } else if (wasHiddenFor > STALE_THRESHOLD) {
-          console.log(`[WS] App was hidden for ${Math.round(wasHiddenFor / 1000)}s, refreshing subscriptions`);
-          window.dispatchEvent(new CustomEvent('connection:restored', { detail: { timestamp: Date.now(), reason: 'visibility' } }));
-        }
+      if (document.visibilityState !== 'visible') return;
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        console.log('[WS] Connection lost while hidden, reconnecting...');
+        this.wasDisconnected = true;
+        this.reconnectWebSocket();
+      } else if (Date.now() - this.lastHeartbeat > HEARTBEAT_TIMEOUT_MS) {
+        console.log('[WS] No heartbeat while hidden, reconnecting...');
+        this.wasDisconnected = true;
+        this.reconnectWebSocket();
       }
     });
 
@@ -148,8 +253,10 @@ export class WebSocketManager {
     this.heartbeatCheckInterval = setInterval(() => {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
       const elapsed = Date.now() - this.lastHeartbeat;
-      if (elapsed > 20_000) {
-        console.log(`[WS] No heartbeat for ${Math.round(elapsed / 1000)}s, reconnecting...`);
+      if (elapsed > HEARTBEAT_TIMEOUT_MS) {
+        console.log(
+          `[WS] No heartbeat for ${Math.round(elapsed / 1000)}s, reconnecting...`,
+        );
         this.wasDisconnected = true;
         this.reconnectWebSocket();
       }
@@ -163,8 +270,30 @@ export class WebSocketManager {
     }
   }
 
+  private nextReconnectDelay(): number {
+    const attempt = this.reconnectAttempt++;
+    if (attempt === 0) return RECONNECT_BASE_MS;
+    const ceiling = Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * 2 ** Math.min(attempt, 10));
+    return Math.round(ceiling / 2 + (Math.random() * ceiling) / 2);
+  }
+
+  // The one place a retry is scheduled, so there is never more than one timer.
+  private scheduleReconnect(delayMs: number = this.nextReconnectDelay()) {
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.dispatchConnectionEvent('websocket', 'reconnecting', { countdown: Math.max(1, Math.ceil(delayMs / 1000)) });
+    console.log(`[WS] Reconnecting in ${(delayMs / 1000).toFixed(1)} seconds...`);
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      void this.initWebSocket();
+    }, delayMs);
+  }
+
   reconnectWebSocket() {
     this.stopHeartbeatCheck();
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = undefined;
+    }
     if (this.ws) {
       this.ws.onclose = null;
       this.ws.onerror = null;
@@ -182,6 +311,9 @@ export class WebSocketManager {
 
   unregisterActiveCluster(clusterId: string) {
     this.activeClusters.delete(clusterId);
+    for (const [key, message] of [...this.replayable]) {
+      if (message?.payload?.cluster === clusterId) this.replayable.delete(key);
+    }
     this.cleanupClusterHandlers(clusterId);
   }
 
@@ -205,21 +337,29 @@ export class WebSocketManager {
     const refreshed = await this.refreshSessionSecret();
     if (refreshed) {
       console.log('[WS] Session secret refreshed after handshake failure');
-      this.reconnectWebSocket();
+      this.scheduleReconnect();
       return;
     }
-    window.dispatchEvent(new CustomEvent('toast:error', {
-      detail: { message: 'WebSocket session failed. Restart Kanivet.' }
-    }));
+    if (!this.sessionFailureNotified) {
+      this.sessionFailureNotified = true;
+      window.dispatchEvent(new CustomEvent('toast:error', {
+        detail: { message: 'WebSocket session failed. Restart Kanivet.' }
+      }));
+    }
     window.dispatchEvent(new CustomEvent('session:invalid', {
       detail: { message: 'WebSocket session failed. Please restart the application.' }
     }));
+    // Keep trying slowly: the backend may come back with the same session.
+    this.scheduleReconnect(RECONNECT_MAX_MS);
   }
 
   async waitForBackend(maxWaitMs: number = 30000): Promise<boolean> {
+    this.dispatchConnectionEvent('backend', 'connecting');
+    // Polled at the backend's real port, and for as long as before the window
+    // opened ahead of the backend: the wait starts once the port is known.
+    await this.backendPortPromise;
     const startTime = Date.now();
     const checkInterval = 500;
-    this.dispatchConnectionEvent('backend', 'connecting');
 
     while (Date.now() - startTime < maxWaitMs) {
       try {
@@ -229,11 +369,7 @@ export class WebSocketManager {
         });
         if (response.ok) {
           console.log('[API] Backend is ready');
-          await this.sessionSecretPromise;
-          this.backendReady = true;
-          this.lastBackendState = 'connected';
-          this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
-          this.initWebSocket();
+          await this.markBackendReady();
           return true;
         }
       } catch {
@@ -242,7 +378,28 @@ export class WebSocketManager {
     }
     console.warn('[API] Backend did not become ready within timeout');
     this.dispatchConnectionEvent('backend', 'disconnected');
+    this.backendWaitGaveUp = true;
     return false;
+  }
+
+  private async markBackendReady() {
+    await this.sessionSecretPromise;
+    if (this.backendReady) return;
+    this.backendReady = true;
+    this.lastBackendState = 'connected';
+    this.dispatchConnectionEvent('backend', 'connected', { timestamp: Date.now() });
+    this.initWebSocket();
+  }
+
+  private async recoverBackend() {
+    try {
+      const response = await fetch(`${getApiBase()}/health`, { method: 'GET', signal: AbortSignal.timeout(2000) });
+      if (!response.ok) return;
+      console.log('[API] Backend is ready after a slow start');
+      await this.markBackendReady();
+    } catch {
+      // Still starting.
+    }
   }
 
   isReady(): boolean {
@@ -273,7 +430,7 @@ export class WebSocketManager {
       } catch (wsError) {
         console.error('[WS] WebSocket constructor failed:', wsError);
         this.wsConnecting = false;
-        setTimeout(() => this.initWebSocket(), 2000);
+        this.scheduleReconnect();
         return;
       }
 
@@ -301,6 +458,9 @@ export class WebSocketManager {
         }
         this.wsConnecting = false;
         this.wsFailureCount = 0;
+        this.reconnectAttempt = 0;
+        this.sessionFailureNotified = false;
+        this.sentOnConnection.clear();
         this.lastHeartbeat = Date.now();
         this.startHeartbeatCheck();
         const reconnectedAfterDisconnect = this.wasDisconnected;
@@ -310,11 +470,16 @@ export class WebSocketManager {
           clearInterval(this.reconnectCountdownInterval);
           this.reconnectCountdownInterval = undefined;
         }
-        this.resubscribeAllTopics();
+        // Listeners go first: they clear caches and restart what is on screen,
+        // and what they subscribe is not asked for again below. Each topic then
+        // gets one subscribe per connection.
         if (reconnectedAfterDisconnect) {
           console.log('[WS] Connection restored after disconnect, triggering data refresh');
           window.dispatchEvent(new CustomEvent('connection:restored', { detail: { timestamp: Date.now() } }));
         }
+        this.resubscribeAllTopics();
+        this.replayStreams();
+        this.flushOutbox();
       };
 
       this.ws.onclose = (event) => {
@@ -348,9 +513,7 @@ export class WebSocketManager {
           this.wsFailureCount = 0;
         }
 
-        this.dispatchConnectionEvent('websocket', 'reconnecting', { countdown: 1 });
-        console.log('[WS] Reconnecting in 1 second...');
-        setTimeout(() => this.initWebSocket(), 1000);
+        this.scheduleReconnect();
       };
 
       this.ws.onerror = (error) => {
@@ -361,19 +524,18 @@ export class WebSocketManager {
     } catch (e) {
       console.error('[WS] WebSocket initialization failed:', e);
       this.wsConnecting = false;
-      this.dispatchConnectionEvent('websocket', 'reconnecting');
-      setTimeout(() => this.initWebSocket(), 2000);
+      this.scheduleReconnect();
     }
   }
 
   private handleMessage(ev: MessageEvent) {
+    // Any traffic shows the socket is alive: a long main-thread stall on a big
+    // snapshot must not read as a missed heartbeat.
+    this.lastHeartbeat = Date.now();
     try {
       const msg = JSON.parse(ev.data);
 
-      if (msg.type === 'heartbeat') {
-        this.lastHeartbeat = Date.now();
-        return;
-      }
+      if (msg.type === 'heartbeat') return;
 
       if (msg.type === 'cluster_error') {
         logger.warn('Cluster connection error:', msg);
@@ -456,8 +618,9 @@ export class WebSocketManager {
       const handlers = this.wsHandlers.get(topic);
       if (handlers) {
         const epoch = msg.epoch || msg.Epoch || 0;
+        const total = msg.total || msg.Total || undefined;
         const events = items.map((item: any) => ({ channel: 'items', action: 'added', item }));
-        handlers.forEach((h) => { try { h({ isBatch: true, events, topic, epoch, bulk: true }); } catch (e) { console.error('[WS] Bulk list handler failed:', e); } });
+        handlers.forEach((h) => { try { h({ isBatch: true, events, topic, epoch, total, bulk: true }); } catch (e) { console.error('[WS] Bulk list handler failed:', e); } });
       } else {
         this.unsubscribe(topic);
       }
@@ -497,7 +660,13 @@ export class WebSocketManager {
     }
   }
 
-  private parseItemsTopic(topic: string): { cluster: string; group: string; version: string; kind: string; namespace: string } | null {
+  private parseItemsTopic(topic: string): {
+    cluster: string;
+    group: string;
+    version: string;
+    kind: string;
+    namespace: string;
+  } | null {
     const prefix = 'items:';
     if (!topic.startsWith(prefix)) return null;
     const remainder = topic.slice(prefix.length);
@@ -522,6 +691,8 @@ export class WebSocketManager {
     const staleTopics: string[] = [];
     let resubscribedCount = 0;
     for (const topic of topics) {
+      // Already subscribed on this connection (a restore listener restarted it).
+      if (this.sentOnConnection.has(topic)) continue;
       if (topic.startsWith('items:')) {
         const parsed = this.parseItemsTopic(topic);
         if (parsed) {
@@ -553,17 +724,70 @@ export class WebSocketManager {
     if (resubscribedCount > 0) console.log(`[WS] Re-subscribed to ${resubscribedCount} topics after reconnect`);
   }
 
+  // Asks again for the streams that are still wanted. The new connection has
+  // none of them.
+  private replayStreams() {
+    for (const [key, message] of [...this.replayable]) {
+      if (this.sentOnConnection.has(key)) continue;
+      this.sendNow(message, classifyMessage(message));
+    }
+  }
+
+  // Sends what queued up while the socket was down. Topic subscriptions come
+  // from resubscribeAllTopics and replayStreams; what they already sent, or a
+  // listener restarted, is not sent again.
+  private flushOutbox() {
+    if (this.outbox.size === 0) return;
+    const queued = Array.from(this.outbox.values());
+    this.outbox.clear();
+    for (const message of queued) {
+      const info = classifyMessage(message);
+      if (info.op === 'start' && info.key && this.sentOnConnection.has(info.key)) continue;
+      this.sendNow(message, info);
+    }
+  }
+
+  private sendNow(message: any, info: MessageInfo) {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (info.key && info.op === 'start') this.sentOnConnection.add(info.key);
+    else if (info.key && info.op === 'stop') this.sentOnConnection.delete(info.key);
+    this.ws.send(JSON.stringify(message));
+  }
+
+  private enqueue(message: any, info: MessageInfo) {
+    if (info.key && info.op === 'stop') {
+      // The connection it would stop is gone; a new one has nothing to stop,
+      // and a start still waiting for it is cancelled.
+      this.outbox.delete(info.key);
+      return;
+    }
+    const key = info.key && info.op === 'start' ? info.key : `#${this.outboxSeq++}`;
+    this.outbox.delete(key);
+    this.outbox.set(key, message);
+    while (this.outbox.size > OUTBOX_LIMIT) {
+      this.outbox.delete(this.outbox.keys().next().value as string);
+    }
+  }
+
+  // Stops asking for a replayable stream again after a reconnect, without
+  // sending a stop (a finished discovery has nothing to stop).
+  forgetReplay(message: any) {
+    const info = classifyMessage(message);
+    if (info.key) this.replayable.delete(info.key);
+  }
+
   sendWS(payload: any) {
     this.ensureWSReady();
-    const data = JSON.stringify(payload);
-    const trySend = () => {
-      if (this.ws && this.ws.readyState === WebSocket.OPEN) {
-        this.ws.send(data);
-      } else {
-        setTimeout(trySend, 100);
-      }
-    };
-    trySend();
+    const info = classifyMessage(payload);
+    if (info.key && REPLAYABLE_TYPES.has(payload.type)) {
+      if (info.op === 'start') this.replayable.set(info.key, payload);
+      else if (info.op === 'stop') this.replayable.delete(info.key);
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      this.sendNow(payload, info);
+    } else {
+      this.enqueue(payload, info);
+    }
   }
 
   subscribeToCounts(cluster: string, handler: (msg: { group: string; resource: string; count: number }) => void): () => void {

@@ -29,15 +29,27 @@ type keyRule struct {
 
 var keyRules = []keyRule{
 	{"vp", "pod", `(.+)`},
-	// vcluster host names are <pod>-x-<namespace>-x-<vcluster>, or the first
-	// part plus a hash when the full name would be too long.
-	{"vp", "pod", `(.+?)-x-.+`},
+	// vcluster host names are <pod>-x-<namespace>-x-<vcluster>, or their first
+	// 52 characters plus a 10-character hex hash when the full name would be
+	// too long. Only those shapes count: a Deployment named gateway-x-api is
+	// not a vcluster pod.
+	{"vp", "pod", `(.+?)-x-(?:.+-x-.+|(?:.*-)?[0-9a-f]{10})`},
 	{"vns", "pod", `.+?-x-(.+)-x-.+`},
 	{"wk", "vp", `(.+)`},
 	{"wk", "vp", `(.+)-[0-9]+`},                                       // StatefulSet ordinal
 	{"wk", "vp", `(.+)-` + safeChars + `{5}`},                         // DaemonSet, Job, bare ReplicaSet
 	{"wk", "vp", `(.+)-[0-9]{8,}-` + safeChars + `{5}`},               // CronJob run
 	{"wk", "vp", `(.+)-` + safeChars + `{6,10}-` + safeChars + `{5}`}, // Deployment
+	// The API server cuts a generated name's prefix to 58 characters before
+	// adding the 5 random ones, so pods of a Deployment named 47 characters or
+	// more are <name>-<hash, cut short><random>, 63 characters with no dash
+	// before the random part. trunc holds such a name. The key drops the
+	// random part, then the hash with it where the name still has a dash
+	// before it; a longer name has no hash left. A CronJob named 49
+	// characters or more loses the end of its run's minutes the same way.
+	{"trunc", "vp", `(.{63})`},
+	{"wk", "trunc", `(.{57}[^-])` + safeChars + `{5}`},
+	{"wk", "trunc", `(.+)-(?:` + safeChars + `{6,15}|[0-9]+` + safeChars + `{5})`},
 }
 
 var compiledRules = func() []*regexp.Regexp {

@@ -22,7 +22,7 @@ func DefaultServerConfig() *ServerConfig {
 		ReadBufferSize:    1024 * 1024,
 		WriteBufferSize:   1024 * 1024,
 		HandshakeTimeout:  10 * time.Second,
-		EnableCompression: true,
+		EnableCompression: false, // loopback only, see core.DefaultHubConfig
 		CheckOrigin: func(r *http.Request) bool {
 			origin := r.Header.Get("Origin")
 			if origin == "" || origin == "file://" || origin == "null" {
@@ -53,6 +53,7 @@ func NewServer(hub *core.Hub, config *ServerConfig) *Server {
 		PingInterval:      hub.Config.HeartbeatInterval,
 		PongWait:          hub.Config.HeartbeatInterval * 2,
 		SendChannelSize:   hub.Config.SendChannelSize,
+		MaxQueuedBytes:    hub.Config.MaxQueuedBytes,
 		EnableCompression: hub.Config.EnableCompression,
 	}
 
@@ -88,7 +89,10 @@ func (s *Server) ServeHTTPWithMetadata(w http.ResponseWriter, r *http.Request, m
 	}
 
 	if err := s.hub.RegisterConnection(wsConn); err != nil {
-		_ = conn.Close()
+		// NewConnection already started the write pump and its ticker;
+		// closing only the raw conn would leave them until the first ping
+		// fails.
+		_ = wsConn.Close()
 		return
 	}
 }

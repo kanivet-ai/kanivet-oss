@@ -133,14 +133,23 @@ export const formatReferenceValue = (metric: MetricType, value: number): string 
   return joinValue(formatMetricValue(metric, value));
 };
 
-/** Backend labels are "HH:MM:SS" (or ISO); axes show HH:MM. */
+/**
+ * Labels are "HH:MM:SS", "Oct 5 14:30" past a day, or ISO, optionally with a
+ * note after " · " for the tooltip; axes show HH:MM, or the date and time.
+ */
 export const formatTimeLabel = (label: string): string => {
   if (!label) return '';
-  const hm = /^(\d{1,2}):(\d{2})/.exec(label);
+  const text = label.split(' · ')[0];
+  const hm = /^(\d{1,2}):(\d{2})/.exec(text);
   if (hm) return `${hm[1].padStart(2, '0')}:${hm[2]}`;
-  const date = new Date(label);
-  if (Number.isNaN(date.getTime())) return label;
-  return date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+  if (!/^\d{4}-\d{2}-\d{2}T/.test(text)) return text;
+  const date = new Date(text);
+  if (Number.isNaN(date.getTime())) return text;
+  return date.toLocaleTimeString(undefined, {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
 };
 
 /** Local-time value for a `datetime-local` input. */

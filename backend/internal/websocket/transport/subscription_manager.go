@@ -4,6 +4,7 @@ import (
 	"errors"
 	"log"
 	"sync"
+	"time"
 
 	"github.com/kanivet/backend/internal/websocket/core"
 )
@@ -29,12 +30,19 @@ type DefaultSubscriptionManager struct {
 	onTopicEmpty          TopicEmptyCallback
 	onBackpressureDrop    BackpressureDropCallback
 	onSubscriptionRemoved SubscriptionRemovedCallback
+
+	failLogMu sync.Mutex
+	failLog   map[core.ConnectionID]*sendFailLog
+	// failLogInterval is sendFailLogInterval; a field so tests can pin it.
+	failLogInterval time.Duration
 }
 
 func NewSubscriptionManager() *DefaultSubscriptionManager {
 	return &DefaultSubscriptionManager{
-		topicToConns: make(map[string]map[core.ConnectionID]*core.Connection),
-		connToTopics: make(map[core.ConnectionID]map[string]struct{}),
+		failLog:         make(map[core.ConnectionID]*sendFailLog),
+		failLogInterval: sendFailLogInterval,
+		topicToConns:    make(map[string]map[core.ConnectionID]*core.Connection),
+		connToTopics:    make(map[core.ConnectionID]map[string]struct{}),
 	}
 }
 
@@ -117,6 +125,10 @@ func (sm *DefaultSubscriptionManager) UnsubscribeAll(conn *core.Connection) erro
 	var emptyCallback TopicEmptyCallback
 	var removedCallback SubscriptionRemovedCallback
 
+	sm.failLogMu.Lock()
+	delete(sm.failLog, conn.ID())
+	sm.failLogMu.Unlock()
+
 	sm.mu.Lock()
 	topics, ok := sm.connToTopics[conn.ID()]
 	if !ok {
@@ -178,7 +190,7 @@ func (sm *DefaultSubscriptionManager) Broadcast(topic string, msg core.Message) 
 	var dropped []*core.Connection
 	for _, conn := range connections {
 		if err := conn.Send(data); err != nil {
-			log.Printf("[SubMgr] Send failed for topic %s: %v (data size: %d bytes)", topic, err, len(data))
+			sm.logSendFailure(topic, conn.ID(), err, len(data))
 			sendErrors = append(sendErrors, err)
 			// Only unsubscribe on permanent errors (connection closed).
 			// Transient errors like ErrRateLimitExceeded should not cause unsubscription
@@ -205,6 +217,46 @@ func (sm *DefaultSubscriptionManager) Broadcast(topic string, msg core.Message) 
 	}
 
 	return nil
+}
+
+// sendFailLogInterval spaces the send-failure log lines per connection: a
+// client under backpressure fails every message of every topic it follows.
+const sendFailLogInterval = 5 * time.Second
+
+type sendFailLog struct {
+	last       time.Time
+	suppressed int
+}
+
+// logSendFailure logs a failed send at most once per connection per
+// sendFailLogInterval, with a count of the failures it swallowed.
+func (sm *DefaultSubscriptionManager) logSendFailure(topic string, id core.ConnectionID, err error, size int) {
+	now := time.Now()
+	sm.failLogMu.Lock()
+	e := sm.failLog[id]
+	if e == nil {
+		if len(sm.failLog) >= 4096 {
+			// Entries are removed on UnsubscribeAll; this only guards a
+			// straggler send that raced a disconnect from growing the map.
+			clear(sm.failLog)
+		}
+		e = &sendFailLog{}
+		sm.failLog[id] = e
+	}
+	if !e.last.IsZero() && now.Sub(e.last) < sm.failLogInterval {
+		e.suppressed++
+		sm.failLogMu.Unlock()
+		return
+	}
+	suppressed := e.suppressed
+	e.suppressed = 0
+	e.last = now
+	sm.failLogMu.Unlock()
+	if suppressed > 0 {
+		log.Printf("[SubMgr] Send failed for topic %s: %v (data size: %d bytes), connection %s; %d similar failures suppressed", topic, err, size, id, suppressed)
+		return
+	}
+	log.Printf("[SubMgr] Send failed for topic %s: %v (data size: %d bytes), connection %s", topic, err, size, id)
 }
 
 func (sm *DefaultSubscriptionManager) GetSubscribers(topic string) []*core.Connection {

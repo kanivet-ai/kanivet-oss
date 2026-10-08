@@ -1,8 +1,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { Theme } from '@radix-ui/themes';
-import '@radix-ui/themes/styles.css';
 import '../../src/index.css';
+import '../../src/styles/radix-bridge.css';
+import '../../src/styles/primitives.css';
 import TreeSidebar from '../../src/components/TreeSidebar';
 import ResourceList from '../../src/components/ResourceList';
 import DetailView from '../../src/components/DetailView';
@@ -128,20 +128,18 @@ function reset({ empty = false, split = false, descending = false } = {}) {
     ],
   });
   root.render(
-    <Theme appearance="dark">
-      <div key={generation++} style={{ display: 'flex', height: '100vh' }}>
-        <TreeSidebar />
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <ResourceList paneId="root" />
-        </div>
-        {split && (
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <ResourceList paneId="other" />
-          </div>
-        )}
-        <DetailView />
+    <div key={generation++} style={{ display: 'flex', height: '100vh' }}>
+      <TreeSidebar />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <ResourceList paneId="root" />
       </div>
-    </Theme>,
+      {split && (
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <ResourceList paneId="other" />
+        </div>
+      )}
+      <DetailView />
+    </div>,
   );
 }
 
@@ -151,6 +149,10 @@ function reset({ empty = false, split = false, descending = false } = {}) {
     finishDetails.splice(0).forEach((resolve) => resolve());
   },
   collapseDetails: () => useStore.getState().setDetailsPanelCollapsed(true),
+  focusPane: (paneId: string) => useStore.getState().updateCurrentTabState({
+    focusArea: 'list',
+    focusedCenterPaneId: paneId,
+  }),
   snapshot: () => {
     const state = useStore.getState().getCurrentTabState()!;
     const detail = state.detailTabs.find(
@@ -165,6 +167,9 @@ function reset({ empty = false, split = false, descending = false } = {}) {
       collapsed: state.isDetailsPanelCollapsed,
       listLoads,
       selectedNode: state.selectedNode?.data?.name,
+      activeResource: state.resourceListTabs.find(
+        (tab) => tab.id === state.activeResourceListTab,
+      )?.resource?.name,
       treeFocused: !!document.querySelector('.tree-sidebar.focused'),
       listsFocused: document.querySelectorAll('.resource-list.focused').length,
       detailFocused: !!document.querySelector(

@@ -4,6 +4,8 @@ export interface CacheEntry {
 }
 
 export interface NavigationEntry {
+  clusterId?: string;
+  paneId?: string;
   type: string;
   path: string;
   resource?: any;

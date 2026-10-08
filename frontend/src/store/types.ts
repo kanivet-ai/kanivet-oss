@@ -44,6 +44,7 @@ export interface DetailTab {
 }
 
 export interface ResourceListTab {
+  navigationReveal?: number;
   id: string;
   title: string;
   resource: any;
@@ -69,6 +70,12 @@ export interface BottomTab {
   paneId?: string;
 }
 
+// How much of a list that is still arriving has arrived.
+export interface ListSync {
+  loaded: number;
+  total?: number;
+}
+
 export interface TabState {
   treeData: TreeNode[];
   selectedNode: TreeNode | null;
@@ -76,6 +83,8 @@ export interface TabState {
   selectedItem: any;
   detailData: any;
   searchQuery: string;
+  /** The filter typed above the resource list; saved so a restart keeps it. */
+  listFilter?: string;
   searchMatches: string[];
   focusArea: FocusArea;
   isDetailsPanelCollapsed: boolean;
@@ -102,6 +111,9 @@ export interface TabState {
   focusedCenterPaneId?: string | null;
   isLoadingListItems?: boolean;
   hasReceivedInitialListData?: boolean;
+  // Set while the list on screen is still arriving: how many of its rows are
+  // in, and of how many when the server said.
+  listSync?: ListSync | null;
   loadError?: string;
   dashboardData?: any;
   helmReleases?: any[];
@@ -120,6 +132,8 @@ export interface Tab {
 }
 
 export interface NavigationEntry {
+  clusterId?: string;
+  paneId?: string;
   type: string;
   path: string;
   resource?: any;
@@ -218,6 +232,8 @@ export interface StoreState extends
   setMonitoringSettings: (settings: Partial<MonitoringSettings>) => void;
   getDefaultColumns: (resourceKind: string, isNamespaced?: boolean, printerColumns?: import('../utils/resourceListColumns').PrinterColumnCell[] | null) => string[];
   hydrateFromStorage: () => void;
+  /** Loads the objects behind a cluster's restored tabs; runs once per cluster. */
+  restoreWorkspaceContent: (cluster: string) => void;
 }
 
 export interface ClusterSlice {
@@ -246,9 +262,9 @@ export interface TabSlice {
   activeTabs: Tab[];
   tabIndexMap: Map<string, number>;
   currentTab: string | null;
-  openTab: (cluster: string) => Promise<void>;
+  openTab: (cluster: string, recordHistory?: boolean) => Promise<void>;
   closeTab: (clusterId: string) => void;
-  setCurrentTab: (tabId: string | null) => void;
+  setCurrentTab: (tabId: string | null, recordHistory?: boolean) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   getCurrentTabState: () => TabState | null;
   updateCurrentTabState: (updates: Partial<TabState>) => void;
@@ -301,6 +317,7 @@ export interface RealtimeSlice {
 }
 
 export interface NavigationSlice {
+  recordCurrentNavigation: () => Promise<void>;
   recordNavigation: (type: string, path: string, resource?: any, item?: any) => Promise<void>;
   navigateBack: () => Promise<void>;
   navigateForward: () => Promise<void>;

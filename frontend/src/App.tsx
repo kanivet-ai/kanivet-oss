@@ -1,20 +1,18 @@
-import { Theme } from '@radix-ui/themes';
 import { useEffect, useState } from 'react';
 import Layout from './components/Layout';
-import SplashScreen from './components/SplashScreen';
 import StarProjectDialog from './components/StarProjectDialog';
-import { ThemeProvider, useTheme } from './components/ThemeProvider';
+import { ThemeProvider } from './components/ThemeProvider';
 import api from './services/api';
+import { whenIdleUntouched } from './utils/idle';
 import { isStarProjectPromptDismissed } from './utils/starProjectPromptPreference';
 
 const AppInner = () => {
-  const { theme, resolvedTheme } = useTheme();
-  const appearance = theme === 'custom' ? 'dark' : resolvedTheme;
   const [isLoading, setIsLoading] = useState(true);
   const [showStarProjectDialog, setShowStarProjectDialog] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
+    let cancelStarPrompt: (() => void) | undefined;
     api
       .waitForBackend(30000)
       .catch((error) => {
@@ -23,7 +21,17 @@ const AppInner = () => {
       .finally(() => {
         if (cancelled) return;
         setIsLoading(false);
-        setShowStarProjectDialog(!isStarProjectPromptDismissed());
+        // The prompt's focus trap and scroll lock force a style and layout
+        // pass: open it after the first screen has painted, not in its task,
+        // and not at all on a launch the user has already started typing or
+        // clicking in by then.
+        if (!isStarProjectPromptDismissed()) {
+          cancelStarPrompt = whenIdleUntouched(
+            () => setShowStarProjectDialog(true),
+            3000,
+          );
+        }
+        clearInterval((window as any).__kanivetSplashTimer);
         const splash = document.getElementById('native-splash');
         if (splash) {
           splash.classList.add('hiding');
@@ -32,6 +40,7 @@ const AppInner = () => {
       });
     return () => {
       cancelled = true;
+      cancelStarPrompt?.();
     };
   }, []);
 
@@ -49,34 +58,17 @@ const AppInner = () => {
     }
   }, []);
 
-  if (isLoading) {
-    return (
-      <Theme
-        appearance={appearance}
-        accentColor="blue"
-        grayColor="gray"
-        radius="medium"
-        panelBackground="solid"
-      >
-        <SplashScreen />
-      </Theme>
-    );
-  }
+  // The splash in index.html covers the window until the backend answers.
+  if (isLoading) return null;
 
   return (
-    <Theme
-      appearance={appearance}
-      accentColor="blue"
-      grayColor="gray"
-      radius="medium"
-      panelBackground="solid"
-    >
+    <div className="app-root">
       <Layout />
       <StarProjectDialog
         isOpen={showStarProjectDialog}
         onClose={() => setShowStarProjectDialog(false)}
       />
-    </Theme>
+    </div>
   );
 };
 

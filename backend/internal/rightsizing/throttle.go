@@ -25,17 +25,21 @@ import (
 //
 //   - Concurrency: a per-cluster limit that grows by 1/limit per fast response
 //     and shrinks ×0.7 when latency climbs well above the best seen (queueing),
-//     ×0.5 on an overload answer (429, 5xx, timeout, cut-off response).
+//     ×0.5 on an overload answer (429, 5xx, timeout, cut-off response). Like
+//     TCP, it cuts once per round trip: the answers to queries already in
+//     flight at a cut are the same congestion event, not new ones.
 //   - Latency is compared per thousand samples returned, within a query shape,
 //     so a big namespace and a small one, or a 4-day batch and today's few
 //     hours, are judged on the same scale.
 //   - Retries: exponential backoff with full jitter, the store's Retry-After
 //     when it gives one, and a budget of about one retry per ten requests so a
 //     struggling store never sees a retry storm.
-//   - Circuit breaker: three overloads in a row stop all queries to that
-//     cluster for a jittered minute or two; then a single probe decides.
+//   - Circuit breaker: overload in three congestion events (round trips) in
+//     a row stops all queries to that cluster for a jittered minute or two;
+//     then a single probe decides.
 //   - Priority: a user opening a workload's evidence goes ahead of background
-//     report queries.
+//     report queries, and is told the store is paused rather than kept
+//     waiting out the pause.
 
 const (
 	// limitMin below 1 is a fractional window: one query at a time with a
@@ -63,13 +67,17 @@ const (
 	// congested from their first query.
 	baselineWindow = 50
 	// baselineMinSamples is how many responses a class needs before its
-	// latency is trusted as a congestion signal.
+	// latency is trusted, as a sign of congestion or of room to grow.
 	baselineMinSamples = 8
 	recentEWMA         = 0.3
 
 	breakerTrips = 3
 	breakerMin   = 60 * time.Second
 	breakerMax   = 120 * time.Second
+	// interactiveWait is the longest pause a query someone is waiting on
+	// sits out; past it the query fails with ErrStoreBusy at once, so the
+	// UI can say why and when to try again.
+	interactiveWait = 3 * time.Second
 
 	retryBudgetPerRequest = 0.1
 	retryBudgetMax        = 10.0
@@ -110,8 +118,11 @@ type outcome struct {
 	work float64
 	// class groups queries of the same shape; each has its own baseline,
 	// since a per-pod query costs far more per hour than an aggregate one.
-	class      string
-	overload   bool
+	class    string
+	overload bool
+	// failed is an error that isn't overload, such as a query the store
+	// rejected: the store answered, but the latency measures nothing.
+	failed     bool
 	retryAfter time.Duration
 }
 
@@ -127,6 +138,10 @@ type limiter struct {
 
 	classes map[string]*latencyStats
 	lastCut time.Time
+	// lastOverloadCut tells a new congestion event from the rest of the one
+	// already cut for. It is kept apart from lastCut so a latency cut just
+	// before doesn't swallow the first overload of a new event.
+	lastOverloadCut time.Time
 
 	overloads   int
 	pausedUntil time.Time
@@ -136,8 +151,10 @@ type limiter struct {
 
 	pauseMin, pauseMax time.Duration
 
-	// nextAllowed paces queries while the limit is below one.
+	// nextAllowed paces queries while the limit is below one, by srtt, the
+	// smoothed latency of answered queries.
 	nextAllowed time.Time
+	srtt        time.Duration
 
 	// Decision counts, for the log.
 	grows, queueCuts, overloadCuts int
@@ -164,13 +181,35 @@ func (l *limiter) slots() int {
 }
 
 // acquire waits for a slot. It fails fast with ErrStoreBusy while the breaker
-// is open, unless the caller can afford to wait out the pause.
-func (l *limiter) acquire(ctx context.Context) error {
+// is open, unless the caller can afford to wait out the pause: a user waiting
+// on the answer only sits out the last few seconds of one.
+func (l *limiter) acquire(ctx context.Context) (err error) {
 	p := priorityOf(ctx)
+	// woken is set once wake() has picked this caller for a free slot. If it
+	// gives up after that, cancelled or told the store is busy, it passes the
+	// turn on, or the slot sits idle until the next release, which may never
+	// come.
+	woken := false
+	defer func() {
+		if err != nil && woken {
+			l.mu.Lock()
+			l.wake()
+			l.mu.Unlock()
+		}
+	}()
 	for {
 		l.mu.Lock()
+		if !l.pausedUntil.IsZero() && !l.now().Before(l.pausedUntil) {
+			// The pause is over, whether or not anyone waited it out: one
+			// query decides whether to resume.
+			l.pausedUntil = time.Time{}
+			l.probing = true
+		}
 		if wait := l.pausedUntil.Sub(l.now()); wait > 0 {
 			l.mu.Unlock()
+			if p == priorityInteractive && wait > interactiveWait {
+				return ErrStoreBusy
+			}
 			if dl, ok := ctx.Deadline(); ok && time.Until(dl) < wait {
 				return ErrStoreBusy
 			}
@@ -179,11 +218,7 @@ func (l *limiter) acquire(ctx context.Context) error {
 				return ctx.Err()
 			case <-time.After(wait):
 			}
-			l.mu.Lock()
-			if !l.pausedUntil.IsZero() && !l.now().Before(l.pausedUntil) {
-				l.pausedUntil = time.Time{}
-				l.probing = true
-			}
+			continue
 		}
 		// Below one query in flight, wait out the pacing gap first.
 		if gap := l.nextAllowed.Sub(l.now()); gap > 0 && l.inflight == 0 {
@@ -208,22 +243,36 @@ func (l *limiter) acquire(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			l.mu.Lock()
-			l.dropWaiter(p, ch)
+			// Gone from the queue means wake() picked us as we gave up.
+			woken = !l.dropWaiter(p, ch)
 			l.mu.Unlock()
 			return ctx.Err()
 		case <-ch:
+			woken = true
 		}
 	}
 }
 
-func (l *limiter) dropWaiter(p priority, ch chan struct{}) {
+// dropWaiter takes ch out of the queue; false means wake() already did.
+func (l *limiter) dropWaiter(p priority, ch chan struct{}) bool {
 	q := l.waiting[p]
 	for i, c := range q {
 		if c == ch {
 			l.waiting[p] = append(q[:i], q[i+1:]...)
-			return
+			return true
 		}
 	}
+	return false
+}
+
+// abandon returns the slot of a query its caller gave up on. That says
+// nothing about the store: no latency sample, no cut, and a half-open probe
+// stays open for the next query to decide.
+func (l *limiter) abandon() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.inflight--
+	l.wake()
 }
 
 // wake lets waiting queries retry acquire, interactive first.
@@ -247,11 +296,22 @@ func (l *limiter) release(o outcome) {
 	usedFully := l.inflight+1 >= l.slots()
 
 	switch {
+	case o.overload && now.Sub(l.lastOverloadCut) <= o.latency:
+		// Sent before the last overload cut: part of the congestion event
+		// already cut for, as when every query in flight hits a full store
+		// at once. It neither cuts again nor counts towards the breaker,
+		// but the store's Retry-After still holds. Nor can it fail a
+		// half-open probe: the probe went out after the pause, so after
+		// the cut, and its own answer decides.
+		if until := now.Add(o.retryAfter); o.retryAfter > 0 && until.After(l.pausedUntil) {
+			l.pausedUntil = until
+		}
 	case o.overload:
 		l.overloadCuts++
 		l.overloads++
 		l.limit = math.Max(limitMin, l.limit*errorDecrease)
 		l.lastCut = now
+		l.lastOverloadCut = now
 		pause := time.Duration(0)
 		if l.probing || l.overloads >= breakerTrips {
 			pause = l.pauseMin + time.Duration(l.rand()*float64(l.pauseMax-l.pauseMin))
@@ -261,9 +321,19 @@ func (l *limiter) release(o outcome) {
 			l.pausedUntil = now.Add(pause)
 		}
 		l.probing = false
+	case o.failed:
+		// The store answered, so the overload streak ends, but how long it
+		// took to reject a query says nothing about load.
+		l.overloads = 0
+		l.probing = false
 	default:
 		l.overloads = 0
 		l.probing = false
+		if l.srtt == 0 {
+			l.srtt = o.latency
+		} else {
+			l.srtt += (o.latency - l.srtt) / 8
+		}
 		if l.classes == nil {
 			l.classes = map[string]*latencyStats{}
 		}
@@ -273,9 +343,12 @@ func (l *limiter) release(o outcome) {
 			st = &latencyStats{}
 			l.classes[key] = st
 		}
-		ratio := st.observe(o.latency.Seconds())
+		ratio, warm := st.observe(o.latency.Seconds())
 		l.maxRatio = math.Max(l.maxRatio, ratio)
 		switch {
+		case !warm:
+			// Too little history to tell a fast answer from a slow one, so
+			// it is no evidence for growth, nor for a cut.
 		case ratio > queueRatio:
 			// Cut at most once per round trip, or one slow burst would
 			// collapse the limit before the first cut takes effect.
@@ -303,7 +376,13 @@ func (l *limiter) release(o outcome) {
 		}
 	}
 	if l.limit < 1 {
-		l.nextAllowed = now.Add(time.Duration(float64(o.latency) * (1/l.limit - 1)))
+		// Pace by how long an answered query takes, not by this response:
+		// a 429 comes back in milliseconds.
+		rtt := l.srtt
+		if rtt == 0 {
+			rtt = o.latency
+		}
+		l.nextAllowed = now.Add(time.Duration(float64(rtt) * (1/l.limit - 1)))
 	} else {
 		l.nextAllowed = time.Time{}
 	}
@@ -317,9 +396,9 @@ type latencyStats struct {
 	recent float64
 }
 
-// observe records a latency and returns recent / baseline, or 1 until the
-// class has enough history to judge.
-func (s *latencyStats) observe(latency float64) float64 {
+// observe records a latency and returns recent / baseline. Until the class
+// has enough history to judge, the ratio is 1 and warm is false.
+func (s *latencyStats) observe(latency float64) (ratio float64, warm bool) {
 	s.window = append(s.window, latency)
 	if len(s.window) > baselineWindow {
 		s.window = s.window[1:]
@@ -330,15 +409,17 @@ func (s *latencyStats) observe(latency float64) float64 {
 		s.recent = recentEWMA*latency + (1-recentEWMA)*s.recent
 	}
 	if len(s.window) < baselineMinSamples {
-		return 1
+		return 1, false
 	}
-	return s.recent / math.Max(minOf(s.window), 1e-9)
+	return s.recent / math.Max(minOf(s.window), 1e-9), true
 }
 
 // sizeBucket groups answers by size on a log scale: latency is a fixed
 // overhead plus a cost per sample, so only answers of similar size compare.
 func sizeBucket(samples int) int {
-	return int(math.Log2(float64(max(samples, 1)) / 1000 * 4))
+	// Floor, not truncation toward zero, or bucket 0 spans 4x where the
+	// others span 2x.
+	return int(math.Floor(math.Log2(float64(max(samples, 1)) / 1000 * 4)))
 }
 
 var namespaceValue = regexp.MustCompile(`(namespace|pod)(=~?)"[^"]*"`)
@@ -435,6 +516,13 @@ func (c *controlled) do(ctx context.Context, cluster, class string, call func() 
 		c.mu.Unlock()
 		start := time.Now()
 		res, err := call()
+		if err != nil && ctx.Err() != nil {
+			// Our caller cancelled or ran out of time, which says nothing
+			// about the store. An http.Client timeout leaves ctx alone, so
+			// it still counts as overload.
+			lim.abandon()
+			return nil, err
+		}
 		over, retryAfter := false, time.Duration(0)
 		if err != nil {
 			over, retryAfter = overloaded(err)
@@ -443,7 +531,7 @@ func (c *controlled) do(ctx context.Context, cluster, class string, call func() 
 		for _, s := range res {
 			samples += len(s.Times)
 		}
-		lim.release(outcome{latency: time.Since(start), work: float64(samples) / 1000, class: class, overload: over, retryAfter: retryAfter})
+		lim.release(outcome{latency: time.Since(start), work: float64(samples) / 1000, class: class, overload: over, failed: err != nil && !over, retryAfter: retryAfter})
 		if err == nil || !over || attempt+1 >= maxAttempts || !lim.allowRetry() {
 			return res, err
 		}

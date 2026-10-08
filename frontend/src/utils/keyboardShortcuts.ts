@@ -20,10 +20,18 @@ export const createNavigationHandlers = (
   items: any[],
   selectedItem: any,
   handleItemSelect: (item: any, fromKeyboard?: boolean) => void,
+  // Identifies a row across updates: a watch event replaces the object of the
+  // selected row, so matching by identity would lose it.
+  getKey?: (item: any) => string,
 ) => {
   const navigateList = (direction: 'up' | 'down', lines: number = 1) => {
     if (!items.length) return;
-    const currentIndex = items.findIndex((item) => item === selectedItem);
+    const selectedKey =
+      selectedItem && getKey ? getKey(selectedItem) : undefined;
+    const currentIndex =
+      selectedKey !== undefined
+        ? items.findIndex((item) => getKey!(item) === selectedKey)
+        : items.findIndex((item) => item === selectedItem);
     let newIndex;
     if (direction === 'up') {
       newIndex = Math.max(0, currentIndex - lines);

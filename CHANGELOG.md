@@ -1,5 +1,33 @@
 # Changelog
 
+## [0.6.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.5.0...v0.6.0) (2026-10-06)
+
+
+### Features
+
+* **detail:** view-parent button, even action pills, and vcluster pod metrics ([#48](https://github.com/kanivet-ai/kanivet-oss/issues/48)) ([72d9547](https://github.com/kanivet-ai/kanivet-oss/commit/72d954705bc1277435d3dc0cb2d0d13ab30f3d4d))
+* improve cluster metrics settings and rightsizing ([#40](https://github.com/kanivet-ai/kanivet-oss/issues/40)) ([300af92](https://github.com/kanivet-ai/kanivet-oss/commit/300af92bf85b1d3ea07930a7e204eed6b3fbb4eb))
+* restore workspace ([#44](https://github.com/kanivet-ai/kanivet-oss/issues/44)) ([6118a28](https://github.com/kanivet-ai/kanivet-oss/commit/6118a28d4c8834270e575e6cb7f0a1039369084a))
+* rightsizing ([#38](https://github.com/kanivet-ai/kanivet-oss/issues/38)) ([c5ad944](https://github.com/kanivet-ai/kanivet-oss/commit/c5ad94472c339ab2eb67ace8032b0ec8fa49c357))
+
+
+### Bug Fixes
+
+* **db:** close the rightsizing cache before the test removes its dire… ([#39](https://github.com/kanivet-ai/kanivet-oss/issues/39)) ([ba8d871](https://github.com/kanivet-ai/kanivet-oss/commit/ba8d8713bb9fa2038b36d8d4bfe1ec32f0ccd269))
+* Fix/websocket reliability ([#46](https://github.com/kanivet-ai/kanivet-oss/issues/46)) ([9a61c8c](https://github.com/kanivet-ai/kanivet-oss/commit/9a61c8ceccfa8a424aa0540c9b0695ba578c255f))
+* rightsizing correctness, AIMD limiter fixes, and app-wide performance ([#42](https://github.com/kanivet-ai/kanivet-oss/issues/42)) ([43fa832](https://github.com/kanivet-ai/kanivet-oss/commit/43fa832b78d9d4f15e7efabc4b9d5c9f1a42aae7))
+* **sidebar:** keep resource counts through an outage and fetch missin… ([#49](https://github.com/kanivet-ai/kanivet-oss/issues/49)) ([1b2acd9](https://github.com/kanivet-ai/kanivet-oss/commit/1b2acd9d28b06466da43a6cf568cf30b81a8d5f4))
+
+
+### Performance
+
+* share one watch-backed pod cache between the overview and FinOps ([#36](https://github.com/kanivet-ai/kanivet-oss/issues/36)) ([f0031d6](https://github.com/kanivet-ai/kanivet-oss/commit/f0031d68a243030eefb6ef183042a18c4fdd4cb3))
+
+
+### Tests
+
+* **rightsizing:** fix a race in the fairness simulation and an over-… ([#41](https://github.com/kanivet-ai/kanivet-oss/issues/41)) ([99f8142](https://github.com/kanivet-ai/kanivet-oss/commit/99f81423a6142e0eab00ae92963739e830a79d2a))
+
 ## [0.5.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.4.0...v0.5.0) (2026-10-01)
 
 

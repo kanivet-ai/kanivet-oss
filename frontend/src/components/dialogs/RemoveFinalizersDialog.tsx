@@ -1,4 +1,3 @@
-import { Text } from '@radix-ui/themes';
 import Dialog from '../common/Dialog';
 
 interface RemoveFinalizersDialogProps {
@@ -31,11 +30,19 @@ const RemoveFinalizersDialog = ({
         Are you sure you want to remove finalizers from {resourceCount} resource
         {resourceCount !== 1 ? 's' : ''}?
       </p>
-      {/* Same amber the sheet's warning confirm button uses (common/Dialog variant="warning") */}
-      <Text as="p" size="1" weight="medium" color="amber" mt="2">
+      {/* Same colour the sheet's warning confirm button uses (common/Dialog variant="warning") */}
+      <p
+        style={{
+          color: 'var(--warning)',
+          fontSize: 12,
+          fontWeight: 500,
+          lineHeight: '16px',
+          marginTop: 8,
+        }}
+      >
         Warning: This will allow resources to be deleted even if they have
         finalizers. Use with caution.
-      </Text>
+      </p>
     </Dialog>
   );
 };

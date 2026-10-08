@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
+import { useStore } from '../store';
 import clsx from 'clsx';
 import { HelmRelease } from '../types/helm';
 import { getColumnValue } from '../utils/resourceColumnValues';
@@ -36,7 +37,16 @@ const HelmReleaseList = ({ cluster, onSelectRelease }: HelmReleaseListProps) => 
   const [selectedNamespaces, setSelectedNamespaces] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState<string>('NAMESPACE');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const listTab = useStore((s) => s.getCurrentTabState()?.resourceListTabs.find((tab) => tab.cluster === cluster && tab.resource.kind === 'HelmReleases'));
+  const selectedKey = listTab?.selectedItem ? `${listTab.selectedItem.namespace}/${listTab.selectedItem.name}` : null;
+  const navigationReveal = listTab?.navigationReveal;
+  const listRef = useRef<HTMLDivElement>(null);
+  const revealedRef = useRef<number>();
+  useEffect(() => {
+    if (!navigationReveal) return;
+    setSearchQuery('');
+    setSelectedNamespaces([]);
+  }, [navigationReveal]);
   const [selectedResources, setSelectedResources] = useState<Set<string>>(new Set());
 
   // Extract unique namespaces from releases
@@ -106,8 +116,6 @@ const HelmReleaseList = ({ cluster, onSelectRelease }: HelmReleaseListProps) => 
   const getResourceKey = (release: HelmRelease) => `${release.namespace}/${release.name}`;
 
   const handleRowClick = (release: HelmRelease) => {
-    const key = getResourceKey(release);
-    setSelectedKey(key);
     onSelectRelease(release);
   };
 
@@ -174,9 +182,17 @@ const HelmReleaseList = ({ cluster, onSelectRelease }: HelmReleaseListProps) => 
   };
 
   const progressInfo = getProgressInfo();
+  useEffect(() => {
+    if (!navigationReveal || revealedRef.current === navigationReveal) return;
+    const row = listRef.current?.querySelector('.resource-row-selected');
+    if (row) {
+      row.scrollIntoView({ block: 'nearest' });
+      revealedRef.current = navigationReveal;
+    }
+  }, [navigationReveal, filteredReleases, selectedKey]);
 
   return (
-    <div className="resource-list resource-list-content">
+    <div ref={listRef} className="resource-list resource-list-content">
       <ResourceControlsBar
         namespaces={namespaces}
         selectedNamespaces={selectedNamespaces}

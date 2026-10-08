@@ -28,7 +28,11 @@ export interface FeedOptions {
   previous: boolean;
 }
 
-export function useLogFeed(o: FeedOptions) {
+const noSubscription = () => () => {};
+
+// `active` false (a tab kept mounted while hidden) stops re-rendering on new
+// lines; the buffer keeps filling and the view catches up when shown again.
+export function useLogFeed(o: FeedOptions, active = true) {
   const bufferRef = useRef<LogBuffer | null>(null);
   if (!bufferRef.current) bufferRef.current = new LogBuffer();
   const buffer = bufferRef.current;
@@ -98,7 +102,7 @@ export function useLogFeed(o: FeedOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
-  const version = useSyncExternalStore(buffer.subscribe, buffer.getVersion);
+  const version = useSyncExternalStore(active ? buffer.subscribe : noSubscription, buffer.getVersion);
 
   return { buffer, version, pods, containers, status, error };
 }

@@ -451,6 +451,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Rows are virtualised: only those in view are in the DOM, each placed at
+   its offset in a list as tall as all of them. */
+.rs-rows {
+  position: relative;
+}
+
+.rs-rows-item {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+}
+
 .rs-more {
   display: block;
   width: 100%;
@@ -698,6 +711,15 @@
   margin-left: auto;
 }
 
+/* In the badge row the button is the size of a badge, on the same line. */
+.rs-finding-tag-row .rs-card-open {
+  height: 18px;
+  padding: 0 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 16px;
+}
+
 .rs-card-why {
   color: var(--text2);
   line-height: 1.45;
@@ -762,6 +784,12 @@
   height: 100%;
   border-radius: 12px 0 0 12px;
   animation: rs-slide var(--duration-base) var(--ease-snap);
+}
+
+/* The sheet's body takes focus when it opens, so keys scroll it rather than
+   drive the table behind. It is a region, not a control: no ring. */
+.rs-sheet-body:focus-visible::before {
+  display: none;
 }
 
 .rs-sheet.rs-method {

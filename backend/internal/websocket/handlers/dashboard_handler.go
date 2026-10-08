@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/kanivet/backend/internal/db"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/k8s/podcache"
 	"github.com/kanivet/backend/internal/topics"
@@ -20,21 +21,47 @@ import (
 
 const clusterInfoTTL = 10 * time.Minute
 
+// maxDashboardEvents is how many recent events the dashboard shows.
+const maxDashboardEvents = 20
+
+// RecentEventsFunc returns a cluster's n most recent events from a store kept
+// current by a watch, or false while that store cannot vouch for them yet.
+type RecentEventsFunc func(cluster string, n int) ([]db.K8sEvent, bool)
+
 type DashboardHandler struct {
 	k8sClient k8s.Interface
 	hub       *core.Hub
 	// pods, when set, serves pods from a shared watch instead of listing
 	// every pod in the cluster on each refresh.
-	pods     podcache.Lister
-	mu       sync.RWMutex
-	watchers map[string]*dashboardWatcher
-	infoMu   sync.Mutex
-	info     map[string]clusterInfoEntry
+	pods podcache.Lister
+	// recentEvents, when set, serves the recent events panel instead of a
+	// limited LIST, whose page holds the first events in key order
+	// (namespace/name), not the newest.
+	recentEvents RecentEventsFunc
+	// openEvents, when set, starts the event store's watch of a cluster
+	// whose dashboard opens. recentEvents does not start the watch of a
+	// cluster whose tab was closed, which a refresh still running then
+	// would otherwise bring back.
+	openEvents    func(cluster string) error
+	mu            sync.RWMutex
+	watchers      map[string]*dashboardWatcher
+	infoMu        sync.Mutex
+	info          map[string]clusterInfoEntry
+	metricsProbes map[string]metricsProbeEntry
+	// last is each cluster's most recent update. Sections that fail to load
+	// keep their value from it instead of showing as empty or zero.
+	lastMu sync.Mutex
+	last   map[string]*DashboardMetrics
 }
 
 type clusterInfoEntry struct {
 	version, platform, provider, arch string
 	at                                time.Time
+}
+
+type metricsProbeEntry struct {
+	available bool
+	at        time.Time
 }
 
 type dashboardWatcher struct {
@@ -125,6 +152,9 @@ type DashboardMessage struct {
 	core.BaseMessage
 	Cluster string            `json:"cluster"`
 	Data    *DashboardMetrics `json:"data"`
+	// Error is set, with a null Data, when the cluster could not be read, so
+	// a client that wants to can tell it is down.
+	Error string `json:"error,omitempty"`
 }
 
 func (m *DashboardMessage) Marshal() ([]byte, error) {
@@ -133,29 +163,44 @@ func (m *DashboardMessage) Marshal() ([]byte, error) {
 
 func NewDashboardHandler(k8sClient k8s.Interface, hub *core.Hub) *DashboardHandler {
 	return &DashboardHandler{
-		k8sClient: k8sClient,
-		hub:       hub,
-		watchers:  make(map[string]*dashboardWatcher),
-		info:      make(map[string]clusterInfoEntry),
+		k8sClient:     k8sClient,
+		hub:           hub,
+		watchers:      make(map[string]*dashboardWatcher),
+		info:          make(map[string]clusterInfoEntry),
+		metricsProbes: make(map[string]metricsProbeEntry),
+		last:          make(map[string]*DashboardMetrics),
 	}
 }
 
 // SetPodLister makes the dashboard read pods from a shared pod cache.
 func (h *DashboardHandler) SetPodLister(l podcache.Lister) { h.pods = l }
 
-func (h *DashboardHandler) listAllPods(ctx context.Context, cluster string, clientset kubernetes.Interface) (*v1.PodList, error) {
-	if h.pods == nil {
-		return clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{})
+// SetRecentEvents makes the dashboard read recent events from an event store,
+// and open sets that store going for a cluster whose dashboard opens.
+func (h *DashboardHandler) SetRecentEvents(f RecentEventsFunc, open func(cluster string) error) {
+	h.recentEvents = f
+	h.openEvents = open
+}
+
+// fromWatchCache lets the apiserver answer a full LIST from its watch cache
+// instead of a quorum read of etcd; a dashboard tolerates that staleness.
+var fromWatchCache = metav1.ListOptions{ResourceVersion: "0"}
+
+// listAllPods returns every pod in the cluster. Cached pods are shared and
+// must not be modified.
+func (h *DashboardHandler) listAllPods(ctx context.Context, cluster string, clientset kubernetes.Interface) ([]*v1.Pod, error) {
+	if h.pods != nil {
+		return h.pods.List(ctx, cluster)
 	}
-	cached, err := h.pods.List(ctx, cluster)
+	list, err := clientset.CoreV1().Pods("").List(ctx, fromWatchCache)
 	if err != nil {
 		return nil, err
 	}
-	list := &v1.PodList{Items: make([]v1.Pod, len(cached))}
-	for i, p := range cached {
-		list.Items[i] = *p
+	pods := make([]*v1.Pod, len(list.Items))
+	for i := range list.Items {
+		pods[i] = &list.Items[i]
 	}
-	return list, nil
+	return pods, nil
 }
 
 func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connection, msg *core.IncomingMessage) error {
@@ -179,6 +224,15 @@ func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connect
 		if _, err := h.hub.Subscribe(topic, conn); err != nil {
 			return err
 		}
+		if h.openEvents != nil {
+			// Building a cluster's client can take seconds: not on the
+			// connection's read loop.
+			go func() {
+				if err := h.openEvents(cluster); err != nil {
+					log.Printf("[Dashboard] Failed to start the event store for %s: %v", cluster, err)
+				}
+			}()
+		}
 		h.startDashboardStream(cluster, topic)
 		return nil
 
@@ -187,9 +241,7 @@ func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connect
 		if _, err := h.hub.Unsubscribe(topic, conn); err != nil {
 			return err
 		}
-		if len(h.hub.Subscribers(topic)) == 0 {
-			h.stopDashboardStream(cluster)
-		}
+		h.stopDashboardStreamIfIdle(cluster, topic, "")
 		return nil
 
 	default:
@@ -219,15 +271,8 @@ func (h *DashboardHandler) OnConnectionClose(conn *core.Connection) {
 	}
 	h.mu.RUnlock()
 	for _, cluster := range clusters {
-		remaining := 0
-		for _, sub := range h.hub.Subscribers(topics.BuildDashboardTopic(cluster)) {
-			if sub.ID() != conn.ID() {
-				remaining++
-			}
-		}
-		if remaining == 0 {
-			log.Printf("[Dashboard] Last subscriber for %s disconnected, stopping stream", cluster)
-			h.stopDashboardStream(cluster)
+		if h.stopDashboardStreamIfIdle(cluster, topics.BuildDashboardTopic(cluster), conn.ID()) {
+			log.Printf("[Dashboard] Last subscriber for %s disconnected, stopped stream", cluster)
 		}
 	}
 }
@@ -256,16 +301,32 @@ func (h *DashboardHandler) startDashboardStream(cluster, topic string) {
 	go h.streamDashboard(ctx, cluster, topic, watcher.stopChan, watcher.refreshChan)
 }
 
-func (h *DashboardHandler) stopDashboardStream(cluster string) {
+// stopDashboardStreamIfIdle stops the cluster's stream when nobody but the
+// excluded connection is subscribed. The check and the stop happen under the
+// lock a start takes, so a start that subscribes in between is never handed a
+// stream that is then stopped under it: either it subscribed before the check
+// (the stream stays) or it takes the lock after (and starts a new one).
+func (h *DashboardHandler) stopDashboardStreamIfIdle(cluster, topic string, exclude core.ConnectionID) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
-	if watcher, exists := h.watchers[cluster]; exists {
-		watcher.cancelFunc()
-		close(watcher.stopChan)
-		delete(h.watchers, cluster)
-		log.Printf("[Dashboard] Stopped streaming for cluster: %s", cluster)
+	watcher, exists := h.watchers[cluster]
+	if !exists {
+		return false
 	}
+	for _, sub := range h.hub.Subscribers(topic) {
+		if sub.ID() != exclude {
+			return false
+		}
+	}
+	watcher.cancelFunc()
+	close(watcher.stopChan)
+	delete(h.watchers, cluster)
+	h.lastMu.Lock()
+	delete(h.last, cluster)
+	h.lastMu.Unlock()
+	log.Printf("[Dashboard] Stopped streaming for cluster: %s", cluster)
+	return true
 }
 
 func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic string, stopChan, refreshChan chan struct{}) {
@@ -275,7 +336,20 @@ func (h *DashboardHandler) streamDashboard(ctx context.Context, cluster, topic s
 	sendUpdate := func() {
 		metrics, err := h.fetchDashboardMetrics(ctx, cluster)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			log.Printf("[Dashboard] Error fetching metrics for %s: %v", cluster, err)
+			// Tell the clients: they keep what they show, but can see the
+			// cluster could not be read.
+			errMsg := &DashboardMessage{
+				BaseMessage: core.BaseMessage{MessageType: "dashboard", Timestamp: time.Now()},
+				Cluster:     cluster,
+				Error:       err.Error(),
+			}
+			if berr := h.hub.Broadcast(topic, errMsg); berr != nil {
+				log.Printf("[Dashboard] Error broadcasting dashboard error: %v", berr)
+			}
 			return
 		}
 
@@ -314,15 +388,18 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		ResourceCounts: make(map[string]int),
 	}
 
-	metricsAvailable := h.checkMetricsAvailable(ctx, cluster)
-	metrics.MetricsAvailable = metricsAvailable
-
 	clientset, err := h.k8sClient.GetClientForCluster(cluster)
 	if err != nil {
 		return nil, err
 	}
+	prev := h.lastMetrics(cluster)
 
-	var pods *v1.PodList
+	// The metrics-server probe runs alongside everything else: it is cached,
+	// but when it is not, its discovery call should not delay the update.
+	metricsDone := make(chan bool, 1)
+	go func() { metricsDone <- h.metricsAvailable(ctx, cluster) }()
+
+	var pods []*v1.Pod
 	var nodes *v1.NodeList
 	var podErr, nodeErr error
 	var prefetchWg sync.WaitGroup
@@ -333,18 +410,27 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 	}()
 	go func() {
 		defer prefetchWg.Done()
-		nodes, nodeErr = clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		nodes, nodeErr = clientset.CoreV1().Nodes().List(ctx, fromWatchCache)
 	}()
 	prefetchWg.Wait()
+
+	// Neither pods nor nodes could be read: the cluster is down, which is
+	// not an update to broadcast as authoritative.
+	if podErr != nil && nodeErr != nil {
+		return nil, fmt.Errorf("cluster unreachable: %w", podErr)
+	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 
-	// Counts for lists already in hand come for free; only the rest are queried.
-	counted := map[string]bool{}
+	// Counts for lists already in hand come for free; only the rest are
+	// queried. Workloads and services are listed in full below, and those
+	// fetches record their counts.
+	counted := map[string]bool{"deployments": true, "statefulsets": true, "daemonsets": true}
 	if podErr == nil {
-		metrics.ResourceCounts[":pods"] = len(pods.Items)
+		metrics.ResourceCounts[":pods"] = len(pods)
 		counted["pods"] = true
+		counted["services"] = true // listed by fetchCriticalAlerts
 	}
 	if nodeErr == nil {
 		metrics.ResourceCounts[":nodes"] = len(nodes.Items)
@@ -380,7 +466,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 
 	go func() {
 		defer wg.Done()
-		if err := h.fetchWorkloadStatus(ctx, cluster, metrics, &mu); err != nil {
+		if err := h.fetchWorkloadStatus(ctx, cluster, metrics, &mu, prev); err != nil {
 			log.Printf("[Dashboard] Failed to fetch workload status: %v", err)
 		}
 	}()
@@ -413,6 +499,8 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 	}()
 
 	wg.Wait()
+	metrics.MetricsAvailable = <-metricsDone
+	carryForward(metrics, prev)
 
 	if info, ok := h.clusterInfo(ctx, cluster, clientset, nodes); ok {
 		mu.Lock()
@@ -430,7 +518,49 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		mu.Unlock()
 	}
 
+	h.lastMu.Lock()
+	h.last[cluster] = metrics
+	h.lastMu.Unlock()
 	return metrics, nil
+}
+
+func (h *DashboardHandler) lastMetrics(cluster string) *DashboardMetrics {
+	h.lastMu.Lock()
+	defer h.lastMu.Unlock()
+	return h.last[cluster]
+}
+
+// carryForward fills what failed to load this round from the previous
+// update. A section that loads always sets its value (empty slices
+// included), so a nil section or an absent count means its fetch failed; the
+// previous value is a better answer than an empty one.
+func carryForward(m, prev *DashboardMetrics) {
+	if prev == nil {
+		return
+	}
+	for k, v := range prev.ResourceCounts {
+		if _, ok := m.ResourceCounts[k]; !ok {
+			m.ResourceCounts[k] = v
+		}
+	}
+	if m.PodStatus == nil {
+		m.PodStatus = prev.PodStatus
+	}
+	if m.NodeStatus == nil {
+		m.NodeStatus = prev.NodeStatus
+	}
+	if m.WorkloadStatus == nil {
+		m.WorkloadStatus = prev.WorkloadStatus
+	}
+	if m.Events == nil {
+		m.Events = prev.Events
+	}
+	if m.CriticalAlerts == nil {
+		m.CriticalAlerts = prev.CriticalAlerts
+	}
+	if m.ResourceCapacity == nil {
+		m.ResourceCapacity = prev.ResourceCapacity
+	}
 }
 
 // clusterInfo returns version/platform/provider/arch, refreshed at most every
@@ -493,7 +623,8 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 
 			count, err := h.k8sClient.GetResourceCount(ctx, cluster, gvr)
 			if err != nil {
-				count = 0
+				// No count is better than a zero: the previous one is kept.
+				return
 			}
 
 			key := fmt.Sprintf("%s:%s", group, name)
@@ -507,9 +638,9 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 	return nil
 }
 
-func (h *DashboardHandler) computePodStatus(pods *v1.PodList, metrics *DashboardMetrics, mu *sync.Mutex) {
+func (h *DashboardHandler) computePodStatus(pods []*v1.Pod, metrics *DashboardMetrics, mu *sync.Mutex) {
 	podStatus := &PodStatusMetrics{}
-	for _, pod := range pods.Items {
+	for _, pod := range pods {
 		switch pod.Status.Phase {
 		case v1.PodRunning:
 			podStatus.Running++
@@ -554,17 +685,35 @@ func (h *DashboardHandler) computeNodeStatus(nodes *v1.NodeList, metrics *Dashbo
 	mu.Unlock()
 }
 
-func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex) error {
+func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex, prev *DashboardMetrics) error {
 	clientset, err := h.k8sClient.GetClientForCluster(cluster)
 	if err != nil {
 		return err
 	}
 
 	workloadStatus := &WorkloadStatusMetrics{}
+	counts := map[string]int{}
+	var prevWorkloads *WorkloadStatusMetrics
+	if prev != nil {
+		prevWorkloads = prev.WorkloadStatus
+	}
+	// A kind that fails to list keeps its previous health, or, with none,
+	// leaves the whole section out rather than report zero workloads.
+	incomplete := false
+	failed := func(keep func(*WorkloadStatusMetrics)) {
+		if prevWorkloads == nil {
+			incomplete = true
+			return
+		}
+		keep(prevWorkloads)
+	}
 
-	deployments, err := clientset.AppsV1().Deployments("").List(ctx, metav1.ListOptions{})
-	if err == nil {
+	deployments, err := clientset.AppsV1().Deployments("").List(ctx, fromWatchCache)
+	if err != nil {
+		failed(func(p *WorkloadStatusMetrics) { workloadStatus.Deployments = p.Deployments })
+	} else {
 		workloadStatus.Deployments.Total = len(deployments.Items)
+		counts["apps:deployments"] = len(deployments.Items)
 		for _, d := range deployments.Items {
 			if d.Status.ReadyReplicas > 0 && d.Status.ReadyReplicas == d.Status.Replicas {
 				workloadStatus.Deployments.Healthy++
@@ -572,9 +721,12 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 		}
 	}
 
-	statefulSets, err := clientset.AppsV1().StatefulSets("").List(ctx, metav1.ListOptions{})
-	if err == nil {
+	statefulSets, err := clientset.AppsV1().StatefulSets("").List(ctx, fromWatchCache)
+	if err != nil {
+		failed(func(p *WorkloadStatusMetrics) { workloadStatus.StatefulSets = p.StatefulSets })
+	} else {
 		workloadStatus.StatefulSets.Total = len(statefulSets.Items)
+		counts["apps:statefulsets"] = len(statefulSets.Items)
 		for _, s := range statefulSets.Items {
 			if s.Status.ReadyReplicas > 0 && s.Status.ReadyReplicas == s.Status.Replicas {
 				workloadStatus.StatefulSets.Healthy++
@@ -582,9 +734,12 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 		}
 	}
 
-	daemonSets, err := clientset.AppsV1().DaemonSets("").List(ctx, metav1.ListOptions{})
-	if err == nil {
+	daemonSets, err := clientset.AppsV1().DaemonSets("").List(ctx, fromWatchCache)
+	if err != nil {
+		failed(func(p *WorkloadStatusMetrics) { workloadStatus.DaemonSets = p.DaemonSets })
+	} else {
 		workloadStatus.DaemonSets.Total = len(daemonSets.Items)
+		counts["apps:daemonsets"] = len(daemonSets.Items)
 		for _, d := range daemonSets.Items {
 			if d.Status.NumberReady > 0 && d.Status.NumberReady == d.Status.DesiredNumberScheduled {
 				workloadStatus.DaemonSets.Healthy++
@@ -593,75 +748,75 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 	}
 
 	mu.Lock()
-	metrics.WorkloadStatus = workloadStatus
+	if !incomplete {
+		metrics.WorkloadStatus = workloadStatus
+	}
+	for k, n := range counts {
+		metrics.ResourceCounts[k] = n
+	}
 	mu.Unlock()
 	return nil
 }
 
+type eventWithTime struct {
+	event DashboardEvent
+	time  time.Time
+}
+
+// newestEvents orders events newest first and keeps maxDashboardEvents.
+func newestEvents(events []eventWithTime) []DashboardEvent {
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].time.After(events[j].time)
+	})
+	out := make([]DashboardEvent, 0, min(len(events), maxDashboardEvents))
+	for _, e := range events {
+		if len(out) == maxDashboardEvents {
+			break
+		}
+		out = append(out, e.event)
+	}
+	return out
+}
+
+func dashboardEvent(now, t time.Time, eventType, reason, message, kind, name, namespace string) eventWithTime {
+	return eventWithTime{
+		event: DashboardEvent{
+			Time:      formatTimeAgo(now.Sub(t)),
+			Type:      eventType,
+			Reason:    reason,
+			Message:   message,
+			Object:    fmt.Sprintf("%s/%s", kind, name),
+			Namespace: namespace,
+		},
+		time: t,
+	}
+}
+
+// firstSet returns the first non-zero time: when an event last happened is
+// lastTimestamp for core events and eventTime for events.k8s.io ones.
+func firstSet(times ...time.Time) time.Time {
+	for _, t := range times {
+		if !t.IsZero() {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
 func (h *DashboardHandler) fetchRecentEvents(ctx context.Context, cluster string, metrics *DashboardMetrics, mu *sync.Mutex) error {
-	clientset, err := h.k8sClient.GetClientForCluster(cluster)
-	if err != nil {
-		return err
-	}
-
-	events, err := clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{
-		Limit: 100,
-	})
-	if err != nil {
-		return err
-	}
-
-	type eventWithTime struct {
-		event DashboardEvent
-		time  time.Time
-	}
-
-	eventsWithTime := make([]eventWithTime, 0, len(events.Items))
-	now := time.Now()
-
-	for _, event := range events.Items {
-		eventTime := event.LastTimestamp.Time
-		if eventTime.IsZero() {
-			eventTime = event.EventTime.Time
+	var dashEvents []DashboardEvent
+	if rows, ok := h.storedRecentEvents(cluster); ok {
+		dashEvents = rows
+	} else {
+		listed, err := h.listRecentEvents(ctx, cluster)
+		if err != nil {
+			return err
 		}
-		if eventTime.IsZero() {
-			eventTime = event.FirstTimestamp.Time
-		}
-
-		if eventTime.IsZero() {
-			continue
-		}
-
-		timeAgo := formatTimeAgo(now.Sub(eventTime))
-
-		eventsWithTime = append(eventsWithTime, eventWithTime{
-			event: DashboardEvent{
-				Time:      timeAgo,
-				Type:      event.Type,
-				Reason:    event.Reason,
-				Message:   event.Message,
-				Object:    fmt.Sprintf("%s/%s", event.InvolvedObject.Kind, event.InvolvedObject.Name),
-				Namespace: event.InvolvedObject.Namespace,
-			},
-			time: eventTime,
-		})
-	}
-
-	sort.Slice(eventsWithTime, func(i, j int) bool {
-		return eventsWithTime[i].time.After(eventsWithTime[j].time)
-	})
-
-	dashEvents := make([]DashboardEvent, 0, len(eventsWithTime))
-	for _, e := range eventsWithTime {
-		dashEvents = append(dashEvents, e.event)
+		dashEvents = listed
 	}
 
 	mu.Lock()
-	if len(dashEvents) > 20 {
-		metrics.Events = dashEvents[:20]
-	} else {
-		metrics.Events = dashEvents
-	}
+	metrics.Events = dashEvents
 	log.Printf("[Dashboard] Fetched %d events for cluster %s", len(metrics.Events), cluster)
 	if len(metrics.Events) > 0 {
 		log.Printf("[Dashboard] Sample event: Type=%s, Reason=%s", metrics.Events[0].Type, metrics.Events[0].Reason)
@@ -670,29 +825,97 @@ func (h *DashboardHandler) fetchRecentEvents(ctx context.Context, cluster string
 	return nil
 }
 
-func (h *DashboardHandler) checkMetricsAvailable(ctx context.Context, cluster string) bool {
+// storedRecentEvents reads the newest events from the event store, which a
+// watch keeps current for the whole cluster.
+func (h *DashboardHandler) storedRecentEvents(cluster string) ([]DashboardEvent, bool) {
+	if h.recentEvents == nil {
+		return nil, false
+	}
+	rows, ok := h.recentEvents(cluster, maxDashboardEvents)
+	if !ok {
+		return nil, false
+	}
+	now := time.Now()
+	events := make([]eventWithTime, 0, len(rows))
+	for _, e := range rows {
+		t := firstSet(e.LastTimestamp, e.EventTime, e.FirstTimestamp)
+		if t.IsZero() {
+			continue
+		}
+		events = append(events, dashboardEvent(now, t, e.Type, e.Reason, e.Message, e.InvolvedObjectKind, e.InvolvedObjectName, e.InvolvedObjectNamespace))
+	}
+	return newestEvents(events), true
+}
+
+// listRecentEvents is the fallback until the event store has synced. A limited
+// LIST returns the first events in key order, so on a busy cluster these are
+// recent events of the alphabetically first namespaces only.
+func (h *DashboardHandler) listRecentEvents(ctx context.Context, cluster string) ([]DashboardEvent, error) {
 	clientset, err := h.k8sClient.GetClientForCluster(cluster)
 	if err != nil {
-		return true
+		return nil, err
+	}
+	list, err := clientset.CoreV1().Events("").List(ctx, metav1.ListOptions{Limit: 100})
+	if err != nil {
+		return nil, err
+	}
+	now := time.Now()
+	events := make([]eventWithTime, 0, len(list.Items))
+	for _, e := range list.Items {
+		t := firstSet(e.LastTimestamp.Time, e.EventTime.Time, e.FirstTimestamp.Time)
+		if t.IsZero() {
+			continue
+		}
+		events = append(events, dashboardEvent(now, t, e.Type, e.Reason, e.Message, e.InvolvedObject.Kind, e.InvolvedObject.Name, e.InvolvedObject.Namespace))
+	}
+	return newestEvents(events), nil
+}
+
+// metricsAvailable caches the metrics-server probe for clusterInfoTTL: its
+// aggregated discovery download ran on every 30s tick ahead of everything
+// else. Only definite answers are cached; a failed probe reports available
+// and is retried on the next update.
+func (h *DashboardHandler) metricsAvailable(ctx context.Context, cluster string) bool {
+	h.infoMu.Lock()
+	e, ok := h.metricsProbes[cluster]
+	h.infoMu.Unlock()
+	if ok && time.Since(e.at) < clusterInfoTTL {
+		return e.available
+	}
+	available, definite := h.checkMetricsAvailable(ctx, cluster)
+	if definite {
+		h.infoMu.Lock()
+		h.metricsProbes[cluster] = metricsProbeEntry{available: available, at: time.Now()}
+		h.infoMu.Unlock()
+	}
+	return available
+}
+
+// checkMetricsAvailable reports whether the cluster serves metrics.k8s.io, and
+// whether that answer is definite rather than the default after an error.
+func (h *DashboardHandler) checkMetricsAvailable(ctx context.Context, cluster string) (available, definite bool) {
+	clientset, err := h.k8sClient.GetClientForCluster(cluster)
+	if err != nil {
+		return true, false
 	}
 
 	_, err = clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{Limit: 1})
 	if err != nil {
-		return true
+		return true, false
 	}
 
 	apiGroups, err := clientset.Discovery().ServerGroups()
 	if err != nil {
-		return true
+		return true, false
 	}
 
 	for _, group := range apiGroups.Groups {
 		if group.Name == "metrics.k8s.io" {
-			return true
+			return true, true
 		}
 	}
 
-	return false
+	return false, true
 }
 
 func formatTimeAgo(duration time.Duration) string {
@@ -711,7 +934,7 @@ func formatTimeAgo(duration time.Duration) string {
 	return fmt.Sprintf("%dd ago", days)
 }
 
-func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster string, pods *v1.PodList, metrics *DashboardMetrics, mu *sync.Mutex) error {
+func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster string, pods []*v1.Pod, metrics *DashboardMetrics, mu *sync.Mutex) error {
 	clientset, err := h.k8sClient.GetClientForCluster(cluster)
 	if err != nil {
 		return err
@@ -720,7 +943,7 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 	alerts := make([]CriticalAlert, 0)
 	now := time.Now()
 
-	for _, pod := range pods.Items {
+	for _, pod := range pods {
 		age := formatTimeAgo(now.Sub(pod.CreationTimestamp.Time))
 		podRef := fmt.Sprintf("%s/%s", pod.Namespace, pod.Name)
 
@@ -770,8 +993,13 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 		}
 	}
 
-	jobs, err := clientset.BatchV1().Jobs("").List(ctx, metav1.ListOptions{})
-	if err == nil {
+	// Alerts built from a partial view would make real ones look resolved: if
+	// any list fails, the previous alerts stay.
+	var listErr error
+	jobs, err := clientset.BatchV1().Jobs("").List(ctx, fromWatchCache)
+	if err != nil {
+		listErr = err
+	} else {
 		for _, job := range jobs.Items {
 			if job.Status.Failed > 0 {
 				age := formatTimeAgo(now.Sub(job.CreationTimestamp.Time))
@@ -788,8 +1016,10 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 		}
 	}
 
-	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, metav1.ListOptions{})
-	if err == nil {
+	pvcs, err := clientset.CoreV1().PersistentVolumeClaims("").List(ctx, fromWatchCache)
+	if err != nil {
+		listErr = err
+	} else {
 		for _, pvc := range pvcs.Items {
 			if pvc.Status.Phase == v1.ClaimPending {
 				age := formatTimeAgo(now.Sub(pvc.CreationTimestamp.Time))
@@ -806,8 +1036,13 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 		}
 	}
 
-	services, err := clientset.CoreV1().Services("").List(ctx, metav1.ListOptions{})
-	if err == nil {
+	services, err := clientset.CoreV1().Services("").List(ctx, fromWatchCache)
+	if err != nil {
+		listErr = err
+	} else {
+		mu.Lock()
+		metrics.ResourceCounts[":services"] = len(services.Items)
+		mu.Unlock()
 		for _, svc := range services.Items {
 			if svc.Spec.Type == v1.ServiceTypeLoadBalancer && len(svc.Status.LoadBalancer.Ingress) == 0 {
 				age := formatTimeAgo(now.Sub(svc.CreationTimestamp.Time))
@@ -824,6 +1059,10 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 				}
 			}
 		}
+	}
+
+	if listErr != nil {
+		return listErr
 	}
 
 	sort.Slice(alerts, func(i, j int) bool {
@@ -845,7 +1084,7 @@ func (h *DashboardHandler) fetchCriticalAlerts(ctx context.Context, cluster stri
 	return nil
 }
 
-func (h *DashboardHandler) computeResourceCapacity(pods *v1.PodList, nodes *v1.NodeList, metrics *DashboardMetrics, mu *sync.Mutex) {
+func (h *DashboardHandler) computeResourceCapacity(pods []*v1.Pod, nodes *v1.NodeList, metrics *DashboardMetrics, mu *sync.Mutex) {
 	var totalCPUAllocatable, totalMemoryAllocatable int64
 	for _, node := range nodes.Items {
 		totalCPUAllocatable += node.Status.Allocatable.Cpu().MilliValue()
@@ -853,7 +1092,7 @@ func (h *DashboardHandler) computeResourceCapacity(pods *v1.PodList, nodes *v1.N
 	}
 
 	var totalCPURequested, totalMemoryRequested int64
-	for _, pod := range pods.Items {
+	for _, pod := range pods {
 		if pod.Status.Phase == v1.PodSucceeded || pod.Status.Phase == v1.PodFailed {
 			continue
 		}

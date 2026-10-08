@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { DrawingPinIcon, Pencil2Icon, ReaderIcon } from '@radix-ui/react-icons';
+import { ArrowUpIcon, DrawingPinIcon, Pencil2Icon, ReaderIcon } from '@radix-ui/react-icons';
 import ResourceDetailView from '../detailView/ResourceDetailView';
-import HelmReleaseDetailView from '../detailView/resourceTypes/HelmReleaseDetailView';
+// Pulled in here by HelmReleaseDetailView before it was split out: keeps the
+// sheet ahead of the skeleton and container styles it shares selectors with.
+import '../DetailView.css';
 import ResourceDetailSkeleton from '../ResourceDetailSkeleton';
 import ContainerSelector from '../ContainerSelector';
 import CrossplaneIcon from '../icons/CrossplaneIcon';
@@ -10,7 +12,18 @@ import { useStore } from '../../store';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../../services/api';
 import { workloadControllerKinds } from '../../utils/resourceActions';
+import useResourceNavigation from '../../hooks/useResourceNavigation';
+import { resolveParent, parentFetcher, type ParentRef } from '../../utils/parentResource';
+import { lazyView } from '../../utils/lazyView';
+import { preloadEditor } from '../MonacoEditor';
 import './TabContent.css';
+
+const HelmReleaseDetailView = lazyView(
+  () => import('../detailView/resourceTypes/HelmReleaseDetailView'),
+  ({ release, mode }: { release: any; mode?: 'detail' | 'center' }) => (
+    <ResourceDetailSkeleton resource={release} mode={mode} />
+  ),
+);
 
 interface TabContentProps {
   tab: any;
@@ -41,6 +54,30 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
   const canShowShell = isPod || isNode;
   const canShowLogs = isPod || isWorkloadController;
   const canShowTrace = isCrossplaneResource;
+
+  const { navigateToLink } = useResourceNavigation(cluster);
+  const [parent, setParent] = useState<ParentRef | null>(null);
+  const ownerRefsKey = JSON.stringify(item.metadata?.ownerReferences || []);
+  useEffect(() => {
+    let cancelled = false;
+    setParent(null);
+    if (!cluster || ownerRefsKey === '[]') return;
+    resolveParent(item, parentFetcher(cluster, api.getResourceDetails.bind(api)))
+      .then((p) => { if (!cancelled) setParent(p); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+    // item is represented by its owner references and identity
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cluster, item.metadata?.uid, ownerRefsKey]);
+
+  const handleViewParent = () => {
+    if (!parent) return;
+    navigateToLink(parent.kind, parent.name, parent.namespace, {
+      apiVersion: parent.apiVersion,
+      openInDetailTab: mode === 'detail',
+      isPinned: false,
+    });
+  };
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -193,6 +230,8 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
         <button
           className="tab-content-action-btn priority-low"
           onClick={() => handleActionClick('edit')}
+          onPointerEnter={preloadEditor}
+          onFocus={preloadEditor}
           disabled={!isFullyLoaded}
           aria-label="Edit YAML"
         >
@@ -211,6 +250,19 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
           >
             <span className="ap-action-icon"><span className="shell-glyph">$</span></span>
             <span className="ap-action-label">Shell</span>
+          </button>
+        </Tooltip>
+      )}
+      {parent && (
+        <Tooltip content={`View ${parent.kind} ${parent.name}`}>
+          <button
+            className="tab-content-action-btn priority-low"
+            onClick={handleViewParent}
+            disabled={!isFullyLoaded}
+            aria-label={`View ${parent.kind}`}
+          >
+            <span className="ap-action-icon"><ArrowUpIcon /></span>
+            <span className="ap-action-label">{`View ${parent.kind}`}</span>
           </button>
         </Tooltip>
       )}

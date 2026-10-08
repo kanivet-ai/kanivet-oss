@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/kanivet/backend/internal/utils"
+	"gorm.io/gorm"
 )
 
 // schemaVersion is recorded in SQLite's user_version pragma. Bump it and add a
@@ -15,7 +16,7 @@ import (
 // once per database and is recorded as soon as it completes, so a database
 // created by any earlier release is brought forward on its first start after
 // an update.
-const schemaVersion = 2
+const schemaVersion = 3
 
 // searchRowRetention bounds how long a searchable_resources row survives
 // without being refreshed by a watch event or an indexing sweep. Rows are a
@@ -48,6 +49,7 @@ func (db *DB) runVersionedMigrations() error {
 	}{
 		{1, "drop legacy search indexes, purge stale rows, reclaim space", db.migrateV1},
 		{2, "purge search rows whose kind or id predate kind normalization", db.migrateV2},
+		{3, "purge list snapshots that carried last-applied annotations", db.migrateV3},
 	}
 	for _, step := range steps {
 		if current >= step.version {
@@ -116,6 +118,41 @@ func (db *DB) migrateV2() error {
 		log.Printf("[DB] purged %d search rows written before kind normalization", removed)
 	}
 	db.reclaimSpace(false)
+	return nil
+}
+
+// migrateV3 deletes every list snapshot. Earlier releases copied all of an
+// object's annotations into list rows, including kubectl's
+// last-applied-configuration, so Secret snapshots held the Secret's values in
+// plain text. Snapshots are a cache the next list of each topic rewrites.
+//
+// A DELETE only unlinks pages, so the rows are deleted with secure_delete on
+// (a per-connection setting, hence one connection): SQLite zeroes their
+// content as it frees it, whether or not the space is handed back after. The
+// checkpoint then writes the zeroed pages into the file and truncates the
+// WAL, which can still hold frames of the old rows.
+func (db *DB) migrateV3() error {
+	if !db.Migrator().HasTable(&ListSnapshot{}) {
+		return nil
+	}
+	var purged int64
+	err := db.Connection(func(conn *gorm.DB) error {
+		if err := conn.Exec("PRAGMA secure_delete = ON").Error; err != nil {
+			return err
+		}
+		defer conn.Exec("PRAGMA secure_delete = OFF")
+		res := conn.Exec("DELETE FROM list_snapshots")
+		purged = res.RowsAffected
+		return res.Error
+	})
+	if err != nil {
+		return err
+	}
+	if purged > 0 {
+		log.Printf("[DB] purged %d list snapshots", purged)
+	}
+	db.reclaimSpace(false)
+	db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	return nil
 }
 

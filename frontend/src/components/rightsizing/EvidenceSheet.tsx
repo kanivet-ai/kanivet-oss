@@ -1,9 +1,16 @@
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, {
+  useDeferredValue,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { createPortal } from 'react-dom';
 import {
   CheckIcon,
   ClipboardCopyIcon,
   ExclamationTriangleIcon,
+  InfoCircledIcon,
 } from '@radix-ui/react-icons';
 import api from '../../services/api';
 import { useRightsizingProvider } from './useRightsizingReport';
@@ -33,14 +40,17 @@ import {
   PROFILE_META,
   choiceFromRec,
   evaluateCandidate,
+  eventsOf,
   formatCores,
   formatDayTime,
   formatMem,
   formatMoney,
   formatPct,
   hoursAbove,
+  hpaCounts,
   idleShare,
   kubectlCommands,
+  pairedHPATarget,
   patchYAML,
   primaryContainer,
   quantileAt,
@@ -197,6 +207,7 @@ export const EvidenceSheet: React.FC<Props> = ({
   const provider = useRightsizingProvider(cluster);
   const [evidence, setEvidence] = useState<Evidence | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(true);
   const [active, setActive] = useState(
     primaryContainer(workload)?.container ??
@@ -227,6 +238,7 @@ export const EvidenceSheet: React.FC<Props> = ({
         (state) => {
           setEvidence(state.evidence);
           setError(state.error);
+          setBusy(state.busy);
           setRefreshing(state.refreshing);
         },
       ),
@@ -248,13 +260,23 @@ export const EvidenceSheet: React.FC<Props> = ({
     return () => globalThis.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // A modal takes the keyboard while it is open, so keys meant for it (the
+  // arrows scroll it) never reach the table behind, and gives it back on
+  // close.
+  const body = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const before = document.activeElement as HTMLElement | null;
+    body.current?.focus({ preventScroll: true });
+    return () => before?.focus?.({ preventScroll: true });
+  }, []);
+
   // The evidence recomputes against the report's moment, so prefer its rows.
   const w = evidence?.workload ?? workload;
   const c: ContainerReport | undefined =
     w.containers.find((x) => x.container === active) ?? w.containers[0];
   const dist = evidence?.distributions[c?.container ?? ''];
   const hourly = evidence?.series[c?.container ?? ''];
-  const events = evidence?.events[c?.container ?? ''] ?? [];
+  const events = eventsOf(evidence, c?.container ?? '');
   const snapshots = evidence?.profiles[c?.container ?? ''];
 
   const cand: Candidate | null = c
@@ -345,10 +367,12 @@ export const EvidenceSheet: React.FC<Props> = ({
       memLo * 2,
     ) * 1.15;
   const cpuCautionFloor = c.cpu.recommended * 0.8;
+  // The limit it was OOM-killed at, which a raise since has left behind.
+  const oomLimit = c.oomLimit || c.memory.limit;
   const memCautionFloor = Math.max(
     c.memory.recommended * 0.8,
     c.memory.peak,
-    c.oomKills > 0 ? c.memory.limit + 1 : 0,
+    c.oomKills > 0 ? oomLimit + 1 : 0,
   );
   const rangeStatus = (value: number, recommended: number, floor: number) =>
     value >= recommended
@@ -365,6 +389,8 @@ export const EvidenceSheet: React.FC<Props> = ({
   const memLimitShown =
     c.memory.limit > 0 && c.memory.limit !== c.memory.request;
   const memLimitOnChart = memLimitShown && c.memory.limit <= memScale;
+  // A limit the engine keeps stays; any other candidate is request and limit.
+  const chosen = choices.find((x) => x.container === c.container);
   const cpuRefs: RefLine[] = [
     ...(c.cpu.request > 0
       ? [
@@ -391,7 +417,10 @@ export const EvidenceSheet: React.FC<Props> = ({
         ]
       : []),
     {
-      label: 'Candidate (request = limit)',
+      label:
+        chosen && chosen.memoryLimit !== chosen.memory
+          ? 'Candidate'
+          : 'Candidate (request = limit)',
       value: drawn.mem,
       kind: 'candidate',
     },
@@ -405,6 +434,9 @@ export const EvidenceSheet: React.FC<Props> = ({
         ]
       : []),
   ];
+  // The HPA pairs with the workload's requests: a pod-level one counts every
+  // container's, so its target follows all of their candidates.
+  const hpa = w.hpa ?? c.hpa;
   const isRec =
     Math.abs(cand.cpu - c.cpu.recommended) < 1e-9 &&
     Math.abs(cand.mem - c.memory.recommended) < 1;
@@ -500,7 +532,7 @@ export const EvidenceSheet: React.FC<Props> = ({
           </button>
         </div>
 
-        <div className="rs-sheet-body">
+        <div className="rs-sheet-body" ref={body} tabIndex={-1}>
           {w.containers.length > 1 && (
             <div
               className="ap-segmented rs-containers"
@@ -641,8 +673,12 @@ export const EvidenceSheet: React.FC<Props> = ({
                 </div>
                 <div className="rs-readouts">
                   <span className={ev.cpuTimeAbove > 2 * target ? 'warn' : ''}>
-                    Above it <strong>{formatPct(ev.cpuTimeAbove)}</strong> of
-                    replica-time
+                    Above it{' '}
+                    <strong>
+                      {ev.cpuApproximate ? '≈' : ''}
+                      {formatPct(ev.cpuTimeAbove)}
+                    </strong>{' '}
+                    of replica-time
                     <span className="rs-muted">
                       {' '}
                       (target {formatPct(target, 0)})
@@ -674,12 +710,11 @@ export const EvidenceSheet: React.FC<Props> = ({
                       Above the {formatCores(c.cpu.limit)} limit: raise it too
                     </span>
                   )}
-                  {c.hpa?.resource === 'cpu' &&
+                  {hpa?.resource === 'cpu' &&
+                    hpaCounts(hpa, c) &&
                     c.cpu.request > 0 &&
                     (() => {
-                      const t = Math.round(
-                        (c.hpa.targetUtilization * c.cpu.request) / cand.cpu,
-                      );
+                      const t = pairedHPATarget(w, hpa, choices);
                       return (
                         <span className={t > 90 ? 'warn' : ''}>
                           Keeps today's scaling at an HPA target of{' '}
@@ -789,7 +824,7 @@ export const EvidenceSheet: React.FC<Props> = ({
                       peaked above it
                     </span>
                   )}
-                  {c.oomKills > 0 && cand.mem <= c.memory.limit && (
+                  {c.oomKills > 0 && cand.mem <= oomLimit && (
                     <span className="danger">
                       At or under the limit it was OOM-killed at
                     </span>
@@ -831,6 +866,17 @@ export const EvidenceSheet: React.FC<Props> = ({
             </section>
           )}
 
+          {busy && (
+            <div className="finops-error finops-info" role="status">
+              <InfoCircledIcon />
+              <span>
+                {busy.replace(/[.\s]+$/, '')}.{' '}
+                {evidence
+                  ? 'Showing the last history read; trying again shortly.'
+                  : 'Trying again shortly.'}
+              </span>
+            </div>
+          )}
           {error && (
             <div className="finops-error" role="alert">
               <ExclamationTriangleIcon />
@@ -1082,18 +1128,18 @@ export const EvidenceSheet: React.FC<Props> = ({
                 before Kanivet can suggest requests and limits.
               </p>
             )}
-            {c.hpa && (
+            {hpa && (
               <>
                 <div className="rs-subhead">
-                  And in HorizontalPodAutoscaler {c.hpa.name}, together with the
+                  And in HorizontalPodAutoscaler {hpa.name}, together with the
                   request
                 </div>
                 <CopyBlock
                   label="HPA target"
-                  text={`# spec.metrics, the ${c.hpa.resource} entry (now ${c.hpa.targetUtilization}%)
+                  text={`# spec.metrics, the ${hpa.resource} entry (now ${hpa.targetUtilization}%)
 target:
   type: Utilization
-  averageUtilization: ${c.hpa.suggestedTarget}`}
+  averageUtilization: ${pairedHPATarget(w, hpa, choices)}`}
                 />
               </>
             )}

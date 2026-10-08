@@ -12,6 +12,11 @@ type Resource struct {
 	Kind       string `json:"kind"`
 	Namespaced bool   `json:"namespaced"`
 	Count      *int   `json:"count,omitempty"`
+	// CountPending marks a count that could not be read this time but may be
+	// on the next try (expired credentials, a timeout). A count that is absent
+	// without it will not appear by asking again: the cluster does not serve
+	// the resource, or the user may not list it.
+	CountPending bool `json:"countPending,omitempty"`
 }
 
 type ClusterInfo struct {

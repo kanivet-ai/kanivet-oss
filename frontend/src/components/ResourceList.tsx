@@ -1,4 +1,13 @@
-import { useRef, useEffect, useState, useMemo, useCallback } from 'react';
+import useDebounce from '../hooks/useDebounce';
+import { getScrollPosition, setScrollPosition } from '../utils/scrollMemory';
+import {
+  useRef,
+  useEffect,
+  useState,
+  useMemo,
+  useCallback,
+  useDeferredValue,
+} from 'react';
 import * as Tabs from '@radix-ui/react-tabs';
 import {
   Cross2Icon,
@@ -11,12 +20,6 @@ import {
 import CrossplaneIcon from './icons/CrossplaneIcon';
 import ResourceTable from './ResourceTable';
 import ClusterDashboard from './ClusterDashboard';
-import ClusterSettings from './ClusterSettings';
-import ArgoApplicationsPage from './ArgoApplicationsPage';
-import HelmPage from './HelmPage';
-import FinOpsDashboard from './finops/FinOpsDashboard';
-import RightsizingDashboard from './rightsizing/RightsizingDashboard';
-import IncidentTimelinePage from './incidents/IncidentTimelinePage';
 import ResourceControlsBar from './common/ResourceControlsBar';
 import ResourceListDialogs from './ResourceListDialogs';
 import { BottomTabContent, DetailTabContent } from './ResourceListTabContent';
@@ -32,10 +35,27 @@ import { printerColumnsFromItems } from '../utils/resourceListColumns';
 import { createNavigationHandlers } from '../utils/keyboardShortcuts';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
+import { lazyView } from '../utils/lazyView';
 import './ResourceList.css';
+
+// Full pages other than the cluster overview load on demand (warmed when idle).
+const ClusterSettings = lazyView(() => import('./ClusterSettings'));
+const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
+const HelmPage = lazyView(() => import('./HelmPage'));
+const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
+const RightsizingDashboard = lazyView(
+  () => import('./rightsizing/RightsizingDashboard'),
+);
+const IncidentTimelinePage = lazyView(
+  () => import('./incidents/IncidentTimelinePage'),
+);
 
 // Resource-list tabs that show a full page rather than a resource table.
 const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);
+
+// Scroll offset of each list, by cluster and list. Kept out of the store: the
+// table reports it on every scroll frame and only a remount reads it. It is
+// saved to localStorage (utils/scrollMemory) so a restart restores it.
 
 interface ResourceListProps {
   paneId?: string;
@@ -114,7 +134,22 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   const [showRemoveFinalizersConfirm, setShowRemoveFinalizersConfirm] = useState(false);
   const [actionMenu, setActionMenu] = useState<{ item: any; x: number; y: number } | null>(null);
   const [restartingItems, setRestartingItems] = useState<Set<string>>(new Set());
-  const [searchQuery, setSearchQuery] = useState('');
+  // The filter above the list comes back after a restart: it starts from the
+  // saved one and writes changes back (debounced) for the snapshot.
+  const [searchQuery, setSearchQuery] = useState(
+    () => useStore.getState().getCurrentTabState()?.listFilter || '',
+  );
+  const debouncedListFilter = useDebounce(searchQuery, 500);
+  useEffect(() => {
+    const saved = useStore.getState().getCurrentTabState()?.listFilter || '';
+    if (saved !== debouncedListFilter) {
+      useStore.getState().updateCurrentTabState({ listFilter: debouncedListFilter });
+    }
+  }, [debouncedListFilter]);
+  const navigationReveal = activeTab && 'navigationReveal' in activeTab ? activeTab.navigationReveal : undefined;
+  useEffect(() => {
+    if (navigationReveal) setSearchQuery('');
+  }, [navigationReveal]);
   const [scaleDialog, setScaleDialog] = useState<{ item: any; currentReplicas: number } | null>(null);
   const [isScaling, setIsScaling] = useState(false);
   const [taintDialog, setTaintDialog] = useState<{ item: any } | null>(null);
@@ -235,6 +270,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   };
 
   const handleItemSelect = (item: any, fromKeyboard: boolean = false) => {
+    const resource = activeTab?.resource || selectedNode?.data;
+    if (item && resource) void recordNavigation('item', `${item.namespace || ''}/${item.name}`, resource, item).catch(console.error);
     isKeyboardNavigationRef.current = fromKeyboard;
     selectItem(item);
     if (activeTab) {
@@ -297,6 +334,17 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     }
   };
 
+  // The rows get one function for the life of the list, so a list render does
+  // not re-render every row; it always calls the latest handleItemOpen.
+  const handleItemOpenRef = useRef<
+    (item: any, isPinned?: boolean) => Promise<void>
+  >(async () => {});
+  const onItemOpen = useCallback(
+    (item: any, isPinned?: boolean) =>
+      handleItemOpenRef.current(item, isPinned),
+    [],
+  );
+
   const handleItemOpen = async (item: any, isPinned: boolean = false) => {
     const resource = activeTab?.resource || selectedNode?.data;
     if (resource && currentTab) {
@@ -311,6 +359,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
         updateResourceListTab(activeTab.id, { selectedItem: item });
       }
       openDetailTab(resource, enhancedItem, currentTab, isPinned);
+      void recordNavigation('item', `${item.namespace || ''}/${item.name}`, resource, item).catch(console.error);
 
       const requestId = `${item.name}-${item.namespace || 'default'}-${Date.now()}`;
       currentLoadingRequestRef.current = requestId;
@@ -340,7 +389,6 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             }));
           }
         }
-        await recordNavigation('item', `${item.namespace}/${item.name}`, resource, item);
       } catch (error: any) {
         if (currentLoadingRequestRef.current === requestId) {
           currentLoadingRequestRef.current = null;
@@ -353,6 +401,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       }
     }
   };
+  handleItemOpenRef.current = handleItemOpen;
 
   useEffect(() => {
     const openScale = (e: any) => {
@@ -392,7 +441,13 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     }
   }, [selectedNode, currentTab, startRealtime]);
 
-  const filteredItems = useMemo(() => getFilteredItems(searchQuery), [getFilteredItems, searchQuery]);
+  // The search box updates on the keystroke; the list follows in a render
+  // React can interrupt when the next keystroke arrives.
+  const deferredSearchQuery = useDeferredValue(searchQuery);
+  const filteredItems = useMemo(
+    () => getFilteredItems(deferredSearchQuery),
+    [getFilteredItems, deferredSearchQuery],
+  );
   filteredItemsRef.current = filteredItems;
 
   useEffect(() => {
@@ -459,7 +514,13 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   // All split panes share focusArea; only the active pane owns list shortcuts.
   const isListFocused = focusArea === 'list' &&
     (!paneId || paneId === (tabState?.focusedCenterPaneId || 'root'));
-  const navHandlers = createNavigationHandlers(isListFocused ? 'list' : '', filteredItems, selectedItem, handleItemSelect);
+  const navHandlers = createNavigationHandlers(
+    isListFocused ? 'list' : '',
+    filteredItems,
+    selectedItem,
+    handleItemSelect,
+    getResourceKey,
+  );
 
   useEffect(() => {
     const focusFirstItem = () => {
@@ -546,34 +607,36 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     return getDefaultColumns(kind, isNamespaced, printerColumnsFromItems(listItems));
   }, [getDefaultColumns, selectedNode?.data?.namespaced, listItems]);
 
-  const resourceKindForColumns = activeTab?.resource?.kind || selectedNode?.data?.kind || listItems[0]?.kind || 'pods';
-  const displayColumns = useMemo(() => getColumnsForResourceKind(resourceKindForColumns), [resourceKindForColumns, getColumnsForResourceKind]);
+  const resourceKindForColumns =
+    activeTab?.resource?.kind ||
+    selectedNode?.data?.kind ||
+    listItems[0]?.kind ||
+    'pods';
+  // Columns are recomputed for every new list but rarely change; the same
+  // columns keep the same array, so rows do not re-render for them.
+  const columnSignature = useMemo(
+    () => getColumnsForResourceKind(resourceKindForColumns).join('\u0000'),
+    [resourceKindForColumns, getColumnsForResourceKind],
+  );
+  const displayColumns = useMemo(
+    () => columnSignature.split('\u0000'),
+    [columnSignature],
+  );
 
-  const scrollPositionKey = `${currentTab}-${selectedNode?.id || 'none'}`;
-  const scrollPosition = tabState?.scrollPositions?.[scrollPositionKey];
-
-  // Persist scroll position outside React state to keep scroll on the
-  // main thread cheap (60Hz events would otherwise trigger setState storms).
-  // We commit to tab state at most once per animation frame.
-  const scrollRafRef = useRef<number | null>(null);
-  const latestScrollRef = useRef<number>(0);
-  const handleScrollChange = useCallback((position: number) => {
-    latestScrollRef.current = position;
-    if (scrollRafRef.current !== null) return;
-    scrollRafRef.current = requestAnimationFrame(() => {
-      scrollRafRef.current = null;
-      const current = useStore.getState().getCurrentTabState();
-      updateCurrentTabState({
-        scrollPositions: { ...(current?.scrollPositions || {}), [scrollPositionKey]: latestScrollRef.current },
-      });
-    });
-  }, [scrollPositionKey, updateCurrentTabState]);
-  useEffect(() => () => {
-    if (scrollRafRef.current !== null) {
-      cancelAnimationFrame(scrollRafRef.current);
-      scrollRafRef.current = null;
-    }
-  }, []);
+  // Keyed by the resource, not the tree node id: a restored node is rebuilt
+  // from the resource alone.
+  const scrollListKey =
+    selectedNode?.type === 'resource' && selectedNode.data?.name
+      ? `${selectedNode.data.group || ''}/${selectedNode.data.version}/${selectedNode.data.name}`
+      : selectedNode?.id || 'none';
+  const scrollPositionKey = `${currentTab}-${scrollListKey}`;
+  const scrollPosition = getScrollPosition(scrollPositionKey);
+  const handleScrollChange = useCallback(
+    (position: number) => {
+      setScrollPosition(scrollPositionKey, position);
+    },
+    [scrollPositionKey],
+  );
 
   const handleSort = useCallback((column: string) => {
     const columnKey = column.toLowerCase();
@@ -594,9 +657,13 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     [sortBy, sortOrder]
   );
 
+  const isDisconnected = useStore(
+    (s) =>
+      s.getOverallState() !== 'connected' ||
+      !!(currentTab && s.clusterErrors[currentTab]),
+  );
+
   const renderResourceList = () => {
-    const { getOverallState, clusterErrors } = useStore.getState();
-    const isDisconnected = getOverallState() !== 'connected' || (currentTab && clusterErrors[currentTab]);
     return (
       <div className={`resource-list-content ${isDisconnected ? 'disconnected' : ''}`} style={{ position: 'relative' }}>
         <DisconnectedOverlay cluster={currentTab || undefined} lastUpdate={tabState?.hasReceivedInitialListData ? Date.now() : undefined} />
@@ -630,15 +697,17 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             onSearchChange={setSearchQuery}
             filteredCount={filteredItems.length}
             totalCount={namespaceFilteredItems.length}
+            listSync={isFocusedPane === false ? null : tabState?.listSync}
           />
         )}
         <ResourceTable
           key={activeTabId}
           listItems={filteredItems}
           selectedItem={selectedItem}
+          navigationReveal={navigationReveal}
           selectedResources={selectedResources}
           displayColumns={displayColumns}
-          onItemOpen={handleItemOpen}
+          onItemOpen={onItemOpen}
           onCheckboxChange={handleCheckboxChange}
           onSelectAll={handleSelectAll}
           onSort={handleSort}
@@ -744,6 +813,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             } catch { }
           }
           const tab = allCenterTabs.find((t) => t.id === tabId);
+          if (tab && 'items' in tab) {
+            const node = useStore.getState().getCurrentTabState()?.selectedNode;
+            void recordNavigation(node?.type || 'resource', node?.id || '', tab.resource, tab.selectedItem).catch(console.error);
+          }
           if (!paneId && tab && 'item' in tab) {
             setActiveDetailTab(tabId);
           } else if (!paneId && tab && 'type' in tab && (tab.type === 'logs' || tab.type === 'shell' || tab.type === 'edit')) {

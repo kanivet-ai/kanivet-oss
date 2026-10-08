@@ -102,9 +102,10 @@ export const MethodologySheet: React.FC<{
             <h4>Memory: the peak, with headroom</h4>
             <p>
               Memory can't be throttled, only killed, so it is sized for the
-              busiest replica's peak plus {p.mem}, and the limit is set equal to
-              the request. An OOM kill means the real peak was never measured,
-              so the recommendation steps 25% above the limit it died at.
+              busiest replica's peak plus {p.mem} or {p.memFloor}, whichever is
+              more, and the limit is set equal to the request. An OOM kill means
+              the real peak was never measured, so the recommendation steps 25%
+              above the limit it died at.
               {report.signals.memoryMetric === 'usage' &&
                 ' This cluster only reports total memory usage, which includes reclaimable page cache: memory recommendations here only ever go down, never up, unless an OOM kill shows pressure.'}
             </p>

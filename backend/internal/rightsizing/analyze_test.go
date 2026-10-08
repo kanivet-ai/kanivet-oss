@@ -384,6 +384,41 @@ func TestAnalyzeNoRequestsAndSidecarFindings(t *testing.T) {
 	}
 }
 
+// The startup floor comes after the HPA's lower bound, so the request the
+// HPA finding pairs with is the one recommended.
+func TestAnalyzeHPAPairsTheFinalRequest(t *testing.T) {
+	rng := rand.New(rand.NewPCG(25, 25))
+	in := synth(14, 3, diurnal(rng, 0.02, 0.2), flatMem(rng, 700*mib))
+	in.current = Resources{CPURequest: 0.5, CPULimit: 2, MemRequest: gib, MemLimit: 2 * gib}
+	in.startupCPUPeak = 0.4
+	in.hpa = &hpaTarget{resource: "cpu", utilization: 30, name: "api"}
+	r := analyze(in)
+	if r.StartupBoost == nil || !r.StartupBoost.Floor {
+		t.Fatalf("setup: no startup floor: %+v", r.StartupBoost)
+	}
+	if r.HPA == nil || r.HPA.PairedRequest != r.CPU.Recommended || r.HPA.SuggestedTarget != int32(math.Round(30*0.5/r.CPU.Recommended)) {
+		t.Fatalf("hpa %+v, but %v cores recommended", r.HPA, r.CPU.Recommended)
+	}
+}
+
+// An HPA keeps usage per request near its target, so a larger request alone
+// mostly brings fewer, busier pods. Under-provisioned CPU pairs with a lower
+// target that keeps today's replica counts.
+func TestAnalyzeHPAUnderLowersTheTarget(t *testing.T) {
+	rng := rand.New(rand.NewPCG(26, 26))
+	in := synth(14, 4, diurnal(rng, 0.3, 0.3), flatMem(rng, 200*mib))
+	in.current = Resources{CPURequest: 0.25, MemRequest: 300 * mib, MemLimit: 300 * mib}
+	in.hpa = &hpaTarget{resource: "cpu", utilization: 70, name: "api"}
+	r := analyze(in)
+	if r.CPU.Verdict != VerdictUnder || r.CPU.Recommended <= 0.25 {
+		t.Fatalf("setup: cpu %s rec %v", r.CPU.Verdict, r.CPU.Recommended)
+	}
+	want := int32(math.Round(70 * 0.25 / r.CPU.Recommended))
+	if r.HPA == nil || r.HPA.PairedRequest != r.CPU.Recommended || r.HPA.SuggestedTarget != want || want >= 70 || !hasFinding(r, "hpa-coupled") {
+		t.Fatalf("hpa %+v, want target %d with %v cores", r.HPA, want, r.CPU.Recommended)
+	}
+}
+
 // A worker idle at 5m that bursts to ~1.2 cores for an hour a day: the
 // request must cover the bursts, with the idle-sized value as the option.
 func TestAnalyzeBurstyCPU(t *testing.T) {
@@ -619,6 +654,103 @@ func TestAnalyzeNoShrinkBeforeAFullWeek(t *testing.T) {
 	}
 }
 
+// limitHistory is an hourly memory limit over the input's window: before
+// until the given day, after from then on.
+func limitHistory(in *containerInput, raisedOn int, before, after float64) {
+	in.hourly = newGrid(in.start.Add(time.Duration(len(in.mem)-1)*in.step), time.Duration(len(in.mem))*in.step, time.Hour)
+	in.memLimits = make([]float64, in.hourly.n)
+	for i := range in.memLimits {
+		in.memLimits[i] = before
+		if in.hourly.start.Add(time.Duration(i) * time.Hour).After(t0.Add(time.Duration(raisedOn) * day)) {
+			in.memLimits[i] = after
+		}
+	}
+}
+
+// OOM-killed at 512Mi twice, then raised to what was recommended, with no
+// kill since: following the advice must settle, not step memory up again
+// from each new limit until the kills leave the window.
+func TestAnalyzeOOMFollowedAdviceSettles(t *testing.T) {
+	rng := rand.New(rand.NewPCG(3, 3))
+	base := synth(14, 1, diurnal(rng, 0.1, 0.2), func(i int) float64 {
+		if i < 7*288 {
+			return 500 * mib * (0.9 + 0.1*rng.Float64())
+		}
+		return 530 * mib * (0.95 + 0.05*rng.Float64())
+	})
+	base.oomTimes = []time.Time{t0.Add(3 * day), t0.Add(5 * day)}
+	base.restartTimes = base.oomTimes
+	limit := 512.0 * mib
+	var r ContainerReport
+	for refresh := range 4 {
+		in := base
+		in.cpuMax, in.cpuSum, in.replicas = nil, nil, nil
+		in.current = Resources{CPURequest: 0.2, MemRequest: limit, MemLimit: limit}
+		limitHistory(&in, 7, 512*mib, limit)
+		r = analyze(in)
+		if refresh > 0 && r.Memory.Recommended > limit {
+			t.Fatalf("refresh %d: %vMi raised again to %vMi with no OOM kill at it", refresh, limit/mib, r.Memory.Recommended/mib)
+		}
+		limit = r.Memory.Recommended
+	}
+	if limit != 640*mib {
+		t.Fatalf("settled at %vMi, want the 640Mi step over the 512Mi it was killed at", limit/mib)
+	}
+	if r.Memory.Verdict == VerdictUnder || r.Memory.Censored || hasFinding(r, "oom-killed") || !hasFinding(r, "oom-resolved") || r.OOMLimit != 512*mib {
+		t.Fatalf("verdict %s censored %v oom limit %vMi findings %+v", r.Memory.Verdict, r.Memory.Censored, r.OOMLimit/mib, r.Findings)
+	}
+
+	// Raised once more by hand, to 2Gi: the floor still holds below it.
+	in := base
+	in.cpuMax, in.cpuSum, in.replicas = nil, nil, nil
+	in.current = Resources{CPURequest: 0.2, MemRequest: 2 * gib, MemLimit: 2 * gib}
+	limitHistory(&in, 7, 512*mib, 2*gib)
+	if r := analyze(in); r.Memory.Recommended < 640*mib {
+		t.Fatalf("recommended %vMi, under the step over the limit it was OOM-killed at", r.Memory.Recommended/mib)
+	}
+
+	// Where only total usage is reported, page cache fills whatever room a
+	// raise gives: that must not read as the next shortage either.
+	limit = 640 * mib
+	for refresh := range 3 {
+		in := synth(14, 1, diurnal(rng, 0.1, 0.2), func(i int) float64 {
+			if i < 7*288 {
+				return 500 * mib
+			}
+			return 0.97 * limit
+		})
+		in.memIsUsage = true
+		in.oomTimes = base.oomTimes
+		in.current = Resources{CPURequest: 0.2, MemRequest: limit, MemLimit: limit}
+		limitHistory(&in, 7, 512*mib, limit)
+		r := analyze(in)
+		if r.Memory.Recommended > limit || r.Memory.Verdict == VerdictUnder {
+			t.Fatalf("usage metric, refresh %d: %vMi → %vMi, verdict %s", refresh, limit/mib, r.Memory.Recommended/mib, r.Memory.Verdict)
+		}
+	}
+}
+
+// A kill at the raised limit is a kill at that limit: memory steps up from
+// it. So is one whose limit history is unknown.
+func TestAnalyzeOOMAfterRaiseStepsFromThatLimit(t *testing.T) {
+	rng := rand.New(rand.NewPCG(3, 3))
+	in := synth(14, 1, diurnal(rng, 0.1, 0.2), func(int) float64 { return 600 * mib * (0.9 + 0.1*rng.Float64()) })
+	in.oomTimes = []time.Time{t0.Add(3 * day), t0.Add(10 * day)}
+	in.current = Resources{CPURequest: 0.2, MemRequest: 640 * mib, MemLimit: 640 * mib}
+	limitHistory(&in, 7, 512*mib, 640*mib)
+	r := analyze(in)
+	if r.Memory.Verdict != VerdictUnder || !r.Memory.Censored || r.OOMLimit != 640*mib || r.Memory.Recommended < 800*mib {
+		t.Fatalf("verdict %s censored %v oom limit %vMi recommended %vMi", r.Memory.Verdict, r.Memory.Censored, r.OOMLimit/mib, r.Memory.Recommended/mib)
+	}
+
+	in.cpuMax, in.cpuSum, in.replicas = nil, nil, nil
+	in.oomTimes = in.oomTimes[:1]
+	in.memLimits = nil
+	if r := analyze(in); r.Memory.Verdict != VerdictUnder || r.Memory.Recommended < 800*mib {
+		t.Fatalf("without limit history: verdict %s recommended %vMi", r.Memory.Verdict, r.Memory.Recommended/mib)
+	}
+}
+
 // An OOM kill on a small limit raises it by at least 100Mi: 25% of 64Mi is
 // 16Mi, less than one allocation burst.
 func TestAnalyzeOOMBumpHasAnAbsoluteFloor(t *testing.T) {
@@ -629,6 +761,31 @@ func TestAnalyzeOOMBumpHasAnAbsoluteFloor(t *testing.T) {
 	r := analyze(in)
 	if r.Memory.Recommended < 164*mib {
 		t.Fatalf("recommended %v Mi after an OOM at 64Mi", r.Memory.Recommended/mib)
+	}
+}
+
+// A one-off 900Mi batch spike, then daily peaks rising from 300Mi to 500Mi:
+// following the rise must not forget memory the container already used.
+func TestAnalyzeMemoryRiseKeepsEarlierPeak(t *testing.T) {
+	rng := rand.New(rand.NewPCG(13, 13))
+	in := synth(28, 2, diurnal(rng, 0.2, 0.3), func(i int) float64 {
+		d, h := i/288, i%288
+		base := 300.0
+		if d >= 20 {
+			base = 500
+		}
+		if d == 4 && h >= 100 && h < 112 {
+			return 900 * mib * (1 + 0.02*rng.Float64())
+		}
+		return base * mib * (0.97 + 0.03*rng.Float64())
+	})
+	in.current = Resources{CPURequest: 0.5, MemRequest: 2 * gib, MemLimit: 2 * gib}
+	r := analyze(in)
+	if r.Memory.ShiftAt == nil {
+		t.Fatal("setup: the rise to 500Mi was not detected")
+	}
+	if r.Memory.Peak < 900*mib || r.Memory.Estimate < 900*mib || r.Memory.Recommended < 900*mib {
+		t.Fatalf("peak %.0fMi, estimate %.0fMi, recommended %.0fMi: below the 900Mi already used", r.Memory.Peak/mib, r.Memory.Estimate/mib, r.Memory.Recommended/mib)
 	}
 }
 
@@ -651,18 +808,50 @@ func TestAnalyzeBurstsAgainstLimitCensorCPU(t *testing.T) {
 	rng := rand.New(rand.NewPCG(24, 24))
 	in := synth(14, 1, diurnal(rng, 0.2, 0.2), flatMem(rng, 300*mib))
 	n := len(in.mem)
-	in.cpuBurst = make([]float64, n)
-	for i := range in.cpuBurst {
-		in.cpuBurst[i] = 0.3
+	var bursts []pooledPoint
+	for i := range n {
+		v := 0.3
 		if i%20 == 0 {
-			in.cpuBurst[i] = 0.98 // a burst to the 1-core limit every 100 minutes
+			v = 0.98 // a burst to the 1-core limit every 100 minutes
 		}
+		bursts = append(bursts, pooledPoint{int32(i), v})
 	}
+	in.cpuBurst = buildPooled(n, bursts)
 	in.throttleKind = throttleSeconds
 	in.current = Resources{CPURequest: 2, CPULimit: 1, MemRequest: gib, MemLimit: gib}
 	r := analyze(in)
 	if !hasFinding(r, "cpu-burst-limit") || !r.CPU.Censored || r.CPU.LimitAction != "raise" || r.CPU.Recommended < 2 {
 		t.Fatalf("cpu %+v findings %+v", r.CPU, r.Findings)
+	}
+}
+
+// An HPA runs 10 replicas at the daily peak, half of them throttled, and 2
+// the rest of the time, none throttled. Per step that is throttling 4.9% of
+// the time; per replica-time, which is what the request pays for, 18%.
+func TestAnalyzeThrottlingWeighsReplicaTime(t *testing.T) {
+	rng := rand.New(rand.NewPCG(28, 28))
+	in := synth(14, 1, diurnal(rng, 0.2, 0.2), flatMem(rng, 300*mib))
+	n := len(in.mem)
+	var pts []pooledPoint
+	in.throttle = make([]float64, n)
+	for i := range n {
+		reps := 2
+		if i%288 < 28 {
+			reps, in.throttle[i] = 10, 0.5
+		}
+		for range reps {
+			pts = append(pts, pooledPoint{int32(i), 0.2 * (1 + 0.1*rng.Float64())})
+		}
+	}
+	in.cpu = buildPooled(n, pts)
+	in.throttleKind = throttlePeriods
+	in.current = Resources{CPURequest: 0.5, CPULimit: 1, MemRequest: gib, MemLimit: gib}
+	r := analyze(in)
+	if r.Throttling == nil {
+		t.Fatal("no throttling share")
+	}
+	if *r.Throttling < 0.15 || !r.CPU.Censored || !hasFinding(r, "cpu-limit-pressure") {
+		t.Fatalf("throttling %.3f, censored %v, findings %+v", *r.Throttling, r.CPU.Censored, r.Findings)
 	}
 }
 
@@ -705,5 +894,48 @@ func TestInPlaceResizeVersions(t *testing.T) {
 		if got := supportsInPlaceResize(cs); got != c.want {
 			t.Errorf("%s.%s: %v", c.major, c.minor, got)
 		}
+	}
+}
+
+// A request the usage exceeds more than twice as often as the profile allows
+// is under-provisioned, the same line the backtest and the change check draw.
+// One at the recommendation stays right-sized, so following it can't flap.
+func TestAnalyzeUnderNeedsNoExtraMargin(t *testing.T) {
+	for _, p := range []Profile{ProfileConservative, ProfileBalanced, ProfileAggressive} {
+		mk := func(req float64) ContainerReport {
+			rng := rand.New(rand.NewPCG(31, 31))
+			in := synth(14, 2, diurnal(rng, 0.6, 0.3), flatMem(rng, 300*mib))
+			in.profile = p
+			in.current = Resources{CPURequest: req, MemRequest: gib, MemLimit: gib}
+			return analyze(in)
+		}
+		est := mk(1).CPU.Estimate
+		target := 1 - p.params().cpuQuantile
+		low := mk(roundCPU(0.8 * est))
+		if low.CPU.TimeAboveRequest <= 2*target {
+			t.Fatalf("%s: setup: only %.1f%% above a request at 80%% of the need", p, low.CPU.TimeAboveRequest*100)
+		}
+		if low.CPU.Verdict != VerdictUnder || !hasFinding(low, "cpu-over-request") {
+			t.Errorf("%s: over the request %.1f%% of the time against a %.0f%% target, verdict %s", p, low.CPU.TimeAboveRequest*100, target*100, low.CPU.Verdict)
+		}
+		if at := mk(roundCPU(est)); at.CPU.Verdict != VerdictRight {
+			t.Errorf("%s: a request at the %.3f recommendation is %s (%.1f%% above)", p, roundCPU(est), at.CPU.Verdict, at.CPU.TimeAboveRequest*100)
+		}
+	}
+}
+
+// The material-change floor is for requests near the need. A 5m request on a
+// container using ~23m is only millicores short, but under its usage nearly
+// all the time: under-provisioned, not right-sized.
+func TestAnalyzeSmallRequestFarBelowNeedIsUnder(t *testing.T) {
+	rng := rand.New(rand.NewPCG(41, 41))
+	in := synth(14, 2, diurnal(rng, 0.012, 0.3), flatMem(rng, 100*mib))
+	in.current = Resources{CPURequest: 0.005, MemRequest: 200 * mib, MemLimit: 200 * mib}
+	r := analyze(in)
+	if raise := roundCPU(r.CPU.Estimate) - 0.005; raise >= minCPUDelta || r.CPU.TimeAboveRequest < 0.5 {
+		t.Fatalf("setup: raise %.3f, above the request %.0f%% of the time", raise, r.CPU.TimeAboveRequest*100)
+	}
+	if r.CPU.Verdict != VerdictUnder || !hasFinding(r, "cpu-over-request") || r.CPU.Recommended <= 0.005 {
+		t.Fatalf("verdict %s, %v cores recommended, findings %+v", r.CPU.Verdict, r.CPU.Recommended, r.Findings)
 	}
 }

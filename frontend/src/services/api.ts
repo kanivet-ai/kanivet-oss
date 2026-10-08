@@ -43,6 +43,7 @@ class API {
   async waitForBackend(maxWaitMs: number = 30000): Promise<boolean> { return wsManager.waitForBackend(maxWaitMs); }
   isReady(): boolean { return wsManager.isReady(); }
   public __sendWS(payload: any) { wsManager.sendWS(payload); }
+  public __forgetReplay(payload: any) { wsManager.forgetReplay(payload); }
   public get wsHandlers() { return wsManager.getHandlers(); }
 
   subscribeToCounts(cluster: string, handler: (msg: { group: string; resource: string; count: number }) => void): () => void {

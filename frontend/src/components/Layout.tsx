@@ -1,18 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
+import { restoreSelectedRow } from '../store/waitForListItem';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { notifyWelcome } from '../services/islandNotifications';
 import TreeSidebar from './TreeSidebar';
 import CenterPaneSplitContainer from './CenterPaneSplitContainer';
 import DetailView from './DetailView';
 import TabBar from './TabBar';
-import CommandPalette from './CommandPalette';
 import BottomDock from './BottomDock';
-import { ThemeSettings } from './ThemeSettings';
-import { ComponentLibrary } from './ComponentLibrary';
 import ToastContainer from './ToastContainer';
-import FeatureTour from './onboarding/FeatureTour';
 import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
+import type { StoreState } from '../store/types';
+import { forgetTreeLoad } from '../store/resourceSlice';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
@@ -24,7 +23,38 @@ import {
   createTabSwitchHandlers,
   createFocusNavigationHandlers,
 } from '../utils/keyboardShortcuts';
+import { lazyView, prefetchLazyViewsWhenIdle } from '../utils/lazyView';
+import { ViewErrorBoundary } from './common/ViewErrorBoundary';
 import './Layout.css';
+
+// Not on the first screen: split out, then warmed once the layout has painted.
+const CommandPalette = lazyView(() => import('./CommandPalette'));
+const FeatureTour = lazyView(() => import('./onboarding/FeatureTour'));
+const ThemeSettings = lazyView(() =>
+  import('./ThemeSettings').then((m) => ({ default: m.ThemeSettings })),
+);
+const ComponentLibrary = lazyView(() =>
+  import('./ComponentLibrary').then((m) => ({ default: m.ComponentLibrary })),
+);
+
+// What the center panes and the detail pane show. A pane that failed to
+// render tries again once the user moves to another tab or selection.
+const centerView = (s: StoreState) => {
+  const t = s.getCurrentTabState();
+  return [s.currentTab, t?.activeResourceListTab, ...Object.values(t?.activeResourceListTabByPane || {}), t?.selectedNode?.id].join('|');
+};
+const detailView = (s: StoreState) => {
+  const t = s.getCurrentTabState();
+  const item = t?.selectedItem;
+  return [t?.activeDetailTab, item?.kind, item?.metadata?.namespace ?? item?.namespace, item?.metadata?.name ?? item?.name].join('|');
+};
+
+// Subscribes on its own, so a new selection re-renders only the boundary,
+// not the layout and every pane under it.
+const PaneBoundary = ({ view, children }: { view: (s: StoreState) => string; children: ReactNode }) => {
+  const resetKey = useStore(view);
+  return <ViewErrorBoundary resetKey={resetKey}>{children}</ViewErrorBoundary>;
+};
 
 const Layout = () => {
   const {
@@ -105,6 +135,10 @@ const Layout = () => {
   useCloudAuthSync();
 
   useEffect(() => {
+    prefetchLazyViewsWhenIdle();
+  }, []);
+
+  useEffect(() => {
     loadClusters().then(() => notifyWelcome(useStore.getState().clusters.length)).catch(() => {});
     loadClusterAliases();
     hydrateFromStorage();
@@ -159,66 +193,110 @@ const Layout = () => {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [showThemeSettings, showComponentLibrary]);
 
-  // After hydration, auto-restore resource list and last selected item (and detail tab) if present
+  // After hydration, bring the shown cluster back to where it was left: the
+  // objects behind its restored tabs load again, and the selected resource's
+  // list, its selected row and the open detail are loaded. Runs whenever the
+  // shown cluster changes, so a cluster switched to later is restored too.
   useEffect(() => {
-    console.log('Layout: restore effect running, currentTab:', currentTab);
     if (!currentTab) return;
-    const ns = localStorage.getItem(`kanivet.namespace.${currentTab}`) || 'all';
-    const nsMulti = localStorage.getItem(
-      `kanivet.selectedNamespaces.${currentTab}`,
-    );
-    const resourceJson = localStorage.getItem(
-      `kanivet.lastResource.${currentTab}`,
-    );
-    const itemJson = localStorage.getItem(`kanivet.lastItem.${currentTab}`);
-    const lastDetailTab = localStorage.getItem(
-      `kanivet.lastDetailTab.${currentTab}`,
-    );
-    console.log('Layout: checking for saved resource:', resourceJson ? 'found' : 'not found');
-    if (!resourceJson) return;
-    try {
-      const resource = JSON.parse(resourceJson);
-      const {
-        updateCurrentTabState,
-        loadTreeData,
-        selectNode,
-        loadListItems,
-        selectItem,
-        loadDetails,
-        startRealtime,
-      } = useStore.getState();
-      const parsedMulti = nsMulti ? JSON.parse(nsMulti) : [];
-      updateCurrentTabState({
-        selectedNamespace: ns,
-        selectedNamespaces: parsedMulti,
-      });
-      // Ensure categories/tree are present; then select and load items
-      loadTreeData(currentTab).then(async () => {
-        selectNode({ id: '', label: '', type: 'resource', data: resource });
-        await loadListItems(currentTab, resource);
+    const store = useStore.getState();
+    store.restoreWorkspaceContent(currentTab);
+
+    const tabState = store.getCurrentTabState();
+    const node = tabState?.selectedNode;
+    let resource: any = null;
+    if (node) {
+      // Pages (overview, settings, NATS, ...) draw themselves; only a resource
+      // list has to be loaded here.
+      if (node.type === 'resource' && node.data) resource = node.data;
+    } else {
+      // No workspace was saved for this cluster: reopen the last resource.
+      try {
+        const resourceJson = localStorage.getItem(`kanivet.lastResource.${currentTab}`);
+        if (resourceJson) resource = JSON.parse(resourceJson);
+      } catch {}
+    }
+    if (!resource) return;
+
+    let savedItem: { name: string; namespace?: string } | null = null;
+    const listTab = tabState?.resourceListTabs.find((rt) => rt.id === tabState.activeResourceListTab);
+    if (listTab?.selectedItem?.name) {
+      savedItem = { name: listTab.selectedItem.name, namespace: listTab.selectedItem.namespace };
+    } else {
+      try {
+        const itemJson = localStorage.getItem(`kanivet.lastItem.${currentTab}`);
+        if (itemJson) savedItem = JSON.parse(itemJson);
+      } catch {}
+    }
+    const detailsWereCollapsed = !!tabState?.isDetailsPanelCollapsed;
+    const ns = tabState?.selectedNamespace
+      ?? localStorage.getItem(`kanivet.namespace.${currentTab}`)
+      ?? 'all';
+    const nsMulti = tabState?.selectedNamespaces
+      ?? (() => {
+        try {
+          return JSON.parse(localStorage.getItem(`kanivet.selectedNamespaces.${currentTab}`) || '[]');
+        } catch {
+          return [];
+        }
+      })();
+
+    const { updateCurrentTabState, selectNode, loadListItems, selectItem, loadDetails, startRealtime } = store;
+    updateCurrentTabState({ selectedNamespace: ns, selectedNamespaces: nsMulti });
+    // A namespace deleted while the app was closed would leave an empty list
+    // with a filter nobody can see why; fall back to what still exists.
+    if (resource.namespaced && (nsMulti.length > 0 || ns !== 'all')) {
+      api
+        .getNamespaces(currentTab)
+        .then((existing: string[]) => {
+          const state = useStore.getState().getCurrentTabState();
+          if (useStore.getState().currentTab !== currentTab || !state || !Array.isArray(existing) || existing.length === 0) return;
+          const known = new Set(existing);
+          const keep = (state.selectedNamespaces || []).filter((n: string) => known.has(n));
+          const nsStillThere = state.selectedNamespace === 'all' || known.has(state.selectedNamespace);
+          if (keep.length === (state.selectedNamespaces || []).length && nsStillThere) return;
+          const { updateCurrentTabState: update, updateResourceListTab } = useStore.getState();
+          update({ selectedNamespaces: keep, selectedNamespace: keep.length > 0 ? keep[0] : 'all' });
+          // The list reads the namespaces of its own tab first.
+          if (state.activeResourceListTab) updateResourceListTab(state.activeResourceListTab, { selectedNamespaces: keep });
+        })
+        .catch(() => {});
+    }
+    // The list needs neither the categories nor the tree, so it starts now
+    // instead of a round trip later; the tree (requested by hydrate and the
+    // sidebar) loads alongside.
+    (async () => {
+      try {
+        // Selecting the node again keeps its id, which the saved scroll
+        // position and tree highlight are keyed on.
+        selectNode(node && node.type === 'resource' ? node : { id: '', label: '', type: 'resource', data: resource });
+        // False when a restored vcluster could not be reconnected.
+        if (!(await loadListItems(currentTab, resource))) return;
         startRealtime();
-        if (itemJson) {
-          const savedItem = JSON.parse(itemJson);
-          const itemsNow =
-            useStore.getState().getCurrentTabState()?.listItems || [];
-          const match = itemsNow.find(
-            (i: any) =>
-              i.name === savedItem.name &&
-              (i.namespace || '') === (savedItem.namespace || ''),
-          );
-          if (match) {
-            selectItem(match);
-            await loadDetails(currentTab, resource, match);
-            if (lastDetailTab) {
-              const evt = new CustomEvent('detail:setActiveTab', {
-                detail: lastDetailTab,
-              });
-              window.dispatchEvent(evt);
-            }
+        if (savedItem) {
+          // The list streams in after it is requested, so wait for the row; and
+          // keep it selected through other loads that reset the list.
+          const status = await restoreSelectedRow(useStore, currentTab, savedItem, async (item) => {
+            selectItem(item);
+            const now = useStore.getState().getCurrentTabState();
+            if (now?.activeResourceListTab) useStore.getState().updateResourceListTab(now.activeResourceListTab, { selectedItem: item });
+            await loadDetails(currentTab, resource, item);
+            // Loading details opens the panel; a panel left collapsed stays so.
+            if (detailsWereCollapsed) useStore.getState().updateCurrentTabState({ isDetailsPanelCollapsed: true });
+          });
+          console.log('Layout: restored selection', savedItem.name, status);
+          if (status === 'gone') {
+            // Deleted while the app was closed: forget the selection, so it is
+            // not looked for again.
+            const now = useStore.getState().getCurrentTabState();
+            if (now?.activeResourceListTab) useStore.getState().updateResourceListTab(now.activeResourceListTab, { selectedItem: null });
+            try {
+              localStorage.removeItem(`kanivet.lastItem.${currentTab}`);
+            } catch {}
           }
         }
-      });
-    } catch {}
+      } catch {}
+    })();
   }, [currentTab]);
 
   useRegisteredKeyboard({
@@ -396,6 +474,8 @@ const Layout = () => {
         await loadClusterStatus(cluster, true);
         healthy = Boolean(useStore.getState().clusterStatuses[cluster]?.healthy);
         if (healthy) {
+          // Not the load still hanging on the client the refresh replaced.
+          forgetTreeLoad(cluster);
           await loadTreeData(cluster);
           const state = getCurrentTabState();
           if (state?.selectedNode?.type === 'resource' && state.selectedNode.data) {
@@ -582,10 +662,16 @@ const Layout = () => {
                 >
                   {/* Keyed by cluster: pane ids differ between clusters, so each one
                       gets its own layout instead of inheriting the previous tab's. */}
-                  <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
+                  <PaneBoundary view={centerView}>
+                    <CenterPaneSplitContainer key={currentTab} tabId={currentTab} />
+                  </PaneBoundary>
                   <BottomDock />
                 </div>
-                {(hasDetailData || hasDetailTabs) && <DetailView />}
+                {(hasDetailData || hasDetailTabs) && (
+                  <PaneBoundary view={detailView}>
+                    <DetailView />
+                  </PaneBoundary>
+                )}
               </div>
             )}
             {hasClusterError && currentTab && <ClusterErrorBanner />}

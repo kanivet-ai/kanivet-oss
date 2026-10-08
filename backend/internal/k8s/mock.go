@@ -179,6 +179,10 @@ func (m *MockClient) CreatePortForward(cluster, namespace, podName string, remot
 	return nil, fmt.Errorf("not implemented in mock")
 }
 
+func (m *MockClient) CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
+	return nil, fmt.Errorf("not implemented in mock")
+}
+
 func (m *MockClient) StopPortForward(id string) error {
 	return fmt.Errorf("not implemented in mock")
 }

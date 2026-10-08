@@ -38,19 +38,32 @@ type Connection struct {
 	createdAt    time.Time
 	lastActivity atomic.Int64
 	sendChan     chan []byte
-	pingTicker   *time.Ticker
-	config       *ConnectionConfig
-	closeOnce    sync.Once
+	// queuedBytes is the payload bytes sitting in sendChan or being written;
+	// Send refuses a frame once it would pass config.MaxQueuedBytes.
+	queuedBytes atomic.Int64
+	maxQueued   int64
+	pingTicker  *time.Ticker
+	config      *ConnectionConfig
+	closeOnce   sync.Once
 }
 
 type ConnectionConfig struct {
-	MaxMessageSize    int64
-	WriteTimeout      time.Duration
-	PingInterval      time.Duration
-	PongWait          time.Duration
-	SendChannelSize   int
+	MaxMessageSize  int64
+	WriteTimeout    time.Duration
+	PingInterval    time.Duration
+	PongWait        time.Duration
+	SendChannelSize int
+	// MaxQueuedBytes caps the bytes queued for sending, in addition to the
+	// SendChannelSize frame count: a stalled client must not pin
+	// SendChannelSize x MaxMessageSize of memory. Zero means
+	// DefaultMaxQueuedBytes; it is raised to MaxMessageSize if lower so one
+	// maximum-size frame can always be queued.
+	MaxQueuedBytes    int64
 	EnableCompression bool
 }
+
+// DefaultMaxQueuedBytes is the default per-connection send queue byte cap.
+const DefaultMaxQueuedBytes = 64 << 20
 
 func DefaultConnectionConfig() *ConnectionConfig {
 	return &ConnectionConfig{
@@ -59,7 +72,7 @@ func DefaultConnectionConfig() *ConnectionConfig {
 		PingInterval:      30 * time.Second,
 		PongWait:          60 * time.Second,
 		SendChannelSize:   256,
-		EnableCompression: true,
+		EnableCompression: false,
 	}
 }
 
@@ -85,6 +98,16 @@ func NewConnection(id ConnectionID, conn *websocket.Conn, config *ConnectionConf
 		config.SendChannelSize = 256
 	}
 
+	// Held per connection rather than written back: the config is shared by
+	// every connection of a server.
+	maxQueued := config.MaxQueuedBytes
+	if maxQueued <= 0 {
+		maxQueued = DefaultMaxQueuedBytes
+	}
+	if maxQueued < config.MaxMessageSize {
+		maxQueued = config.MaxMessageSize
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	c := &Connection{
 		id:           id,
@@ -94,6 +117,7 @@ func NewConnection(id ConnectionID, conn *websocket.Conn, config *ConnectionConf
 		writeTimeout: config.WriteTimeout,
 		createdAt:    time.Now(),
 		sendChan:     make(chan []byte, config.SendChannelSize),
+		maxQueued:    maxQueued,
 		pingTicker:   time.NewTicker(config.PingInterval),
 		config:       config,
 	}
@@ -161,15 +185,30 @@ func (c *Connection) Send(data []byte) error {
 		return ErrInvalidMessage
 	}
 
+	// Reserve the bytes first so concurrent senders cannot jointly overshoot
+	// the cap. A refusal is the same backpressure as a full queue.
+	n := int64(len(data))
+	if c.queuedBytes.Add(n) > c.maxQueued {
+		c.queuedBytes.Add(-n)
+		return ErrRateLimitExceeded
+	}
+
 	select {
 	case c.sendChan <- data:
 		return nil
 	case <-c.ctx.Done():
+		c.queuedBytes.Add(-n)
 		return ErrConnectionClosed
 	default:
 		// Channel is full - backpressure
+		c.queuedBytes.Add(-n)
 		return ErrRateLimitExceeded
 	}
+}
+
+// QueuedBytes reports the bytes currently queued for sending.
+func (c *Connection) QueuedBytes() int64 {
+	return c.queuedBytes.Load()
 }
 
 func (c *Connection) SendBinary(data []byte) error {
@@ -209,6 +248,7 @@ func (c *Connection) writePump() {
 			}
 			err := c.conn.WriteMessage(websocket.TextMessage, message)
 			c.writeMu.Unlock()
+			c.queuedBytes.Add(-int64(len(message)))
 
 			if err != nil {
 				return
@@ -233,12 +273,38 @@ func (c *Connection) writePump() {
 	}
 }
 
+// closeGrace is how long cleanup waits for an in-flight write before it gives
+// up on the close frame and breaks the write.
+const closeGrace = 250 * time.Millisecond
+
 func (c *Connection) cleanup() {
 	c.closeOnce.Do(func() {
 		c.pingTicker.Stop()
-		c.writeMu.Lock()
-		if err := c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err == nil {
-			_ = c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		// writePump may be mid-write to a client that stopped reading, which
+		// holds writeMu for up to the write timeout. Give it a moment, then
+		// break the write by expiring the socket's deadline (net.Conn
+		// deadlines are safe to set concurrently) and skip the close frame.
+		sendClose := true
+		if !c.writeMu.TryLock() {
+			locked := make(chan struct{})
+			go func() {
+				c.writeMu.Lock()
+				close(locked)
+			}()
+			timer := time.NewTimer(closeGrace)
+			select {
+			case <-locked:
+				timer.Stop()
+			case <-timer.C:
+				sendClose = false
+				_ = c.conn.UnderlyingConn().SetWriteDeadline(time.Now())
+				<-locked
+			}
+		}
+		if sendClose {
+			if err := c.conn.SetWriteDeadline(time.Now().Add(c.writeTimeout)); err == nil {
+				_ = c.conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+			}
 		}
 		c.writeMu.Unlock()
 		if err := c.conn.Close(); err != nil {

@@ -260,8 +260,8 @@ func effectiveResources(spec *v1.PodSpec) (cpuReq, cpuLim, memReq, memLim int64)
 }
 
 // resolveOwner names the top-level workload behind a pod's controller
-// reference: ReplicaSets fold into their Deployment and scheduled Jobs into
-// their CronJob.
+// reference: ReplicaSets fold into their Deployment (or Argo Rollout) and
+// scheduled Jobs into their CronJob.
 func resolveOwner(refs []metav1.OwnerReference, labels map[string]string) (string, string) {
 	for _, ref := range refs {
 		if ref.Controller == nil || !*ref.Controller {
@@ -271,6 +271,11 @@ func resolveOwner(refs []metav1.OwnerReference, labels map[string]string) (strin
 		case "ReplicaSet":
 			if hash := labels["pod-template-hash"]; hash != "" && strings.HasSuffix(ref.Name, "-"+hash) {
 				return "Deployment", strings.TrimSuffix(ref.Name, "-"+hash)
+			}
+			// An Argo Rollout's ReplicaSets carry its own hash label. Every
+			// revision (stable, canary, preview) is the one Rollout.
+			if hash := labels["rollouts-pod-template-hash"]; hash != "" && strings.HasSuffix(ref.Name, "-"+hash) {
+				return "Rollout", strings.TrimSuffix(ref.Name, "-"+hash)
 			}
 		case "Job":
 			// CronJob-created Jobs are named <cronjob>-<scheduled unix minutes>.

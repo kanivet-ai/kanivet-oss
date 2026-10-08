@@ -348,6 +348,10 @@ class CloudService {
           error: payload.error,
         };
         onEvent(event);
+        // A finished discovery is not run again when the socket reconnects.
+        if (payload.type === 'complete' || payload.type === 'error') {
+          (api as any).__forgetReplay?.(startMessage);
+        }
       }
     };
 
@@ -358,7 +362,7 @@ class CloudService {
       (api as any).wsHandlers.set('cloud.discover', new Set([messageHandler]));
     }
 
-    (api as any).__sendWS({
+    const startMessage = {
       type: 'cloud.discover',
       payload: {
         action: 'start',
@@ -372,7 +376,8 @@ class CloudService {
         projectId: req.projectId,
         subscription: req.subscription,
       },
-    });
+    };
+    (api as any).__sendWS(startMessage);
 
     return () => {
       this.discoveryHandlers.delete(key);

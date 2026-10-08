@@ -54,6 +54,35 @@ func (s *reportStore) DeleteRightsizingDismissal(_, _, _, _, _, _ string) error 
 	return nil
 }
 
+// A report persisted by an earlier release lacks what this engine adds (VPA
+// and workload HPA fields the bulk scripts rely on) and recommends by the old
+// rules. After an update it is shown as stale and recomputed, not served as
+// fresh for the rest of its hour; one this engine computed is.
+func TestPersistedReportOfAnotherEngineIsRecomputed(t *testing.T) {
+	st := newReportStore()
+	s := NewService(nil, nil, nil, nil, st)
+	computedAt := time.Now().Add(-10 * time.Minute)
+	for _, c := range []struct {
+		cluster string
+		engine  int
+	}{{t.Name() + "-old", 0}, {t.Name() + "-current", reportEngine}} {
+		data, err := packReport(&Report{Cluster: c.cluster, Status: StatusReady, ComputedAt: computedAt, Engine: c.engine, Workloads: []WorkloadReport{}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = st.SaveRightsizingReport(runKey(c.cluster, ProfileBalanced, defaultWindow), c.cluster, data)
+	}
+
+	old := s.GetReport(t.Name()+"-old", ProfileBalanced, defaultWindow, false, "", "")
+	if old.Status != StatusReady || !old.Stale || old.Progress == nil {
+		t.Fatalf("an earlier engine's report must be shown stale while it recomputes: stale=%v progress=%v", old.Stale, old.Progress)
+	}
+	current := s.GetReport(t.Name()+"-current", ProfileBalanced, defaultWindow, false, "", "")
+	if current.Status != StatusReady || current.Stale {
+		t.Fatalf("this engine's report within its TTL must be served as is: stale=%v", current.Stale)
+	}
+}
+
 func TestForgetClusterDropsReportsReadFromItsMetricsSource(t *testing.T) {
 	host := t.Name()
 	vc := "vcluster:" + host + ":vc-ns:vc1"

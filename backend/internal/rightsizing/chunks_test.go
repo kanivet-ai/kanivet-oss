@@ -2,7 +2,10 @@ package rightsizing
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"math"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -32,6 +35,78 @@ func TestDaySpansAlignToUTCDays(t *testing.T) {
 	sp := daySpans(newGrid(early, 2*day, 10*time.Minute), early)
 	if sp[len(sp)-2].final {
 		t.Fatal("yesterday counted as final 10 minutes after midnight")
+	}
+	// Both days are in progress, and neither may fetch the other's samples.
+	if y, today := sp[len(sp)-2], sp[len(sp)-1]; !y.end.Equal(today.day.Add(-10*time.Minute)) || !today.start.Equal(today.day) {
+		t.Fatalf("yesterday %v-%v overlaps today %v-%v", y.start, y.end, today.start, today.end)
+	}
+}
+
+// Read from chunks alone, a day the report did not store for the reader's
+// grid fails the read instead of leaving the day empty.
+func TestChunksOnlyMissIsNotCached(t *testing.T) {
+	now := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	cache := &memChunks{data: map[string][]byte{}}
+	report := newChunker(&countingStore{}, cache)
+	report.now = func() time.Time { return now }
+	report.tails, report.run = true, "balanced"
+	g := newGrid(now, 3*day, 10*time.Minute)
+	if _, err := report.rangeQuery(context.Background(), "c", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	read := func(g grid, run string) error {
+		c := newChunker(nil, cache)
+		c.now = func() time.Time { return now }
+		c.run = run
+		_, err := c.rangeQuery(withChunksOnly(context.Background()), "c", "q", g, nil)
+		return err
+	}
+	if err := read(g, "balanced"); err != nil {
+		t.Fatalf("the report's own grid: %v", err)
+	}
+	// Another run's report stored no tail of its own.
+	if err := read(g, "conservative"); err != errNotCached {
+		t.Fatalf("another run's tail: %v", err)
+	}
+	// A grid ten minutes on needs a day in progress nobody stored.
+	if err := read(newGrid(now.Add(10*time.Minute), 3*day, 10*time.Minute), "balanced"); err != errNotCached {
+		t.Fatalf("a later grid: %v", err)
+	}
+	// A finished day evicted from the cache.
+	cache.mu.Lock()
+	delete(cache.data, chunkKey("c", "q", g.step, now.Truncate(day).Add(-day), ""))
+	cache.mu.Unlock()
+	if err := read(g, "balanced"); err != errNotCached {
+		t.Fatalf("an evicted day: %v", err)
+	}
+}
+
+// Earlier releases stored finished days even when the store marked its
+// answer partial. A day stored under their key, here of a query whose text is
+// unchanged, must never be read back as history.
+func TestDaysStoredByEarlierFormatAreNotRead(t *testing.T) {
+	now := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	g := newGrid(now, 3*day, 10*time.Minute)
+	gappy, err := encodeSeries([]metrics.HistorySeries{{Labels: map[string]string{"pod": "a"}, Times: []int64{now.Add(-2 * day).Unix()}, Values: []float32{1}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := &memChunks{data: map[string][]byte{}}
+	for _, sp := range daySpans(g, now) {
+		if sp.final {
+			old := sha256.Sum256([]byte("c\x00q\x00" + g.step.String() + "\x00" + strconv.FormatInt(sp.day.Unix(), 10)))
+			cache.data[hex.EncodeToString(old[:])] = gappy
+		}
+	}
+
+	c := newChunker(&countingStore{}, cache)
+	c.now = func() time.Time { return now }
+	if _, err := c.rangeQuery(context.Background(), "c", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	if hits := c.hits.Load(); hits != 0 {
+		t.Fatalf("%d days stored by an earlier release were read as history", hits)
 	}
 }
 
@@ -262,6 +337,51 @@ func TestChunkBatchFallsBackToSingleDays(t *testing.T) {
 	}
 	if len(cache.data) != 8 {
 		t.Fatalf("%d day chunks stored after falling back, want 8", len(cache.data))
+	}
+}
+
+// partialStore answers like Thanos with a store gateway down: whatever it
+// could reach, flagged as partial, until healed.
+type partialStore struct {
+	countingStore
+	healed bool
+}
+
+func (s *partialStore) QueryRange(ctx context.Context, cluster, query string, start, end time.Time, step time.Duration) ([]metrics.HistorySeries, error) {
+	if !s.healed {
+		metrics.MarkPartial(ctx)
+	}
+	return s.countingStore.QueryRange(ctx, cluster, query, start, end, step)
+}
+
+// A partial answer serves the report that asked, but is not stored as the
+// finished days (or the day in progress) it would otherwise stand for.
+func TestPartialAnswersAreNotCached(t *testing.T) {
+	now := time.Date(2026, 10, 1, 14, 0, 0, 0, time.UTC)
+	store := &partialStore{}
+	cache := &memChunks{data: map[string][]byte{}}
+	c := newChunker(store, cache)
+	c.now = func() time.Time { return now }
+	c.tails = true
+	g := newGrid(now, 8*day, 10*time.Minute)
+	res, err := c.rangeQuery(context.Background(), "c", "q", g, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	samples := 0
+	res.each(func(s *metrics.HistorySeries) { samples += len(s.Times) })
+	if samples < g.n {
+		t.Fatalf("the partial answer was not used: %d samples", samples)
+	}
+	if len(cache.data) != 0 || c.partials.Load() != 9 {
+		t.Fatalf("%d chunks stored from partial answers (%d partial days)", len(cache.data), c.partials.Load())
+	}
+	store.healed = true
+	if _, err := c.rangeQuery(context.Background(), "c", "q", g, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(cache.data) != 9 {
+		t.Fatalf("%d chunks stored once the store answered whole, want 8 days and a tail", len(cache.data))
 	}
 }
 

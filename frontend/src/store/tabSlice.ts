@@ -2,16 +2,20 @@ import { StateCreator } from 'zustand';
 import api from '../services/api';
 import { TabSlice, StoreState, Tab, TabState } from './types';
 import { createInitialTabState, rebuildTabIndex } from './utils';
+import { cancelPendingSnapshot } from './persistence';
+import { forgetRestoredVCluster } from './vclusterRestore';
+import { forgetScrollPositions } from '../utils/scrollMemory';
 
 export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, get) => ({
   activeTabs: [],
   tabIndexMap: new Map(),
   currentTab: null,
 
-  openTab: async (cluster: string) => {
+  openTab: async (cluster: string, recordHistory = true) => {
     const { activeTabs } = get();
     const existingTab = activeTabs.find((t: Tab) => t.id === cluster);
     if (!existingTab) {
+      if (recordHistory) void get().recordCurrentNavigation().catch(console.error);
       // A fresh tab has nothing in the list yet — the next thing the user does
       // is pick a resource in the sidebar, so keyboard focus starts there.
       // (Starting in 'list' made every tree shortcut a no-op until the sidebar
@@ -28,11 +32,12 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
 
       const openOverview = async () => {
         const tabIndex = get().tabIndexMap.get(cluster) ?? -1;
-        if (tabIndex === -1) return;
+        if (tabIndex === -1 || get().currentTab !== cluster) return;
         const overviewNode = { id: 'cluster-overview', label: 'Overview', type: 'overview' as const, data: { cluster } };
         get().selectNode(overviewNode);
         const dashboardResource = { name: 'cluster-dashboard', group: '', version: 'v1', kind: 'ClusterDashboard', namespaced: false };
         await get().openResourceListTab(dashboardResource, cluster, true, undefined);
+        if (recordHistory && get().currentTab === cluster) void get().recordNavigation('overview', overviewNode.id, dashboardResource).catch(console.error);
       };
 
       const treeLoaded = get().loadTreeData(cluster).then(() => true, () => false);
@@ -50,8 +55,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
         }
       }
     } else {
-      set({ currentTab: cluster });
-      try { localStorage.setItem('kanivet.currentTab', cluster); } catch {}
+      get().setCurrentTab(cluster, recordHistory);
     }
   },
 
@@ -80,6 +84,9 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     const newTabs = activeTabs.filter((t: Tab) => t.id !== clusterId);
     const newCurrent = currentTab === clusterId ? newTabs[0]?.id || null : currentTab;
     set({ activeTabs: newTabs, tabIndexMap: rebuildTabIndex(newTabs), currentTab: newCurrent });
+    cancelPendingSnapshot(clusterId);
+    forgetRestoredVCluster(clusterId);
+    forgetScrollPositions(clusterId);
     try {
       if (newCurrent) localStorage.setItem('kanivet.currentTab', newCurrent);
       else localStorage.removeItem('kanivet.currentTab');
@@ -93,8 +100,9 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     } catch {}
   },
 
-  setCurrentTab: (tabId: string | null) => {
+  setCurrentTab: (tabId: string | null, recordHistory = true) => {
     const prevTab = get().currentTab;
+    if (recordHistory && prevTab !== tabId) void get().recordCurrentNavigation().catch(console.error);
     if (prevTab && prevTab !== tabId) get().parkRealtime();
     set({ currentTab: tabId });
     try {
@@ -102,6 +110,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
       else localStorage.removeItem('kanivet.currentTab');
     } catch {}
     if (tabId && tabId !== prevTab) {
+      if (recordHistory) void get().recordCurrentNavigation().catch(console.error);
       const tabState = get().getCurrentTabState();
       if (tabState?.selectedNode?.type === 'resource') get().startRealtime();
     }
@@ -136,8 +145,8 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: newState };
     set({ activeTabs: updatedTabs, tabIndexMap: rebuildTabIndex(updatedTabs) });
 
-    // Persist immediately for fields the user expects to survive a reload
-    // (namespace selection), but defer the heavy tabstate snapshot.
+    // The namespace selection is written at once; the rest of the workspace is
+    // saved as a snapshot by the persistence subscriber (store/persistence.ts).
     try {
       if (currentTab) {
         if (Object.prototype.hasOwnProperty.call(updates, 'selectedNamespace') && updates.selectedNamespace !== undefined) {
@@ -146,79 +155,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
         if (Object.prototype.hasOwnProperty.call(updates, 'selectedNamespaces') && updates.selectedNamespaces !== undefined) {
           localStorage.setItem(`kanivet.selectedNamespaces.${currentTab}`, JSON.stringify(updates.selectedNamespaces || []));
         }
-        // Skip persistence work entirely when only transient fields changed.
-        if (isTransientOnlyUpdate(updates)) return;
-        scheduleTabStateSave(currentTab, newState);
       }
     } catch {}
   },
 });
-
-// Persistence helpers ---------------------------------------------------------
-
-const TRANSIENT_KEYS = new Set([
-  'listItems',
-  'selectedItem',
-  'detailData',
-  'isLoadingListItems',
-  'hasReceivedInitialListData',
-  'loadError',
-  'namespaces',
-  'rolloutStatuses',
-  'scrollPositions',
-  'focusArea',
-]);
-
-const isTransientOnlyUpdate = (updates: Partial<TabState>): boolean => {
-  for (const key of Object.keys(updates)) {
-    if (!TRANSIENT_KEYS.has(key)) return false;
-  }
-  return true;
-};
-
-const pendingSaves = new Map<string, ReturnType<typeof setTimeout>>();
-const PERSIST_DEBOUNCE_MS = 750;
-
-const stripItems = (rt: any) => {
-  if (!rt) return rt;
-  // Drop items + selectedItem to keep the snapshot small and fast to JSON-encode.
-  // They are re-fetched on tab open.
-  const { items: _items, selectedItem: _sel, ...rest } = rt;
-  return rest;
-};
-
-const scheduleTabStateSave = (cluster: string, newState: TabState) => {
-  const existing = pendingSaves.get(cluster);
-  if (existing) clearTimeout(existing);
-  const handle = setTimeout(() => {
-    pendingSaves.delete(cluster);
-    try {
-      const toSave = {
-        resourceListTabs: (newState.resourceListTabs || []).map(stripItems),
-        activeResourceListTab: newState.activeResourceListTab,
-        activeResourceListTabByPane: newState.activeResourceListTabByPane || {},
-        detailTabs: newState.detailTabs || [],
-        activeDetailTab: newState.activeDetailTab,
-        centerPaneLayout: newState.centerPaneLayout,
-        focusedCenterPaneId: newState.focusedCenterPaneId,
-        expandedNodes: Array.from(newState.expandedNodes || []),
-        selectedNode: newState.selectedNode ? {
-          id: newState.selectedNode.id,
-          label: newState.selectedNode.label,
-          type: newState.selectedNode.type,
-          data: newState.selectedNode.data,
-        } : null,
-      };
-      localStorage.setItem(`kanivet.tabstate.${cluster}`, JSON.stringify(toSave));
-    } catch {}
-  }, PERSIST_DEBOUNCE_MS);
-  pendingSaves.set(cluster, handle);
-};
-
-// Flush any pending writes on tab close / app exit
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    for (const handle of pendingSaves.values()) clearTimeout(handle);
-    pendingSaves.clear();
-  });
-}

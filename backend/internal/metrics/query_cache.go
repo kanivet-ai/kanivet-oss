@@ -146,6 +146,9 @@ type queryEnvelope struct {
 	Error     string   `json:"error,omitempty"`
 	Warnings  []string `json:"warnings,omitempty"`
 	Infos     []string `json:"infos,omitempty"`
+	// IsPartial is how a VictoriaMetrics cluster says some of its storage
+	// nodes did not answer; Thanos says it in Warnings.
+	IsPartial bool `json:"isPartial,omitempty"`
 }
 
 type querySpan struct {
@@ -425,7 +428,7 @@ func (c *queryCache) assembleRange(ctx context.Context, key string, params url.V
 			return nil, err
 		}
 		// Partial responses and native histograms must not be marked complete.
-		if response.Data.ResultType != "matrix" || len(response.Warnings) > 0 || len(response.Infos) > 0 || slices.ContainsFunc(response.Data.Result, func(s querySeries) bool { return len(s.Histograms) > 0 }) {
+		if response.Data.ResultType != "matrix" || response.IsPartial || len(response.Warnings) > 0 || len(response.Infos) > 0 || slices.ContainsFunc(response.Data.Result, func(s querySeries) bool { return len(s.Histograms) > 0 }) {
 			if span.Start == start && span.End == end {
 				return response, nil
 			}

@@ -46,7 +46,10 @@ const makeStore = () => create<any>()((set, get, api) => ({
 }));
 
 const select = (store: any, name: string) =>
-  store.getState().updateCurrentTabState({ selectedNode: { id: name, type: 'resource', data: resource(name) }, listItems: [] });
+  store.getState().updateCurrentTabState({
+    selectedNode: { id: name, type: 'resource', data: resource(name) },
+    listItems: [],
+  });
 
 const emit = (name: string, events: any[], bulk = false) => {
   for (const h of ws.handlers.get(topicOf(name)) || []) h({ isBatch: true, topic: topicOf(name), events, bulk, epoch: bulk ? 1 : undefined });
@@ -82,6 +85,34 @@ describe('realtime subscriptions across tab switches', () => {
     ws.unsubscribes.length = 0;
   });
   afterEach(() => vi.useRealTimers());
+
+  it('keeps a history selection until its row arrives in a streamed snapshot', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    store.getState().updateCurrentTabState({ selectedItem: item('target') });
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    emit('pods', [{ action: 'added', item: item('first'), epoch: 1 }], true);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem.name).toBe('target');
+    emit('pods', [{ action: 'added', item: item('target'), epoch: 1 }, { type: 'sync_complete', itemCount: 2, epoch: 1 }], true);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem.name).toBe('target');
+    emit('pods', [{ action: 'deleted', item: item('target') }]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem).toBeNull();
+  });
+
+  it('clears a history selection when a completed snapshot confirms it is absent', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    store.getState().updateCurrentTabState({ selectedItem: item('missing') });
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    snapshot('pods', [item('first')]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem).toBeNull();
+  });
 
   it('keeps the previous tab subscribed and current while another tab is shown', async () => {
     const store = makeStore();
@@ -138,7 +169,23 @@ describe('realtime subscriptions across tab switches', () => {
     expect(ws.subscribes).toEqual([]);
   });
 
-  it('resubscribes a parked topic that never received its list', async () => {
+  it('resubscribes a parked topic that never received its list within the load timeout', async () => {
+    const store = makeStore();
+    select(store, 'configmaps');
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    await open(store, 'secrets', [item('s')]);
+    await vi.advanceTimersByTimeAsync(31_000);
+    ws.subscribes.length = 0;
+
+    select(store, 'configmaps');
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    expect(ws.subscribes).toEqual([topicOf('configmaps')]);
+    expect(store.getState().getCurrentTabState().isLoadingListItems).toBe(true);
+  });
+
+  it('keeps waiting on a parked subscription whose list is still on its way', async () => {
     const store = makeStore();
     select(store, 'configmaps');
     store.getState().startRealtime();
@@ -147,10 +194,287 @@ describe('realtime subscriptions across tab switches', () => {
     ws.subscribes.length = 0;
 
     select(store, 'configmaps');
+    // Forced, as activating a list tab does: asking again would only make the
+    // backend send the whole list a second time once it has it.
+    store.getState().startRealtime(true);
+    await vi.advanceTimersByTimeAsync(60);
+    expect(ws.subscribes).toEqual([]);
+    expect(store.getState().getCurrentTabState().isLoadingListItems).toBe(true);
+    snapshot('configmaps', [item('a')]);
+    await vi.advanceTimersByTimeAsync(20);
+    const state = store.getState().getCurrentTabState();
+    expect(state.listItems.map((i: any) => i.name)).toEqual(['a']);
+    expect(state.isLoadingListItems).toBe(false);
+  });
+
+  it('times out a parked list that never arrives from its first subscribe', async () => {
+    const store = makeStore();
+    select(store, 'configmaps');
     store.getState().startRealtime();
     await vi.advanceTimersByTimeAsync(60);
+    await open(store, 'secrets', [item('s')]);
+    await vi.advanceTimersByTimeAsync(20_000);
+
+    select(store, 'configmaps');
+    store.getState().startRealtime(true);
+    await vi.advanceTimersByTimeAsync(9_000);
+    expect(store.getState().getCurrentTabState().loadError).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(store.getState().getCurrentTabState().loadError).toBeTruthy();
+  });
+
+  it('subscribes on the first call and shows the first rows on the next frame', async () => {
+    const store = makeStore();
+    select(store, 'configmaps');
+    store.getState().startRealtime();
     expect(ws.subscribes).toEqual([topicOf('configmaps')]);
-    expect(store.getState().getCurrentTabState().isLoadingListItems).toBe(true);
+    emit('configmaps', [{ action: 'added', item: item('a') }], true);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(
+      store
+        .getState()
+        .getCurrentTabState()
+        .listItems.map((i: any) => i.name),
+    ).toEqual(['a']);
+    // Later updates still coalesce.
+    emit('configmaps', [{ action: 'added', item: item('b') }]);
+    await vi.advanceTimersByTimeAsync(20);
+    expect(store.getState().getCurrentTabState().listItems).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(120);
+    expect(store.getState().getCurrentTabState().listItems).toHaveLength(2);
+  });
+
+  it('collapses a burst of starts into the first one and one at the end', async () => {
+    const store = makeStore();
+    select(store, 'configmaps');
+    store.getState().startRealtime();
+    select(store, 'secrets');
+    store.getState().startRealtime(true);
+    store.getState().startRealtime(true);
+    expect(ws.subscribes).toEqual([topicOf('configmaps')]);
+    await vi.advanceTimersByTimeAsync(60);
+    expect(ws.subscribes).toEqual([topicOf('configmaps'), topicOf('secrets')]);
+  });
+
+  it('keeps the selection on the live object of its row', async () => {
+    const store = makeStore();
+    await open(store, 'pods', [item('a'), item('b')]);
+    const selected = store.getState().getCurrentTabState().listItems[0];
+    store.getState().updateCurrentTabState({ selectedItem: selected });
+    emit('pods', [
+      { action: 'modified', item: { ...item('a', '2'), phase: 'Failed' } },
+    ]);
+    await vi.advanceTimersByTimeAsync(200);
+    const state = store.getState().getCurrentTabState();
+    expect(state.selectedItem.phase).toBe('Failed');
+    expect(state.selectedItem).toBe(state.listItems[0]);
+  });
+
+  it('keeps a list shown in another split pane live', async () => {
+    const store = makeStore();
+    const listTab = (id: string, name: string, paneId: string) => ({
+      id,
+      title: name,
+      resource: resource(name),
+      items: [],
+      selectedItem: null,
+      cluster: CLUSTER,
+      paneId,
+    });
+    store.getState().updateCurrentTabState({
+      resourceListTabs: [
+        listTab('t-pods', 'pods', 'root'),
+        listTab('t-deploy', 'deployments', 'p2'),
+      ],
+      activeResourceListTabByPane: { root: 't-pods', p2: 't-deploy' },
+    });
+    await open(store, 'pods', [item('a')]);
+    await open(store, 'deployments', [item('d')]);
+
+    emit('pods', [
+      { action: 'modified', item: { ...item('a', '2'), phase: 'Failed' } },
+    ]);
+    await vi.advanceTimersByTimeAsync(200);
+    const state = store.getState().getCurrentTabState();
+    const podsTab = state.resourceListTabs.find((t: any) => t.id === 't-pods');
+    expect(podsTab.items[0].phase).toBe('Failed');
+    // The on-screen list is left alone.
+    expect(state.listItems.map((i: any) => i.name)).toEqual(['d']);
+  });
+
+  describe('a list shown in another split pane', () => {
+    const splitPods = (store: any) => {
+      const listTab = (id: string, name: string, paneId: string) => ({
+        id, title: name, resource: resource(name), items: [], selectedItem: null, cluster: CLUSTER, paneId,
+      });
+      store.getState().updateCurrentTabState({
+        resourceListTabs: [listTab('t-pods', 'pods', 'root'), listTab('t-other', 'r0', 'p2')],
+        activeResourceListTabByPane: { root: 't-pods', p2: 't-other' },
+      });
+    };
+    const podsPhase = (store: any) =>
+      store.getState().getCurrentTabState().resourceListTabs.find((t: any) => t.id === 't-pods').items[0]?.phase;
+
+    it('is never the parked subscription closed to make room', async () => {
+      const store = makeStore();
+      splitPods(store);
+      await open(store, 'pods', [item('a')]);
+      // The other pane browses more resource types than are kept parked.
+      for (const n of ['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8']) await open(store, n, [item(n)]);
+
+      expect(ws.unsubscribes).not.toContain(topicOf('pods'));
+      emit('pods', [{ action: 'modified', item: { ...item('a', '2'), phase: 'Failed' } }]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(podsPhase(store)).toBe('Failed');
+    });
+
+    it('stays live when a reconnect restarts the on-screen list', async () => {
+      const store = makeStore();
+      splitPods(store);
+      await open(store, 'pods', [item('a')]);
+      await open(store, 'r0', [item('d')]);
+      ws.subscribes.length = 0;
+
+      // What the reconnect, SSO refresh and cluster retry handlers do.
+      store.getState().stopRealtime();
+      store.getState().startRealtime(true);
+      await vi.advanceTimersByTimeAsync(60);
+
+      expect(ws.subscribes).toContain(topicOf('pods'));
+      emit('pods', [{ action: 'modified', item: { ...item('a', '2'), phase: 'Failed' } }]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(podsPhase(store)).toBe('Failed');
+    });
+  });
+
+  describe('open details', () => {
+    const detailTab = (kind: string, apiVersion: string, res: any) => ({
+      id: `detail-${kind}`,
+      title: 'api',
+      resource: res,
+      cluster: CLUSTER,
+      isPinned: true,
+      location: 'detail',
+      item: {
+        kind,
+        apiVersion,
+        metadata: { name: 'api', namespace: 'ns' },
+        status: { conditions: [] },
+      },
+    });
+    const deployments = {
+      group: 'apps',
+      version: 'v1',
+      name: 'deployments',
+      kind: 'Deployment',
+      namespaced: true,
+    };
+    const services = {
+      group: '',
+      version: 'v1',
+      name: 'services',
+      kind: 'services',
+      namespaced: true,
+    };
+    const openDeployments = async (store: any, items: any[]) => {
+      store.getState().updateCurrentTabState({
+        selectedNode: {
+          id: 'deployments',
+          type: 'resource',
+          data: deployments,
+        },
+        listItems: [],
+      });
+      store.getState().startRealtime();
+      await vi.advanceTimersByTimeAsync(60);
+      for (const h of ws.handlers.get(
+        `items:${CLUSTER}:apps:v1:deployments:`,
+      ) || []) {
+        h({
+          isBatch: true,
+          events: [
+            ...items.map((i) => ({ action: 'added', item: i })),
+            { type: 'sync_complete', itemCount: items.length, epoch: 1 },
+          ],
+          bulk: true,
+          epoch: 1,
+        });
+      }
+      await vi.advanceTimersByTimeAsync(700);
+    };
+    const emitDeployments = (events: any[]) => {
+      for (const h of ws.handlers.get(
+        `items:${CLUSTER}:apps:v1:deployments:`,
+      ) || [])
+        h({ isBatch: true, events });
+    };
+    const deployment = (conditions: any[]) => ({
+      ...item('api', '5'),
+      kind: 'Deployment',
+      apiVersion: 'apps/v1',
+      conditions,
+    });
+
+    it('changes only details of the listed type', async () => {
+      const store = makeStore();
+      store.getState().updateCurrentTabState({
+        detailTabs: [
+          detailTab('Service', 'v1', services),
+          detailTab('Deployment', 'apps/v1', deployments),
+        ],
+        detailData: detailTab('Service', 'v1', services).item,
+      });
+      await openDeployments(store, [deployment([])]);
+      const failing = [{ type: 'Available', status: 'False' }];
+      emitDeployments([{ action: 'modified', item: deployment(failing) }]);
+      await vi.advanceTimersByTimeAsync(200);
+      let state = store.getState().getCurrentTabState();
+      expect(state.detailTabs[0].item.status.conditions).toEqual([]);
+      expect(state.detailData.status.conditions).toEqual([]);
+      expect(state.detailTabs[1].item.status.conditions).toEqual(failing);
+
+      emitDeployments([{ action: 'deleted', item: deployment(failing) }]);
+      await vi.advanceTimersByTimeAsync(200);
+      state = store.getState().getCurrentTabState();
+      expect(state.detailTabs[0].isDeleted).toBeFalsy();
+      expect(state.detailTabs[1].isDeleted).toBe(true);
+    });
+
+    it('announces one change per open object and none for a snapshot', async () => {
+      const store = makeStore();
+      store.getState().updateCurrentTabState({
+        detailTabs: [detailTab('Deployment', 'apps/v1', deployments)],
+      });
+      const dispatched: any[] = [];
+      (globalThis as any).dispatchEvent = (e: any) => {
+        dispatched.push(e.detail);
+        return true;
+      };
+      await openDeployments(store, [
+        ...Array.from({ length: 50 }, (_, i) => ({
+          ...item(`d${i}`),
+          kind: 'Deployment',
+        })),
+        deployment([]),
+      ]);
+      expect(dispatched).toEqual([]);
+      emitDeployments([
+        {
+          action: 'modified',
+          item: deployment([{ type: 'Progressing', status: 'True' }]),
+        },
+        {
+          action: 'modified',
+          item: deployment([{ type: 'Available', status: 'True' }]),
+        },
+        {
+          action: 'modified',
+          item: { ...item('other', '3'), kind: 'Deployment' },
+        },
+      ]);
+      await vi.advanceTimersByTimeAsync(200);
+      expect(dispatched).toEqual([{ name: 'api', namespace: 'ns' }]);
+    });
   });
 
   it('caps the parked subscriptions and closes the oldest', async () => {
@@ -179,5 +503,135 @@ describe('realtime subscriptions across tab switches', () => {
     store.getState().stopRealtime();
     expect(ws.unsubscribes.sort()).toEqual([topicOf('configmaps'), topicOf('secrets')].sort());
     expect(ws.handlers.size).toBe(0);
+  });
+
+  it('keeps flushing while animation frames are paused (hidden window)', async () => {
+    const store = makeStore();
+    await open(store, 'configmaps', [item('a')]);
+    // A hidden window never runs its animation frames.
+    (globalThis as any).requestAnimationFrame = () => 1;
+    (globalThis as any).cancelAnimationFrame = () => {};
+    emit('configmaps', [{ action: 'added', item: item('b') }]);
+    await vi.advanceTimersByTimeAsync(300);
+    emit('configmaps', [{ action: 'added', item: item('c') }]);
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(store.getState().getCurrentTabState().listItems.map((i: any) => i.name).sort()).toEqual(['a', 'b', 'c']);
+    const rt = (globalThis as any).__kanivetRealtime;
+    expect(rt.pendingEvents).toHaveLength(0);
+    expect(rt.batchTimer).toBeNull();
+  });
+
+  // One page of a listing, as the websocket layer hands it over.
+  const page = (name: string, items: any[], epoch: number, total?: number) => {
+    for (const h of ws.handlers.get(topicOf(name)) || []) {
+      h({ isBatch: true, topic: topicOf(name), bulk: true, epoch, total, events: items.map((i) => ({ action: 'added', item: i })) });
+    }
+  };
+  const syncComplete = (name: string, epoch: number, itemCount: number) => {
+    for (const h of ws.handlers.get(topicOf(name)) || []) {
+      h({ isBatch: true, topic: topicOf(name), events: [{ type: 'sync_complete', itemCount, epoch }] });
+    }
+  };
+  const many = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => item(`${prefix}-${i}`));
+
+  it('says how much of a list has arrived until it is all there', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    expect(tab().listSync).toBeNull();
+
+    page('pods', many('p', 25), 1, 300);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tab().listItems).toHaveLength(25);
+    expect(tab().isLoadingListItems).toBe(false);
+    expect(tab().listSync).toEqual({ loaded: 25, total: 300 });
+
+    // The full list starts over from the first rows: they are not counted twice.
+    page('pods', many('p', 100), 1, 300);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tab().listSync).toEqual({ loaded: 100, total: 300 });
+
+    page('pods', many('p', 300).slice(100), 1, 300);
+    syncComplete('pods', 1, 300);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tab().listItems).toHaveLength(300);
+    expect(tab().listSync).toBeNull();
+  });
+
+  it('clears the progress when the closing sync changes no row', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    page('pods', many('p', 3), 1, 3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tab().listSync).toEqual({ loaded: 3, total: 3 });
+    const rows = tab().listItems;
+
+    syncComplete('pods', 1, 3);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tab().listSync).toBeNull();
+    expect(tab().listItems).toBe(rows);
+  });
+
+  it('shows a list of unknown size as loading without a total', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    // A saved list replayed while the fresh one is on its way carries no size.
+    page('pods', many('p', 40), 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.getState().getCurrentTabState().listSync).toEqual({ loaded: 40 });
+
+    // The fresh listing's size belongs to it, not to the replay.
+    page('pods', many('p', 10), 2, 50);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(store.getState().getCurrentTabState().listSync).toEqual({ loaded: 10, total: 50 });
+  });
+
+  it('keeps the progress of a list when its tab is switched away from and back', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    page('pods', many('p', 25), 1, 300);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await open(store, 'configmaps', [item('a')]);
+    expect(tab().listSync).toBeNull();
+
+    page('pods', many('p', 200), 1, 300);
+    await vi.advanceTimersByTimeAsync(700);
+    select(store, 'pods');
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    expect(tab().listItems).toHaveLength(200);
+    expect(tab().listSync).toEqual({ loaded: 200, total: 300 });
+  });
+
+  it('spaces out the flushes of a long list that is still arriving', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    page('pods', many('p', 20000), 1, 30000);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tab().listItems).toHaveLength(20000);
+
+    // 20,000 rows: one flush every 400 ms, not every 120.
+    page('pods', many('q', 100), 1, 30000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(tab().listItems).toHaveLength(20000);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(tab().listItems).toHaveLength(20100);
+
+    // Once the list is complete its updates are back on the usual window.
+    syncComplete('pods', 1, 20100);
+    await vi.advanceTimersByTimeAsync(500);
+    emit('pods', [{ action: 'added', item: item('late') }]);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(tab().listItems).toHaveLength(20101);
   });
 });

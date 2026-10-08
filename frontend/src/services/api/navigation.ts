@@ -11,13 +11,23 @@ export async function getNavigationHistory(tabId: string): Promise<any[]> {
 }
 
 export async function navigateBack(tabId: string): Promise<NavigationEntry | null> {
-  const response = await apiClient.getAxios().post(`/navigation/back/${encodeURIComponent(tabId)}`);
-  return response.data.entry;
+  try {
+    const response = await apiClient.getAxios().post(`/navigation/back/${encodeURIComponent(tabId)}`);
+    return response.data.entry;
+  } catch (error: any) {
+    if (error.response?.status === 404 && error.response?.data?.error === 'No previous navigation entry') return null;
+    throw error;
+  }
 }
 
 export async function navigateForward(tabId: string): Promise<NavigationEntry | null> {
-  const response = await apiClient.getAxios().post(`/navigation/forward/${encodeURIComponent(tabId)}`);
-  return response.data.entry;
+  try {
+    const response = await apiClient.getAxios().post(`/navigation/forward/${encodeURIComponent(tabId)}`);
+    return response.data.entry;
+  } catch (error: any) {
+    if (error.response?.status === 404 && error.response?.data?.error === 'No forward navigation entry') return null;
+    throw error;
+  }
 }
 
 export async function clearNavigationHistory(tabId: string): Promise<void> {

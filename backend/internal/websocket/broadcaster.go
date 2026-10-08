@@ -82,6 +82,17 @@ func (wb *WatcherBroadcaster) FlushTopic(topic string) error {
 	return nil
 }
 
+var _ watcher.TopicHolder = (*WatcherBroadcaster)(nil)
+
+// HoldTopic queues the topic's batched events until release; see
+// EventBatcher.HoldTopic.
+func (wb *WatcherBroadcaster) HoldTopic(topic string) (release func()) {
+	if wb.batcher != nil {
+		return wb.batcher.HoldTopic(topic)
+	}
+	return func() {}
+}
+
 func (wb *WatcherBroadcaster) SetSortPreference(topic, sortBy, sortOrder string) {
 	if wb.batcher != nil {
 		wb.batcher.SetSortPreference(topic, sortBy, sortOrder)

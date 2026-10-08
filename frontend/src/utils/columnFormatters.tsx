@@ -1,5 +1,8 @@
 import React from 'react';
 import { formatAge } from './formatters';
+import NodeLink from '../components/NodeLink';
+import OwnerLink from '../components/OwnerLink';
+import ServiceAccountLink from '../components/ServiceAccountLink';
 
 // Helper function to safely get nested property value
 
@@ -45,10 +48,6 @@ export const formatAnnotations = (
 
 // Format service account
 export const formatServiceAccount = (item: any): React.ReactElement => {
-  // Import here to avoid circular dependency
-  const ServiceAccountLink =
-    require('../components/ServiceAccountLink').default;
-
   return (
     <ServiceAccountLink
       serviceAccountName={item.serviceAccountName || 'default'}
@@ -59,17 +58,11 @@ export const formatServiceAccount = (item: any): React.ReactElement => {
 
 // Format node information
 export const formatNodeName = (item: any): React.ReactElement => {
-  // Import here to avoid circular dependency
-  const NodeLink = require('../components/NodeLink').default;
-
   return <NodeLink nodeName={item.nodeName} />;
 };
 
 // Format owner references
 export const formatOwner = (item: any): React.ReactElement => {
-  // Import here to avoid circular dependency
-  const OwnerLink = require('../components/OwnerLink').default;
-
   return <OwnerLink ownerReferences={item.ownerReferences} />;
 };
 

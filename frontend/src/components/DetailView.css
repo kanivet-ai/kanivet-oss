@@ -2726,3 +2726,55 @@ body.resizing-width .detail-resize-handle {
   color: var(--red);
   border-color: transparent;
 }
+
+/* Header actions: one grid so every pill is the same size and wraps in
+   aligned rows, in the loading skeleton too. The group wrappers dissolve so
+   all buttons share the grid; order keeps them where the groups had them.
+   132px fits the longest common label, "View Deployment". */
+.resource-actions-row {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 6px !important;
+  align-items: stretch !important;
+  width: 100% !important;
+}
+
+.resource-actions-row > .quick-actions,
+.resource-actions-row > .tab-content-actions {
+  display: contents !important;
+}
+
+.resource-actions-row .quick-action-btn,
+.resource-actions-row .tab-content-action-btn,
+.resource-actions-row .pin-detail-btn {
+  width: 100% !important;
+  justify-content: flex-start;
+  overflow: hidden;
+}
+
+.resource-actions-row .quick-actions .quick-action-btn {
+  order: 1;
+}
+
+.resource-actions-row .pin-detail-btn {
+  order: 2;
+}
+
+.resource-actions-row .tab-content-action-btn {
+  order: 3;
+}
+
+.resource-actions-row > .quick-action-btn,
+.resource-actions-row .tab-content-action-btn.ap-action--danger {
+  order: 4;
+}
+
+.resource-actions-row .ap-action-icon {
+  flex-shrink: 0;
+}
+
+.resource-actions-row .ap-action-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

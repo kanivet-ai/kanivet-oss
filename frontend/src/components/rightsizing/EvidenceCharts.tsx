@@ -54,17 +54,23 @@ const EVENT_COLOR = (t: ChartTheme, kind: EvidenceEvent['kind']) =>
         ? t.text2
         : t.purple;
 
-/** Draws events as thin vertical rules with a marker at the top. */
-const eventsPlugin = (
-  events: { x: number; kind: EvidenceEvent['kind'] }[],
-  theme: ChartTheme,
-): Plugin<'line'> => ({
+type EventPoint = { x: number; kind: EvidenceEvent['kind'] };
+
+/** Draws events as thin vertical rules with a marker at the top.
+ * react-chartjs-2 registers plugins once, when the chart mounts, so the
+ * events and colours are read from `live` at each draw: a plugin built from
+ * props would keep the first container's markers through tab switches, fresh
+ * evidence and theme flips. */
+export const eventsPlugin = (live: {
+  current: { points: EventPoint[]; theme: ChartTheme };
+}): Plugin<'line'> => ({
   id: 'rsEvents',
   afterDatasetsDraw(chart) {
+    const { points, theme } = live.current;
     const { ctx, chartArea, scales } = chart;
     const x = scales.x;
     ctx.save();
-    for (const e of events) {
+    for (const e of points) {
       const px = x.getPixelForValue(e.x);
       if (px < chartArea.left || px > chartArea.right) continue;
       const color = EVENT_COLOR(theme, e.kind);
@@ -215,7 +221,7 @@ const toEventPoints = (
   events: EvidenceEvent[],
   labels: number[],
   kinds: EvidenceEvent['kind'][],
-) => {
+): EventPoint[] => {
   if (labels.length === 0) return [];
   const start = labels[0];
   return events
@@ -250,20 +256,19 @@ const CPUChartImpl: React.FC<{
     ...(hourly.cpuP95.filter((v) => v !== null) as number[]),
     0,
   );
-  const plugins = useMemo(
-    () => [
-      eventsPlugin(
-        toEventPoints(events, labels, [
-          'restart',
-          'shift-cpu',
-          'request-change',
-          'oom',
-        ]),
-        theme,
-      ),
-    ],
-    [events, labels, theme],
+  const points = useMemo(
+    () =>
+      toEventPoints(events, labels, [
+        'restart',
+        'shift-cpu',
+        'request-change',
+        'oom',
+      ]),
+    [events, labels],
   );
+  const live = useRef({ points, theme });
+  live.current = { points, theme };
+  const plugins = useMemo(() => [eventsPlugin(live)], []);
   const data = {
     labels,
     datasets: [
@@ -335,20 +340,19 @@ const MemoryChartImpl: React.FC<{
     ...(hourly.memMax.filter((v) => v !== null) as number[]),
     0,
   );
-  const plugins = useMemo(
-    () => [
-      eventsPlugin(
-        toEventPoints(events, labels, [
-          'oom',
-          'restart',
-          'shift-memory',
-          'request-change',
-        ]),
-        theme,
-      ),
-    ],
-    [events, labels, theme],
+  const points = useMemo(
+    () =>
+      toEventPoints(events, labels, [
+        'oom',
+        'restart',
+        'shift-memory',
+        'request-change',
+      ]),
+    [events, labels],
   );
+  const live = useRef({ points, theme });
+  live.current = { points, theme };
+  const plugins = useMemo(() => [eventsPlugin(live)], []);
   const data = {
     labels,
     datasets: [
@@ -443,13 +447,14 @@ const DurationCurveImpl: React.FC<{
   // react-chartjs-2 registers plugins once, when the chart mounts: the
   // callouts read the latest values from here, or they would stay where
   // the candidate was first drawn.
-  const live = useRef({ candidate, current, currentOnChart, dist });
-  live.current = { candidate, current, currentOnChart, dist };
+  const live = useRef({ candidate, current, currentOnChart, dist, theme });
+  live.current = { candidate, current, currentOnChart, dist, theme };
   const labels = useMemo<Plugin<'line'>>(
     () => ({
       id: 'rsDurationLabels',
       afterDatasetsDraw(chart) {
-        const { candidate, current, currentOnChart, dist } = live.current;
+        const { candidate, current, currentOnChart, dist, theme } =
+          live.current;
         const candHours = hoursAbove(dist, candidate);
         const currHours = current > 0 ? hoursAbove(dist, current) : 0;
         const { ctx, chartArea, scales, tooltip } = chart;
@@ -518,7 +523,7 @@ const DurationCurveImpl: React.FC<{
         }
       },
     }),
-    [theme],
+    [],
   );
   if (pts.length < 2) return null;
   const along = (y: number) => pts.map((p) => ({ x: p.x, y }));

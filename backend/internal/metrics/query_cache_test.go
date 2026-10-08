@@ -221,6 +221,7 @@ func TestQueryCacheConcurrentRequestsAndCancellation(t *testing.T) {
 func TestQueryCacheDoesNotFinalizeWarningsOrErrors(t *testing.T) {
 	for _, body := range []string{
 		`{"status":"success","warnings":["partial response"],"data":{"resultType":"matrix","result":[]}}`,
+		`{"status":"success","isPartial":true,"data":{"resultType":"matrix","result":[]}}`,
 		`{"status":"error","errorType":"execution","error":"overloaded"}`,
 		`{"status":"success","data":{"resultType":"matrix","result":[`,
 	} {

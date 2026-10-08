@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { useStore } from '../store';
+
+const NO_RELEASES: any[] = [];
 
 interface HelmStreamProgress {
   namespacesTotal: number;
@@ -26,22 +29,26 @@ export const useHelmReleasesStream = (
 ): UseHelmReleasesStreamResult => {
   const handlerRef = useRef<((raw: any) => void) | null>(null);
   const hasSubscribedRef = useRef(false);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clusterRef = useRef(options.cluster);
   clusterRef.current = options.cluster;
 
-  // Get state from store - use shallow selectors to prevent unnecessary re-renders
-  const tab = useStore(
-    useCallback(
-      (state) => state.activeTabs.find((t) => t.id === options.cluster),
-      [options.cluster]
-    )
+  // Only the helm fields of the cluster's tab: other writes to the tab (list
+  // updates, tree counts) do not re-render the releases page.
+  const { releases, loading, streaming, progress, error } = useStore(
+    useShallow((state) => {
+      const tabState = state.activeTabs.find(
+        (t) => t.id === options.cluster,
+      )?.state;
+      return {
+        releases: tabState?.helmReleases || NO_RELEASES,
+        loading: tabState?.helmReleasesLoading ?? true,
+        streaming: tabState?.helmReleasesStreaming ?? false,
+        progress: tabState?.helmReleasesProgress ?? null,
+        error: tabState?.helmReleasesError ?? null,
+      };
+    }),
   );
-  
-  const releases = tab?.state.helmReleases || [];
-  const loading = tab?.state.helmReleasesLoading ?? true;
-  const streaming = tab?.state.helmReleasesStreaming ?? false;
-  const progress = tab?.state.helmReleasesProgress ?? null;
-  const error = tab?.state.helmReleasesError ?? null;
 
   // Get actions from store - these are stable references
   const addHelmReleases = useStore((state) => state.addHelmReleases);
@@ -162,10 +169,20 @@ export const useHelmReleasesStream = (
     setHelmReleasesProgress(cluster, null);
     
     // Small delay to ensure unsubscribe is processed
-    setTimeout(() => {
+    if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
       subscribe(cluster);
     }, 100);
   }, [unsubscribe, subscribe, clearHelmReleases, setHelmReleasesLoading, setHelmReleasesStreaming, setHelmReleasesError, setHelmReleasesProgress]);
+
+  // A refresh still waiting to resubscribe must not outlive the page.
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, []);
 
   // Initial load effect - runs once when component mounts or cluster changes
   useEffect(() => {

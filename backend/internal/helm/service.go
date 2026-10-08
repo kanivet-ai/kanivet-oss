@@ -14,12 +14,14 @@ import (
 	"helm.sh/helm/v3/pkg/chart"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/release"
+	"helm.sh/helm/v3/pkg/storage"
 	"helm.sh/helm/v3/pkg/storage/driver"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 )
 
@@ -132,7 +134,7 @@ func (s *Service) getActionConfig(cluster, namespace string) (*action.Configurat
 	}
 
 	actionConfig := new(action.Configuration)
-	if err := actionConfig.Init(restClientGetter, namespace, "secret", log.Printf); err != nil {
+	if err := actionConfig.Init(restClientGetter, namespace, "secret", helmLog); err != nil {
 		return nil, fmt.Errorf("failed to initialize helm action config: %w", err)
 	}
 
@@ -142,6 +144,29 @@ func (s *Service) getActionConfig(cluster, namespace string) (*action.Configurat
 	s.configCacheMu.Unlock()
 
 	return actionConfig, nil
+}
+
+// helmLog is the logger Helm's action configuration and storage drivers write
+// to. The secrets driver logs a record it cannot decode with the whole Secret
+// as an argument, its release payload (values and rendered manifests, Secrets
+// among them) included; such an argument is logged as its namespace/name.
+func helmLog(format string, v ...interface{}) {
+	args := make([]interface{}, len(v))
+	for i, a := range v {
+		switch o := a.(type) {
+		case corev1.Secret:
+			args[i] = o.Namespace + "/" + o.Name
+		case *corev1.Secret:
+			args[i] = o.GetNamespace() + "/" + o.GetName()
+		case corev1.ConfigMap:
+			args[i] = o.Namespace + "/" + o.Name
+		case *corev1.ConfigMap:
+			args[i] = o.GetNamespace() + "/" + o.GetName()
+		default:
+			args[i] = a
+		}
+	}
+	log.Printf("[Helm] "+format, args...)
 }
 
 // InvalidateConfigCache clears the ActionConfig cache for a cluster (call on cluster disconnect)
@@ -209,10 +234,79 @@ func (s *Service) listReleasesInNamespace(ctx context.Context, cluster, namespac
 	return result, nil
 }
 
-// listReleasesAllNamespacesParallel fetches releases from all namespaces in parallel
-// This is typically 3-5x faster than a single allNamespaces query
+// liveReleaseSecrets narrows the Helm secrets driver's listing to records that
+// are not superseded. Helm keeps one record per revision, labelled with its
+// status, and the release list only shows each release's latest revision,
+// which is never superseded. Filtering on the server skips downloading and
+// decoding all the history the list never shows.
+type liveReleaseSecrets struct {
+	corev1client.SecretInterface
+	ctx context.Context
+}
+
+func (s liveReleaseSecrets) List(_ context.Context, opts metav1.ListOptions) (*corev1.SecretList, error) {
+	opts.LabelSelector += ",status!=superseded"
+	return s.SecretInterface.List(s.ctx, opts)
+}
+
+// listReleasesClusterWide lists every namespace's releases with one Secrets
+// LIST and the same filters as the per-namespace listing. It fails when the
+// user may not list Secrets across namespaces.
+func (s *Service) listReleasesClusterWide(ctx context.Context, cluster string) ([]Release, error) {
+	client, _, err := s.k8sClient.GetClientAndConfig(cluster)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get k8s client: %w", err)
+	}
+	base, err := s.getActionConfig(cluster, "")
+	if err != nil {
+		return nil, err
+	}
+	secrets := driver.NewSecrets(liveReleaseSecrets{SecretInterface: client.CoreV1().Secrets(""), ctx: ctx})
+	if base.Log != nil {
+		secrets.Log = base.Log
+	}
+	cfg := &action.Configuration{
+		RESTClientGetter: base.RESTClientGetter,
+		Releases:         storage.Init(secrets),
+		KubeClient:       base.KubeClient,
+		Log:              base.Log,
+	}
+
+	listAction := action.NewList(cfg)
+	listAction.Deployed = true
+	listAction.Failed = true
+	listAction.Pending = true
+	listAction.AllNamespaces = true
+	releases, err := listAction.Run()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]Release, 0, len(releases))
+	for _, rel := range releases {
+		result = append(result, s.convertRelease(rel))
+	}
+	sort.Slice(result, func(i, j int) bool {
+		if result[i].Namespace != result[j].Namespace {
+			return result[i].Namespace < result[j].Namespace
+		}
+		return result[i].Name < result[j].Name
+	})
+	return result, nil
+}
+
+// listReleasesAllNamespacesParallel fetches releases from all namespaces: in
+// one cluster-wide LIST when allowed, otherwise from every namespace in
+// parallel, each with its own LIST.
 func (s *Service) listReleasesAllNamespacesParallel(ctx context.Context, cluster string) ([]Release, error) {
 	startTotal := time.Now()
+
+	releases, err := s.listReleasesClusterWide(ctx, cluster)
+	if err == nil {
+		log.Printf("[Helm] Listed %d releases cluster-wide in %v", len(releases), time.Since(startTotal))
+		return releases, nil
+	}
+	log.Printf("[Helm] Cluster-wide release list failed, listing per namespace: %v", err)
 
 	// Get list of namespaces
 	startNsList := time.Now()
@@ -394,6 +488,22 @@ func (s *Service) StreamReleases(ctx context.Context, cluster string) (<-chan []
 	go func() {
 		defer close(releasesChan)
 		defer close(progressChan)
+
+		releases, err := s.listReleasesClusterWide(ctx, cluster)
+		if err == nil {
+			select {
+			case progressChan <- StreamProgress{Total: len(namespaces), Completed: len(namespaces)}:
+			default:
+			}
+			if len(releases) > 0 {
+				select {
+				case releasesChan <- releases:
+				case <-ctx.Done():
+				}
+			}
+			return
+		}
+		log.Printf("[Helm] Cluster-wide release list failed, streaming per namespace: %v", err)
 
 		const maxConcurrency = 20
 		semaphore := make(chan struct{}, maxConcurrency)

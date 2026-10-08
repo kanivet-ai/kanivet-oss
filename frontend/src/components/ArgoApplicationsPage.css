@@ -88,7 +88,7 @@
   flex: none;
 }
 
-/* ---- Toolbar — search, chips, group pop-up, density, bulk actions ------- */
+/* ---- Toolbar — search, chips, group pop-up, bulk actions ------- */
 .argo-apps-toolbar {
   display: flex;
   align-items: center;
@@ -332,15 +332,15 @@
   border: 0;
   vertical-align: middle;
   line-height: 18px;
-  color: var(--text2);
+  /* Values are primary text, as in the resource lists. */
+  color: var(--text);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   box-sizing: border-box;
 }
 
-.density-compact .argo-apps-table tbody td { height: 28px; }
-.density-cozy .argo-apps-table tbody td { height: 34px; }
+.argo-apps-table tbody td { height: 30px; }
 
 .argo-apps-table tbody td:last-child,
 .argo-apps-table thead th:last-child {
@@ -352,6 +352,10 @@
 .argo-apps-col-time { width: 84px; }
 
 /* Stripe lives on the row; hover and selection paint the cells above it. */
+.argo-apps-table tbody tr {
+  cursor: default;
+}
+
 .argo-apps-table tbody tr:nth-child(even):not(.argo-apps-group-row) {
   background: var(--stripe);
 }
@@ -379,7 +383,7 @@
   border-radius: 0 6px 6px 0;
 }
 
-.argo-apps-table tbody tr.focused .argo-apps-name-link,
+.argo-apps-table tbody tr.focused .argo-apps-name,
 .argo-apps-table tbody tr.focused .argo-apps-dest-ns,
 .argo-apps-table tbody tr.focused .argo-apps-pill,
 .argo-apps-table tbody tr.focused .argo-apps-row-spinner-label {
@@ -518,64 +522,10 @@
   min-width: 220px;
 }
 
-.argo-apps-name-link {
-  background: transparent;
-  border: none;
-  padding: 0;
+.argo-apps-name {
   color: var(--text);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 400;
-  letter-spacing: -0.1px;
+  font-size: 12.5px;
   line-height: 18px;
-}
-
-.argo-apps-name-link:hover {
-  text-decoration: underline;
-  color: var(--blue);
-}
-
-/* Row actions — a small floating pill group revealed on hover */
-.argo-apps-row-actions {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  display: none;
-  gap: 2px;
-  background: var(--card);
-  border-radius: 7px;
-  box-shadow: var(--shadow-pill);
-  padding: 2px;
-}
-
-.argo-apps-table tbody tr:hover .argo-apps-row-actions,
-.argo-apps-table tbody tr.focused .argo-apps-row-actions {
-  display: inline-flex;
-}
-
-.argo-apps-row-actions button {
-  font-size: 11px;
-  font-weight: 500;
-  height: 20px;
-  padding: 0 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text);
-  cursor: pointer;
-  line-height: 1;
-  transition: background var(--duration-fast) var(--ease-quiet);
-}
-
-.argo-apps-row-actions button:hover {
-  background: var(--hover);
-}
-
-.argo-apps-row-actions button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
 }
 
 .argo-apps-row-spinner-wrap {

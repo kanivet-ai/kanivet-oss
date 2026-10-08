@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { memo, useState, useSyncExternalStore } from 'react';
 import {
   CheckCircledIcon,
   CrossCircledIcon,
@@ -13,12 +13,14 @@ import type {
 } from '../../types/rightsizing';
 import { Tooltip } from '../common/Tooltip';
 import MonitoringSettingsModal from '../MonitoringSettingsModal';
+import { sharedClock } from '../../utils/sharedClock';
 import {
   VERDICT_META,
   formatMoney,
   formatPct,
   formatResource,
   pctChange,
+  relativeTime,
 } from './rightsizingView';
 // Shared visual language with FinOps: stat cards, banners, kind badges.
 import '../finops/FinOpsDashboard.css';
@@ -50,10 +52,12 @@ const CONFIDENCE_TEXT = {
 export const ConfidenceMeter: React.FC<{
   level: 'high' | 'medium' | 'low';
   label?: boolean;
-}> = ({ level, label = true }) => {
+  /** Off while a table row hasn't been hovered: its tooltip mounts lazily. */
+  tooltip?: boolean;
+}> = ({ level, label = true, tooltip = true }) => {
   const filled = level === 'high' ? 3 : level === 'medium' ? 2 : 1;
   return (
-    <Tooltip content={CONFIDENCE_TEXT[level]}>
+    <Tooltip content={tooltip ? CONFIDENCE_TEXT[level] : null}>
       <span
         className={`rs-confidence rs-confidence-${level}`}
         aria-label={`${level} confidence`}
@@ -72,6 +76,22 @@ export const ConfidenceMeter: React.FC<{
     </Tooltip>
   );
 };
+
+/** "12 min ago", kept current. Polls that change nothing leave the report,
+ * and so the dashboard, as it was; this re-renders on its own, and only when
+ * its text changes. */
+export const RelativeTime = memo(function RelativeTime({
+  iso,
+}: {
+  iso: string;
+}) {
+  // The clock only runs while something listens, so until its first tick
+  // its time can be old.
+  const [mounted] = useState(Date.now);
+  const read = () =>
+    relativeTime(iso, Math.max(sharedClock.getSnapshot(), mounted));
+  return <>{useSyncExternalStore(sharedClock.subscribe, read, read)}</>;
+});
 
 /** "1 core → 220m", muted when there is no change. */
 export const ResourceDelta: React.FC<{

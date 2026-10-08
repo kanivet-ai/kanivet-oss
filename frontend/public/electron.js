@@ -3,11 +3,15 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 const { spawn, execSync } = require('child_process');
-const Store = require('electron-store');
-const { autoUpdater } = require('electron-updater');
 const {
   runLegacyHostedIdentityCleanup,
 } = require('./legacyHostedIdentityMigration');
+const {
+  STATE_FILE: WINDOW_STATE_FILE,
+  readWindowState,
+  resolveWindowOptions,
+  trackWindowState,
+} = require('./windowState');
 const isDev = !app.isPackaged && process.argv.includes('--dev');
 
 if (!app.requestSingleInstanceLock()) {
@@ -16,7 +20,27 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 const SESSION_SECRET = crypto.randomBytes(32).toString('hex');
-const settingsStore = new Store({ name: 'kanivet-settings' });
+
+// electron-store (with ajv) and electron-updater take ~125 ms to require, and
+// 'ready', so the window, waits for everything this script does on load.
+// Neither is needed to show the window: both load on first use.
+let settingsStore = null;
+function getSettingsStore() {
+  if (!settingsStore) {
+    const Store = require('electron-store');
+    settingsStore = new Store({ name: 'kanivet-settings' });
+  }
+  return settingsStore;
+}
+
+let autoUpdater = null;
+function getAutoUpdater() {
+  if (!autoUpdater) {
+    autoUpdater = require('electron-updater').autoUpdater;
+    configureAutoUpdater(autoUpdater);
+  }
+  return autoUpdater;
+}
 
 // Detect if app is running from macOS App Translocation (read-only sandbox)
 function isAppTranslocated() {
@@ -33,10 +57,6 @@ function isInApplicationsFolder() {
   return appPath.startsWith('/Applications/') || 
          appPath.includes('/Applications/');
 }
-
-autoUpdater.autoDownload = false;
-autoUpdater.autoInstallOnAppQuit = true;
-autoUpdater.disableDifferentialDownload = true;
 
 let dynamicIsland = null;
 const ISLAND_TYPES = new Set(['success', 'error', 'info', 'warning']);
@@ -143,6 +163,16 @@ function getRestartDelay(attempt) {
   return RESTART_BACKOFF_MS[Math.min(attempt, RESTART_BACKOFF_MS.length - 1)] || RESTART_BACKOFF_MAX_MS;
 }
 
+// The window opens while the backend is still starting, so the renderer asks
+// for the port ('backend:getPort') rather than relying on the
+// 'backend:port-changed' push alone: a push sent before the page subscribed is
+// lost. The answer waits until startup has a port, or has given up on one; the
+// push still announces restarts.
+let resolveBackendPortKnown;
+const backendPortKnown = new Promise((resolve) => {
+  resolveBackendPortKnown = resolve;
+});
+
 function setBackendPort(port) {
   if (!port || Number(port) <= 0) return;
   backendPort = Number(port);
@@ -222,6 +252,8 @@ ipcMain.handle('security:getSessionSecret', () => {
   return SESSION_SECRET;
 });
 
+ipcMain.handle('backend:getPort', () => backendPortKnown.then(() => backendPort));
+
 
 
 let updateInfo = null;
@@ -278,7 +310,7 @@ ipcMain.handle('updater:checkForUpdates', async () => {
     isUpdateAvailable = false;
     const timeoutMs = 15000;
     const result = await Promise.race([
-      autoUpdater.checkForUpdates(),
+      getAutoUpdater().checkForUpdates(),
       new Promise((_, reject) => setTimeout(() => reject(new Error('Update check timed out')), timeoutMs))
     ]);
     if (isUpdateAvailable) {
@@ -321,7 +353,7 @@ ipcMain.handle('updater:downloadUpdate', async () => {
   // differential-download path is sensitive to corrupted/half-finished caches
   // and can fail SHA-512 verification in a "download → delete → re-download" loop.
   try {
-    const cacheDir = autoUpdater.downloadedUpdateHelper?.cacheDir;
+    const cacheDir = getAutoUpdater().downloadedUpdateHelper?.cacheDir;
     if (cacheDir) {
       const fsSync = require('fs');
       if (fsSync.existsSync(cacheDir)) {
@@ -348,7 +380,7 @@ ipcMain.handle('updater:downloadUpdate', async () => {
 
   try {
     writeLog('[Updater] Downloading update...');
-    await autoUpdater.downloadUpdate();
+    await getAutoUpdater().downloadUpdate();
     return { success: true };
   } catch (error) {
     writeLog(`[Updater] Error downloading update: ${error.message}`);
@@ -362,8 +394,9 @@ ipcMain.handle('updater:installUpdate', () => {
   setImmediate(() => {
     app.removeAllListeners('window-all-closed');
     BrowserWindow.getAllWindows().forEach((win) => win.removeAllListeners('close'));
-    autoUpdater.autoInstallOnAppQuit = false;
-    autoUpdater.quitAndInstall(false, true);
+    const updater = getAutoUpdater();
+    updater.autoInstallOnAppQuit = false;
+    updater.quitAndInstall(false, true);
   });
 });
 
@@ -371,59 +404,65 @@ ipcMain.handle('updater:getDownloadProgress', () => {
   return downloadProgress;
 });
 
-autoUpdater.on('checking-for-update', () => {
-  writeLog('[Updater] Checking for update...');
-});
+function configureAutoUpdater(updater) {
+  updater.autoDownload = false;
+  updater.autoInstallOnAppQuit = true;
+  updater.disableDifferentialDownload = true;
 
-autoUpdater.on('update-available', (info) => {
-  writeLog(`[Updater] Update available: ${info.version}`);
-  isUpdateAvailable = true;
-  updateInfo = info;
-  if (isDownloadingUpdate || isUpdateDownloaded) {
-    writeLog('[Updater] Suppressing update-available notification while update is already in progress');
-    return;
-  }
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:update-available', info);
-  }
-});
+  updater.on('checking-for-update', () => {
+    writeLog('[Updater] Checking for update...');
+  });
 
-autoUpdater.on('update-not-available', (info) => {
-  writeLog('[Updater] No update available');
-  isUpdateAvailable = false;
-  updateInfo = null;
-  isUpdateDownloaded = false;
-});
+  updater.on('update-available', (info) => {
+    writeLog(`[Updater] Update available: ${info.version}`);
+    isUpdateAvailable = true;
+    updateInfo = info;
+    if (isDownloadingUpdate || isUpdateDownloaded) {
+      writeLog('[Updater] Suppressing update-available notification while update is already in progress');
+      return;
+    }
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:update-available', info);
+    }
+  });
 
-autoUpdater.on('error', (err) => {
-  writeLog(`[Updater] Error: ${err.message}`);
-  isCheckingForUpdate = false;
-  isDownloadingUpdate = false;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:error', err.message);
-  }
-});
+  updater.on('update-not-available', (info) => {
+    writeLog('[Updater] No update available');
+    isUpdateAvailable = false;
+    updateInfo = null;
+    isUpdateDownloaded = false;
+  });
 
-autoUpdater.on('download-progress', (progressObj) => {
-  isDownloadingUpdate = true;
-  downloadProgress = progressObj;
-  writeLog(`[Updater] Download progress: ${progressObj.percent.toFixed(1)}%`);
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:download-progress', progressObj);
-  }
-});
+  updater.on('error', (err) => {
+    writeLog(`[Updater] Error: ${err.message}`);
+    isCheckingForUpdate = false;
+    isDownloadingUpdate = false;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:error', err.message);
+    }
+  });
 
-autoUpdater.on('update-downloaded', (info) => {
-  writeLog(`[Updater] Update downloaded: ${info.version}`);
-  showIsland({ type: 'info', message: `Kanivet ${info.version} ready — restart to apply`, icon: 'info', duration: 6000 });
-  downloadProgress = null;
-  isDownloadingUpdate = false;
-  isUpdateDownloaded = true;
-  updateInfo = info;
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('updater:update-downloaded', info);
-  }
-});
+  updater.on('download-progress', (progressObj) => {
+    isDownloadingUpdate = true;
+    downloadProgress = progressObj;
+    writeLog(`[Updater] Download progress: ${progressObj.percent.toFixed(1)}%`);
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:download-progress', progressObj);
+    }
+  });
+
+  updater.on('update-downloaded', (info) => {
+    writeLog(`[Updater] Update downloaded: ${info.version}`);
+    showIsland({ type: 'info', message: `Kanivet ${info.version} ready — restart to apply`, icon: 'info', duration: 6000 });
+    downloadProgress = null;
+    isDownloadingUpdate = false;
+    isUpdateDownloaded = true;
+    updateInfo = info;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('updater:update-downloaded', info);
+    }
+  });
+}
 
 function checkForUpdatesAutomatically() {
   if (isDev) {
@@ -440,7 +479,7 @@ function checkForUpdatesAutomatically() {
   isCheckingForUpdate = true;
   const timeoutMs = 15000;
   Promise.race([
-    autoUpdater.checkForUpdates(),
+    getAutoUpdater().checkForUpdates(),
     new Promise((_, reject) => setTimeout(() => reject(new Error('Update check timed out')), timeoutMs))
   ]).catch((err) => {
     writeLog(`[Updater] Automatic update check failed: ${err.message}`);
@@ -645,9 +684,25 @@ function createWindow() {
 
   const preloadPath = path.join(__dirname, 'preload.js');
 
+  // Open where the window was left: size, position (if that display is still
+  // connected), and maximized / full-screen state.
+  const windowStateFile = path.join(app.getPath('userData'), WINDOW_STATE_FILE);
+  let restoredWindow = { options: { width: 1440, height: 900 }, maximize: false, fullScreen: false };
+  try {
+    const { screen } = require('electron');
+    restoredWindow = resolveWindowOptions({
+      saved: readWindowState(windowStateFile),
+      displays: screen.getAllDisplays(),
+      defaults: restoredWindow.options,
+      minWidth: 900,
+      minHeight: 560,
+    });
+  } catch (error) {
+    writeLog(`[Window] Could not restore the window state: ${error.message}`);
+  }
+
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    ...restoredWindow.options,
     minWidth: 900,
     minHeight: 560,
     // macOS: hide the native title bar and let the renderer's tab bar sit
@@ -663,6 +718,14 @@ function createWindow() {
       devTools: isDev || process.env.KANIVET_DEVTOOLS === '1',
     },
   });
+
+  try {
+    if (restoredWindow.maximize) mainWindow.maximize();
+    if (restoredWindow.fullScreen) mainWindow.setFullScreen(true);
+    trackWindowState(mainWindow, { file: windowStateFile });
+  } catch (error) {
+    writeLog(`[Window] Could not track the window state: ${error.message}`);
+  }
 
   mainWindow.loadURL(getRendererUrl());
 
@@ -1029,10 +1092,15 @@ async function startBackend() {
 
       let stdoutBuffer = '';
       let startupResolved = false;
+      let resolveStarted;
+      const started = new Promise((resolve) => {
+        resolveStarted = resolve;
+      });
       const resolveStartup = (port) => {
         if (startupResolved) return;
         startupResolved = true;
         if (port) setBackendPort(port);
+        resolveStarted(backendPort);
       };
 
       backendProcess.stdout.on('data', (data) => {
@@ -1110,10 +1178,7 @@ async function startBackend() {
         }, delay);
       });
 
-      return new Promise((resolve) => {
-        const wait = () => startupResolved ? resolve(backendPort) : setTimeout(wait, 25);
-        wait();
-      });
+      return started;
     } else {
       const errorMsg = `Backend binary not found at: ${backendPath}`;
       writeLog(`[Backend Error] ${errorMsg}`);
@@ -1154,17 +1219,25 @@ app.on('second-instance', () => {
 
 async function handleAppReady({
   runLegacyHostedIdentityCleanupImpl = runLegacyHostedIdentityCleanup,
-  settingsStoreImpl = settingsStore,
+  settingsStoreImpl,
   startBackendImpl = startBackend,
   createWindowImpl = createWindow,
   createTrayImpl = createTray,
   initDynamicIslandImpl = initDynamicIsland,
   startPeriodicUpdateCheckImpl = startPeriodicUpdateCheck,
 } = {}) {
+  // The window (and the splash in index.html) shows while the backend starts;
+  // the renderer gets the port over 'backend:getPort'. Every way startup ends
+  // answers it, with the default port if no backend reported one.
+  const backendStarted = startBackendImpl();
+  backendStarted.then(resolveBackendPortKnown, resolveBackendPortKnown);
+  createWindowImpl();
+  createTrayImpl();
+
   try {
     const migrationResult = runLegacyHostedIdentityCleanupImpl({
       userDataPath: app.getPath('userData'),
-      migrationStore: settingsStoreImpl,
+      migrationStore: settingsStoreImpl || getSettingsStore(),
       log: (message) => writeLog(message),
     });
     if (migrationResult.errorCount > 0) {
@@ -1178,10 +1251,8 @@ async function handleAppReady({
     );
   }
 
-  await startBackendImpl();
-  createWindowImpl();
-  createTrayImpl();
   initDynamicIslandImpl();
+  await backendStarted;
   startPeriodicUpdateCheckImpl();
 }
 
@@ -1254,4 +1325,5 @@ module.exports = {
   createWindow,
   handleActivate,
   handleAppReady,
+  setBackendPort,
 };
