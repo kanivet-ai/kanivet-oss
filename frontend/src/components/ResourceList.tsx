@@ -669,7 +669,9 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   return (
     <div
       className={`resource-list ${isListFocused ? 'focused' : ''}`}
-      onClick={() => setFocusArea('list')}
+      onMouseDownCapture={() => {
+        updateCurrentTabState({ focusArea: 'list', ...(paneId ? { focusedCenterPaneId: paneId } : {}) });
+      }}
       onDragOver={(e) => {
         const isTabDrag = e.dataTransfer.types.includes('tab-type');
         const isSamePane = e.dataTransfer.types.includes(`source-pane-id:${paneId || 'root'}`);

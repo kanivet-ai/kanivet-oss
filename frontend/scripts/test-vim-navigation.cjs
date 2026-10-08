@@ -43,6 +43,24 @@ async function runRendererTests() {
     // Allow React's keyboard-handler effects to commit before the next key.
     await new Promise((resolve) => setTimeout(resolve, 50));
   };
+  const click = async (selector) => {
+    const point = await evaluate(`(() => {
+      const rect = document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect();
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2) };
+    })()`);
+    win.webContents.sendInputEvent({
+      type: 'mouseDown',
+      ...point,
+      button: 'left',
+      clickCount: 1,
+    });
+    win.webContents.sendInputEvent({
+      type: 'mouseUp',
+      ...point,
+      button: 'left',
+      clickCount: 1,
+    });
+  };
   const reset = async (options = {}) => {
     await evaluate(`window.navigationTest.reset(${JSON.stringify(options)})`);
     await evaluate(
@@ -75,6 +93,24 @@ async function runRendererTests() {
     await focus('detail');
     assert.equal((await snapshot()).detail, 'pod-b');
     assert.equal((await snapshot()).collapsed, false);
+    // A row click stops bubbling; the panel must claim focus during capture.
+    await click('.tree-node-selected');
+    await focus('tree');
+    await key('l');
+    await focus('list');
+    assert.equal((await snapshot()).selected, 'pod-b');
+    await key('l');
+    await focus('detail');
+    await click('.resource-list tr.resource-row td:nth-child(2)');
+    await focus('list');
+    assert.equal((await snapshot()).selected, 'pod-a');
+    await key('j');
+    assert.equal((await snapshot()).selected, 'pod-b');
+    await key('l');
+    await focus('detail');
+    console.log(
+      'PASS: mouse-selected tree and list rows take focus from details',
+    );
     await key('h');
     await focus('list');
     assert.equal((await snapshot()).selected, 'pod-b');

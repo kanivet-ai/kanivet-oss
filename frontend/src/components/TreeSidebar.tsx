@@ -656,8 +656,10 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         minWidth: `${width}px`,
         maxWidth: `${width}px`,
       }}
-      onMouseDown={() => setNavMode('pointer')}
-      onClick={() => setFocusArea('tree')}
+      onMouseDownCapture={() => {
+        setNavMode('pointer');
+        setFocusArea('tree');
+      }}
     >
       <div className="sidebar-header">
         <div className="search-box">
