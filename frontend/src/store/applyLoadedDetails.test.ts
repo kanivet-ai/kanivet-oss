@@ -19,7 +19,7 @@ describe('applyLoadedDetails', () => {
   it('writes the details into the cluster they were loaded for, not another tab', () => {
     // The request was made on cluster-a; by the time it answers the user is on cluster-b.
     const tabs = [
-      tab('cluster-a', { detailData: pod('api-0'), detailTabs: [{ id: 'dt-1', item: pod('api-0') }], activeDetailTab: 'dt-1' }),
+      tab('cluster-a', { isDetailsPanelCollapsed: false, detailData: pod('api-0'), detailTabs: [{ id: 'dt-1', item: pod('api-0') }], activeDetailTab: 'dt-1' }),
       tab('cluster-b', { detailData: pod('worker-3'), detailTabs: [{ id: 'dt-9', item: pod('worker-3') }], activeDetailTab: 'dt-9' }),
     ];
     const next = applyLoadedDetails(tabs, 'cluster-a', full);
@@ -31,12 +31,24 @@ describe('applyLoadedDetails', () => {
 
   it('does not put one cluster\'s details into a tab that has no detail tab open', () => {
     const tabs = [
-      tab('cluster-a', { detailData: pod('api-0'), detailTabs: [{ id: 'dt-1', item: pod('api-0') }], activeDetailTab: 'dt-1' }),
+      tab('cluster-a', { isDetailsPanelCollapsed: false, detailData: pod('api-0'), detailTabs: [{ id: 'dt-1', item: pod('api-0') }], activeDetailTab: 'dt-1' }),
       tab('cluster-b'),
     ];
     const next = applyLoadedDetails(tabs, 'cluster-a', full);
     expect(next[1].state.detailData).toBeNull();
     expect(next[0].state.detailData).toBe(full);
+  });
+
+  it('updates loaded details without reopening a collapsed active tab', () => {
+    const tabs = [tab('cluster-a', {
+      activeDetailTab: 'dt-1',
+      detailTabs: [{ id: 'dt-1', item: pod('api-0') }],
+      isDetailsPanelCollapsed: true,
+    })];
+    const next = applyLoadedDetails(tabs, 'cluster-a', full);
+    expect(next[0].state.detailData).toBe(full);
+    expect(next[0].state.detailTabs[0].item).toBe(full);
+    expect(next[0].state.isDetailsPanelCollapsed).toBe(true);
   });
 
   it('sets detailData when the cluster has no active detail tab', () => {
