@@ -221,15 +221,22 @@ func (h *listHub) sent() (rows int, completed []int, total int) {
 // start runs a watcher service against the server, with a cache as its sink.
 func start(t *testing.T, srv *podServer) (*watcher.Service, *Cache, *listHub) {
 	t.Helper()
+	// The kubeconfig sits where the client looks by default, under a home
+	// of the test's own (USERPROFILE is the one Windows reads), and the
+	// developer's KUBECONFIG is kept out of it.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("KUBECONFIG", "")
 	cfg := "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: " + srv.URL +
 		"\ncontexts:\n- name: c\n  context:\n    cluster: c\n    user: u\nusers:\n- name: u\n  user:\n    token: t\n"
-	path := filepath.Join(home, "kubeconfig")
+	path := filepath.Join(home, ".kube", "config")
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("KUBECONFIG", path)
 	hub := &listHub{}
 	svc := watcher.NewService(k8s.NewClient(), hub)
 	cache := New(svc, time.Minute)
