@@ -393,6 +393,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             isPinned,
             freshPaneId || undefined,
           );
+          void recordNavigation('cluster-settings', node.id, node.data);
         }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');

@@ -3,6 +3,7 @@ import { HelmRelease } from '../types/helm';
 import HelmReleaseList from './HelmReleaseList';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { pageResources } from '../store/navigationTargets';
 
 interface HelmPageProps {
   cluster: string;
@@ -17,7 +18,11 @@ const HelmPage = ({ cluster }: HelmPageProps) => {
       kind: 'HelmRelease',
       apiVersion: 'helm.sh/v1',
     };
+    const state = useStore.getState();
+    const tabId = state.getCurrentTabState()?.activeResourceListTab;
+    if (tabId) state.updateResourceListTab(tabId, { selectedItem: helmItem });
     openDetailTab({ kind: 'HelmRelease' }, helmItem, cluster);
+    void state.recordNavigation('helm', 'helm-releases', pageResources.helm, helmItem).catch(console.error);
   }, [cluster, openDetailTab]);
 
   return (

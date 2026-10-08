@@ -86,6 +86,34 @@ describe('realtime subscriptions across tab switches', () => {
   });
   afterEach(() => vi.useRealTimers());
 
+  it('keeps a history selection until its row arrives in a streamed snapshot', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    store.getState().updateCurrentTabState({ selectedItem: item('target') });
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    emit('pods', [{ action: 'added', item: item('first'), epoch: 1 }], true);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem.name).toBe('target');
+    emit('pods', [{ action: 'added', item: item('target'), epoch: 1 }, { type: 'sync_complete', itemCount: 2, epoch: 1 }], true);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem.name).toBe('target');
+    emit('pods', [{ action: 'deleted', item: item('target') }]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem).toBeNull();
+  });
+
+  it('clears a history selection when a completed snapshot confirms it is absent', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    store.getState().updateCurrentTabState({ selectedItem: item('missing') });
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    snapshot('pods', [item('first')]);
+    await vi.advanceTimersByTimeAsync(700);
+    expect(store.getState().getCurrentTabState().selectedItem).toBeNull();
+  });
+
   it('keeps the previous tab subscribed and current while another tab is shown', async () => {
     const store = makeStore();
     await open(store, 'configmaps', [item('a'), item('b')]);
