@@ -326,9 +326,10 @@ func main() {
 	wsServer.RegisterHandler("logs", logsHandler)
 
 	// Register dashboard handler
-	// One watch-backed pod cache per cluster, shared by the overview and
-	// FinOps, so neither re-lists every pod on each refresh.
-	podCache := podcache.New(k8sClient.GetClientForCluster, podcache.DefaultIdleTimeout)
+	// One pod cache per cluster, shared by the overview, FinOps and
+	// rightsizing, so none re-lists every pod on each refresh. It is fed by
+	// the watcher's pods watch, the one the Pods list runs on.
+	podCache := podcache.New(watcherService, podcache.DefaultIdleTimeout)
 	defer podCache.Close()
 	dashboardHandler := handlers.NewDashboardHandler(k8sClient, wsServer.Hub())
 	dashboardHandler.SetPodLister(podCache)

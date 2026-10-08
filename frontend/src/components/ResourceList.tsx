@@ -669,6 +669,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             onSearchChange={setSearchQuery}
             filteredCount={filteredItems.length}
             totalCount={namespaceFilteredItems.length}
+            listSync={isFocusedPane === false ? null : tabState?.listSync}
           />
         )}
         <ResourceTable

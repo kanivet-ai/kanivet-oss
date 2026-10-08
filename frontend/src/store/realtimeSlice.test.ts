@@ -493,4 +493,117 @@ describe('realtime subscriptions across tab switches', () => {
     expect(rt.pendingEvents).toHaveLength(0);
     expect(rt.batchTimer).toBeNull();
   });
+
+  // One page of a listing, as the websocket layer hands it over.
+  const page = (name: string, items: any[], epoch: number, total?: number) => {
+    for (const h of ws.handlers.get(topicOf(name)) || []) {
+      h({ isBatch: true, topic: topicOf(name), bulk: true, epoch, total, events: items.map((i) => ({ action: 'added', item: i })) });
+    }
+  };
+  const syncComplete = (name: string, epoch: number, itemCount: number) => {
+    for (const h of ws.handlers.get(topicOf(name)) || []) {
+      h({ isBatch: true, topic: topicOf(name), events: [{ type: 'sync_complete', itemCount, epoch }] });
+    }
+  };
+  const many = (prefix: string, n: number) => Array.from({ length: n }, (_, i) => item(`${prefix}-${i}`));
+
+  it('says how much of a list has arrived until it is all there', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    expect(tab().listSync).toBeNull();
+
+    page('pods', many('p', 25), 1, 300);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tab().listItems).toHaveLength(25);
+    expect(tab().isLoadingListItems).toBe(false);
+    expect(tab().listSync).toEqual({ loaded: 25, total: 300 });
+
+    // The full list starts over from the first rows: they are not counted twice.
+    page('pods', many('p', 100), 1, 300);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tab().listSync).toEqual({ loaded: 100, total: 300 });
+
+    page('pods', many('p', 300).slice(100), 1, 300);
+    syncComplete('pods', 1, 300);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tab().listItems).toHaveLength(300);
+    expect(tab().listSync).toBeNull();
+  });
+
+  it('clears the progress when the closing sync changes no row', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    page('pods', many('p', 3), 1, 3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tab().listSync).toEqual({ loaded: 3, total: 3 });
+    const rows = tab().listItems;
+
+    syncComplete('pods', 1, 3);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(tab().listSync).toBeNull();
+    expect(tab().listItems).toBe(rows);
+  });
+
+  it('shows a list of unknown size as loading without a total', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    // A saved list replayed while the fresh one is on its way carries no size.
+    page('pods', many('p', 40), 1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(store.getState().getCurrentTabState().listSync).toEqual({ loaded: 40 });
+
+    // The fresh listing's size belongs to it, not to the replay.
+    page('pods', many('p', 10), 2, 50);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(store.getState().getCurrentTabState().listSync).toEqual({ loaded: 10, total: 50 });
+  });
+
+  it('keeps the progress of a list when its tab is switched away from and back', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    page('pods', many('p', 25), 1, 300);
+    await vi.advanceTimersByTimeAsync(1);
+
+    await open(store, 'configmaps', [item('a')]);
+    expect(tab().listSync).toBeNull();
+
+    page('pods', many('p', 200), 1, 300);
+    await vi.advanceTimersByTimeAsync(700);
+    select(store, 'pods');
+    store.getState().startRealtime();
+    await vi.advanceTimersByTimeAsync(60);
+    expect(tab().listItems).toHaveLength(200);
+    expect(tab().listSync).toEqual({ loaded: 200, total: 300 });
+  });
+
+  it('spaces out the flushes of a long list that is still arriving', async () => {
+    const store = makeStore();
+    const tab = () => store.getState().getCurrentTabState();
+    select(store, 'pods');
+    store.getState().startRealtime();
+    page('pods', many('p', 20000), 1, 30000);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(tab().listItems).toHaveLength(20000);
+
+    // 20,000 rows: one flush every 400 ms, not every 120.
+    page('pods', many('q', 100), 1, 30000);
+    await vi.advanceTimersByTimeAsync(300);
+    expect(tab().listItems).toHaveLength(20000);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(tab().listItems).toHaveLength(20100);
+
+    // Once the list is complete its updates are back on the usual window.
+    syncComplete('pods', 1, 20100);
+    await vi.advanceTimersByTimeAsync(500);
+    emit('pods', [{ action: 'added', item: item('late') }]);
+    await vi.advanceTimersByTimeAsync(150);
+    expect(tab().listItems).toHaveLength(20101);
+  });
 });

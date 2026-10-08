@@ -74,6 +74,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Shown while the list is still arriving. It fades in after a moment so a
+   list that arrives at once never flashes it. */
+.item-count-loading {
+  opacity: 0;
+  animation: item-count-loading-in 150ms ease-out 250ms forwards;
+}
+
+@keyframes item-count-loading-in {
+  to {
+    opacity: 0.75;
+  }
+}
+
 .search-container {
   display: flex;
   align-items: center;

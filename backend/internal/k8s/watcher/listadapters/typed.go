@@ -32,9 +32,13 @@ func TypedList(obj runtime.Object, gvr schema.GroupVersionResource) (*unstructur
 	if !ok {
 		return nil, false
 	}
+	md := map[string]interface{}{"resourceVersion": pl.ResourceVersion, "continue": pl.Continue}
+	if pl.RemainingItemCount != nil {
+		md["remainingItemCount"] = *pl.RemainingItemCount
+	}
 	ul := &unstructured.UnstructuredList{Object: map[string]interface{}{
 		PresimplifiedKey: true,
-		"metadata":       map[string]interface{}{"resourceVersion": pl.ResourceVersion, "continue": pl.Continue},
+		"metadata":       md,
 	}}
 	ul.Items = make([]unstructured.Unstructured, len(pl.Items))
 	for i := range pl.Items {

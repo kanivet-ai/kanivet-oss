@@ -4,6 +4,7 @@ import {
   newRealtimeSession,
   itemKey,
   findItem,
+  pendingListing,
 } from './realtimeReducer';
 
 const pod = (name: string, extra: any = {}) => ({
@@ -379,5 +380,44 @@ describe('applyRealtimeEvents', () => {
       expect(r.items).toEqual(expected);
       items = r.items;
     }
+  });
+
+  it('reports the listing in flight until the sync that closes it', () => {
+    const s = newRealtimeSession();
+    expect(pendingListing(s)).toBeNull();
+
+    // Live events alone are not a listing.
+    let r = applyRealtimeEvents([], [{ action: 'added', item: pod('live') }], s);
+    expect(pendingListing(s)).toBeNull();
+
+    r = applyRealtimeEvents(r.items, [
+      { action: 'added', item: pod('a'), epoch: 3 },
+      { action: 'added', item: pod('b'), epoch: 3 },
+    ], s);
+    expect(pendingListing(s)).toEqual({ epoch: 3, loaded: 2 });
+
+    // A row sent twice (the first page, then the full list) counts once.
+    r = applyRealtimeEvents(r.items, [
+      { action: 'added', item: pod('b'), epoch: 3 },
+      { action: 'added', item: pod('c'), epoch: 3 },
+    ], s);
+    expect(pendingListing(s)).toEqual({ epoch: 3, loaded: 3 });
+
+    applyRealtimeEvents(r.items, [{ action: 'sync', epoch: 3, itemCount: 3 }], s);
+    expect(pendingListing(s)).toBeNull();
+  });
+
+  it('counts the newest listing when a saved one was replayed first', () => {
+    const s = newRealtimeSession();
+    let r = applyRealtimeEvents([], [
+      { action: 'added', item: pod('a'), epoch: 1 },
+      { action: 'added', item: pod('b'), epoch: 1 },
+      { action: 'added', item: pod('c'), epoch: 1 },
+    ], s);
+    expect(pendingListing(s)).toEqual({ epoch: 1, loaded: 3 });
+    r = applyRealtimeEvents(r.items, [{ action: 'added', item: pod('a'), epoch: 2 }], s);
+    expect(pendingListing(s)).toEqual({ epoch: 2, loaded: 1 });
+    applyRealtimeEvents(r.items, [{ action: 'sync', epoch: 2, itemCount: 1 }], s);
+    expect(pendingListing(s)).toBeNull();
   });
 });

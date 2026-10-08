@@ -25,6 +25,7 @@ import (
 	"github.com/kanivet/backend/internal/websocket/core"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/watch"
 )
@@ -83,6 +84,12 @@ type Service struct {
 	epochs            map[string]uint64
 	snapshotMu        sync.Mutex
 	snapshotSavedAt   map[string]time.Time
+
+	// sinks are the object sinks by kind and feeds the running watches' feeds
+	// by topic, both guarded by feedMu.
+	feedMu sync.RWMutex
+	sinks  map[string]ObjectSink
+	feeds  map[string]topicFeed
 
 	vcRecMu sync.Mutex
 	vcRec   map[string]*vclusterRecovery
@@ -487,6 +494,20 @@ func (s *Service) StartWatch(cluster, group, version, kind, namespace, sortBy, s
 	if sortBy != "" || sortOrder != "" {
 		s.hub.SetSortPreference(topic, sortBy, sortOrder)
 	}
+	alreadyWatching, err := s.acquireWatch(cluster, group, version, kind, namespace)
+	if alreadyWatching {
+		go s.sendCachedData(topic, sortBy, sortOrder)
+		log.Printf("[PERF] StartWatch (cached): %v kind=%s", time.Since(t0), kind)
+	} else {
+		log.Printf("[PERF] StartWatch (fresh): %v kind=%s", time.Since(t0), kind)
+	}
+	return err
+}
+
+// acquireWatch takes a reference on the topic's watch, starting it if it is
+// not running, and reports whether it was.
+func (s *Service) acquireWatch(cluster, group, version, kind, namespace string) (alreadyWatching bool, err error) {
+	topic := topics.BuildItemsTopic(cluster, group, version, kind, namespace)
 	s.indexedClustersMu.Lock()
 	needsIndexing := !s.indexedClusters[cluster]
 	if needsIndexing {
@@ -496,17 +517,10 @@ func (s *Service) StartWatch(cluster, group, version, kind, namespace, sortBy, s
 	if needsIndexing && s.onClusterWatched != nil {
 		go s.onClusterWatched(cluster)
 	}
-	alreadyWatching, err := s.manager.StartWatch(topic, func(ctx context.Context) error {
+	return s.manager.StartWatch(topic, func(ctx context.Context) error {
 		s.watchResources(ctx, cluster, group, version, kind, namespace, topic)
 		return nil
 	})
-	if alreadyWatching {
-		go s.sendCachedData(topic, sortBy, sortOrder)
-		log.Printf("[PERF] StartWatch (cached): %v kind=%s", time.Since(t0), kind)
-	} else {
-		log.Printf("[PERF] StartWatch (fresh): %v kind=%s", time.Since(t0), kind)
-	}
-	return err
 }
 
 // IsWatching reports whether a live (or grace-pending) cluster-wide watch exists
@@ -876,6 +890,9 @@ func (s *Service) resourceForGVR(cluster string, gvr schema.GroupVersionResource
 	if err != nil {
 		return nil, err
 	}
+	if typed, err := s.client.GetClientForCluster(cluster); err == nil {
+		return newStreamingDynamicLister(dyn.Resource(gvr), typed.CoreV1().RESTClient(), gvr), nil
+	}
 	return newDynamicLister(dyn.Resource(gvr)), nil
 }
 
@@ -889,6 +906,7 @@ var panicRestartBackoff = time.Second
 // loop restarted with backoff, a bounded number of times in a row, instead of
 // crashing the process and with it every other cluster's watches.
 func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) {
+	defer s.openFeed(ctx, topic)()
 	delay := panicRestartBackoff
 	for restarts := 0; ; {
 		started := time.Now()
@@ -1170,16 +1188,17 @@ func extractRV(obj interface{}) string {
 	return ""
 }
 
+// listPageSize is how many rows one page of a list sync carries.
+const listPageSize = 100
+
 func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) (string, error) {
 	const firstPageSize = 25
-	const pageSize = 100
 	sortBy, sortOrder := s.hub.GetSortPreference(topic)
 	if err := s.hub.FlushTopic(topic); err != nil {
 		log.Printf("Failed to flush topic %s before list sync: %v", topic, err)
 	}
 	epoch := s.nextEpoch(topic)
 	currentItems := make(map[string]bool)
-	var listResourceVersion string
 
 	// Events are listed from the cluster like every other kind: the event
 	// listener's store keeps rows for 30 days whether or not the events still
@@ -1188,40 +1207,28 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 	if namespace != "" {
 		scoped = resource.Namespace(namespace)
 	}
-	// The full list is fetched concurrently with the quick first page,
-	// with ResourceVersion=0 so the apiserver serves its watch cache in a
-	// single round trip — sequential Continue pages made large lists take
-	// pages×RTT on slow links.
-	type fullListResult struct {
-		list *unstructured.UnstructuredList
-		err  error
-	}
-	// Returning early (the first page failed) cancels the full list
-	// instead of downloading a whole list nobody reads.
-	listCtx, cancelList := context.WithTimeout(ctx, fullListTimeout)
-	defer cancelList()
-	fullCh := make(chan fullListResult, 1)
-	go func() {
-		// A panic here is in a goroutine the loop's recover does not cover.
-		defer func() {
-			if r := recover(); r != nil {
-				log.Printf("[PANIC] full list for %s: %v\n%s", topic, r, debug.Stack())
-				fullCh <- fullListResult{nil, fmt.Errorf("list for %s panicked: %v", topic, r)}
-			}
-		}()
-		list, err := scoped.List(listCtx, metav1.ListOptions{ResourceVersion: "0"})
-		fullCh <- fullListResult{list, err}
-	}()
-	colsCh := make(chan []printercolumns.Column, 1)
-	go func() {
+	cols := sync.OnceValue(func() (cols []printercolumns.Column) {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("[PANIC] printer columns for %s: %v\n%s", topic, r, debug.Stack())
-				colsCh <- nil
+				cols = nil
 			}
 		}()
-		colsCh <- s.printerColumnsFor(ctx, cluster, gvr)
-	}()
+		return s.printerColumnsFor(ctx, cluster, gvr)
+	})
+	go cols()
+
+	// The full list is fetched concurrently with the quick first page,
+	// with ResourceVersion=0 so the apiserver serves its watch cache in a
+	// single round trip — sequential Continue pages made large lists take
+	// pages×RTT on slow links. Its rows are sent on as they download: a list
+	// held back until its last byte left a slow link showing the first page
+	// alone for seconds.
+	listCtx, cancelList := context.WithTimeout(ctx, fullListTimeout)
+	rest := s.startFullList(listCtx, scoped, gvr, topic, cols, s.feedFor(ctx, topic))
+	// Returning early (the first page failed) cancels the full list
+	// instead of downloading a whole list nobody reads.
+	defer rest.stop(cancelList)
 
 	firstCtx, cancelFirst := context.WithTimeout(ctx, firstPageListTimeout)
 	firstList, err := scoped.List(firstCtx, metav1.ListOptions{Limit: firstPageSize})
@@ -1233,10 +1240,10 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 		}
 		return "", err
 	}
+	total := listTotal(firstList)
 	// Items already sent in the full first page are skipped in the RV=0
 	// sweep unless their resourceVersion moved in between.
 	sentRV := make(map[string]string)
-	cols := <-colsCh
 	if firstList != nil && len(firstList.Items) > 0 {
 		pre := listadapters.IsPresimplified(firstList)
 		pageItems := make([]map[string]interface{}, 0, len(firstList.Items))
@@ -1247,7 +1254,7 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 				full = firstList.Items[i].Object
 				minimal = listadapters.MinimalProjection(full)
 			} else {
-				full = s.simplifyListed(&firstList.Items[i], gvr, cols)
+				full = s.simplifyListed(&firstList.Items[i], gvr, cols())
 				minimal = simplifyUnstructuredMinimal(&firstList.Items[i], gvr)
 				copyPrinterColumns(minimal, full)
 			}
@@ -1260,31 +1267,13 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 		// from its resourceVersion, so an object the first page saw but
 		// that was deleted before the full list would never get a delete
 		// event. The stale diff below removes it instead.
-		s.broadcastPage(topic, pageItems, nil, sortBy, sortOrder, true, epoch)
-		s.broadcastPage(topic, fullPageItems, nil, sortBy, sortOrder, false, epoch)
+		s.broadcastPage(topic, pageItems, nil, sortBy, sortOrder, true, epoch, total)
+		s.broadcastPage(topic, fullPageItems, nil, sortBy, sortOrder, false, epoch, total)
 	}
 
-	res := <-fullCh
-	if res.err != nil {
-		log.Printf("k8s watcher: failed to list %s: %v", topic, res.err)
-		if isCredErr, code, msg := isCredentialError(res.err); isCredErr {
-			s.sendClusterErrorWithDetails(cluster, code, msg, res.err.Error(), true)
-		}
-		return "", res.err
-	}
-	if res.list == nil {
-		return "", fmt.Errorf("list for %s returned no result", topic)
-	}
-	listResourceVersion = res.list.GetResourceVersion()
-	pre := listadapters.IsPresimplified(res.list)
-	for start := 0; start < len(res.list.Items); start += pageSize {
-		end := min(start+pageSize, len(res.list.Items))
-		pageItems := make([]map[string]interface{}, 0, end-start)
-		for i := start; i < end; i++ {
-			item := res.list.Items[i].Object
-			if !pre {
-				item = s.simplifyListed(&res.list.Items[i], gvr, cols)
-			}
+	for page := range rest.pages {
+		pageItems := page[:0]
+		for _, item := range page {
 			key := itemKeyOf(item)
 			currentItems[key] = true
 			if rv, seen := sentRV[key]; seen && rv == item["resourceVersion"] {
@@ -1292,8 +1281,16 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 			}
 			pageItems = append(pageItems, item)
 		}
-		s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch)
+		s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch, total)
 	}
+	if rest.err != nil {
+		log.Printf("k8s watcher: failed to list %s: %v", topic, rest.err)
+		if isCredErr, code, msg := isCredentialError(rest.err); isCredErr {
+			s.sendClusterErrorWithDetails(cluster, code, msg, rest.err.Error(), true)
+		}
+		return "", rest.err
+	}
+	listResourceVersion := rest.rv
 
 	// The quick first page and the full RV=0 list overlap, so the true item
 	// count is the full list's key set — summing page sizes double-counts.
@@ -1329,10 +1326,145 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 	return listResourceVersion, nil
 }
 
+// listTotal is how many items the list a first page opens holds in all, or 0
+// when the server did not say.
+func listTotal(first *unstructured.UnstructuredList) int {
+	if first == nil {
+		return 0
+	}
+	if first.GetContinue() == "" {
+		return len(first.Items)
+	}
+	if left := first.GetRemainingItemCount(); left != nil {
+		return len(first.Items) + int(*left)
+	}
+	return 0
+}
+
+// fullList is a list in flight. Its rows arrive on pages as they are decoded;
+// once pages is closed, rv and err say how the list ended.
+type fullList struct {
+	pages chan []map[string]interface{}
+	rv    string
+	err   error
+}
+
+// startFullList lists everything in the background, a page of rows at a time.
+func (s *Service) startFullList(ctx context.Context, lister resourceLister, gvr schema.GroupVersionResource, topic string, cols func() []printercolumns.Column, feed ObjectFeed) *fullList {
+	l := &fullList{pages: make(chan []map[string]interface{}, 2)}
+	go func() {
+		defer close(l.pages)
+		// A panic here is in a goroutine the loop's recover does not cover.
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[PANIC] full list for %s: %v\n%s", topic, r, debug.Stack())
+				l.err = fmt.Errorf("list for %s panicked: %v", topic, r)
+			}
+		}()
+		page := make([]map[string]interface{}, 0, listPageSize)
+		l.rv, l.err = s.listRows(ctx, lister, gvr, topic, cols, feed, func(row map[string]interface{}) error {
+			page = append(page, row)
+			if len(page) < listPageSize {
+				return nil
+			}
+			ready := page
+			page = make([]map[string]interface{}, 0, listPageSize)
+			return l.send(ctx, ready)
+		})
+		if l.err == nil && len(page) > 0 {
+			l.err = l.send(ctx, page)
+		}
+	}()
+	return l
+}
+
+// send hands a page over, or gives up when the list is abandoned: nobody
+// reads pages then.
+func (l *fullList) send(ctx context.Context, page []map[string]interface{}) error {
+	select {
+	case l.pages <- page:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// stop abandons the list and waits for it to end, so that none of it is still
+// being handed over once the caller has moved on.
+func (l *fullList) stop(cancel context.CancelFunc) {
+	cancel()
+	for range l.pages {
+	}
+}
+
+// listRows lists everything the lister has, calling row with each item's list
+// row, and returns the list's resourceVersion. A lister that reads its list
+// as a stream gets its rows out while the list is still downloading. The
+// topic's feed, if it has one, is given the listing's objects.
+func (s *Service) listRows(ctx context.Context, lister resourceLister, gvr schema.GroupVersionResource, topic string, cols func() []printercolumns.Column, feed ObjectFeed, row func(map[string]interface{}) error) (string, error) {
+	opts := metav1.ListOptions{ResourceVersion: "0"}
+	if items, ok := lister.(itemLister); ok {
+		feed.Reset()
+		rv, err := items.ListEach(ctx, opts, func(obj runtime.Object) error {
+			feed.Put(obj)
+			if item := s.rowOf(obj, gvr, cols); item != nil {
+				return row(item)
+			}
+			return nil
+		})
+		if err == nil {
+			feed.Synced()
+		}
+		return rv, err
+	}
+	list, err := lister.List(ctx, opts)
+	if err != nil {
+		return "", err
+	}
+	if list == nil {
+		return "", fmt.Errorf("list for %s returned no result", topic)
+	}
+	// A list that comes simplified already holds rows, not objects: there is
+	// nothing in it for a feed.
+	pre := listadapters.IsPresimplified(list)
+	if !pre {
+		feed.Reset()
+	}
+	for i := range list.Items {
+		item := list.Items[i].Object
+		if !pre {
+			feed.Put(&list.Items[i])
+			item = s.simplifyListed(&list.Items[i], gvr, cols())
+		}
+		if err := row(item); err != nil {
+			return "", err
+		}
+	}
+	if !pre {
+		feed.Synced()
+	}
+	return list.GetResourceVersion(), nil
+}
+
+// rowOf builds an object's list row: the typed adapter's where the object has
+// one, the unstructured adapters' with the kind's printer columns otherwise.
+// It returns nil for an object neither can read.
+func (s *Service) rowOf(obj runtime.Object, gvr schema.GroupVersionResource, cols func() []printercolumns.Column) map[string]interface{} {
+	if item, ok := listadapters.SimplifyTyped(obj, gvr); ok {
+		return item
+	}
+	if u, ok := obj.(*unstructured.Unstructured); ok && u != nil {
+		return s.simplifyListed(u, gvr, cols())
+	}
+	return nil
+}
+
 // broadcastPage caches and sends one page of a list sync, recording its keys
 // in currentItems unless that is nil. Every page carries the sync's epoch, so
-// the client can drop the rows the closing sync_complete no longer covers.
-func (s *Service) broadcastPage(topic string, items []map[string]interface{}, currentItems map[string]bool, sortBy, sortOrder string, isMinimal bool, epoch uint64) int {
+// the client can drop the rows the closing sync_complete no longer covers,
+// and the size of the whole list when the server gave it, so the client can
+// tell how much of the list it has.
+func (s *Service) broadcastPage(topic string, items []map[string]interface{}, currentItems map[string]bool, sortBy, sortOrder string, isMinimal bool, epoch uint64, total int) int {
 	if len(items) == 0 {
 		return 0
 	}
@@ -1351,6 +1483,7 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 		Count:       len(items),
 		IsMinimal:   isMinimal,
 		Epoch:       epoch,
+		Total:       total,
 	}
 	if err := s.broadcastBulk(msg); err != nil {
 		log.Printf("Failed to broadcast bulk list for topic %s: %v", topic, err)
@@ -1360,35 +1493,35 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 
 func (s *Service) handleResourceEventSimple(ctx context.Context, event watch.Event, cluster string, gvr schema.GroupVersionResource, topic string) {
 	action := strings.ToLower(string(event.Type))
-	if item, ok := listadapters.SimplifyTyped(event.Object, gvr); ok {
+	if event.Type == watch.Deleted {
+		s.feedFor(ctx, topic).Delete(event.Object)
+	} else {
+		s.feedFor(ctx, topic).Put(event.Object)
+	}
+	cols := func() []printercolumns.Column { return s.printerColumnsFor(ctx, cluster, gvr) }
+	if item := s.rowOf(event.Object, gvr, cols); item != nil {
 		s.emitResourceEvent(topic, gvr, action, item, true)
 		return
 	}
-	u, ok := event.Object.(*unstructured.Unstructured)
-	if !ok || u == nil {
-		m, mok := event.Object.(metav1.Object)
-		if !mok {
-			return
-		}
-		item := map[string]interface{}{
-			"name":      m.GetName(),
-			"namespace": m.GetNamespace(),
-			"uid":       string(m.GetUID()),
-		}
-		if rv := m.GetResourceVersion(); rv != "" {
-			item["resourceVersion"] = rv
-		}
-		if ct := m.GetCreationTimestamp(); !ct.IsZero() {
-			item["creationTimestamp"] = ct.Format(time.RFC3339)
-		}
-		if dt := m.GetDeletionTimestamp(); dt != nil && !dt.IsZero() {
-			item["deletionTimestamp"] = dt.Format(time.RFC3339)
-		}
-		s.emitResourceEvent(topic, gvr, action, item, false)
+	m, mok := event.Object.(metav1.Object)
+	if !mok {
 		return
 	}
-	cols := s.printerColumnsFor(ctx, cluster, gvr)
-	s.emitResourceEvent(topic, gvr, action, s.simplifyListed(u, gvr, cols), true)
+	item := map[string]interface{}{
+		"name":      m.GetName(),
+		"namespace": m.GetNamespace(),
+		"uid":       string(m.GetUID()),
+	}
+	if rv := m.GetResourceVersion(); rv != "" {
+		item["resourceVersion"] = rv
+	}
+	if ct := m.GetCreationTimestamp(); !ct.IsZero() {
+		item["creationTimestamp"] = ct.Format(time.RFC3339)
+	}
+	if dt := m.GetDeletionTimestamp(); dt != nil && !dt.IsZero() {
+		item["deletionTimestamp"] = dt.Format(time.RFC3339)
+	}
+	s.emitResourceEvent(topic, gvr, action, item, false)
 }
 
 func (s *Service) printerColumnsFor(ctx context.Context, cluster string, gvr schema.GroupVersionResource) []printercolumns.Column {
@@ -2047,6 +2180,8 @@ type BulkListMessage struct {
 	Count            int                      `json:"count"`
 	IsMinimal        bool                     `json:"isMinimal,omitempty"`
 	Epoch            uint64                   `json:"epoch,omitempty"`
+	// Total is how many items the list being synced holds, when known.
+	Total int `json:"total,omitempty"`
 }
 
 func (m *BulkListMessage) Marshal() ([]byte, error) {
@@ -2066,6 +2201,9 @@ func (m *BulkListMessage) GetData() map[string]interface{} {
 	}
 	if m.Epoch > 0 {
 		data["epoch"] = m.Epoch
+	}
+	if m.Total > 0 {
+		data["total"] = m.Total
 	}
 	return data
 }
