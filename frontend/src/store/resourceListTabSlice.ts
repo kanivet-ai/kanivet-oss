@@ -1,23 +1,9 @@
+import { pageNode } from './navigationTargets';
 import { StateCreator } from 'zustand';
 import { getResourceCategory } from '../utils/resourceUtils';
 import { resolvePaneId } from '../utils/centerPaneLayout';
 import { ResourceListTabSlice, StoreState, ResourceListTab } from './types';
 import { itemsTopic, liveItemsFor } from './realtimeSlice';
-
-/** The tree node of a tab that shows a page rather than a resource list. */
-function pageNode(kind: string, cluster: string | null) {
-  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' | 'cluster-settings' }> = {
-    ClusterSettings: { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings' },
-    ClusterDashboard: { id: 'cluster-overview', label: 'Overview', type: 'overview' },
-    FinOpsDashboard: { id: 'finops-dashboard', label: 'FinOps', type: 'finops' },
-    RightsizingDashboard: { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing' },
-    IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
-    HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
-    ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
-  };
-  const p = pages[kind];
-  return p ? { ...p, data: { cluster } } : null;
-}
 
 // A tab's items taken from its still-open subscription when there is one, so an
 // activated tab shows current rows at once instead of its last snapshot.

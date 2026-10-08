@@ -318,11 +318,14 @@ export const createRealtimeSlice: StateCreator<
       }
     }
 
-    // The selection follows its live object, so it keeps matching its row.
-    const selectedItem = state.selectedItem
-      ? (findItem(rt.session, result.items, itemKey(state.selectedItem)) ??
-        null)
-      : null;
+    // Keep a restored selection until its row arrives in the streamed snapshot.
+    let selectedItem = state.selectedItem;
+    if (selectedItem) {
+      const selectedKey = itemKey(selectedItem);
+      const liveItem = findItem(rt.session, result.items, selectedKey);
+      const removed = result.completedEpoch !== undefined || events.some((event) => event.action === 'deleted' && itemKey(event.item) === selectedKey);
+      selectedItem = liveItem ?? (removed ? null : selectedItem);
+    }
 
     const authoritative = result.completedEpoch !== undefined;
     const live = result.syncSeen || authoritative || (result.changed && result.items.length > 0);

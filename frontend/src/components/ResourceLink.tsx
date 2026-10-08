@@ -7,6 +7,7 @@ import {
   parseApiVersion,
 } from '../utils/resourceUtils';
 import './ResourceLink.css';
+import useResourceNavigation from '../hooks/useResourceNavigation';
 
 interface ResourceLinkProps {
   cluster: string;
@@ -30,14 +31,11 @@ const ResourceLink: React.FC<ResourceLinkProps> = ({
   openInDetailTab = false,
 }) => {
   const {
-    selectNode,
-    loadListItems,
-    selectItem,
     loadDetails,
     recordNavigation,
-    setFocusArea,
     openDetailTab,
-  } = useStore(useShallow((s) => ({ selectNode: s.selectNode, loadListItems: s.loadListItems, selectItem: s.selectItem, loadDetails: s.loadDetails, recordNavigation: s.recordNavigation, setFocusArea: s.setFocusArea, openDetailTab: s.openDetailTab })));
+  } = useStore(useShallow((s) => ({ loadDetails: s.loadDetails, recordNavigation: s.recordNavigation, openDetailTab: s.openDetailTab })));
+  const { navigateToResource } = useResourceNavigation(cluster);
   const [clickTimer, setClickTimer] = React.useState<NodeJS.Timeout | null>(
     null,
   );
@@ -98,6 +96,7 @@ const ResourceLink: React.FC<ResourceLinkProps> = ({
 
         // Immediately open pinned tab, then load details
         openDetailTab(resource, item, cluster, true);
+        void recordNavigation('item', treeNode.id, resource, item).catch(console.error);
         await loadDetails(cluster, resource, item);
       } else {
         // Single click - set timer to open preview tab
@@ -115,44 +114,13 @@ const ResourceLink: React.FC<ResourceLinkProps> = ({
 
           // Immediately open preview tab, then load details
           openDetailTab(resource, item, cluster, false);
+          void recordNavigation('item', treeNode.id, resource, item).catch(console.error);
           await loadDetails(cluster, resource, item);
         }, 200);
         setClickTimer(timer);
       }
     } else {
-      // Default behavior - navigate in main view
-      try {
-        // Select the node in the tree
-        selectNode(treeNode);
-
-        // Load the list of items for this resource type
-        const success = await loadListItems(cluster, resource);
-
-        if (success) {
-          // Create item object for selection
-          const item = {
-            name: name,
-            namespace: namespace,
-            uid: `${namespace || 'cluster'}-${name}`,
-            kind: kind,
-            apiVersion: apiVersion,
-          };
-
-          // Select the specific item in the list
-          selectItem(item);
-
-          // Load the details for the selected item
-          await loadDetails(cluster, resource, item);
-
-          // Record navigation
-          await recordNavigation('resource', treeNode.id, resource, item);
-
-          // Switch focus to list view
-          setFocusArea('list');
-        }
-      } catch (error) {
-        console.error('Failed to navigate to resource:', error);
-      }
+      await navigateToResource({ cluster, apiVersion, kind, name, namespace });
     }
   };
 

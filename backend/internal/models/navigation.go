@@ -3,6 +3,8 @@ package models
 import "time"
 
 type NavigationEntry struct {
+	ClusterID string      `json:"clusterId,omitempty"`
+	PaneID    string      `json:"paneId,omitempty"`
 	ID        string      `json:"id"`
 	Timestamp time.Time   `json:"timestamp"`
 	Type      string      `json:"type"`

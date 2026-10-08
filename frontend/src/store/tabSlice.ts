@@ -11,10 +11,11 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
   tabIndexMap: new Map(),
   currentTab: null,
 
-  openTab: async (cluster: string) => {
+  openTab: async (cluster: string, recordHistory = true) => {
     const { activeTabs } = get();
     const existingTab = activeTabs.find((t: Tab) => t.id === cluster);
     if (!existingTab) {
+      if (recordHistory) void get().recordCurrentNavigation().catch(console.error);
       // A fresh tab has nothing in the list yet — the next thing the user does
       // is pick a resource in the sidebar, so keyboard focus starts there.
       // (Starting in 'list' made every tree shortcut a no-op until the sidebar
@@ -31,11 +32,12 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
 
       const openOverview = async () => {
         const tabIndex = get().tabIndexMap.get(cluster) ?? -1;
-        if (tabIndex === -1) return;
+        if (tabIndex === -1 || get().currentTab !== cluster) return;
         const overviewNode = { id: 'cluster-overview', label: 'Overview', type: 'overview' as const, data: { cluster } };
         get().selectNode(overviewNode);
         const dashboardResource = { name: 'cluster-dashboard', group: '', version: 'v1', kind: 'ClusterDashboard', namespaced: false };
         await get().openResourceListTab(dashboardResource, cluster, true, undefined);
+        if (recordHistory && get().currentTab === cluster) void get().recordNavigation('overview', overviewNode.id, dashboardResource).catch(console.error);
       };
 
       const treeLoaded = get().loadTreeData(cluster).then(() => true, () => false);
@@ -53,8 +55,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
         }
       }
     } else {
-      set({ currentTab: cluster });
-      try { localStorage.setItem('kanivet.currentTab', cluster); } catch {}
+      get().setCurrentTab(cluster, recordHistory);
     }
   },
 
@@ -99,8 +100,9 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     } catch {}
   },
 
-  setCurrentTab: (tabId: string | null) => {
+  setCurrentTab: (tabId: string | null, recordHistory = true) => {
     const prevTab = get().currentTab;
+    if (recordHistory && prevTab !== tabId) void get().recordCurrentNavigation().catch(console.error);
     if (prevTab && prevTab !== tabId) get().parkRealtime();
     set({ currentTab: tabId });
     try {
@@ -108,6 +110,7 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
       else localStorage.removeItem('kanivet.currentTab');
     } catch {}
     if (tabId && tabId !== prevTab) {
+      if (recordHistory) void get().recordCurrentNavigation().catch(console.error);
       const tabState = get().getCurrentTabState();
       if (tabState?.selectedNode?.type === 'resource') get().startRealtime();
     }

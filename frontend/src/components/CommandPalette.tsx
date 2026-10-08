@@ -93,11 +93,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
 
   const {
     currentTab,
-    loadListItems,
-    selectNode,
-    setFocusArea,
     recordNavigation,
-  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, loadListItems: s.loadListItems, selectNode: s.selectNode, setFocusArea: s.setFocusArea, recordNavigation: s.recordNavigation })));
+  } = useStore(useShallow((s) => ({ currentTab: s.currentTab, recordNavigation: s.recordNavigation })));
 
   // Focus input when opened
   useEffect(() => {
@@ -617,10 +614,6 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       getCurrentTabState,
       expandNode,
       toggleNodeExpansion,
-      openResourceListTab,
-      updateResourceListTab,
-      selectItem,
-      loadDetails,
     } = useStore.getState();
 
     await loadTreeData(target.cluster);
@@ -661,69 +654,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       resourceListNode(target);
     const nodeData = node.data;
 
-    // Open the list the same way a sidebar click does.
-    selectNode(node);
-    setFocusArea('list');
-    await openResourceListTab(nodeData, target.cluster, false, undefined);
-    await loadListItems(target.cluster, nodeData);
-    await recordNavigation('resource', node.id, nodeData);
-
-    const findTarget = () => {
-      const state = getCurrentTabState();
-      const items = state?.listItems || [];
-      return items.find(
-        (i: any) =>
-          i?.name === target.name &&
-          (!target.namespace || i?.namespace === target.namespace),
-      );
-    };
-
-    let targetItem = findTarget();
-    const maxWaitMs = 1500;
-    const step = 75;
-    for (let waited = 0; !targetItem && waited < maxWaitMs; waited += step) {
-      await new Promise((r) => setTimeout(r, step));
-      targetItem = findTarget();
-    }
-
-    if (targetItem) {
-      selectItem(targetItem);
-      const activeListTabId = getCurrentTabState()?.activeResourceListTab;
-      if (activeListTabId)
-        updateResourceListTab(activeListTabId, { selectedItem: targetItem });
-      const enhancedItem = {
-        kind: nodeData.kind,
-        apiVersion: nodeData.group ? `${nodeData.group}/${nodeData.version}` : nodeData.version,
-        metadata: {
-          name: targetItem.name,
-          namespace: targetItem.namespace,
-          creationTimestamp: targetItem.creationTimestamp,
-          labels: targetItem.labels || {},
-          annotations: targetItem.annotations || {},
-          uid: targetItem.uid,
-          resourceVersion: targetItem.resourceVersion,
-          ownerReferences: targetItem.ownerReferences || [],
-          ...(targetItem.metadata || {}),
-        },
-        status: {
-          phase: targetItem.phase || targetItem.status,
-          conditions: targetItem.conditions || [],
-          ...(targetItem.status && typeof targetItem.status === 'object' ? targetItem.status : {}),
-        },
-        spec: targetItem.spec || {},
-        ...targetItem,
-      };
-      const { openDetailTab } = useStore.getState();
-      openDetailTab(nodeData, enhancedItem, target.cluster);
-      await loadDetails(target.cluster, nodeData, targetItem);
-      updateCurrentTabState({ isDetailsPanelCollapsed: false });
-    } else {
-      logger.warn('Target item not found after waiting', {
-        name: target.name,
-        namespace: target.namespace,
-        resource: resourceName,
-      });
-    }
+    const item = { name: target.name, namespace: target.namespace };
+    await useStore.getState().restoreNavigationState({ type: 'item', path: node.id, resource: nodeData, item });
+    await recordNavigation('item', node.id, nodeData, item);
 
     logger.info('Selected search result', {
       resource: target.name,

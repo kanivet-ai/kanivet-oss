@@ -53,6 +53,18 @@ describe('applyLoadedDetails', () => {
     expect(applyLoadedDetails(tabs, 'cluster-a', full)).toBe(tabs);
   });
 
+  it('does not reopen details after history navigates to a dashboard or list-only entry', () => {
+    for (const type of ['overview', 'finops', 'resource']) {
+      const tabs = [tab('cluster-a', { selectedNode: { type }, selectedItem: null })];
+      expect(applyLoadedDetails(tabs, 'cluster-a', full)).toBe(tabs);
+    }
+  });
+
+  it('ignores a late response for a different kind with the same name', () => {
+    const tabs = [tab('cluster-a', { activeDetailTab: 'dt', detailTabs: [{ id: 'dt', item: { ...full, kind: 'Service' } }] })];
+    expect(applyLoadedDetails(tabs, 'cluster-a', full)).toBe(tabs);
+  });
+
   it('returns the tabs untouched when the cluster tab was closed meanwhile', () => {
     const tabs = [tab('cluster-b')];
     expect(applyLoadedDetails(tabs, 'cluster-a', full)).toBe(tabs);

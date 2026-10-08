@@ -44,6 +44,7 @@ export interface DetailTab {
 }
 
 export interface ResourceListTab {
+  navigationReveal?: number;
   id: string;
   title: string;
   resource: any;
@@ -131,6 +132,8 @@ export interface Tab {
 }
 
 export interface NavigationEntry {
+  clusterId?: string;
+  paneId?: string;
   type: string;
   path: string;
   resource?: any;
@@ -259,9 +262,9 @@ export interface TabSlice {
   activeTabs: Tab[];
   tabIndexMap: Map<string, number>;
   currentTab: string | null;
-  openTab: (cluster: string) => Promise<void>;
+  openTab: (cluster: string, recordHistory?: boolean) => Promise<void>;
   closeTab: (clusterId: string) => void;
-  setCurrentTab: (tabId: string | null) => void;
+  setCurrentTab: (tabId: string | null, recordHistory?: boolean) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
   getCurrentTabState: () => TabState | null;
   updateCurrentTabState: (updates: Partial<TabState>) => void;
@@ -314,6 +317,7 @@ export interface RealtimeSlice {
 }
 
 export interface NavigationSlice {
+  recordCurrentNavigation: () => Promise<void>;
   recordNavigation: (type: string, path: string, resource?: any, item?: any) => Promise<void>;
   navigateBack: () => Promise<void>;
   navigateForward: () => Promise<void>;

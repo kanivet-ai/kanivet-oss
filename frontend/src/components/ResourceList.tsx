@@ -146,6 +146,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       useStore.getState().updateCurrentTabState({ listFilter: debouncedListFilter });
     }
   }, [debouncedListFilter]);
+  const navigationReveal = activeTab && 'navigationReveal' in activeTab ? activeTab.navigationReveal : undefined;
+  useEffect(() => {
+    if (navigationReveal) setSearchQuery('');
+  }, [navigationReveal]);
   const [scaleDialog, setScaleDialog] = useState<{ item: any; currentReplicas: number } | null>(null);
   const [isScaling, setIsScaling] = useState(false);
   const [taintDialog, setTaintDialog] = useState<{ item: any } | null>(null);
@@ -266,6 +270,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
   };
 
   const handleItemSelect = (item: any, fromKeyboard: boolean = false) => {
+    const resource = activeTab?.resource || selectedNode?.data;
+    if (item && resource) void recordNavigation('item', `${item.namespace || ''}/${item.name}`, resource, item).catch(console.error);
     isKeyboardNavigationRef.current = fromKeyboard;
     selectItem(item);
     if (activeTab) {
@@ -353,6 +359,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
         updateResourceListTab(activeTab.id, { selectedItem: item });
       }
       openDetailTab(resource, enhancedItem, currentTab, isPinned);
+      void recordNavigation('item', `${item.namespace || ''}/${item.name}`, resource, item).catch(console.error);
 
       const requestId = `${item.name}-${item.namespace || 'default'}-${Date.now()}`;
       currentLoadingRequestRef.current = requestId;
@@ -382,7 +389,6 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             }));
           }
         }
-        await recordNavigation('item', `${item.namespace}/${item.name}`, resource, item);
       } catch (error: any) {
         if (currentLoadingRequestRef.current === requestId) {
           currentLoadingRequestRef.current = null;
@@ -676,6 +682,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
           key={activeTabId}
           listItems={filteredItems}
           selectedItem={selectedItem}
+          navigationReveal={navigationReveal}
           selectedResources={selectedResources}
           displayColumns={displayColumns}
           onItemOpen={onItemOpen}
@@ -782,6 +789,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
             } catch { }
           }
           const tab = allCenterTabs.find((t) => t.id === tabId);
+          if (tab && 'items' in tab) {
+            const node = useStore.getState().getCurrentTabState()?.selectedNode;
+            void recordNavigation(node?.type || 'resource', node?.id || '', tab.resource, tab.selectedItem).catch(console.error);
+          }
           if (!paneId && tab && 'item' in tab) {
             setActiveDetailTab(tabId);
           } else if (!paneId && tab && 'type' in tab && (tab.type === 'logs' || tab.type === 'shell' || tab.type === 'edit')) {

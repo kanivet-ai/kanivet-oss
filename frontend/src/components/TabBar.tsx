@@ -226,6 +226,10 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
   }, [activeTabIds, currentTab, clearTooltip]);
 
   useEffect(() => {
+    tabsContainerRef.current?.querySelector('.tab.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [currentTab]);
+
+  useEffect(() => {
     const handleWindowBlur = () => clearTooltip();
     const handlePointerDown = (e: PointerEvent) => {
       if (!tabsContainerRef.current?.contains(e.target as Node)) {

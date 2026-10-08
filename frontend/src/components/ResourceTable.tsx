@@ -11,6 +11,7 @@ import { hasActions as hasResourceActions } from '../utils/resourceActions';
 interface ResourceTableProps {
   listItems: any[];
   selectedItem: any;
+  navigationReveal?: number;
   selectedResources: Set<string>;
   displayColumns: string[];
   onItemOpen: (item: any, isPinned?: boolean) => void;
@@ -57,6 +58,7 @@ const ResourceTable = memo(
   ({
     listItems,
     selectedItem,
+    navigationReveal,
     selectedResources,
     displayColumns,
     onItemOpen,
@@ -237,14 +239,17 @@ const ResourceTable = memo(
       scrollRestoredRef.current = false;
     }, [resourceKind]);
 
+    const lastRevealRef = useRef<number>();
     useEffect(() => {
       if (!selectedItem) return;
       const currentKey = getResourceKey(selectedItem);
       const isNewSelection = currentKey !== lastSelectedKeyRef.current;
       lastSelectedKeyRef.current = currentKey;
-      if (isKeyboardNavigationRef.current && !isUserScrollingRef.current && isNewSelection) {
+      const revealSelection = !!navigationReveal && lastRevealRef.current !== navigationReveal;
+      if (revealSelection || (isKeyboardNavigationRef.current && !isUserScrollingRef.current && isNewSelection)) {
         const selectedIndex = itemKeys.indexOf(currentKey);
         if (selectedIndex >= 0) {
+          lastRevealRef.current = navigationReveal;
           if (shouldVirtualize) {
             virtualizer.scrollToIndex(selectedIndex, { align: 'center' });
           } else {
@@ -262,7 +267,7 @@ const ResourceTable = memo(
         }
       }
       isKeyboardNavigationRef.current = false;
-    }, [selectedItem, itemKeys, getResourceKey, isKeyboardNavigationRef, virtualizer, shouldVirtualize, getScrollElement]);
+    }, [selectedItem, navigationReveal, itemKeys, getResourceKey, isKeyboardNavigationRef, virtualizer, shouldVirtualize, getScrollElement]);
 
     const initialMeasureDoneRef = useRef<string>('');
     useEffect(() => {
@@ -569,6 +574,7 @@ const ResourceTable = memo(
     if (prevProps.listItems !== nextProps.listItems) return false;
     if (prevProps.listItems.length !== nextProps.listItems.length) return false;
     if (prevProps.selectedItem !== nextProps.selectedItem) return false;
+    if (prevProps.navigationReveal !== nextProps.navigationReveal) return false;
     if (prevProps.selectedResources !== nextProps.selectedResources) return false;
     if (prevProps.selectedResources.size !== nextProps.selectedResources.size) return false;
     if (prevProps.displayColumns.length !== nextProps.displayColumns.length) return false;
