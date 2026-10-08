@@ -75,7 +75,7 @@ useStore.setState({
 
 const root = createRoot(document.getElementById('root')!);
 let generation = 0;
-function reset({ empty = false, split = false } = {}) {
+function reset({ empty = false, split = false, descending = false } = {}) {
   finishDetails = [];
   listLoads = 0;
   const rows = empty ? [] : items;
@@ -88,7 +88,7 @@ function reset({ empty = false, split = false } = {}) {
     cluster,
     selectedNamespaces: [],
     sortBy: 'name',
-    sortOrder: 'asc' as const,
+    sortOrder: descending ? ('desc' as const) : ('asc' as const),
     isPinned: true,
     paneId: 'root',
   };

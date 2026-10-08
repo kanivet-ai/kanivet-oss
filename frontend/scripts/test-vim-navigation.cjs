@@ -98,7 +98,7 @@ async function runRendererTests() {
     await focus('tree');
     await key('l');
     await focus('list');
-    assert.equal((await snapshot()).selected, 'pod-b');
+    assert.equal((await snapshot()).selected, 'pod-a');
     await key('l');
     await focus('detail');
     await click('.resource-list tr.resource-row td:nth-child(2)');
@@ -122,8 +122,8 @@ async function runRendererTests() {
     await focus('list');
     assert.equal(
       (await snapshot()).selected,
-      'pod-b',
-      'The cursor must survive a round trip',
+      'pod-a',
+      'Returning from the selected sidebar item must select the first visible row',
     );
     console.log(
       'PASS: sidebar L, list H, list L opens selected detail, detail H (including slow details)',
@@ -155,6 +155,16 @@ async function runRendererTests() {
     console.log(
       'PASS: reopening collapsed details and returning from mouse-focused details',
     );
+
+    await reset({ descending: true });
+    await key('l');
+    await focus('list');
+    assert.equal(
+      (await snapshot()).selected,
+      'pod-b',
+      'Select the first row in displayed sort order',
+    );
+    console.log('PASS: sidebar L respects the visible sort order');
 
     await reset({ empty: true });
     await key('l');

@@ -526,7 +526,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     },
     l: {
       category: 'tree',
-      description: 'Focus resource list / expand tree',
+      description: 'Focus first list item / expand tree',
       handler: async (e) => {
         if (focusArea !== 'tree' || document.activeElement?.id === 'tree-search')
           return;
@@ -537,9 +537,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
         if (node.type === 'resource' || node.type === 'argo-overview') {
-          // Returning to the selected list must preserve its cursor and data.
-          if (node.id !== effectiveSelectedId) await handleNodeClick(node, false);
+          const isSelectedNode = node.id === effectiveSelectedId;
+          if (!isSelectedNode) await handleNodeClick(node, false);
           setFocusArea('list');
+          if (isSelectedNode) {
+            window.dispatchEvent(new Event('resourcelist:focus-first'));
+          }
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
             toggleNodeExpansion(node.id);

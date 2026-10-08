@@ -461,6 +461,18 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     (!paneId || paneId === (tabState?.focusedCenterPaneId || 'root'));
   const navHandlers = createNavigationHandlers(isListFocused ? 'list' : '', filteredItems, selectedItem, handleItemSelect);
 
+  useEffect(() => {
+    const focusFirstItem = () => {
+      const currentState = useStore.getState().getCurrentTabState();
+      if (currentState?.focusArea !== 'list' ||
+        (paneId || 'root') !== (currentState.focusedCenterPaneId || 'root')) return;
+      // Use the displayed order after sorting and filtering, not the raw rows.
+      if (filteredItems.length > 0) handleItemSelect(filteredItems[0], true);
+    };
+    window.addEventListener('resourcelist:focus-first', focusFirstItem);
+    return () => window.removeEventListener('resourcelist:focus-first', focusFirstItem);
+  }, [paneId, filteredItems, handleItemSelect]);
+
   useRegisteredKeyboard({
     ...Object.fromEntries(
       Object.entries(navHandlers).map(([key, handler]) => [
