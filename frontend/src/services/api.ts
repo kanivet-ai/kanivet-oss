@@ -1,6 +1,7 @@
 import { ClusterStatus } from '../types';
 import { SearchResult, SearchOptions, RecentResource } from '../types/search';
 import { HelmRelease, HelmReleaseDetail, HelmHistoryResponse } from '../types/helm';
+import { NatsConsumerInfoFull, NatsDetection, NatsKVEntry, NatsObjectInfo, NatsOverview, NatsRawMessage } from '../types/nats';
 import { wsManager } from './api/websocket';
 import { apiClient } from './api/client';
 import { ClusterGroup, ClusterInfo, NavigationEntry, PortForward } from './api/types';
@@ -10,6 +11,7 @@ import * as navigation from './api/navigation';
 import * as groups from './api/groups';
 import * as searchApi from './api/search';
 import * as helm from './api/helm';
+import * as natsApi from './api/nats';
 import * as metrics from './api/metrics';
 import * as finops from './api/finops';
 import * as rightsizing from './api/rightsizing';
@@ -223,6 +225,19 @@ class API {
   async upgradeHelmRelease(cluster: string, namespace: string, name: string, values: Record<string, any>, dryRun = false) {
     return helm.upgradeHelmRelease(cluster, namespace, name, values, dryRun);
   }
+
+  async getNatsDetection(cluster: string): Promise<NatsDetection> { return natsApi.getNatsDetection(cluster); }
+  async getNatsOverview(cluster: string): Promise<NatsOverview> { return natsApi.getNatsOverview(cluster); }
+  async getNatsStreamMessage(cluster: string, stream: string, seq: number): Promise<NatsRawMessage> { return natsApi.getNatsStreamMessage(cluster, stream, seq); }
+  async getNatsStreamLastMessage(cluster: string, stream: string, subject: string): Promise<NatsRawMessage> { return natsApi.getNatsStreamLastMessage(cluster, stream, subject); }
+  async getNatsConsumerInfo(cluster: string, stream: string, consumer: string): Promise<NatsConsumerInfoFull> { return natsApi.getNatsConsumerInfo(cluster, stream, consumer); }
+  async listNatsKVBuckets(cluster: string): Promise<string[]> { return natsApi.listNatsKVBuckets(cluster); }
+  async listNatsKVKeys(cluster: string, bucket: string): Promise<string[]> { return natsApi.listNatsKVKeys(cluster, bucket); }
+  async getNatsKVEntry(cluster: string, bucket: string, key: string): Promise<NatsKVEntry> { return natsApi.getNatsKVEntry(cluster, bucket, key); }
+  async getNatsKVHistory(cluster: string, bucket: string, key: string): Promise<NatsKVEntry[]> { return natsApi.getNatsKVHistory(cluster, bucket, key); }
+  async listNatsObjectStores(cluster: string): Promise<string[]> { return natsApi.listNatsObjectStores(cluster); }
+  async listNatsObjects(cluster: string, bucket: string): Promise<NatsObjectInfo[]> { return natsApi.listNatsObjects(cluster, bucket); }
+  async downloadNatsObject(cluster: string, bucket: string, name: string): Promise<Blob> { return natsApi.downloadNatsObject(cluster, bucket, name); }
 
   async getAvailableMetricProviders(): Promise<string[]> { return metrics.getAvailableMetricProviders(); }
   async detectMetricsProvider(cluster: string, options?: metrics.DetectMetricsProviderOptions): Promise<metrics.MetricsProvidersStatus> { return metrics.detectMetricsProvider(cluster, options); }

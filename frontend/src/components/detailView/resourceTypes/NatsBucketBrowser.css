@@ -1,0 +1,178 @@
+.nats-bucket-browser {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 14px 14px 18px;
+  min-width: 0;
+}
+
+.nats-bucket-browser-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.nats-bucket-browser-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+.nats-bucket-browser-section-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text2);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.nats-bucket-browser-status {
+  font-size: 12px;
+  color: var(--text3);
+}
+
+.nats-bucket-browser-status.error {
+  color: var(--danger-fg);
+}
+
+.nats-bucket-browser-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.nats-bucket-browser-chip {
+  height: 26px;
+  max-width: 100%;
+  padding: 0 10px;
+  border: 1px solid var(--hair);
+  border-radius: 999px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-size: 12px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nats-bucket-browser-chip.active {
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-color: transparent;
+}
+
+.nats-bucket-browser-meta {
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.nats-bucket-browser-history {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nats-bucket-browser-history-row {
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text2);
+  padding: 3px 0;
+  border-bottom: 1px solid var(--hair);
+  font-variant-numeric: tabular-nums;
+}
+
+.nats-bucket-browser-history-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.nats-bucket-browser-history-row:last-child {
+  border-bottom: 0;
+}
+
+/* Object Store table */
+.nats-object-table {
+  display: flex;
+  flex-direction: column;
+}
+
+.nats-object-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, 0.7fr) minmax(0, 1.3fr) minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 32px;
+  padding: 7px 4px;
+  font-size: 12px;
+  color: var(--text);
+  border-bottom: 1px solid var(--hair);
+  font-variant-numeric: tabular-nums;
+}
+
+.nats-object-row > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.nats-object-row:last-child {
+  border-bottom: 0;
+}
+
+.nats-object-row.nats-object-head {
+  min-height: 22px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  font-variant-numeric: normal;
+}
+
+.nats-object-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nats-object-digest {
+  font-family: var(--font-mono);
+  color: var(--text3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nats-object-row button {
+  height: 24px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--blue);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  justify-self: end;
+}
+
+.nats-object-row button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

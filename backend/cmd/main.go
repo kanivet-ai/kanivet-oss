@@ -377,6 +377,10 @@ func main() {
 	helmWsHandler := handlers.NewHelmHandler(helmService, wsServer.Hub())
 	wsServer.RegisterHandler("helm", helmWsHandler)
 
+	// Register NATS Live Tail handler, sharing apiHandler's tier-2 connection pool
+	natsWsHandler := handlers.NewNatsHandler(apiHandler.NatsLivePool(), wsServer.Hub())
+	wsServer.RegisterHandler("nats-tail", natsWsHandler)
+
 	// Setup Cloud service for discovery
 	cloudService := cloud.NewService(apiHandler.GetDB())
 	cloudService.SetOnBatchComplete(func() {
@@ -569,6 +573,18 @@ func main() {
 		v1.POST("/cluster/argo/applications/:namespace/:name/sync", apiHandler.ArgoSyncApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/refresh", apiHandler.ArgoRefreshApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/rollback", apiHandler.ArgoRollbackApplication)
+		v1.GET("/cluster/nats/detect", apiHandler.GetNatsDetection)
+		v1.GET("/cluster/nats/overview", apiHandler.GetNatsOverview)
+		v1.GET("/cluster/nats/stream/:stream/message", apiHandler.GetNatsStreamMessage)
+		v1.GET("/cluster/nats/stream/:stream/last-message", apiHandler.GetNatsStreamLastMessage)
+		v1.GET("/cluster/nats/stream/:stream/consumer/:consumer", apiHandler.GetNatsConsumerInfo)
+		v1.GET("/cluster/nats/kv", apiHandler.ListNatsKVBuckets)
+		v1.GET("/cluster/nats/kv/:bucket/keys", apiHandler.ListNatsKVKeys)
+		v1.GET("/cluster/nats/kv/:bucket/keys/:key", apiHandler.GetNatsKVEntry)
+		v1.GET("/cluster/nats/kv/:bucket/keys/:key/history", apiHandler.GetNatsKVHistory)
+		v1.GET("/cluster/nats/objectstore", apiHandler.ListNatsObjectStores)
+		v1.GET("/cluster/nats/objectstore/:bucket/objects", apiHandler.ListNatsObjects)
+		v1.GET("/cluster/nats/objectstore/:bucket/objects/:name", apiHandler.DownloadNatsObject)
 		v1.GET("/cluster/resource-schema/:group/:version/:kind", apiHandler.GetResourceSchema)
 
 		// Cluster groups management

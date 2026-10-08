@@ -77,11 +77,12 @@ export const nodeHasChevron = (n: any): boolean =>
   n.type !== 'finops' &&
   n.type !== 'rightsizing' &&
   n.type !== 'cluster-settings' &&
-  n.type !== 'incident-timeline';
+  n.type !== 'incident-timeline' &&
+  n.type !== 'nats';
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline', 'nats']);
 
 const nodeMatchesSearch = (
   node: any,
@@ -377,15 +378,17 @@ const TreeNode = ({
                     ? getCategoryIcon('cluster-settings')
                   : node.type === 'helm'
                     ? getCategoryIcon('helm')
-                    : node.type === 'resource'
-                      ? getResourceIcon(node.label)
-                      : node.type === 'category'
-                        ? getCategoryIcon(node.label)
-                        : node.type === 'apiVersion'
-                          ? getCategoryIcon('package')
-                          : node.type === 'vclusters' || node.type === 'vcluster'
-                            ? getCategoryIcon('vclusters')
-                            : getCategoryIcon('folder')}
+                    : node.type === 'nats'
+                      ? getCategoryIcon('nats')
+                      : node.type === 'resource'
+                        ? getResourceIcon(node.label)
+                        : node.type === 'category'
+                          ? getCategoryIcon(node.label)
+                          : node.type === 'apiVersion'
+                            ? getCategoryIcon('package')
+                            : node.type === 'vclusters' || node.type === 'vcluster'
+                              ? getCategoryIcon('vclusters')
+                              : getCategoryIcon('folder')}
           </span>
           <div className="tree-node-label-wrapper">
             <span className="tree-node-label">{node.label}</span>

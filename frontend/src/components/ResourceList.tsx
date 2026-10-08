@@ -42,6 +42,7 @@ import './ResourceList.css';
 const ClusterSettings = lazyView(() => import('./ClusterSettings'));
 const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
 const HelmPage = lazyView(() => import('./HelmPage'));
+const NatsPage = lazyView(() => import('./NatsPage'));
 const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
 const RightsizingDashboard = lazyView(
   () => import('./rightsizing/RightsizingDashboard'),
@@ -51,7 +52,7 @@ const IncidentTimelinePage = lazyView(
 );
 
 // Resource-list tabs that show a full page rather than a resource table.
-const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);
+const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview', 'NatsMonitoring']);
 
 // Scroll offset of each list, by cluster and list. Kept out of the store: the
 // table reports it on every scroll frame and only a remount reads it. It is
@@ -1042,6 +1043,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <RightsizingDashboard key={`rightsizing-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'HelmReleases' ? (
                       <HelmPage key={`helm-page-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'NatsMonitoring' ? (
+                      <NatsPage key={`nats-page-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'IncidentTimeline' ? (
                       <IncidentTimelinePage key={`incident-timeline-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
