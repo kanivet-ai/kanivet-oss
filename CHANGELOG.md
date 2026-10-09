@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.6.1](https://github.com/kanivet-ai/kanivet-oss/compare/v0.6.0...v0.6.1) (2026-10-09)
+
+
+### Bug Fixes
+
+* Fix/list detached after reconnect ([#54](https://github.com/kanivet-ai/kanivet-oss/issues/54)) ([26a99f6](https://github.com/kanivet-ai/kanivet-oss/commit/26a99f6a64e3034d922fb04dc7bb33b9228a33e0))
+* **helm:** sort releases by update timestamp ([#55](https://github.com/kanivet-ai/kanivet-oss/issues/55)) ([89eade8](https://github.com/kanivet-ai/kanivet-oss/commit/89eade891621c6b8e944abf790640cc1c61bff35))
+* **navigation:** restore history across clusters and pages ([#52](https://github.com/kanivet-ai/kanivet-oss/issues/52)) ([206cb65](https://github.com/kanivet-ai/kanivet-oss/commit/206cb655b5633d26a9ac6b6882f3b94891b82ba0))
+
+
+### Performance
+
+* **lists:** stream list rows as they download and share one pod watc… ([#50](https://github.com/kanivet-ai/kanivet-oss/issues/50)) ([a8e0a23](https://github.com/kanivet-ai/kanivet-oss/commit/a8e0a2393d7126b5e78f37c1cf20d06e74b47681))
+
 ## [0.6.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.5.0...v0.6.0) (2026-10-06)
 
 
