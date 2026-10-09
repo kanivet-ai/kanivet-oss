@@ -12,6 +12,7 @@ const {
   resolveWindowOptions,
   trackWindowState,
 } = require('./windowState');
+const { createBackendLog } = require('./backendLog');
 const isDev = !app.isPackaged && process.argv.includes('--dev');
 
 if (!app.requestSingleInstanceLock()) {
@@ -137,6 +138,9 @@ const BACKEND_STDERR_RING_MAX = 50;
 const MAX_BACKEND_RESTARTS = 10;
 const RESTART_BACKOFF_MS = [1000, 2000, 4000, 8000, 16000];
 const RESTART_BACKOFF_MAX_MS = 16000;
+
+// What the backend prints, kept on disk in a bounded log.
+const backendLog = createBackendLog(path.join(app.getPath('userData'), 'logs'));
 
 function pushBackendStderr(line) {
   if (!line) return;
@@ -1090,6 +1094,8 @@ async function startBackend() {
         cwd: process.resourcesPath,
       });
 
+      backendLog.write(`--- backend started ${new Date().toISOString()} by Kanivet ${app.getVersion()} ---\n`);
+
       let stdoutBuffer = '';
       let startupResolved = false;
       let resolveStarted;
@@ -1106,6 +1112,7 @@ async function startBackend() {
       backendProcess.stdout.on('data', (data) => {
         const text = data.toString();
         writeLog(`[Backend] ${text}`);
+        backendLog.write(text);
         stdoutBuffer += text.replace(/\r/g, '');
         const lines = stdoutBuffer.split('\n');
         stdoutBuffer = lines.pop() || '';
@@ -1117,6 +1124,7 @@ async function startBackend() {
 
       backendProcess.stderr.on('data', (data) => {
         writeLog(`[Backend Error] ${data}`);
+        backendLog.write(data);
         data.toString().split(/\r?\n/).forEach(pushBackendStderr);
       });
 
