@@ -98,3 +98,26 @@ func mustJSON(t *testing.T, value interface{}) []byte {
 	}
 	return data
 }
+
+func TestStatusErrorMessageKeepsTheAuthenticationCode(t *testing.T) {
+	// What a status check leaves of a 401: the classified message, which
+	// ClassifyClusterError does not recognise a second time.
+	status := &k8s.ClusterStatus{Name: "c", ErrorCode: "unauthorized", Error: "Authentication failed. Your credentials may have expired or be invalid for this cluster."}
+	if code, _, ok := k8s.ClassifyClusterError(status.Error); ok && k8s.IsAuthErrorCode(code) {
+		t.Fatalf("the message alone classifies as %q; this test no longer covers the generic fallback", code)
+	}
+
+	msg := statusErrorMessage("c", status)
+
+	if msg == nil || msg.ErrorCode != "unauthorized" || msg.ErrorMessage != status.Error || msg.Cluster != "c" || msg.Type != "cluster_error" {
+		t.Fatalf("message = %+v, want the unauthorized error for c", msg)
+	}
+}
+
+func TestStatusErrorMessageLeavesOtherFailuresToTheClassifier(t *testing.T) {
+	for _, status := range []*k8s.ClusterStatus{nil, {Name: "c", Error: "Failed to get server version: dial tcp: i/o timeout"}} {
+		if msg := statusErrorMessage("c", status); msg != nil {
+			t.Fatalf("message for %+v = %+v, want none", status, msg)
+		}
+	}
+}

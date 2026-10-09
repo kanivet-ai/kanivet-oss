@@ -211,23 +211,54 @@ func (h *Handler) AttachHub(hub *core.Hub) {
 }
 
 func (h *Handler) broadcastClusterError(cluster, errorMsg string) {
-	if h.wsHub == nil {
-		log.Printf("Cannot broadcast cluster error: wsHub is nil")
-		return
-	}
 	log.Printf("broadcastClusterError called for %s: %s", cluster, errorMsg)
 	errorCode, errorMessage, ok := k8s.ClassifyClusterError(errorMsg)
 	if !ok {
 		errorCode = "cluster_error"
 		errorMessage = errorMsg
 	}
-	msg := &ClusterErrorMessage{
+	h.sendClusterError(&ClusterErrorMessage{
 		Type:         "cluster_error",
 		Cluster:      cluster,
 		ErrorCode:    errorCode,
 		ErrorMessage: errorMessage,
 		Details:      errorMsg,
 		Recoverable:  true,
+	})
+}
+
+// broadcastStatusError announces a failed status check.
+func (h *Handler) broadcastStatusError(cluster string, status *k8s.ClusterStatus) {
+	if msg := statusErrorMessage(cluster, status); msg != nil {
+		h.sendClusterError(msg)
+		return
+	}
+	h.broadcastClusterError(cluster, status.Error)
+}
+
+// statusErrorMessage is the announcement of a status check that failed to
+// authenticate, or nil for any other failure. The check has classified the
+// failure already and keeps only its message, which classifying a second time
+// does not recognise: the UI was then told of a generic error, and stopped
+// treating the cluster as one a sign-in would fix.
+func statusErrorMessage(cluster string, status *k8s.ClusterStatus) *ClusterErrorMessage {
+	if status == nil || status.ErrorCode == "" {
+		return nil
+	}
+	return &ClusterErrorMessage{
+		Type:         "cluster_error",
+		Cluster:      cluster,
+		ErrorCode:    status.ErrorCode,
+		ErrorMessage: status.Error,
+		Details:      status.Error,
+		Recoverable:  true,
+	}
+}
+
+func (h *Handler) sendClusterError(msg *ClusterErrorMessage) {
+	if h.wsHub == nil {
+		log.Printf("Cannot broadcast cluster error: wsHub is nil")
+		return
 	}
 	data, err := jsonv2.Marshal(msg)
 	if err != nil {
@@ -238,7 +269,7 @@ func (h *Handler) broadcastClusterError(cluster, errorMsg string) {
 		_ = conn.Send(data)
 		return true
 	})
-	log.Printf("Broadcast cluster error for %s: %s - %s", cluster, errorCode, errorMessage)
+	log.Printf("Broadcast cluster error for %s: %s - %s", msg.Cluster, msg.ErrorCode, msg.ErrorMessage)
 }
 
 // BroadcastJSON sends an arbitrary JSON message to every connected UI.

@@ -84,6 +84,10 @@ type Service struct {
 	epochs            map[string]uint64
 	snapshotMu        sync.Mutex
 	snapshotSavedAt   map[string]time.Time
+	// retry holds, per cluster, the channel RetryNow closes to cut short the
+	// backoff its watches are waiting out. Guarded by retryMu.
+	retryMu sync.Mutex
+	retry   map[string]chan struct{}
 
 	// sinks are the object sinks by kind and feeds the running watches' feeds
 	// by topic, both guarded by feedMu.
@@ -964,6 +968,9 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 			return
 		default:
 		}
+		// Taken before the attempt, so that a RetryNow that lands while it is
+		// still failing is not missed by the backoff that follows.
+		retry := s.retrySignal(cluster)
 
 		if resource == nil {
 			var err error
@@ -980,7 +987,7 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 					s.finishSync(ctx, s.pendingSync(ctx, topic), err)
 					s.sendInitialSyncComplete(topic, 0, 0)
 				}
-				if !sleepBackoff(ctx, &consecutiveFailures) {
+				if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 					return
 				}
 				continue
@@ -1012,7 +1019,7 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 				if consecutiveFailures == 0 {
 					s.sendInitialSyncComplete(topic, 0, 0)
 				}
-				if !sleepBackoff(ctx, &consecutiveFailures) {
+				if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 					return
 				}
 				continue
@@ -1053,7 +1060,7 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 				resource = nil
 				latestRV = ""
 			}
-			if !sleepBackoff(ctx, &consecutiveFailures) {
+			if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 				return
 			}
 			continue
@@ -1073,7 +1080,7 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 				resource = nil
 				latestRV = ""
 			}
-			if !sleepBackoff(ctx, &consecutiveFailures) {
+			if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 				return
 			}
 			continue
@@ -1088,7 +1095,7 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 			// would otherwise be re-watched in a tight loop, since watches
 			// are not client-side rate limited.
 			log.Printf("k8s watcher: watch for %s closed immediately, backing off", topic)
-			if !sleepBackoff(ctx, &consecutiveFailures) {
+			if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 				return
 			}
 			continue
@@ -1111,14 +1118,50 @@ func watchTimeoutSeconds() int64 {
 	return 300 + rand.Int64N(301)
 }
 
-func sleepBackoff(ctx context.Context, attempts *int) bool {
+// sleepBackoff waits before a watch tries again, longer with each attempt, and
+// reports whether the watch is still wanted. retry, closed, ends the wait.
+func sleepBackoff(ctx context.Context, retry <-chan struct{}, attempts *int) bool {
 	*attempts++
 	select {
 	case <-ctx.Done():
 		return false
 	case <-time.After(backoffDelay(*attempts)):
-		return true
+	case <-retry:
+		// The cluster answers again: if this try still fails, that is a new
+		// failure, not the next of the old ones.
+		*attempts = 0
 	}
+	return true
+}
+
+// retrySignal is closed when the cluster's waiting watches should try again.
+func (s *Service) retrySignal(cluster string) <-chan struct{} {
+	s.retryMu.Lock()
+	defer s.retryMu.Unlock()
+	ch := s.retry[cluster]
+	if ch == nil {
+		if s.retry == nil {
+			s.retry = make(map[string]chan struct{})
+		}
+		ch = make(chan struct{})
+		s.retry[cluster] = ch
+	}
+	return ch
+}
+
+// RetryNow has the cluster's watches that are failing try again at once, those
+// waiting out a backoff and those whose attempt is about to fail alike. It is
+// for whoever has just found the cluster reachable, as a status check does
+// after a sign-in: left to their backoff, the lists stayed up to half a minute
+// behind a cluster the user had been told was back. Healthy watches are
+// unaffected, and so is any backoff that starts after the next attempt.
+func (s *Service) RetryNow(cluster string) {
+	s.retryMu.Lock()
+	if ch := s.retry[cluster]; ch != nil {
+		close(ch)
+		delete(s.retry, cluster)
+	}
+	s.retryMu.Unlock()
 }
 
 // backoffDelay doubles from 1 s up to 30 s per attempt, with equal jitter: a

@@ -21,6 +21,7 @@ type StatusManager struct {
 	lastRefresh   map[string]time.Time
 	backoff       map[string]time.Duration
 	active        func() bool
+	onReachable   func(cluster string)
 	mu            sync.RWMutex
 	refreshTicker *time.Ticker
 	stopCh        chan struct{}
@@ -43,6 +44,16 @@ func NewStatusManager(k8sClient k8s.Interface) *StatusManager {
 func (m *StatusManager) SetActiveCheck(fn func() bool) {
 	m.mu.Lock()
 	m.active = fn
+	m.mu.Unlock()
+}
+
+// SetOnReachable installs fn, run when a check made on request finds a cluster
+// healthy. The background checks do not run it: they would have every watch
+// that fails for a reason of its own, a kind the user may not list, start its
+// backoff over each time the cluster as a whole answers.
+func (m *StatusManager) SetOnReachable(fn func(cluster string)) {
+	m.mu.Lock()
+	m.onReachable = fn
 	m.mu.Unlock()
 }
 
@@ -194,11 +205,29 @@ func (m *StatusManager) RefreshCluster(cluster string) *k8s.ClusterStatus {
 	delete(m.backoff, cluster)
 	m.mu.Unlock()
 	status, err := m.k8s.GetClusterStatus(cluster)
+	if err == nil && refusedCredential(status) {
+		// A credential plugin runs again only once a request has been refused
+		// with what it issued last. The check that follows a sign-in is that
+		// request, so it fails on the old credential; the next has the new one.
+		status, err = m.k8s.GetClusterStatus(cluster)
+	}
 	if err != nil {
 		return nil
 	}
 	m.store(cluster, status)
+	m.mu.RLock()
+	reachable := m.onReachable
+	m.mu.RUnlock()
+	if status.Healthy && reachable != nil {
+		reachable(cluster)
+	}
 	return status
+}
+
+// refusedCredential reports whether the API server turned the check away for
+// its credential, as opposed to the credential not being obtainable at all.
+func refusedCredential(status *k8s.ClusterStatus) bool {
+	return status != nil && !status.Healthy && (status.ErrorCode == "unauthorized" || status.ErrorCode == "token_expired")
 }
 
 func (m *StatusManager) RefreshAll() {

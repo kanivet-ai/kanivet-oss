@@ -49,7 +49,7 @@ func (h *Handler) GetClusterStatusQuery(c *gin.Context) {
 	if h.statusManager != nil && !force {
 		if status := h.statusManager.GetStatus(cluster); status != nil {
 			if !status.Healthy && status.Error != "" {
-				h.broadcastClusterError(cluster, status.Error)
+				h.broadcastStatusError(cluster, status)
 			}
 			h.respond(c, http.StatusOK, status, nil)
 			return
@@ -60,7 +60,7 @@ func (h *Handler) GetClusterStatusQuery(c *gin.Context) {
 		if h.statusManager != nil {
 			if status := h.statusManager.RefreshCluster(cluster); status != nil {
 				if !status.Healthy && status.Error != "" {
-					h.broadcastClusterError(cluster, status.Error)
+					h.broadcastStatusError(cluster, status)
 				}
 				h.respond(c, http.StatusOK, status, nil)
 				return
@@ -73,7 +73,7 @@ func (h *Handler) GetClusterStatusQuery(c *gin.Context) {
 	})
 	if status, ok := data.(*clusterStatus); ok && status != nil {
 		if !status.Healthy && status.Error != "" {
-			h.broadcastClusterError(cluster, status.Error)
+			h.broadcastStatusError(cluster, status)
 		}
 	}
 	h.respond(c, http.StatusOK, data, err)

@@ -11,7 +11,7 @@ import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
 import type { StoreState } from '../store/types';
-import { forgetTreeLoad } from '../store/resourceSlice';
+import { resumeShownList, retryCluster } from '../store/clusterRetry';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
@@ -95,6 +95,9 @@ const Layout = () => {
       const detail = (event as CustomEvent<{ cluster: string }>).detail;
       if (!detail?.cluster) return;
       useStore.getState().clearClusterError(detail.cluster);
+      // Whatever left the list on screen without a subscription while the
+      // cluster was failing, it follows the cluster again from here.
+      resumeShownList(useStore, detail.cluster);
     };
     window.addEventListener('cluster:error-cleared', handleClusterErrorCleared);
     return () => {
@@ -459,30 +462,10 @@ const Layout = () => {
       const { cluster } = (event as CustomEvent<{ cluster: string }>).detail;
       if (!cluster || inFlight.has(cluster)) return;
       inFlight.add(cluster);
-      console.log('[Layout] Retrying cluster connection, clearing cache for:', cluster);
-      const cacheMap: Map<string, Map<string, any>> = (window as any).__kanivetItemsCache;
-      if (cacheMap) {
-        for (const key of cacheMap.keys()) {
-          if (key.startsWith(`items:${cluster}:`)) cacheMap.delete(key);
-        }
-      }
-      const { loadClusterStatus, loadTreeData, loadListItems, getCurrentTabState, stopRealtime, startRealtime } = useStore.getState();
-      stopRealtime();
+      console.log('[Layout] Retrying cluster connection for:', cluster);
       let healthy = false;
       try {
-        await api.refreshClusters();
-        await loadClusterStatus(cluster, true);
-        healthy = Boolean(useStore.getState().clusterStatuses[cluster]?.healthy);
-        if (healthy) {
-          // Not the load still hanging on the client the refresh replaced.
-          forgetTreeLoad(cluster);
-          await loadTreeData(cluster);
-          const state = getCurrentTabState();
-          if (state?.selectedNode?.type === 'resource' && state.selectedNode.data) {
-            await loadListItems(cluster, state.selectedNode.data);
-            startRealtime();
-          }
-        }
+        healthy = await retryCluster(useStore, cluster);
       } finally {
         inFlight.delete(cluster);
         window.dispatchEvent(new CustomEvent('cluster:retry-done', { detail: { cluster, healthy } }));

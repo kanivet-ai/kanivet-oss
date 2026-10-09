@@ -889,6 +889,7 @@ type ClusterStatus struct {
 	Name           string `json:"name"`
 	Healthy        bool   `json:"healthy"`
 	Error          string `json:"error,omitempty"`
+	ErrorCode      string `json:"errorCode,omitempty"` // of an authentication failure, whose message Error then holds
 	Version        string `json:"version,omitempty"`
 	Platform       string `json:"platform,omitempty"`
 	GitVersion     string `json:"gitVersion,omitempty"`
@@ -1044,6 +1045,7 @@ func (c *Client) GetClusterStatus(cluster string) (*ClusterStatus, error) {
 		errStr := vr.err.Error()
 		if code, message, ok := ClassifyClusterError(errStr); ok && IsAuthErrorCode(code) {
 			status.Error = message
+			status.ErrorCode = code
 		} else {
 			status.Error = fmt.Sprintf("Failed to get server version: %v", vr.err)
 		}

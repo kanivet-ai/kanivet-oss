@@ -284,6 +284,9 @@ func main() {
 	watcherService := watcher.NewService(k8sClient, compositeBroadcaster)
 	watcherService.SetDB(apiHandler.GetDB())
 	watcherService.SetInvalidationBus(invalidationBus)
+	// A cluster the user asks about and that answers has its failing watches
+	// try again at once instead of waiting out their backoff.
+	statusManager.SetOnReachable(watcherService.RetryNow)
 
 	// Setup WebSocket handlers
 	wsServer.SetupDefaultHandlers(watcherService)
