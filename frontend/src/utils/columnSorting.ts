@@ -18,6 +18,8 @@ const getSortValue = (item: any, column: string): any => {
       // Items with deletionTimestamp are pending deletion (deleted = true)
       // Sort: deleted items first (1) when ascending, non-deleted first (0) when ascending
       return item.deletionTimestamp ? 1 : 0;
+    case 'updated':
+      return Date.parse(item.updated) || 0;
     case 'age':
       return new Date(item.creationTimestamp || 0).getTime();
     case 'status':
