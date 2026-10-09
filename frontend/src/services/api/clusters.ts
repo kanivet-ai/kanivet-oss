@@ -23,9 +23,16 @@ export async function getClustersStatus(): Promise<ClusterStatus[]> {
 }
 
 export async function getClusterStatus(cluster: string, force = false): Promise<ClusterStatus> {
-  const params: Record<string, string> = { cluster };
-  if (force) params.force = 'true';
-  return await apiClient.request('/cluster/status', params);
+  if (!force) return await apiClient.request('/cluster/status', { cluster });
+  // A forced check asks the cluster now. Answered from the request cache, a
+  // retry made within a minute of a failed one reported that failure again
+  // without the backend hearing of it.
+  try {
+    return await apiClient.request('/cluster/status', { cluster, force: 'true' }, false);
+  } finally {
+    // What an unforced check cached earlier is older than this answer.
+    apiClient.invalidateCache(apiClient.getCacheKey('/cluster/status', { cluster }));
+  }
 }
 
 export async function getBatchClusterStatus(clusters: string[], force = false): Promise<Record<string, ClusterStatus>> {

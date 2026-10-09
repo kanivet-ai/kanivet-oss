@@ -2,6 +2,7 @@ package watcher
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -230,5 +231,92 @@ func TestWatchOnUnreachableClusterCompletesSyncOnce(t *testing.T) {
 	}
 	if len(hub.bulkLists()) != 0 {
 		t.Fatal("a revisit replayed the empty cache as a snapshot")
+	}
+}
+
+func TestRetryNowEndsTheBackoffOfItsClusterOnly(t *testing.T) {
+	s := newListSyncService(&captureBroadcaster{sortBy: "age", sortOrder: "desc"})
+	retry := s.retrySignal("c")
+	attempts := 9 // the wait that follows is 15 to 30 seconds
+	woken := make(chan bool, 1)
+	go func() { woken <- sleepBackoff(context.Background(), retry, &attempts) }()
+
+	s.RetryNow("other")
+	select {
+	case <-woken:
+		t.Fatal("another cluster's retry ended the wait")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	s.RetryNow("c")
+	select {
+	case wanted := <-woken:
+		if !wanted {
+			t.Fatal("the watch was reported as no longer wanted")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the watch is still waiting after RetryNow")
+	}
+	if attempts != 0 {
+		t.Fatalf("attempts = %d after a retry, want the backoff started over", attempts)
+	}
+
+	// The next backoff is waited out again.
+	select {
+	case <-s.retrySignal("c"):
+		t.Fatal("a retry that is over ends the following backoff too")
+	default:
+	}
+}
+
+// healingLister fails every list until it is healed.
+type healingLister struct {
+	recordingLister
+	healed atomic.Bool
+	failed atomic.Int64
+}
+
+func (l *healingLister) List(ctx context.Context, opts metav1.ListOptions) (*unstructured.UnstructuredList, error) {
+	if !l.healed.Load() {
+		l.failed.Add(1)
+		return nil, errors.New("the server is currently unable to handle the request")
+	}
+	return l.fakeListLister.List(ctx, opts)
+}
+
+func (l *healingLister) Namespace(string) resourceLister { return l }
+
+// A status check that finds the cluster back must not leave its lists to
+// their backoff: after a sign-in they stayed stale for up to half a minute.
+func TestWatchLoopListsAtOnceWhenItsClusterAnswersAgain(t *testing.T) {
+	hub := &captureBroadcaster{sortBy: "age", sortOrder: "desc"}
+	s := newListSyncService(hub)
+	l := &healingLister{}
+	l.items = []unstructured.Unstructured{mkListObj("a"), mkListObj("b")}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		s.runWatchLoop(ctx, "c", schema.GroupVersionResource{Group: "apps", Version: "v1", Resource: "deployments"}, "", "items:c:apps:v1:deployments:", l)
+	}()
+	defer func() { cancel(); <-done }()
+
+	// Into the second attempt: the wait that follows it is one to two seconds.
+	deadline := time.Now().Add(10 * time.Second)
+	for l.failed.Load() < 3 {
+		if time.Now().After(deadline) {
+			t.Fatal("the list was not retried")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	l.healed.Store(true)
+	s.RetryNow("c")
+
+	for deadline = time.Now().Add(400 * time.Millisecond); s.cache.Count("items:c:apps:v1:deployments:") != 2; {
+		if time.Now().After(deadline) {
+			t.Fatal("the list was not fetched within 400ms of the cluster answering again")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

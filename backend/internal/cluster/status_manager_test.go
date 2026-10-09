@@ -126,3 +126,108 @@ func TestRefreshNextClusterKeepsExistingStatusesWhenNewClusterIsFirst(t *testing
 		t.Fatalf("expected new cluster status to be cached")
 	}
 }
+
+// scriptedStatusClient answers each status check with the next status in turn,
+// repeating the last.
+type scriptedStatusClient struct {
+	k8s.MockClient
+	answers []k8s.ClusterStatus
+	checks  int
+}
+
+func (c *scriptedStatusClient) GetClusterStatus(cluster string) (*k8s.ClusterStatus, error) {
+	answer := c.answers[min(c.checks, len(c.answers)-1)]
+	c.checks++
+	answer.Name = cluster
+	return &answer, nil
+}
+
+func TestRefreshClusterChecksAgainAfterARefusedCredential(t *testing.T) {
+	// The first check after a sign-in still carries the credential issued
+	// before it; being refused is what makes the plugin run again.
+	client := &scriptedStatusClient{answers: []k8s.ClusterStatus{
+		{ErrorCode: "unauthorized", Error: "Authentication failed."},
+		{Healthy: true},
+	}}
+	manager := NewStatusManager(client)
+
+	status := manager.RefreshCluster("a")
+
+	if status == nil || !status.Healthy {
+		t.Fatalf("status after a sign-in = %+v, want healthy", status)
+	}
+	if client.checks != 2 {
+		t.Fatalf("cluster checked %d times, want 2", client.checks)
+	}
+	if cached := manager.GetStatus("a"); cached == nil || !cached.Healthy {
+		t.Fatalf("cached status = %+v, want the second answer", cached)
+	}
+}
+
+func TestRefreshClusterChecksOnceOtherwise(t *testing.T) {
+	for name, answer := range map[string]k8s.ClusterStatus{
+		"healthy":                 {Healthy: true},
+		"unreachable":             {Error: "Failed to get server version: dial tcp: i/o timeout"},
+		"credential not obtained": {ErrorCode: "aws_sso_expired", Error: "Your AWS SSO session has expired."},
+	} {
+		t.Run(name, func(t *testing.T) {
+			client := &scriptedStatusClient{answers: []k8s.ClusterStatus{answer}}
+			status := NewStatusManager(client).RefreshCluster("a")
+			if status == nil || status.Healthy != answer.Healthy || status.ErrorCode != answer.ErrorCode {
+				t.Fatalf("status = %+v, want %+v", status, answer)
+			}
+			if client.checks != 1 {
+				t.Fatalf("cluster checked %d times, want 1", client.checks)
+			}
+		})
+	}
+}
+
+func TestRefreshClusterKeepsARefusalThatPersists(t *testing.T) {
+	client := &scriptedStatusClient{answers: []k8s.ClusterStatus{{ErrorCode: "unauthorized", Error: "Authentication failed."}}}
+
+	status := NewStatusManager(client).RefreshCluster("a")
+
+	if status == nil || status.Healthy || status.ErrorCode != "unauthorized" {
+		t.Fatalf("status = %+v, want the refusal", status)
+	}
+	if client.checks != 2 {
+		t.Fatalf("cluster checked %d times, want 2", client.checks)
+	}
+}
+
+func TestRefreshClusterAnnouncesAClusterThatAnswers(t *testing.T) {
+	var reachable []string
+	client := &scriptedStatusClient{answers: []k8s.ClusterStatus{
+		{Error: "Failed to get server version: dial tcp: i/o timeout"},
+		{Healthy: true},
+	}}
+	manager := NewStatusManager(client)
+	manager.SetOnReachable(func(cluster string) { reachable = append(reachable, cluster) })
+
+	manager.RefreshCluster("a")
+	if len(reachable) != 0 {
+		t.Fatalf("announced %v for a cluster that does not answer", reachable)
+	}
+	manager.RefreshCluster("a")
+	if len(reachable) != 1 || reachable[0] != "a" {
+		t.Fatalf("announced %v, want [a]", reachable)
+	}
+}
+
+func TestBackgroundChecksDoNotAnnounceReachableClusters(t *testing.T) {
+	announced := 0
+	client := &statusManagerTestClient{clusters: []k8s.ClusterInfo{{Name: "a"}}}
+	manager := NewStatusManager(client)
+	manager.SetOnReachable(func(string) { announced++ })
+
+	manager.refreshNextCluster()
+	manager.RefreshAll()
+
+	if client.callCount() == 0 {
+		t.Fatal("the background checks did not run")
+	}
+	if announced != 0 {
+		t.Fatalf("background checks announced a reachable cluster %d times", announced)
+	}
+}
