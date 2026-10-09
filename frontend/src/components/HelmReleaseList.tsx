@@ -3,6 +3,7 @@ import { useStore } from '../store';
 import clsx from 'clsx';
 import { HelmRelease } from '../types/helm';
 import { getColumnValue } from '../utils/resourceColumnValues';
+import { sortItems } from '../utils/columnSorting';
 import ScrollContainer from './ScrollContainer';
 import ResourceControlsBar from './common/ResourceControlsBar';
 import { useHelmReleasesStream } from '../hooks/useHelmReleasesStream';
@@ -87,6 +88,10 @@ const HelmReleaseList = ({ cluster, onSelectRelease }: HelmReleaseListProps) => 
       );
     }
     
+    if (sortBy === 'UPDATED') {
+      return sortItems(result, { sortBy: 'updated', sortOrder });
+    }
+
     // Sort
     result = [...result].sort((a, b) => {
       let aVal = getColumnValue(a, sortBy, null) || '';
