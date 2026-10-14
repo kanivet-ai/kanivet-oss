@@ -274,7 +274,7 @@
 
 .lv-search input {
   flex: 1;
-  min-width: 60px;
+  min-width: 0;
   border: none;
   outline: none;
   background: transparent;
@@ -328,6 +328,7 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   padding: 0 2px;
+  flex-shrink: 0;
 }
 
 .lv-error {

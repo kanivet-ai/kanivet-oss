@@ -1,17 +1,31 @@
 .search-input-container {
-  position: relative;
   display: flex;
   align-items: center;
   flex: 1;
+  min-width: 0;
+  height: 28px;
+  background-color: var(--ctrl);
+  border-radius: 7px;
+  transition: box-shadow var(--duration-fast) var(--ease-quiet), background-color var(--duration-fast) var(--ease-quiet);
+}
+
+.search-input-container:hover {
+  background-color: var(--ctrl2);
+}
+
+.search-input-container:focus-within {
+  background-color: var(--ctrl);
+  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
 }
 
 .search-input-container .search-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   height: 28px;
-  padding: 0 28px 0 27px;
+  padding: 0 4px 0 27px;
   border: 0;
   border-radius: 7px;
-  background-color: var(--ctrl);
+  background-color: transparent;
   color: var(--text);
   font-size: 13px;
   line-height: 1.4;
@@ -20,16 +34,16 @@
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='13' height='13' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.2' stroke-linecap='round'><circle cx='11' cy='11' r='7'/><line x1='21' y1='21' x2='16.5' y2='16.5'/></svg>");
   background-repeat: no-repeat;
   background-position: 9px center;
-  transition: box-shadow var(--duration-fast) var(--ease-quiet), background-color var(--duration-fast) var(--ease-quiet);
-}
-
-.search-input-container .search-input:hover {
-  background-color: var(--ctrl2);
+  box-shadow: none;
 }
 
 .search-input-container .search-input:focus {
-  background-color: var(--ctrl);
-  box-shadow: 0 0 0 3px rgba(var(--blue-rgb), 0.35);
+  background-color: transparent;
+  box-shadow: none;
+}
+
+.search-input-container .search-input:hover {
+  background-color: transparent;
 }
 
 .search-input-container .search-input::placeholder {
@@ -38,8 +52,8 @@
 }
 
 .search-input-container .search-clear {
-  position: absolute;
-  right: 6px;
+  position: static;
+  flex: 0 0 16px;
   background: var(--ctrl2);
   border: none;
   color: var(--text2);
@@ -52,6 +66,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
+  margin-right: 6px;
   border-radius: 50%;
   transition: background var(--duration-fast) var(--ease-quiet), color var(--duration-fast) var(--ease-quiet);
 }
@@ -62,11 +77,11 @@
 }
 
 .search-input-container .search-results-count {
-  position: absolute;
-  right: 26px;
+  flex: 0 0 auto;
   font-size: 11px;
   color: var(--text3);
   white-space: nowrap;
   pointer-events: none;
   font-variant-numeric: tabular-nums;
+  padding: 0 4px;
 }

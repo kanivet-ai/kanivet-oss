@@ -39,6 +39,11 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
+        {showResultCount && value && (
+          <span className="search-results-count">
+            {resultCount} of {totalCount}
+          </span>
+        )}
         {value && (
           <button
             className="search-clear"
@@ -47,11 +52,6 @@ const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
           >
             ✕
           </button>
-        )}
-        {showResultCount && value && (
-          <span className="search-results-count">
-            {resultCount} of {totalCount}
-          </span>
         )}
       </div>
     );
