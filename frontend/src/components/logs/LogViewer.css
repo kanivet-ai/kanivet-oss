@@ -13,9 +13,8 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
-  margin-top: 8px;
-  padding: 0 10px;
-  min-height: 36px;
+  padding: 4px 10px 0;
+  min-height: 40px;
   border-bottom: 1px solid var(--hair);
   background: var(--win);
 }
