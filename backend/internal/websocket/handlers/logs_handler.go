@@ -167,11 +167,15 @@ func (h *LogsHandler) handleStart(ctx context.Context, conn *core.Connection, pa
 		defer h.activeStreams.CompareAndDelete(streamKey, stream)
 		defer cancel()
 
-		if err := h.run(streamCtx, stream.conn, payload); err != nil {
-			if !errors.IsNotFound(err) && streamCtx.Err() == nil {
-				log.Printf("Error streaming logs for %s: %v", payload.Key, err)
-				h.sendError(stream.conn, payload.Key, fmt.Sprintf("Failed to stream logs: %v", err))
+		if err := h.run(streamCtx, stream.conn, payload); err != nil && streamCtx.Err() == nil {
+			if errors.IsNotFound(err) {
+				// Not an error to show, but the stream is over: without
+				// an end the client would show an empty viewer as live.
+				h.sendEndReason(stream.conn, payload.Key, logEndNotFound, notFoundMessage(payload))
+				return
 			}
+			log.Printf("Error streaming logs for %s: %v", payload.Key, err)
+			h.sendError(stream.conn, payload.Key, fmt.Sprintf("Failed to stream logs: %v", err))
 		}
 	}()
 
@@ -810,6 +814,25 @@ func (h *LogsHandler) sendConnected(conn logSender, key string) {
 
 func (h *LogsHandler) sendEnd(conn logSender, key string) {
 	_ = h.sendRetry(context.Background(), conn, map[string]any{"type": "end", "key": key})
+}
+
+// logEndNotFound is the reason of an end sent because the pod or workload
+// whose logs were asked for does not exist (any more).
+const logEndNotFound = "not_found"
+
+// sendEndReason ends a stream saying why; it is an end like any other to a
+// client that ignores the reason.
+func (h *LogsHandler) sendEndReason(conn logSender, key, reason, message string) {
+	_ = h.sendRetry(context.Background(), conn, map[string]any{"type": "end", "key": key, "reason": reason, "message": message})
+}
+
+// notFoundMessage says which resource is gone, e.g. "pod ns/web no longer exists".
+func notFoundMessage(p logsPayload) string {
+	kind := strings.ToLower(p.ResourceType)
+	if kind == "" {
+		kind = "pod"
+	}
+	return fmt.Sprintf("%s %s/%s no longer exists", kind, p.Namespace, p.Name)
 }
 
 func (h *LogsHandler) sendError(conn logSender, key, errorMsg string) {

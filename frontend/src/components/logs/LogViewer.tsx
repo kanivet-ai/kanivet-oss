@@ -18,6 +18,7 @@ import {
 } from '@radix-ui/react-icons';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useLogFeed, ContainerInfo } from './useLogFeed';
+import { endedLabel } from './logFeedState';
 import { LogLine, LogLevel, Matcher, buildMatcher } from './logEngine';
 import useDebounce from '../../hooks/useDebounce';
 import './LogViewer.css';
@@ -115,7 +116,7 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers, 
   const [tailLines, setTailLines] = useState(1000);
   const [previous, setPrevious] = useState(false);
 
-  const { buffer, version, pods, containers: streamContainers, status, error } = useLogFeed({
+  const { buffer, version, pods, containers: streamContainers, status, error, end } = useLogFeed({
     cluster,
     namespace,
     name,
@@ -603,7 +604,7 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers, 
                       key={item.key}
                       data-index={item.index}
                       ref={virtualizer.measureElement}
-                      className={`lv-line lv-${line.level}${isMatch ? ' lv-hit' : ''}${isActive ? ' lv-hit-active' : ''}`}
+                      className={`lv-line lv-${line.level}${line.marker ? ' lv-marker' : ''}${isMatch ? ' lv-hit' : ''}${isActive ? ' lv-hit-active' : ''}`}
                       style={{ transform: `translateY(${item.start}px)` }}
                     >
                       {timestamps && (
@@ -637,10 +638,10 @@ const LogViewer = ({ cluster, namespace, name, kind, containers: ownContainers, 
 
       <div className="lv-status">
         <span className={`lv-dot lv-dot-${status}`} />
-        <span className="lv-status-text">
+        <span className="lv-status-text" title={status === 'ended' ? end?.message : undefined}>
           {status === 'connecting' && 'Connecting…'}
           {status === 'live' && 'Live'}
-          {status === 'ended' && (previous ? 'Previous instance' : 'Stream ended')}
+          {status === 'ended' && endedLabel(end, previous)}
           {status === 'error' && 'Error'}
         </span>
         <span className="lv-status-lines">{totalShown} lines</span>
