@@ -105,8 +105,9 @@ func TestWatchFollowsAContextPointedElsewhere(t *testing.T) {
 
 	waitFor(t, "the relist from the second cluster", func() bool {
 		names := cachedNames(s, topic)
-		return names["from-b"] && !names["from-a"]
+		return names["from-b"] && !names["from-a"] && len(hub.syncCompletes()) > syncs
 	})
+	time.Sleep(50 * time.Millisecond) // no second relist follows
 	got := hub.syncCompletes()
 	if len(got) != syncs+1 || got[len(got)-1].Epoch == 0 {
 		t.Fatalf("syncs %+v, want one more, authoritative, after the config change (and none for the no-op refresh)", got)

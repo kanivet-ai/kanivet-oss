@@ -471,6 +471,30 @@ func TestReplayWaitsForTheRelistInFlight(t *testing.T) {
 	}
 }
 
+// A topic whose resyncs keep losing messages is reported desynced; its rows
+// are still current, so a replay stays authoritative but carries the status.
+func TestDesyncedTopicIsReportedAndCleared(t *testing.T) {
+	hub := &captureBroadcaster{}
+	s := newServiceForResync(hub)
+	registerWatch(t, s, testTopic)
+	s.cache.Set(testTopic, map[string]interface{}{"name": "a", "namespace": "ns"})
+
+	s.SetDesynced(testTopic, true)
+	s.SetDesynced(testTopic, true)
+	s.Resync(testTopic)
+	s.SetDesynced(testTopic, false)
+
+	if got, want := fmt.Sprint(hub.directTypes()), "[status:failing bulk sync status:failing status:ok]"; got != want {
+		t.Fatalf("messages %s, want %s", got, want)
+	}
+	if st := hub.topicStatuses()[0]; st.ErrorCode != codeDesynced || st.FailingSince == 0 {
+		t.Fatalf("desync status %+v", st)
+	}
+	if sc := hub.syncCompletes()[0]; sc.Failed || sc.Epoch == 0 {
+		t.Fatalf("replay of a desynced topic sent %+v, want an authoritative sync", sc)
+	}
+}
+
 var (
 	_ FailureReporter  = (*statusFeed)(nil)
 	_ RecoveryReporter = (*statusFeed)(nil)
