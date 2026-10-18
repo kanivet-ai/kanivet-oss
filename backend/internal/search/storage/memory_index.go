@@ -580,7 +580,11 @@ func (idx *MemoryIndex) RemoveByCoordinates(cluster string, t TypeCoords, namesp
 // entries regardless of whether they were indexed with the singular Kind or the
 // plural resource name. KindDefinition documents are never touched. Returns the
 // string IDs of the removed documents.
-func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}) []string {
+//
+// Documents indexed at or after listedAt are kept whatever liveKeys says: a
+// watch event indexed them after the LIST that built liveKeys began, so they
+// may be newer than it. A zero listedAt keeps nothing back.
+func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}, listedAt time.Time) []string {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	d := idx.getData()
@@ -603,7 +607,7 @@ func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, live
 		if ns != "" {
 			key = ns + "/" + name
 		}
-		if _, alive := liveKeys[key]; !alive {
+		if _, alive := liveKeys[key]; !alive && (listedAt.IsZero() || compact.UpdatedAt < listedAt.Unix()) {
 			victims = append(victims, id)
 		}
 	}
@@ -1057,6 +1061,27 @@ func paginate(results []SearchResult, offset, limit int) []SearchResult {
 		results = results[:limit]
 	}
 	return results
+}
+
+// KindDefinitions returns the cluster's KindDefinition documents, without
+// their labels, annotations or keywords.
+func (idx *MemoryIndex) KindDefinitions(cluster string) []SearchableResource {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	d := idx.getData()
+	c, ok := d.pools.Clusters.Lookup(cluster)
+	if !ok {
+		return nil
+	}
+	var out []SearchableResource
+	for id := range d.kindDocs["kinddefinition"] {
+		compact, ok := d.compactDocs[id]
+		if !ok || compact.Cluster != c {
+			continue
+		}
+		out = append(out, compact.ToSearchable(d.pools))
+	}
+	return out
 }
 
 // ListResourceIDsByType returns the string IDs of all indexed documents of a kind in a cluster

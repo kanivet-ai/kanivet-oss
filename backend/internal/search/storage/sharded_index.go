@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DefaultSearchShards is the default number of search index shards. Sized to a
@@ -176,8 +177,13 @@ func (s *ShardedIndex) RemoveByCoordinates(cluster string, t TypeCoords, namespa
 
 // ReconcileType removes stale documents of a resource type on the cluster's
 // shard whose namespace/name is absent from liveKeys. Returns the removed IDs.
-func (s *ShardedIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}) []string {
-	return s.shardForCluster(cluster).ReconcileType(cluster, group, version, kind, liveKeys)
+func (s *ShardedIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}, listedAt time.Time) []string {
+	return s.shardForCluster(cluster).ReconcileType(cluster, group, version, kind, liveKeys, listedAt)
+}
+
+// KindDefinitions returns the cluster's KindDefinition documents.
+func (s *ShardedIndex) KindDefinitions(cluster string) []SearchableResource {
+	return s.shardForCluster(cluster).KindDefinitions(cluster)
 }
 
 // DocumentCount sums document counts across all shards.

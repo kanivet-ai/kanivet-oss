@@ -468,6 +468,7 @@ func (s *Service) performSmartIndexing(cluster string) {
 	}
 	var priorityResources []res
 	var otherResources []res
+	var watchedResources []res
 	for _, r := range resources {
 		if strings.Contains(r.Name, "/") || !hasVerb(r.Verbs, "list") {
 			continue
@@ -476,8 +477,13 @@ func (s *Service) performSmartIndexing(cluster string) {
 			continue
 		}
 		// A live watch already streams this type into the index; re-listing it
-		// would only repeat work the watcher has done.
+		// would only repeat work the watcher has done. It is still listed once
+		// per session to drop what was deleted while the app was closed: the
+		// watcher only reports deletions of objects it has seen.
 		if s.isWatched != nil && s.isWatched(cluster, r.Group, r.Version, r.Name) {
+			if !s.watchedReconciled(cluster, fmt.Sprintf("%s/%s/%s", r.Group, r.Version, r.Name)) {
+				watchedResources = append(watchedResources, res{group: r.Group, version: r.Version, resource: r.Name, kind: r.Kind})
+			}
 			continue
 		}
 		resourceInfo := res{group: r.Group, version: r.Version, resource: r.Name, kind: r.Kind}
@@ -535,6 +541,18 @@ func (s *Service) performSmartIndexing(cluster string) {
 		}
 	}
 	wg.Wait()
+	for _, r := range watchedResources {
+		select {
+		case <-s.stopChan:
+			return
+		default:
+		}
+		if err := s.reconcileWatchedType(cluster, r.group, r.version, r.resource, r.kind); err != nil {
+			log.Printf("[SEARCH] Failed to reconcile watched %s/%s/%s in cluster %s: %v", r.group, r.version, r.resource, cluster, err)
+			continue
+		}
+		s.markWatchedReconciled(cluster, fmt.Sprintf("%s/%s/%s", r.group, r.version, r.resource))
+	}
 	now := time.Now()
 	s.indexingMu.Lock()
 	status.CompletedAt = &now
@@ -554,13 +572,86 @@ func (s *Service) smartIndexResourceType(cluster, group, version, resource, kind
 		return context.Canceled
 	default:
 	}
+	listedAt := time.Now()
+	allSearchables, newVersion, err := s.listType(cluster, group, version, resource, kind)
+	if err != nil {
+		return err
+	}
+	s.indexListed(s.eventHandler.filterChanged(allSearchables))
+	// Reconcile against the authoritative live set: drop any indexed document of
+	// this type whose resource no longer exists in the cluster. This is what
+	// cleans up entries left behind by missed/mismatched delete events.
+	s.reconcileListed(cluster, group, version, resource, allSearchables, listedAt)
+
+	resourceKey := fmt.Sprintf("%s/%s/%s", group, version, resource)
+	s.indexingMu.Lock()
+	if s.resourceVersions[cluster] == nil {
+		s.resourceVersions[cluster] = make(map[string]string)
+	}
+	s.resourceVersions[cluster][resourceKey] = newVersion
+	s.indexingMu.Unlock()
+	return nil
+}
+
+// reconcileWatchedType LISTs a type a live watch keeps indexed and removes
+// the documents of objects that no longer exist. The watcher only reports
+// the deletion of objects it has seen, through its events or its stale diff
+// of a persisted snapshot capped at a few thousand items, so documents loaded
+// from the database for objects deleted while the app was closed would
+// otherwise stay forever. Documents the watch has indexed are not touched;
+// objects it has not delivered (past the snapshot cap) are indexed.
+func (s *Service) reconcileWatchedType(cluster, group, version, resource, kind string) error {
+	listedAt := time.Now()
+	listed, _, err := s.listType(cluster, group, version, resource, kind)
+	if err != nil {
+		return err
+	}
+	missing := make([]storage.SearchableResource, 0)
+	for _, r := range listed {
+		if !s.index.HasDocument(r.ID) {
+			missing = append(missing, r)
+		}
+	}
+	s.indexListed(s.eventHandler.filterChanged(missing))
+	s.reconcileListed(cluster, group, version, resource, listed, listedAt)
+	return nil
+}
+
+func (s *Service) watchedReconciled(cluster, resourceKey string) bool {
+	s.indexingMu.Lock()
+	defer s.indexingMu.Unlock()
+	return s.reconciledWatched[cluster][resourceKey]
+}
+
+func (s *Service) markWatchedReconciled(cluster, resourceKey string) {
+	s.indexingMu.Lock()
+	defer s.indexingMu.Unlock()
+	if s.reconciledWatched == nil {
+		s.reconciledWatched = make(map[string]map[string]bool)
+	}
+	if s.reconciledWatched[cluster] == nil {
+		s.reconciledWatched[cluster] = make(map[string]bool)
+	}
+	s.reconciledWatched[cluster][resourceKey] = true
+}
+
+// listType LISTs one resource type, through the test hook when set.
+func (s *Service) listType(cluster, group, version, resource, kind string) ([]storage.SearchableResource, string, error) {
+	if s.listResources != nil {
+		return s.listResources(cluster, group, version, resource, kind)
+	}
+	return s.listResourceType(cluster, group, version, resource, kind)
+}
+
+// listResourceType LISTs one resource type's metadata, page by page, and
+// returns its objects as documents along with the list's resourceVersion.
+func (s *Service) listResourceType(cluster, group, version, resource, kind string) ([]storage.SearchableResource, string, error) {
 	metadataClient, err := s.k8sClient.GetBulkMetadataClient(cluster)
 	if err != nil {
-		return fmt.Errorf("failed to get metadata client: %w", err)
+		return nil, "", fmt.Errorf("failed to get metadata client: %w", err)
 	}
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resource}
 	lister := metadataClient.Resource(gvr)
-	resourceKey := fmt.Sprintf("%s/%s/%s", group, version, resource)
 	var newVersion string
 	apiVersion := version
 	if group != "" {
@@ -573,18 +664,18 @@ func (s *Service) smartIndexResourceType(cluster, group, version, resource, kind
 	for {
 		select {
 		case <-s.stopChan:
-			return context.Canceled
+			return nil, "", context.Canceled
 		default:
 		}
 		if err := s.indexLimiter.Wait(context.Background()); err != nil {
-			return err
+			return nil, "", err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		pageOpts.Continue = continueToken
 		list, err := lister.List(ctx, pageOpts)
 		cancel()
 		if err != nil {
-			return fmt.Errorf("failed to list %s/%s/%s: %w", group, version, resource, err)
+			return nil, "", fmt.Errorf("failed to list %s/%s/%s: %w", group, version, resource, err)
 		}
 		if newVersion == "" {
 			newVersion = list.GetResourceVersion()
@@ -607,66 +698,69 @@ func (s *Service) smartIndexResourceType(cluster, group, version, resource, kind
 		}
 		runtime.Gosched()
 	}
-	if changed := s.eventHandler.filterChanged(allSearchables); len(changed) > 0 {
-		numWorkers := runtime.GOMAXPROCS(0)
-		if numWorkers > 4 {
-			numWorkers = 4
+	return allSearchables, newVersion, nil
+}
+
+// indexListed tokenizes and indexes documents from a LIST and persists them.
+func (s *Service) indexListed(changed []storage.SearchableResource) {
+	if len(changed) == 0 {
+		return
+	}
+	numWorkers := runtime.GOMAXPROCS(0)
+	if numWorkers > 4 {
+		numWorkers = 4
+	}
+	prepared := make([]storage.PreparedResource, len(changed))
+	chunkSize := (len(changed) + numWorkers - 1) / numWorkers
+	var wg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		start := w * chunkSize
+		end := start + chunkSize
+		if end > len(changed) {
+			end = len(changed)
 		}
-		prepared := make([]storage.PreparedResource, len(changed))
-		chunkSize := (len(changed) + numWorkers - 1) / numWorkers
-		var wg sync.WaitGroup
-		for w := 0; w < numWorkers; w++ {
-			start := w * chunkSize
-			end := start + chunkSize
-			if end > len(changed) {
-				end = len(changed)
-			}
-			if start >= end {
-				break
-			}
-			wg.Add(1)
-			go func(s, e int) {
-				defer wg.Done()
-				for i := s; i < e; i++ {
-					prepared[i] = storage.PrepareResource(changed[i])
-				}
-			}(start, end)
+		if start >= end {
+			break
 		}
-		wg.Wait()
-		s.index.BatchIndexPrepared(prepared)
-		if s.db != nil {
-			for _, sr := range changed {
-				s.eventHandler.persistResource(sr)
+		wg.Add(1)
+		go func(s, e int) {
+			defer wg.Done()
+			for i := s; i < e; i++ {
+				prepared[i] = storage.PrepareResource(changed[i])
 			}
+		}(start, end)
+	}
+	wg.Wait()
+	s.index.BatchIndexPrepared(prepared)
+	if s.db != nil {
+		for _, sr := range changed {
+			s.eventHandler.persistResource(sr)
 		}
 	}
+	s.invalidateSearchCacheForCluster(changed[0].Cluster)
+}
 
-	// Reconcile against the authoritative live set: drop any indexed document of
-	// this type whose resource no longer exists in the cluster. This is what
-	// cleans up entries left behind by missed/mismatched delete events.
-	liveKeys := make(map[string]struct{}, len(allSearchables))
-	for _, r := range allSearchables {
+// reconcileListed removes the type's documents whose object is not in listed,
+// a LIST that began at listedAt, from the index and the database.
+func (s *Service) reconcileListed(cluster, group, version, resource string, listed []storage.SearchableResource, listedAt time.Time) {
+	liveKeys := make(map[string]struct{}, len(listed))
+	for _, r := range listed {
 		key := r.Name
 		if r.Namespace != "" {
 			key = r.Namespace + "/" + r.Name
 		}
 		liveKeys[key] = struct{}{}
 	}
-	if removed := s.index.ReconcileType(cluster, group, version, resource, liveKeys); len(removed) > 0 {
-		log.Printf("[SEARCH] Reconcile removed %d stale %s/%s/%s entries in cluster %s", len(removed), group, version, resource, cluster)
-		s.eventHandler.forgetFingerprints(removed)
-		if s.db != nil {
-			s.eventHandler.deleteFromDB(removed...)
-		}
+	removed := s.index.ReconcileType(cluster, group, version, resource, liveKeys, listedAt)
+	if len(removed) == 0 {
+		return
 	}
-
-	s.indexingMu.Lock()
-	if s.resourceVersions[cluster] == nil {
-		s.resourceVersions[cluster] = make(map[string]string)
+	log.Printf("[SEARCH] Reconcile removed %d stale %s/%s/%s entries in cluster %s", len(removed), group, version, resource, cluster)
+	s.eventHandler.forgetFingerprints(removed)
+	if s.db != nil {
+		s.eventHandler.deleteFromDB(removed...)
 	}
-	s.resourceVersions[cluster][resourceKey] = newVersion
-	s.indexingMu.Unlock()
-	return nil
+	s.invalidateSearchCacheForCluster(cluster)
 }
 
 // preferredAPIResources keeps one entry per group+resource: the one served
@@ -762,10 +856,49 @@ func (s *Service) indexResourceKinds(cluster string) error {
 		}
 	}
 	log.Printf("[SEARCH] Indexed %d/%d resource kinds for cluster %s", indexedKinds, len(kindDefs), cluster)
-	if len(changed) > 0 {
+	pruned := s.pruneKindDefinitions(cluster, kindDefs)
+	if len(changed) > 0 || pruned > 0 {
 		s.invalidateSearchCacheForCluster(cluster)
 	}
 	return nil
+}
+
+// pruneKindDefinitions removes the cluster's kind definitions that discovery
+// no longer reports (a deleted CRD, an API version no longer served or
+// preferred) from the index and the database, and returns how many it
+// removed. Discovery swallows per-group failures, so a group it still lists
+// but returned no resources for is assumed unreachable rather than gone, and
+// its kinds are kept.
+func (s *Service) pruneKindDefinitions(cluster string, current []storage.SearchableResource) int {
+	keep := make(map[string]struct{}, len(current))
+	discoveredGroups := make(map[string]struct{}, len(current))
+	for _, k := range current {
+		keep[k.ID] = struct{}{}
+		discoveredGroups[k.Group] = struct{}{}
+	}
+	var removed []string
+	for _, k := range s.index.KindDefinitions(cluster) {
+		if _, ok := keep[k.ID]; ok {
+			continue
+		}
+		if _, ok := discoveredGroups[k.Group]; !ok && s.k8sClient != nil {
+			if _, listed := s.k8sClient.PreferredVersion(cluster, k.Group); listed {
+				continue
+			}
+		}
+		if err := s.index.Remove(k.ID); err == nil {
+			removed = append(removed, k.ID)
+		}
+	}
+	if len(removed) == 0 {
+		return 0
+	}
+	log.Printf("[SEARCH] Removed %d resource kinds no longer served by cluster %s", len(removed), cluster)
+	s.eventHandler.forgetFingerprints(removed)
+	if s.db != nil {
+		s.eventHandler.deleteFromDB(removed...)
+	}
+	return len(removed)
 }
 
 func (s *Service) schedulePeriodicReindexForActiveClusters() {

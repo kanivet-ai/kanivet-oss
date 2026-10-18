@@ -97,11 +97,17 @@ type Service struct {
 	indexedResources     map[string]map[string]time.Time
 	indexingStatus       map[string]*IndexingStatus
 	resourceVersions     map[string]map[string]string
-	indexLimiter         *rate.Limiter
-	onIndexingComplete   func(cluster string)
-	now                  func() time.Time
-	versionLastBump      map[string]time.Time
-	versionBumpPending   map[string]bool
+	// reconciledWatched records, per cluster, the watched resource types
+	// listed this session to drop documents of objects deleted while the
+	// app was closed.
+	reconciledWatched map[string]map[string]bool
+	// listResources replaces the metadata LIST in tests.
+	listResources      func(cluster, group, version, resource, kind string) ([]storage.SearchableResource, string, error)
+	indexLimiter       *rate.Limiter
+	onIndexingComplete func(cluster string)
+	now                func() time.Time
+	versionLastBump    map[string]time.Time
+	versionBumpPending map[string]bool
 
 	// sweepSem bounds how many clusters run a full LIST sweep at once. Every
 	// tab restored at boot used to start its own sweep, so N tabs meant N
@@ -146,6 +152,7 @@ func (s *Service) RemoveCluster(cluster string) int {
 	delete(s.indexedResources, cluster)
 	delete(s.indexingStatus, cluster)
 	delete(s.resourceVersions, cluster)
+	delete(s.reconciledWatched, cluster)
 	s.indexingMu.Unlock()
 	s.kindNamesMu.Lock()
 	for _, m := range []map[string]string{s.resourceNames, s.kindNames} {
@@ -345,14 +352,14 @@ func (s *Service) handleEvent(event ResourceEvent) {
 		log.Printf("[SEARCH] Detected %s %s in cluster %s", event.Resource, event.Action, event.Cluster)
 		cacheKey := s.cache.BuildKey("api-resources", event.Cluster)
 		s.cache.Delete(cacheKey)
-		if event.Action == "ADDED" || event.Action == "added" {
-			go func() {
-				time.Sleep(2 * time.Second)
-				if err := s.indexResourceKinds(event.Cluster); err != nil {
-					log.Printf("[SEARCH] Failed to re-index kinds after %s %s: %v", event.Resource, event.Action, err)
-				}
-			}()
-		}
+		// Both directions re-read discovery: an added type gains a kind
+		// definition, a deleted one loses it.
+		go func() {
+			time.Sleep(2 * time.Second)
+			if err := s.indexResourceKinds(event.Cluster); err != nil {
+				log.Printf("[SEARCH] Failed to re-index kinds after %s %s: %v", event.Resource, event.Action, err)
+			}
+		}()
 	}
 	if event.Namespace != "" {
 		if _, ok := event.Item["namespace"]; !ok {
