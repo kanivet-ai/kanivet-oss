@@ -14,6 +14,7 @@ import {
   ExternalLinkIcon,
 } from '@radix-ui/react-icons';
 import type { WorkloadReport } from '../../types/rightsizing';
+import { carriedMessage } from './rightsizingView';
 import { Tooltip } from '../common/Tooltip';
 import { ConfidenceMeter, ResourceDelta } from './RightsizingParts';
 import {
@@ -164,6 +165,11 @@ const Row = memo(function Row({
           </Tooltip>
         ))}
         {more > 0 && <span className="rs-tag rs-tag-more">+{more}</span>}
+        {w.carried && (
+          <Tooltip content={tip(carriedMessage(w))}>
+            <span className="rs-tag rs-tag-warning">Previous result</span>
+          </Tooltip>
+        )}
         {w.change && (
           <Tooltip content={tip(w.change.summary)}>
             <span

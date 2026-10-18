@@ -193,7 +193,7 @@ func TestClusterEventQueriesAvoidSorting(t *testing.T) {
 		}
 	}
 	for name, query := range map[string]string{
-		"GetClusterEvents":       "SELECT * FROM k8s_events WHERE cluster = ? ORDER BY last_timestamp DESC, event_time DESC LIMIT 1000",
+		"GetClusterEvents":       "SELECT * FROM k8s_events WHERE cluster = ? ORDER BY event_time DESC LIMIT 1000",
 		"GetRecentClusterEvents": "SELECT * FROM k8s_events WHERE cluster = ? ORDER BY event_time DESC LIMIT 20",
 	} {
 		if plan := queryPlan(t, d, query, "c1"); strings.Contains(plan, "TEMP B-TREE") {

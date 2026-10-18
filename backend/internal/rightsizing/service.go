@@ -816,6 +816,12 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		return rep
 	}
 	workloads := liveWorkloads(pods, t.vcluster != "")
+	if hr, ok := s.pods.(podcache.HealthReporter); ok {
+		if h := hr.Health(t.history); h.Stale() {
+			since := h.FailingSince
+			rep.PodsStale, rep.PodsStaleSince = true, &since
+		}
+	}
 
 	progress(Progress{Stage: "Checking which signals the metrics store has"})
 	// Every query goes through the cluster's adaptive limiter; range queries
@@ -949,17 +955,29 @@ func (s *Service) compute(ctx context.Context, cluster string, profile Profile, 
 		// Keep the previous results for namespaces that failed this time, so
 		// one flaky query doesn't silently shrink the savings. Host scope
 		// only: there a report's namespace is the host namespace queried.
+		// Only workloads that still exist are carried: a namespace that keeps
+		// failing must not keep a deleted workload's savings forever.
 		carried := 0
 		if prev != nil && prev.Status == StatusReady && t.vcluster == "" {
 			failedNS := map[string]bool{}
 			for _, e := range errs {
 				failedNS[strings.SplitN(e, ":", 2)[0]] = true
 			}
+			live := make(map[finops.WorkloadRef]bool, len(workloads))
+			for _, w := range workloads {
+				live[w.ref] = true
+			}
 			for _, w := range prev.Workloads {
-				if failedNS[w.Namespace] {
-					results = append(results, w)
-					carried++
+				ref := finops.WorkloadRef{Namespace: w.Namespace, Kind: w.Kind, Name: w.Name, VCluster: w.VCluster, VClusterNamespace: w.VClusterNamespace}
+				if !failedNS[w.Namespace] || !live[ref] {
+					continue
 				}
+				if !w.Carried {
+					at := prev.ComputedAt
+					w.Carried, w.ComputedAt = true, &at
+				}
+				results = append(results, w)
+				carried++
 			}
 		}
 		rep.Error = fmt.Sprintf("%d namespace(s) could not be read: %s", len(errs), strings.Join(errs[:min(len(errs), 3)], "; "))

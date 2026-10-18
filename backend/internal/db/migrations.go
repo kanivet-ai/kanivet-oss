@@ -16,7 +16,7 @@ import (
 // once per database and is recorded as soon as it completes, so a database
 // created by any earlier release is brought forward on its first start after
 // an update.
-const schemaVersion = 3
+const schemaVersion = 4
 
 // searchRowRetention bounds how long a searchable_resources row survives
 // without being refreshed by a watch event or an indexing sweep. Rows are a
@@ -50,6 +50,7 @@ func (db *DB) runVersionedMigrations() error {
 		{1, "drop legacy search indexes, purge stale rows, reclaim space", db.migrateV1},
 		{2, "purge search rows whose kind or id predate kind normalization", db.migrateV2},
 		{3, "purge list snapshots that carried last-applied annotations", db.migrateV3},
+		{4, "drop the k8s_events index ordered by last_timestamp", db.migrateV4},
 	}
 	for _, step := range steps {
 		if current >= step.version {
@@ -154,6 +155,13 @@ func (db *DB) migrateV3() error {
 	db.reclaimSpace(false)
 	db.Exec("PRAGMA wal_checkpoint(TRUNCATE)")
 	return nil
+}
+
+// migrateV4 drops idx_cluster_last. GetClusterEvents now orders on
+// event_time, which idx_cluster_recent (cluster, event_time) serves, so the
+// (cluster, last_timestamp, event_time) index only cost every event write.
+func (db *DB) migrateV4() error {
+	return db.Exec("DROP INDEX IF EXISTS idx_cluster_last").Error
 }
 
 // PurgeNonCanonicalSearchRows deletes searchable_resources rows that are kind

@@ -343,6 +343,15 @@
   color: var(--text3);
 }
 
+.command-palette-stale {
+  color: var(--text3);
+  font-style: italic;
+}
+
+.command-palette-result.selected .command-palette-stale {
+  color: var(--on-sel2);
+}
+
 .command-palette-score {
   opacity: 0.6;
   font-family: var(--font-mono);

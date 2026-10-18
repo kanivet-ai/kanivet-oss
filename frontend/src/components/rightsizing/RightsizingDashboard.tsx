@@ -42,6 +42,7 @@ import {
   groupWorkloads,
   hasChange,
   namespaceOf,
+  podsStaleMessage,
   releaseOf,
   sortWorkloads,
   teamOf,
@@ -509,6 +510,13 @@ export const RightsizingDashboard: React.FC<{ cluster: string }> = ({
             <span className="rs-updated">
               Updated <RelativeTime iso={report.computedAt} />
             </span>
+          )}
+          {ready && report?.podsStale && (
+            <Tooltip content={podsStaleMessage(report.podsStaleSince)}>
+              <span className="rs-updated rs-pods-stale">
+                <ExclamationTriangleIcon /> Pods not live
+              </span>
+            </Tooltip>
           )}
           <Tooltip content="How recommendations are made">
             <button

@@ -230,18 +230,41 @@ func (h *ResourceEventHandler) onDeleteWithCoords(cluster string, coords resourc
 	if name == "" || resourceName == "" {
 		return nil
 	}
+	// Events are never indexed (OnAddWithCoords skips them), so their deletes
+	// have nothing to remove.
+	if resourceName == "events" || utils.PluralizeKind(kind) == "events" {
+		return nil
+	}
 	id := storage.BuildResourceID(cluster, group, version, resourceName, namespace, name)
+	ids := []string{id}
 	if err := h.index.Remove(id); err != nil {
 		// The reconstructed ID didn't match what was indexed — legacy docs from
 		// before kind normalization, or deletes whose payload disagrees with the
-		// indexed coordinates. Fall back to kind-agnostic removal.
-		h.index.RemoveByCoordinates(cluster, namespace, name)
+		// indexed coordinates. Fall back to removal by coordinates, limited to
+		// this resource type: other kinds sharing the name are still alive.
+		t := storage.TypeCoords{Group: group, GroupKnown: version != "", Resource: resourceName}
+		ids = append(ids, h.index.RemoveByCoordinates(cluster, t, namespace, name)...)
 	}
 	h.fpMu.Lock()
-	delete(h.fingerprints, id)
+	for _, id := range ids {
+		delete(h.fingerprints, id)
+	}
 	h.fpMu.Unlock()
-	h.deleteFromDBAsync(id)
+	h.deleteFromDB(ids...)
 	return nil
+}
+
+// deleteFromDB removes rows from the database. With a batch writer the
+// delete is ordered with the upserts it holds, so one queued before the
+// delete cannot recreate the row.
+func (h *ResourceEventHandler) deleteFromDB(ids ...string) {
+	if h.batchWriter != nil {
+		h.batchWriter.Delete(ids...)
+		return
+	}
+	for _, id := range ids {
+		h.deleteFromDBAsync(id)
+	}
 }
 
 func splitAPIVersion(apiVersion string) (group, version string) {

@@ -150,6 +150,20 @@ export function relativeTime(iso: string, now = Date.now()): string {
   return `${Math.round(s / 86400)} d ago`;
 }
 
+/** Why a workload shows a result from an earlier report. */
+export function carriedMessage(w: WorkloadReport, now = Date.now()): string {
+  const when = w.computedAt ? relativeTime(w.computedAt, now) : 'in an earlier report';
+  return `Its namespace's usage history could not be read this time. This is its result from ${when}.`;
+}
+
+/** Why a report is flagged as computed from pods that are not live. */
+export function podsStaleMessage(since?: string, now = Date.now()): string {
+  const failing = since
+    ? `The cluster's pod watch started failing ${relativeTime(since, now)}`
+    : "The cluster's pod watch is failing";
+  return `${failing}: workloads are as last seen, so ones created, scaled or deleted since are not reflected.`;
+}
+
 // ---- The slider: reading a quantile grid -----------------------------------
 
 /** Share of samples above x, read off a quantile grid by interpolation. */

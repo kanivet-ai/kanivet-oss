@@ -342,7 +342,14 @@ const FinOpsDashboard: React.FC<FinOpsDashboardProps> = ({ cluster }) => {
           )}
         </div>
         <div className="finops-actions">
-          {summary?.lastUpdated && <LastCalculatedBadge lastUpdated={summary.lastUpdated} cacheDuration={60} />}
+          {summary?.lastUpdated && (
+            <LastCalculatedBadge
+              lastUpdated={summary.lastUpdated}
+              cacheDuration={60}
+              podsStale={summary.podsStale}
+              podsStaleSince={summary.podsStaleSince}
+            />
+          )}
           {pricing && <PricingSourceBadge pricingInfo={pricing} />}
           {summary && (
             <Tooltip content="How these costs are calculated">

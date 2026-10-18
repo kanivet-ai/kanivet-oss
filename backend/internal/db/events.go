@@ -1,6 +1,7 @@
 package db
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -8,12 +9,11 @@ import (
 )
 
 // K8sEvent is one stored Kubernetes event. Besides the single-column indexes,
-// idx_cluster_last serves GetClusterEvents and idx_cluster_recent serves
-// GetRecentClusterEvents as index range scans instead of sorting every row of
-// the cluster.
+// idx_cluster_recent serves GetClusterEvents and GetRecentClusterEvents as
+// index range scans instead of sorting every row of the cluster.
 type K8sEvent struct {
 	ID                       uint      `gorm:"primaryKey" json:"id"`
-	Cluster                  string    `gorm:"index:idx_cluster;index:idx_cluster_last,priority:1;index:idx_cluster_recent,priority:1;not null" json:"cluster"`
+	Cluster                  string    `gorm:"index:idx_cluster;index:idx_cluster_recent,priority:1;not null" json:"cluster"`
 	UID                      string    `gorm:"index:idx_uid" json:"uid"`
 	Name                     string    `gorm:"index:idx_name" json:"name"`
 	Namespace                string    `gorm:"index:idx_namespace" json:"namespace"`
@@ -27,8 +27,8 @@ type K8sEvent struct {
 	Message                  string    `json:"message"`
 	Count                    int32     `json:"count"`
 	FirstTimestamp           time.Time `json:"firstTimestamp"`
-	LastTimestamp            time.Time `gorm:"index:idx_cluster_last,priority:2,sort:desc" json:"lastTimestamp"`
-	EventTime                time.Time `gorm:"index:idx_event_time;index:idx_cluster_last,priority:3,sort:desc;index:idx_cluster_recent,priority:2,sort:desc" json:"eventTime"`
+	LastTimestamp            time.Time `json:"lastTimestamp"`
+	EventTime                time.Time `gorm:"index:idx_event_time;index:idx_cluster_recent,priority:2,sort:desc" json:"eventTime"`
 	SourceComponent          string    `json:"sourceComponent"`
 	SourceHost               string    `json:"sourceHost"`
 	CreatedAt                time.Time `gorm:"index:idx_created_at" json:"createdAt"`
@@ -219,13 +219,65 @@ func (db *DB) GetEventsForResourceByKind(cluster, namespace, name, kind, apiVers
 		Find(&events).Error
 }
 
+// EventObject identifies the object whose events GetEventsForObject returns.
+type EventObject struct {
+	Namespace, Name string
+	// Kind narrows the match to one kind; empty matches any.
+	Kind string
+	// APIVersion, when set, narrows the match to the group of that API
+	// version. The version itself is not compared: for multi-version CRDs the
+	// recorded involvedObject.apiVersion can differ from the one browsed.
+	APIVersion string
+	// UID, when set, limits the match to this incarnation of the object, so a
+	// recreated pod web-0 does not show its predecessor's events. Rows stored
+	// without an involved UID still match on name and kind, but only when
+	// Kind is set.
+	UID string
+}
+
+// GetEventsForObject returns the newest events recorded for obj.
+func (db *DB) GetEventsForObject(cluster string, obj EventObject) ([]K8sEvent, error) {
+	var events []K8sEvent
+	query := db.Where("cluster = ?", cluster).Where("involved_object_name = ?", obj.Name)
+	if obj.Namespace != "" {
+		query = query.Where("involved_object_namespace = ?", obj.Namespace)
+	}
+	if obj.Kind != "" {
+		query = query.Where("involved_object_kind = ?", obj.Kind)
+	}
+	if obj.APIVersion != "" {
+		// API groups are DNS subdomains, so they hold no LIKE wildcards. Rows
+		// recorded without an API version still match on kind.
+		if group, _, ok := strings.Cut(obj.APIVersion, "/"); ok {
+			query = query.Where("involved_object_api_version LIKE ? OR involved_object_api_version = ''", group+"/%")
+		} else {
+			query = query.Where("involved_object_api_version NOT LIKE ?", "%/%")
+		}
+	}
+	switch {
+	case obj.UID == "":
+	case obj.Kind != "":
+		query = query.Where("involved_object_uid = ? OR involved_object_uid = ''", obj.UID)
+	default:
+		query = query.Where("involved_object_uid = ?", obj.UID)
+	}
+	return events, query.
+		Order("event_time DESC, last_timestamp DESC").
+		Limit(20).
+		Find(&events).Error
+}
+
+// GetClusterEvents returns a cluster's newest events by event_time, which
+// holds when each event last happened for legacy and events.k8s.io events
+// alike (see GetRecentClusterEvents). Ordering on last_timestamp first sank
+// every events.k8s.io event, whose lastTimestamp is empty, below the limit.
 func (db *DB) GetClusterEvents(cluster string, limit int) ([]K8sEvent, error) {
 	var events []K8sEvent
 	if limit <= 0 {
 		limit = 1000
 	}
 	err := db.Where("cluster = ?", cluster).
-		Order("last_timestamp DESC, event_time DESC").
+		Order("event_time DESC").
 		Limit(limit).
 		Find(&events).Error
 	return events, err

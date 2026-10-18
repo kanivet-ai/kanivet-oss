@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 )
 
 func TestShardedRoutesAndSearchesAcrossClusters(t *testing.T) {
@@ -209,11 +210,41 @@ func TestRemoveByCoordinatesIgnoresKindForm(t *testing.T) {
 		t.Fatal("expected exact remove with plural kind to miss")
 	}
 	// ...but coordinate-based removal finds it regardless of kind form.
-	if n := idx.RemoveByCoordinates("c", "ns", "pod-1"); n != 1 {
+	if n := len(idx.RemoveByCoordinates("c", TypeCoords{Group: "", GroupKnown: true, Resource: "pods"}, "ns", "pod-1")); n != 1 {
 		t.Fatalf("expected 1 removed by coordinates, got %d", n)
 	}
 	if idx.DocumentCount() != 0 {
 		t.Fatalf("expected 0 docs, got %d", idx.DocumentCount())
+	}
+}
+
+// Deleting the Deployment web must not take the Service, ConfigMap and HPA
+// that share its name.
+func TestRemoveByCoordinatesKeepsOtherTypesWithTheSameName(t *testing.T) {
+	idx := NewMemoryIndex()
+	for _, r := range []SearchableResource{
+		testResource("c", "apps", "v1", "Deployment", "ns", "web"),
+		testResource("c", "", "v1", "Service", "ns", "web"),
+		testResource("c", "", "v1", "ConfigMap", "ns", "web"),
+		testResource("c", "autoscaling", "v2", "HorizontalPodAutoscaler", "ns", "web"),
+		testResource("c", "example.io", "v1", "Deployment", "ns", "web"),
+	} {
+		if err := idx.Index(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if n := len(idx.RemoveByCoordinates("c", TypeCoords{Group: "apps", GroupKnown: true, Resource: "deployments"}, "ns", "web")); n != 1 {
+		t.Fatalf("removed %d docs, want only the apps Deployment", n)
+	}
+	if idx.DocumentCount() != 4 {
+		t.Fatalf("expected 4 docs to survive, got %d", idx.DocumentCount())
+	}
+	if idx.HasDocument("c/apps/v1/deployment/ns/web") {
+		t.Fatal("the apps Deployment survived")
+	}
+	// Without a known group the kind still scopes the removal.
+	if n := len(idx.RemoveByCoordinates("c", TypeCoords{Resource: "Service"}, "ns", "web")); n != 1 {
+		t.Fatalf("removed %d docs, want only the Service", n)
 	}
 }
 
@@ -240,12 +271,32 @@ func TestReconcileTypeRemovesStaleAcrossKindForms(t *testing.T) {
 
 	// Live set from the cluster: only alive-1 remains.
 	live := map[string]struct{}{"ns/alive-1": {}}
-	removed := idx.ReconcileType("c", "", "v1", "pods", live)
+	removed := idx.ReconcileType("c", "", "v1", "pods", live, time.Time{})
 	if len(removed) != 2 {
 		t.Fatalf("expected 2 stale removed, got %d", len(removed))
 	}
 	if idx.DocumentCount() != 1 {
 		t.Fatalf("expected 1 doc after reconcile, got %d", idx.DocumentCount())
+	}
+}
+
+// A document a watch event indexed after the LIST began may be an object
+// the LIST did not see yet; reconciling must leave it alone.
+func TestReconcileTypeKeepsDocumentsIndexedAfterTheList(t *testing.T) {
+	idx := NewMemoryIndex()
+	listedAt := time.Now()
+	old := testResource("c", "", "v1", "Pod", "ns", "gone")
+	old.UpdatedAt = listedAt.Add(-time.Hour)
+	fresh := testResource("c", "", "v1", "Pod", "ns", "created-during-list")
+	fresh.UpdatedAt = listedAt.Add(time.Second)
+	for _, r := range []SearchableResource{old, fresh} {
+		if err := idx.Index(r); err != nil {
+			t.Fatal(err)
+		}
+	}
+	removed := idx.ReconcileType("c", "", "v1", "pods", map[string]struct{}{}, listedAt)
+	if len(removed) != 1 || removed[0] != old.ID {
+		t.Fatalf("removed %v, want only %s", removed, old.ID)
 	}
 }
 
@@ -262,7 +313,7 @@ func TestReconcileTypeScopedToResourceType(t *testing.T) {
 	}
 	// Reconcile pods with an empty live set — must NOT touch the deployment or
 	// the service that shares core/v1 with pods.
-	removed := idx.ReconcileType("c", "", "v1", "pods", map[string]struct{}{})
+	removed := idx.ReconcileType("c", "", "v1", "pods", map[string]struct{}{}, time.Time{})
 	if len(removed) != 1 {
 		t.Fatalf("expected 1 pod removed, got %d", len(removed))
 	}

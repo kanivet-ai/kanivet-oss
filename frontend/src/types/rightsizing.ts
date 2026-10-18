@@ -184,6 +184,9 @@ export interface WorkloadReport {
   /** The one HPA target change the workload pairs with; pairedRequest is the pod's total. */
   hpa?: HPACoupling;
   riskScore: number;
+  /** Its namespace could not be read this time: this is the result computed at computedAt. */
+  carried?: boolean;
+  computedAt?: string;
 }
 
 export interface Signals {
@@ -252,6 +255,9 @@ export interface RightsizingReport {
   workloads: WorkloadReport[];
   error?: string;
   stale?: boolean;
+  /** Computed from pods the pod cache stopped keeping current (its watch fails since podsStaleSince). */
+  podsStale?: boolean;
+  podsStaleSince?: string;
   refreshError?: string;
   /** Identifies the workloads as returned; send it back as `known`. */
   version?: string;
