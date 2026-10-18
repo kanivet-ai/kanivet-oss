@@ -16,8 +16,12 @@ export interface ObjectRef {
 const apiVersionOf = (resource: any): string =>
   resource?.version ? (resource.group ? `${resource.group}/${resource.version}` : resource.version) : '';
 
-// openDetailTab names an object it knows nothing about 'Resource'.
-const knownKind = (kind: any): string => (kind && kind !== 'Resource' ? kind : '');
+// openDetailTab names an object it knows nothing about 'Resource', and list
+// rows of typed lists carry the resource name ('pods') where the Kind would be.
+// Kinds start upper case and resource names never do, so neither tells the
+// object's Kind.
+const knownKind = (kind: any): string =>
+  typeof kind === 'string' && kind !== 'Resource' && /^[A-Z]/.test(kind) ? kind : '';
 
 /** The identity of `item`, filled in from the list `resource` it came from. */
 export const refOf = (item: any, resource?: any): ObjectRef => ({

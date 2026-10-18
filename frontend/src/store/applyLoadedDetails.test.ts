@@ -80,6 +80,18 @@ const object = (kind: string, name: string, { metadata, ...extra }: any = {}) =>
 const detailTab = (id: string, item: any, extra: any = {}) => ({ id, item, cluster: 'c', isPinned: true, location: 'detail', ...extra });
 
 describe('applyDetailsToTabs (a refresh)', () => {
+  it('fills a tab opened on a typed list row, whose kind is the resource name', () => {
+    // Typed list rows say kind 'pods' and no apiVersion; the details say Pod.
+    const row = { kind: 'pods', name: 'api-0', namespace: 'ns', uid: 'Pod-api-0-1', metadata: { name: 'api-0', namespace: 'ns' } };
+    const resource = { name: 'pods', kind: 'Pod', group: '', version: 'v1' };
+    const tabs = [tab('c', { detailData: row, detailTabs: [detailTab('dt', row, { resource })], activeDetailTab: 'dt' })];
+    const details = object('Pod', 'api-0', { spec: { containers: [{ name: 'api' }] } });
+    const next = applyDetailsToTabs(tabs, 'c', details);
+    expect(next[0].state.detailTabs[0].item.spec.containers).toHaveLength(1);
+    expect(refOf(row).kind).toBe('');
+    expect(refOf(row, resource).kind).toBe('Pod');
+  });
+
   it('writes the refreshed object into the tab the panel renders, not only detailData', () => {
     const before = object('Pod', 'api-0', { status: { phase: 'Pending' } });
     const tabs = [tab('c', { detailData: before, detailTabs: [detailTab('dt', before)], activeDetailTab: 'dt' })];
