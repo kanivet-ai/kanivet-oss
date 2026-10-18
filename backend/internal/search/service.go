@@ -101,6 +101,9 @@ type Service struct {
 	// listed this session to drop documents of objects deleted while the
 	// app was closed.
 	reconciledWatched map[string]map[string]bool
+	// freshness tracks what this session has refreshed and which clusters
+	// the kubeconfigs name, for marking and filtering search results.
+	freshness freshness
 	// listResources replaces the metadata LIST in tests.
 	listResources      func(cluster, group, version, resource, kind string) ([]storage.SearchableResource, string, error)
 	indexLimiter       *rate.Limiter
@@ -154,6 +157,7 @@ func (s *Service) RemoveCluster(cluster string) int {
 	delete(s.resourceVersions, cluster)
 	delete(s.reconciledWatched, cluster)
 	s.indexingMu.Unlock()
+	s.freshness.forget(cluster)
 	s.kindNamesMu.Lock()
 	for _, m := range []map[string]string{s.resourceNames, s.kindNames} {
 		for k := range m {
@@ -203,6 +207,20 @@ func NewService(k8sClient *k8s.Client, cache *cache.Cache, database *db.DB, inva
 		loadedClusters:       make(map[string]bool),
 		resourceNames:        make(map[string]string),
 		kindNames:            make(map[string]string),
+	}
+	s.freshness.sessionStart = time.Now().Truncate(time.Second)
+	if k8sClient != nil {
+		s.freshness.listClusters = func() ([]string, error) {
+			clusters, err := k8sClient.ListClusters()
+			if err != nil {
+				return nil, err
+			}
+			names := make([]string, 0, len(clusters))
+			for _, c := range clusters {
+				names = append(names, c.Name)
+			}
+			return names, nil
+		}
 	}
 	index.SetEvictionCallback(func(evicted []storage.SearchableResource) {})
 	if home, err := os.UserHomeDir(); err == nil {

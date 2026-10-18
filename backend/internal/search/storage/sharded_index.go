@@ -319,6 +319,15 @@ func (s *ShardedIndex) HasDocument(id string) bool {
 }
 
 // Stats aggregates stats across shards.
+// Clusters returns the clusters that have documents in any shard.
+func (s *ShardedIndex) Clusters() []string {
+	var out []string
+	for _, sh := range s.shards {
+		out = append(out, sh.Clusters()...)
+	}
+	return out
+}
+
 func (s *ShardedIndex) Stats() IndexStats {
 	var agg IndexStats
 	clusterSet := make(map[string]struct{})

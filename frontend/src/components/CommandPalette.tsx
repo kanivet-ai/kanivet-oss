@@ -17,6 +17,7 @@ import {
   resourceIdentity,
   resourceListNode,
 } from '../utils/searchResults';
+import { staleResultLabel } from '../utils/searchFreshness';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -907,6 +908,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     const isSelected = navIndex === selectedIndex;
 
                     const resource = result.resource;
+                    const staleLabel = staleResultLabel(result);
                     // Quick actions are keyed by plural resource name, which
                     // covers documents that carry either spelling of the kind.
                     const kind = describeSearchResource(resource).resourceName;
@@ -1090,6 +1092,19 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                             <span className="command-palette-cluster">
                               {getShortClusterName(resource.cluster)}
                             </span>
+                            {staleLabel && (
+                              <>
+                                <span className="command-palette-separator">
+                                  •
+                                </span>
+                                <span
+                                  className="command-palette-stale"
+                                  title={staleLabel.title}
+                                >
+                                  {staleLabel.text}
+                                </span>
+                              </>
+                            )}
                             {result.score && (
                               <>
                                 <span className="command-palette-separator">

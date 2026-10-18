@@ -558,6 +558,9 @@ func (s *Service) performSmartIndexing(cluster string) {
 	status.CompletedAt = &now
 	status.IsComplete = true
 	s.indexingMu.Unlock()
+	// Types the sweep could not list (often forbidden) are not retried until
+	// the next sweep either, so a partial sweep still counts as a refresh.
+	s.freshness.markObjects(cluster, now)
 	log.Printf("[SEARCH] Smart indexing completed for cluster %s: %d/%d resources updated",
 		cluster, status.IndexedResources, status.TotalResources)
 }
@@ -857,6 +860,7 @@ func (s *Service) indexResourceKinds(cluster string) error {
 	}
 	log.Printf("[SEARCH] Indexed %d/%d resource kinds for cluster %s", indexedKinds, len(kindDefs), cluster)
 	pruned := s.pruneKindDefinitions(cluster, kindDefs)
+	s.freshness.markKinds(cluster, time.Now())
 	if len(changed) > 0 || pruned > 0 {
 		s.invalidateSearchCacheForCluster(cluster)
 	}

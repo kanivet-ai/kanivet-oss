@@ -157,6 +157,11 @@ type SearchResult struct {
 	Resource SearchableResource `json:"resource"`
 	Score    float64            `json:"score"`
 	Matches  []SearchMatch      `json:"matches"`
+	// IndexedAt is when the document was last indexed, in Unix milliseconds.
+	IndexedAt int64 `json:"indexedAt"`
+	// Stale is set when the document comes from an earlier session and this
+	// session has not refreshed its cluster yet.
+	Stale bool `json:"stale"`
 }
 
 // SearchMatch represents where a search term was found
@@ -1718,6 +1723,19 @@ func (idx *MemoryIndex) RemoveCluster(cluster string) int {
 }
 
 // Stats returns index statistics
+// Clusters returns the clusters that have documents in the index. Unlike
+// Stats().Clusters it is never behind the index.
+func (idx *MemoryIndex) Clusters() []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	d := idx.getData()
+	out := make([]string, 0, len(d.clusterDocs))
+	for id := range d.clusterDocs {
+		out = append(out, d.pools.Clusters.Get(id))
+	}
+	return out
+}
+
 func (idx *MemoryIndex) Stats() IndexStats {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
