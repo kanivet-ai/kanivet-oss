@@ -73,6 +73,7 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
         activeResourceListTabByPane: t?.activeResourceListTabByPane,
         selectedNode: t?.selectedNode,
         focusArea: t?.focusArea,
+        focusedCenterPaneId: t?.focusedCenterPaneId,
         namespaces: t?.namespaces,
         selectedNamespaces: t?.selectedNamespaces,
         rolloutStatuses: t?.rolloutStatuses,

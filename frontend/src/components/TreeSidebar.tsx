@@ -523,6 +523,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         if (focusArea !== 'tree' || document.activeElement?.id === 'tree-search')
           return;
         e.preventDefault();
+        e.stopImmediatePropagation();
         if (!focusedNodeId) return;
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
@@ -558,17 +559,24 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     },
     l: {
       category: 'tree',
-      description: 'Expand / go to first child',
+      description: 'Focus first list item / expand tree',
       handler: async (e) => {
         if (focusArea !== 'tree' || document.activeElement?.id === 'tree-search')
           return;
         e.preventDefault();
+        e.stopImmediatePropagation();
         if (!focusedNodeId) return;
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
         if (node.type === 'resource' || node.type === 'argo-overview') {
-          await handleNodeClick(node, false);
+          const isSelectedNode = node.id === effectiveSelectedId;
+          if (isSelectedNode) {
+            setFocusArea('list');
+            window.dispatchEvent(new Event('resourcelist:focus-first'));
+          } else {
+            await handleNodeClick(node, false);
+          }
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
             toggleNodeExpansion(node.id);
@@ -685,8 +693,10 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         minWidth: `${width}px`,
         maxWidth: `${width}px`,
       }}
-      onMouseDown={() => setNavMode('pointer')}
-      onClick={() => setFocusArea('tree')}
+      onMouseDownCapture={() => {
+        setNavMode('pointer');
+        setFocusArea('tree');
+      }}
     >
       <div className="sidebar-header">
         <div className="search-box">

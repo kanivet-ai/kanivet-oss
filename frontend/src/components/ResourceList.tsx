@@ -511,13 +511,28 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     lastSelectedKeyRef.current = null;
   }, [setSelectedResources]);
 
+  // All split panes share focusArea; only the active pane owns list shortcuts.
+  const isListFocused = focusArea === 'list' &&
+    (!paneId || paneId === (tabState?.focusedCenterPaneId || 'root'));
   const navHandlers = createNavigationHandlers(
-    focusArea,
+    isListFocused ? 'list' : '',
     filteredItems,
     selectedItem,
     handleItemSelect,
     getResourceKey,
   );
+
+  useEffect(() => {
+    const focusFirstItem = () => {
+      const currentState = useStore.getState().getCurrentTabState();
+      if (currentState?.focusArea !== 'list' ||
+        (paneId || 'root') !== (currentState.focusedCenterPaneId || 'root')) return;
+      // Use the displayed order after sorting and filtering, not the raw rows.
+      if (filteredItems.length > 0) handleItemSelect(filteredItems[0], true);
+    };
+    window.addEventListener('resourcelist:focus-first', focusFirstItem);
+    return () => window.removeEventListener('resourcelist:focus-first', focusFirstItem);
+  }, [paneId, filteredItems, handleItemSelect]);
 
   useRegisteredKeyboard({
     ...Object.fromEntries(
@@ -530,22 +545,29 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       category: 'list',
       description: 'Open resource details',
       handler: async () => {
-        if (focusArea !== 'list') return;
+        if (!isListFocused) return;
         if (selectedItem) await handleItemOpen(selectedItem);
       },
     },
     h: {
       category: 'list',
       description: 'Back to tree',
-      handler: () => {
-        if (focusArea === 'list') setFocusArea('tree');
+      handler: (e) => {
+        if (!isListFocused) return;
+        e.stopImmediatePropagation();
+        setFocusArea('tree');
       },
     },
     l: {
       category: 'list',
       description: 'Open details',
-      handler: async () => {
-        if (focusArea === 'list' && selectedItem) await handleItemOpen(selectedItem);
+      handler: (e) => {
+        if (!isListFocused || !selectedItem) return;
+        e.stopImmediatePropagation();
+        // The tab opens synchronously. Move focus before the detail fetch so a
+        // slow response cannot steal it back after the user presses H.
+        void handleItemOpen(selectedItem);
+        setFocusArea('detail');
       },
     },
     escape: {
@@ -555,7 +577,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
         if (searchQuery) {
           setSearchQuery('');
           searchInputRef.current?.blur();
-        } else if (focusArea === 'list') {
+        } else if (isListFocused) {
           setFocusArea('tree');
         }
       },
@@ -564,7 +586,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       category: 'list',
       description: 'Focus search',
       handler: (e) => {
-        if (focusArea === 'list') {
+        if (isListFocused) {
           e.preventDefault();
           searchInputRef.current?.focus();
         }
@@ -574,7 +596,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       category: 'list',
       description: 'Reload list',
       handler: async () => {
-        if (focusArea === 'list') await reloadListItems();
+        if (isListFocused) await reloadListItems();
       },
     },
   }, `resourceList-${paneId}`);
@@ -727,8 +749,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
 
   return (
     <div
-      className={`resource-list ${focusArea === 'list' ? 'focused' : ''}`}
-      onClick={() => setFocusArea('list')}
+      className={`resource-list ${isListFocused ? 'focused' : ''}`}
+      onMouseDownCapture={() => {
+        updateCurrentTabState({ focusArea: 'list', ...(paneId ? { focusedCenterPaneId: paneId } : {}) });
+      }}
       onDragOver={(e) => {
         const isTabDrag = e.dataTransfer.types.includes('tab-type');
         const isSamePane = e.dataTransfer.types.includes(`source-pane-id:${paneId || 'root'}`);
