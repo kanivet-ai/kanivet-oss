@@ -221,14 +221,20 @@ func TestTransientFailuresKeepTheChart(t *testing.T) {
 	mu.Lock()
 	failing = true
 	mu.Unlock()
-	eventually(t, func() bool { return len(conn.messages()) == 2 })
+	eventually(t, func() bool { return len(conn.messages()) == 3 })
 	msgs := conn.messages()
-	if msgs[0].Error != "" || !msgs[1].Transient || msgs[1].Error != metricsSlowMessage {
+	// The chart keeps its data through the first failures, but is told at
+	// once that it is no longer live; the error follows once they repeat.
+	if msgs[0].Error != "" || !msgs[1].Stale || msgs[1].Data != nil || msgs[1].Error != "" ||
+		!msgs[2].Transient || msgs[2].Error != metricsSlowMessage {
 		t.Fatalf("messages %+v", msgs)
 	}
+	if msgs[1].LastSuccessAt == 0 || msgs[1].LastSuccessAt < msgs[0].LastSuccessAt {
+		t.Fatalf("stale marker lastSuccessAt = %d after %d", msgs[1].LastSuccessAt, msgs[0].LastSuccessAt)
+	}
 	for _, unavailable := range []string{"unavailable", "timed out", "not found in cluster", "connection refused", "eof"} {
-		if strings.Contains(strings.ToLower(msgs[1].Error), unavailable) {
-			t.Fatalf("%q reads as provider unavailable", msgs[1].Error)
+		if strings.Contains(strings.ToLower(msgs[2].Error), unavailable) {
+			t.Fatalf("%q reads as provider unavailable", msgs[2].Error)
 		}
 	}
 	// 1 good refresh, then metricsReportAfter failed ones of metricsAttempts each.
@@ -354,4 +360,48 @@ func TestTransientClassification(t *testing.T) {
 			t.Errorf("IsTransient(%v) = %v", tc.err, got)
 		}
 	}
+}
+
+// A refresh that hangs used to leave the chart looking live for as long as it
+// took (a minute and more with retries); it is marked stale once no live
+// answer has come for metricsStaleAfter intervals, and live again after.
+func TestHangingRefreshMarksTheChartStale(t *testing.T) {
+	release := make(chan struct{})
+	q := &fakeQuerier{answer: func(ctx context.Context, n int, _ metrics.MetricQuery) (*metrics.MetricResponse, error) {
+		if n == 3 {
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return series(float64(n)), nil
+	}}
+	conn := &fakeConn{}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go runStream(ctx, conn, 5*time.Millisecond, func() {}, "metrics", "t", func(ctx context.Context) (*metrics.MetricResponse, error) {
+		return q.QueryMetrics(ctx, "c", "", metrics.MetricQuery{})
+	}, func(d *metrics.MetricResponse) bool { return len(d.Values) > 0 }, nil)
+
+	eventually(t, func() bool {
+		msgs := conn.messages()
+		return len(msgs) > 0 && msgs[len(msgs)-1].Stale
+	})
+	msgs := conn.messages()
+	marker := msgs[len(msgs)-1]
+	if marker.Data != nil || marker.Error != "" || marker.LastSuccessAt == 0 {
+		t.Fatalf("stale marker %+v", marker)
+	}
+	time.Sleep(30 * time.Millisecond)
+	if n := len(conn.messages()); n != len(msgs) {
+		t.Fatalf("stale marker repeated: %d messages, want %d", n, len(msgs))
+	}
+
+	close(release)
+	eventually(t, func() bool {
+		msgs := conn.messages()
+		m := msgs[len(msgs)-1]
+		return m.Data != nil && !m.Stale
+	})
 }

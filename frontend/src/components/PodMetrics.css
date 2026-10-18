@@ -339,6 +339,33 @@
   color: var(--warning-fg);
 }
 
+/* A value the stream stopped refreshing: dimmed, with when it was current. */
+.mx-headline[data-stale='true'] .mx-headline-value,
+.mx-headline[data-stale='true'] .mx-headline-unit {
+  opacity: 0.55;
+}
+
+.mx-headline-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 8px;
+  padding: 1px 6px;
+  align-self: center;
+  background: var(--warning-bg);
+  color: var(--text2);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
+}
+
+.mx-headline-delta + .mx-headline-stale {
+  margin-left: 6px;
+}
+
 /* ---- Chart frame --------------------------------------------------------- */
 
 .mx-frame {
