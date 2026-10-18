@@ -41,6 +41,8 @@ export interface DetailTab {
   location?: 'detail' | 'center';
   paneId?: string;
   isDeleted?: boolean;
+  /** The object was deleted and created again (another uid) while the tab was open. */
+  isRecreated?: boolean;
 }
 
 export interface ResourceListTab {
@@ -279,7 +281,11 @@ export interface ResourceSlice {
   selectItem: (item: any) => void;
   loadDetails: (cluster: string, resource: any, item: any, signal?: AbortSignal) => Promise<any>;
   loadResourceEvents: (cluster: string, resource: any, details: any, signal?: AbortSignal) => Promise<void>;
-  updateDetailData: (data: any) => void;
+  /** Loads the object a detail tab shows again, with its events, into every
+   * tab of `cluster` showing it; a 404 marks those tabs deleted. */
+  refreshDetails: (cluster: string, resource: any, item: any, signal?: AbortSignal) => Promise<void>;
+  /** Puts `data` into the detail tabs of `cluster` (default: the current one) showing that object. */
+  updateDetailData: (data: any, cluster?: string) => void;
   setSearchQuery: (query: string) => void;
   performSearch: (query: string) => void;
   toggleNodeExpansion: (nodeId: string) => void;

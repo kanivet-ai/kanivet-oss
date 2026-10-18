@@ -29,14 +29,14 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
     toggleDetailsPanel,
     setDetailsPanelCollapsed,
     currentTab,
-    updateDetailData,
+    refreshTabDetails,
     closeDetailTab,
     setActiveDetailTab,
     reorderDetailTabs,
     moveDetailTab,
     pinDetailTab,
     openDetailTab,
-  } = useStore(useShallow((s) => ({ setFocusArea: s.setFocusArea, toggleDetailsPanel: s.toggleDetailsPanel, setDetailsPanelCollapsed: s.setDetailsPanelCollapsed, currentTab: s.currentTab, updateDetailData: s.updateDetailData, closeDetailTab: s.closeDetailTab, setActiveDetailTab: s.setActiveDetailTab, reorderDetailTabs: s.reorderDetailTabs, moveDetailTab: s.moveDetailTab, pinDetailTab: s.pinDetailTab, openDetailTab: s.openDetailTab })));
+  } = useStore(useShallow((s) => ({ setFocusArea: s.setFocusArea, toggleDetailsPanel: s.toggleDetailsPanel, setDetailsPanelCollapsed: s.setDetailsPanelCollapsed, currentTab: s.currentTab, refreshTabDetails: s.refreshDetails, closeDetailTab: s.closeDetailTab, setActiveDetailTab: s.setActiveDetailTab, reorderDetailTabs: s.reorderDetailTabs, moveDetailTab: s.moveDetailTab, pinDetailTab: s.pinDetailTab, openDetailTab: s.openDetailTab })));
   const { detailTabs, activeDetailTab, focusArea, isDetailsPanelCollapsed } = useStore(useShallow((s) => {
     const t = s.getCurrentTabState();
     return { detailTabs: t?.detailTabs || EMPTY_DETAIL_TABS, activeDetailTab: t?.activeDetailTab, focusArea: t?.focusArea || 'tree', isDetailsPanelCollapsed: t?.isDetailsPanelCollapsed || false };
@@ -209,8 +209,13 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
   const itemName = item?.metadata?.name || item?.name || '';
   const itemNamespace = item?.metadata?.namespace || item?.namespace || '';
   const isHelmRelease = item?.kind === 'HelmRelease' || resource?.kind === 'HelmRelease';
-  const refreshKey = activeTab && !isDetailsPanelCollapsed && !isHelmRelease
-    ? `${activeCluster}|${resource?.group || ''}|${resource?.version || ''}|${resource?.kind || ''}|${itemNamespace}|${itemName}`
+  // A tab opened from a link or a drop may know its object only by apiVersion.
+  const itemApiVersion: string = item?.apiVersion || '';
+  const refreshGroup = resource?.version ? resource.group || '' : itemApiVersion.includes('/') ? itemApiVersion.split('/')[0] : '';
+  const refreshVersion = resource?.version || (itemApiVersion.includes('/') ? itemApiVersion.split('/')[1] : itemApiVersion);
+  const refreshKind = resource?.kind || item?.kind || '';
+  const refreshKey = activeTab && !isDetailsPanelCollapsed && !isHelmRelease && refreshVersion && refreshKind && itemName
+    ? `${activeTab.cluster || activeCluster}|${refreshGroup}|${refreshVersion}|${refreshKind}|${itemNamespace}|${itemName}|${item?.kind || refreshKind}`
     : '';
 
   useEffect(() => {
@@ -229,17 +234,19 @@ const DetailView = ({ mode: _mode }: DetailViewProps = {}) => {
 
   // While the live watch covers this item, refetch only when it reports a
   // change (with a staleness safety net); otherwise fall back to polling.
+  // The answer goes to the tabs showing the object it was asked for, by
+  // identity, not to whichever tab is on screen when it arrives.
   const refreshDetails = useCallback(() => {
     if (!refreshKey) return;
-    const [cluster, group, version, kind, ns, name] = refreshKey.split('|');
+    const [cluster, group, version, kind, ns, name, itemKind] = refreshKey.split('|');
     const live = currentRealtimeTopic() === `items:${cluster}:${group}:${version}:${resource?.name || ''}:`;
     if (live && !detailDirtyRef.current && Date.now() - lastRefreshRef.current < DETAIL_STALE_MS) return;
     detailDirtyRef.current = false;
     lastRefreshRef.current = Date.now();
-    api.getResourceDetails(cluster, group, version, kind, ns, name)
-      .then(updateDetailData)
+    const apiVersion = group ? `${group}/${version}` : version;
+    refreshTabDetails(cluster, { group, version, kind, name: resource?.name }, { kind: itemKind, apiVersion, metadata: { name, namespace: ns } })
       .catch((error) => console.error('Failed to refresh details:', error));
-  }, [refreshKey, resource?.name, updateDetailData]);
+  }, [refreshKey, resource?.name, refreshTabDetails]);
 
   useVisibleInterval(refreshDetails, 5000, { enabled: !!refreshKey });
 
