@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -19,9 +21,14 @@ import (
 
 type fakeHelmBackend struct {
 	client   kubernetes.Interface
+	mu       sync.Mutex // guards releases
 	releases []helm.Release
 	failList atomic.Bool
 	calls    atomic.Int32
+	// parse and get, when set, stand in for the secret parsing and the
+	// single-release read the watch uses.
+	parse func(obj any) (*helm.Release, error)
+	get   func(namespace, name string) (*helm.Release, error)
 }
 
 func (f *fakeHelmBackend) StreamReleases(ctx context.Context, cluster string) (<-chan []helm.Release, <-chan helm.StreamProgress, error) {
@@ -31,7 +38,9 @@ func (f *fakeHelmBackend) StreamReleases(ctx context.Context, cluster string) (<
 	}
 	rc := make(chan []helm.Release, 1)
 	pc := make(chan helm.StreamProgress, 1)
-	rc <- f.releases
+	f.mu.Lock()
+	rc <- slices.Clone(f.releases)
+	f.mu.Unlock()
 	close(rc)
 	close(pc)
 	return rc, pc, nil
@@ -41,11 +50,17 @@ func (f *fakeHelmBackend) GetK8sClient(string) (kubernetes.Interface, *rest.Conf
 	return f.client, nil, nil
 }
 
-func (f *fakeHelmBackend) ParseReleaseFromSecret(any) (*helm.Release, error) {
+func (f *fakeHelmBackend) ParseReleaseFromSecret(obj any) (*helm.Release, error) {
+	if f.parse != nil {
+		return f.parse(obj)
+	}
 	return nil, errors.New("unused")
 }
 
-func (f *fakeHelmBackend) GetReleaseBasic(context.Context, string, string, string) (*helm.Release, error) {
+func (f *fakeHelmBackend) GetReleaseBasic(_ context.Context, _, namespace, name string) (*helm.Release, error) {
+	if f.get != nil {
+		return f.get(namespace, name)
+	}
 	return nil, errors.New("unused")
 }
 

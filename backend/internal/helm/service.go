@@ -2,6 +2,7 @@ package helm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
@@ -24,6 +25,16 @@ import (
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/client-go/rest"
 )
+
+// ErrReleaseNotFound is wrapped by the errors of reads of a release that has
+// no revision left.
+var ErrReleaseNotFound = driver.ErrReleaseNotFound
+
+// isReleaseNotFound reports whether a Helm read failed because the release has
+// no revision: the driver's error, or the storage's when its history is empty.
+func isReleaseNotFound(err error) bool {
+	return errors.Is(err, driver.ErrReleaseNotFound) || strings.Contains(err.Error(), "no revision for release")
+}
 
 type Service struct {
 	k8sClient k8s.Interface
@@ -627,8 +638,8 @@ func (s *Service) GetReleaseBasic(ctx context.Context, cluster, namespace, name 
 	getAction := action.NewGet(actionConfig)
 	rel, err := getAction.Run(name)
 	if err != nil {
-		if err == driver.ErrReleaseNotFound {
-			return nil, fmt.Errorf("release %s not found in namespace %s", name, namespace)
+		if isReleaseNotFound(err) {
+			return nil, fmt.Errorf("release %s not found in namespace %s: %w", name, namespace, ErrReleaseNotFound)
 		}
 		return nil, fmt.Errorf("failed to get release: %w", err)
 	}

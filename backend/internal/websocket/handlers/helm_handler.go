@@ -3,10 +3,12 @@ package handlers
 import (
 	"context"
 	jsonv2 "encoding/json/v2"
+	"errors"
 	"fmt"
 	"log"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kanivet/backend/internal/helm"
@@ -42,6 +44,8 @@ type HelmHandler struct {
 	hub         *core.Hub
 	mu          sync.RWMutex
 	streams     map[string]*helmStream
+	// snapshots numbers the listings, across clusters.
+	snapshots atomic.Uint64
 }
 
 // helmStream is one list-and-watch loop per cluster, shared by every
@@ -58,6 +62,12 @@ type helmStream struct {
 	releases map[string]helm.Release
 	loaded   bool
 	progress *LoadProgress
+	// snapshot identifies the listing st.releases holds. Its frames carry it
+	// so a client can replace what it has with exactly that listing on Done.
+	snapshot uint64
+	// fetches numbers each release's watch-event fetches; only the latest
+	// one's answer is published, so a slow fetch never undoes a newer one.
+	fetches map[string]uint64
 }
 
 type HelmReleasesMessage struct {
@@ -69,6 +79,10 @@ type HelmReleasesMessage struct {
 	Total     int            `json:"total,omitempty"`     // Total releases so far
 	Progress  *LoadProgress  `json:"progress,omitempty"`  // Loading progress
 	Error     string         `json:"error,omitempty"`     // Set when the initial load failed
+	// SnapshotID names the listing these releases belong to. The Done frame
+	// carrying it ends that listing: it holds every release there is, and a
+	// client drops any it has that the listing did not include.
+	SnapshotID uint64 `json:"snapshotId,omitzero"`
 }
 
 type HelmReleaseEvent struct {
@@ -176,6 +190,7 @@ func (h *HelmHandler) handleSubscribe(ctx context.Context, conn *core.Connection
 			cancelFunc: cancel,
 			subs:       make(map[core.ConnectionID]struct{}),
 			releases:   make(map[string]helm.Release),
+			fetches:    make(map[string]uint64),
 		}
 		h.streams[cluster] = st
 		go h.runStream(streamCtx, st)
@@ -277,6 +292,7 @@ func (h *HelmHandler) newReleasesMsgLocked(st *helmStream, releases []helm.Relea
 		Done:        done,
 		Total:       len(st.releases),
 		Progress:    st.progress,
+		SnapshotID:  st.snapshot,
 	}
 }
 
@@ -316,6 +332,25 @@ func (h *HelmHandler) broadcastChunks(st *helmStream, releases []helm.Release) {
 	for i := range releases {
 		st.releases[releaseKey(&releases[i])] = releases[i]
 	}
+	h.broadcastChunksLocked(st, releases)
+}
+
+// replaceReleases makes a complete listing the snapshot, under a new id, and
+// broadcasts it: releases it does not hold are gone. Fetches started by the
+// watch before it are older than it and are not published.
+func (h *HelmHandler) replaceReleases(st *helmStream, releases []helm.Release) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.snapshot = h.snapshots.Add(1)
+	st.releases = make(map[string]helm.Release, len(releases))
+	for i := range releases {
+		st.releases[releaseKey(&releases[i])] = releases[i]
+	}
+	st.fetches = make(map[string]uint64)
+	h.broadcastChunksLocked(st, releases)
+}
+
+func (h *HelmHandler) broadcastChunksLocked(st *helmStream, releases []helm.Release) {
 	for _, c := range chunkReleases(releases) {
 		if err := h.hub.Broadcast(st.topic, h.newReleasesMsgLocked(st, c, false)); err != nil {
 			log.Printf("[HelmHandler] Error broadcasting: %v", err)
@@ -323,10 +358,34 @@ func (h *HelmHandler) broadcastChunks(st *helmStream, releases []helm.Release) {
 	}
 }
 
+// startFetch numbers a fetch of the release for a watch event.
+func (st *helmStream) startFetch(key string) uint64 {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.fetches[key]++
+	return st.fetches[key]
+}
+
+// publishFetched publishes what fetch n of the release found, unless a later
+// fetch was started since (or a relist replaced the snapshot).
+func (h *HelmHandler) publishFetched(st *helmStream, key string, n uint64, eventType string, rel helm.Release) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.fetches[key] != n {
+		return false
+	}
+	h.publishEventLocked(st, eventType, rel)
+	return true
+}
+
 // publishEvent applies a watch event to the snapshot and broadcasts it.
 func (h *HelmHandler) publishEvent(st *helmStream, eventType string, rel helm.Release) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
+	h.publishEventLocked(st, eventType, rel)
+}
+
+func (h *HelmHandler) publishEventLocked(st *helmStream, eventType string, rel helm.Release) {
 	if eventType == "deleted" {
 		delete(st.releases, releaseKey(&rel))
 	} else {
@@ -494,11 +553,18 @@ func (h *HelmHandler) currentResourceVersion(ctx context.Context, client kuberne
 
 // loadSnapshot lists every release. The first load streams chunks to the
 // subscribers as they arrive; later loads send the whole result once it is
-// complete. Both finish with a separate Done frame.
+// complete, replacing what the snapshot held. Both finish with a separate
+// Done frame, and every frame of a load carries its snapshot id.
 func (h *HelmHandler) loadSnapshot(ctx context.Context, st *helmStream, first bool) error {
 	releasesChan, progressChan, err := h.helmService.StreamReleases(ctx, st.cluster)
 	if err != nil {
 		return err
+	}
+	if first {
+		st.mu.Lock()
+		st.snapshot = h.snapshots.Add(1)
+		st.releases = make(map[string]helm.Release)
+		st.mu.Unlock()
 	}
 
 	var collected []helm.Release
@@ -534,7 +600,7 @@ func (h *HelmHandler) loadSnapshot(ctx context.Context, st *helmStream, first bo
 	}
 
 	if !first {
-		h.broadcastChunks(st, collected)
+		h.replaceReleases(st, collected)
 	}
 	st.mu.Lock()
 	st.loaded = true
@@ -617,11 +683,12 @@ func (h *HelmHandler) processWatchEvents(ctx context.Context, watcher watch.Inte
 
 			key := releaseKey(basicRelease)
 
-			// For delete events, just send the basic info
+			// A deleted secret is one revision of the release, not the
+			// release: every upgrade past history-max prunes the oldest.
 			if eventType == "deleted" {
-				log.Printf("[HelmHandler] Helm release deleted: %s", key)
 				delete(lastStatus, key)
-				h.publishEvent(st, eventType, *basicRelease)
+				delete(lastFetch, key)
+				h.releaseRevisionDeleted(ctx, st, *basicRelease)
 				continue
 			}
 
@@ -648,6 +715,7 @@ func (h *HelmHandler) processWatchEvents(ctx context.Context, watcher watch.Inte
 			lastFetch[key] = time.Now()
 
 			// Fetch full release info from Helm with retry
+			fetch := st.startFetch(key)
 			go func(ns, name, evtType string) {
 				var fullRelease *helm.Release
 				var err error
@@ -683,8 +751,37 @@ func (h *HelmHandler) processWatchEvents(ctx context.Context, watcher watch.Inte
 				log.Printf("[HelmHandler] Helm release %s: %s/%s (chart=%s, status=%s, rev=%d)",
 					evtType, ns, name, fullRelease.Chart, fullRelease.Status, fullRelease.Revision)
 
-				h.publishEvent(st, evtType, *fullRelease)
+				h.publishFetched(st, key, fetch, evtType, *fullRelease)
 			}(basicRelease.Namespace, basicRelease.Name, eventType)
 		}
 	}
+}
+
+// releaseRevisionDeleted handles the deletion of one revision's secret. An
+// older revision than the one shown leaves the release as it is. Otherwise
+// the release is read again: it is deleted only when no revision remains,
+// and shown at its latest remaining revision when one does.
+func (h *HelmHandler) releaseRevisionDeleted(ctx context.Context, st *helmStream, rev helm.Release) {
+	key := releaseKey(&rev)
+	st.mu.Lock()
+	cur, known := st.releases[key]
+	st.mu.Unlock()
+	if known && rev.Revision > 0 && rev.Revision < cur.Revision {
+		return
+	}
+	fetch := st.startFetch(key)
+	go func() {
+		latest, err := h.helmService.GetReleaseBasic(ctx, st.cluster, rev.Namespace, rev.Name)
+		switch {
+		case errors.Is(err, helm.ErrReleaseNotFound):
+			if h.publishFetched(st, key, fetch, "deleted", rev) {
+				log.Printf("[HelmHandler] Helm release deleted: %s", key)
+			}
+		case err != nil:
+			// Unknown: keep the release; the next relist settles it.
+			log.Printf("[HelmHandler] Failed to read %s after a revision was deleted: %v", key, err)
+		default:
+			h.publishFetched(st, key, fetch, "modified", *latest)
+		}
+	}()
 }
