@@ -116,6 +116,29 @@ describe('ApiClient.request', () => {
   });
 });
 
+describe('ApiClient.requestFresh', () => {
+  it('never answers from the cache nor fills it, and shares a read in flight', async () => {
+    get.mockResolvedValueOnce({ data: { n: 100 } });
+    await apiClient.request('/resources/list', { cluster: 'c1' });
+
+    const response = deferred();
+    get.mockReturnValueOnce(response.promise);
+    const calls = [
+      apiClient.requestFresh('/resources/list', { cluster: 'c1' }),
+      apiClient.requestFresh('/resources/list', { cluster: 'c1' }),
+    ];
+    response.resolve({ data: { n: 70 } });
+    await expect(Promise.all(calls)).resolves.toEqual([{ n: 70 }, { n: 70 }]);
+    expect(get).toHaveBeenCalledTimes(2);
+
+    get.mockResolvedValueOnce({ data: { n: 71 } });
+    await expect(apiClient.requestFresh('/resources/list', { cluster: 'c1' })).resolves.toEqual({ n: 71 });
+    expect(get).toHaveBeenCalledTimes(3);
+    // The cached answer is still the one cached earlier, untouched.
+    await expect(apiClient.request('/resources/list', { cluster: 'c1' })).resolves.toEqual({ n: 100 });
+  });
+});
+
 describe('long requests', () => {
   it('leave four of the six connections Chromium allows per host', () => {
     expect(6 - LONG_REQUEST_SLOTS).toBeGreaterThanOrEqual(4);
