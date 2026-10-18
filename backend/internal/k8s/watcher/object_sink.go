@@ -33,6 +33,14 @@ type ObjectFeed interface {
 	Close()
 }
 
+// FailureReporter is implemented by feeds that want to know when their watch
+// can no longer list or watch the cluster. Failing is called on each failed
+// attempt while what the feed holds is still served; the next Synced means the
+// watch has caught up again.
+type FailureReporter interface {
+	Failing(err error)
+}
+
 // noFeed is the feed of a topic no sink reads.
 type noFeed struct{}
 
