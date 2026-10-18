@@ -281,11 +281,9 @@ func discoverKubeconfigs() []string {
 		configs = append(configs, abs)
 	}
 	if envPath := os.Getenv("KUBECONFIG"); envPath != "" {
-		sep := ":"
-		if strings.Contains(envPath, ";") {
-			sep = ";"
-		}
-		for _, p := range strings.Split(envPath, sep) {
+		// The OS list separator, as kubectl uses: splitting on ":" breaks
+		// a Windows path at its drive letter.
+		for _, p := range filepath.SplitList(envPath) {
 			if p = strings.TrimSpace(p); p != "" {
 				addConfig(p)
 			}
