@@ -112,17 +112,28 @@ func (w *watchRefs) onRemoved(key watchRefKey) (stop bool) {
 	return false
 }
 
+// desyncReporter is implemented by watch APIs that can tell a topic's
+// subscribers they keep missing updates. *watcher.Service implements it.
+type desyncReporter interface {
+	SetDesynced(topic string, desynced bool)
+}
+
 // resyncCoordinator re-pushes a topic's cached snapshot after a client missed
 // updates. Resync is topic-wide (it reaches every subscriber), so requests are
 // debounced and rate-limited per topic. A request that arrives while a resync
 // is already sending, which includes drops of the resync's own chunks or its
 // sync_complete, schedules one more pass after the cooldown, so a quiet topic
-// does not stay on a partial snapshot.
+// does not stay on a partial snapshot. Past maxReruns passes in a row the
+// topic is reported desynced and retried on the slower slowRetries delays
+// until a pass goes through.
 type resyncCoordinator struct {
 	api          watchAPI
 	initialDelay time.Duration
 	cooldown     time.Duration
 	maxReruns    int
+	// slowRetries are the delays between the passes past maxReruns; the last
+	// one repeats.
+	slowRetries []time.Duration
 
 	mu     sync.Mutex
 	topics map[string]*resyncState
@@ -134,6 +145,7 @@ type resyncState struct {
 	rerun     bool // a drop happened while running
 	last      time.Time
 	gone      bool // the topic emptied; drop the state when idle
+	desynced  bool // reported desynced and not yet cleared
 }
 
 func newResyncCoordinator(api watchAPI) *resyncCoordinator {
@@ -142,7 +154,14 @@ func newResyncCoordinator(api watchAPI) *resyncCoordinator {
 		initialDelay: 250 * time.Millisecond,
 		cooldown:     2 * time.Second,
 		maxReruns:    3,
+		slowRetries:  []time.Duration{5 * time.Second, 10 * time.Second, 30 * time.Second},
 		topics:       make(map[string]*resyncState),
+	}
+}
+
+func (r *resyncCoordinator) setDesynced(topic string, desynced bool) {
+	if d, ok := r.api.(desyncReporter); ok {
+		d.SetDesynced(topic, desynced)
 	}
 }
 
@@ -191,21 +210,39 @@ func (r *resyncCoordinator) run(topic string, st *resyncState, delay time.Durati
 		st.running = false
 		st.last = time.Now()
 		again := st.rerun && !st.gone
+		// A pass that lost nothing caught the subscribers up; one whose
+		// topic emptied has nobody left to tell.
+		cleared := !again && st.desynced
+		if cleared {
+			st.desynced = false
+		}
+		reported := false
+		delay = r.cooldown
 		if again && rerun >= r.maxReruns {
-			log.Printf("[WS] resync of %s kept losing messages; giving up until the next drop", topic)
-			again = false
+			// It used to give up here until the next drop, which on a
+			// quiet topic never came: the client stayed on a partial
+			// snapshot with nothing telling it so.
+			if !st.desynced {
+				log.Printf("[WS] resync of %s keeps losing messages; reporting it desynced and retrying more slowly", topic)
+				st.desynced, reported = true, true
+			}
+			delay = r.slowRetries[min(rerun-r.maxReruns, len(r.slowRetries)-1)]
 		}
 		if again {
 			st.scheduled = true
-			delay = r.cooldown
-			r.mu.Unlock()
-			continue
-		}
-		if st.gone {
+		} else if st.gone {
 			delete(r.topics, topic)
 		}
 		r.mu.Unlock()
-		return
+		if reported {
+			r.setDesynced(topic, true)
+		}
+		if cleared {
+			r.setDesynced(topic, false)
+		}
+		if !again {
+			return
+		}
 	}
 }
 

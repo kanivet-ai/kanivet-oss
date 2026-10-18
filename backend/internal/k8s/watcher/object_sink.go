@@ -41,6 +41,13 @@ type FailureReporter interface {
 	Failing(err error)
 }
 
+// RecoveryReporter is implemented by feeds that want to know when their
+// failing watch is delivering again without a relist: it resumed from where
+// it was, so what the feed holds is current again.
+type RecoveryReporter interface {
+	Recovered()
+}
+
 // noFeed is the feed of a topic no sink reads.
 type noFeed struct{}
 

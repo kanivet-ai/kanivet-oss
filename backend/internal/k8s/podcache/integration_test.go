@@ -40,11 +40,15 @@ type podServer struct {
 	// hold, when set, stops the full list half way until it is closed.
 	hold   chan struct{}
 	events chan []byte
+	// failing has every list and watch answered with a 503; drop ends the
+	// open watches.
+	failing atomic.Bool
+	drop    chan struct{}
 }
 
 func newPodServer(t *testing.T, n int) *podServer {
 	t.Helper()
-	s := &podServer{events: make(chan []byte, 8)}
+	s := &podServer{events: make(chan []byte, 8), drop: make(chan struct{})}
 	for i := range n {
 		s.pods = append(s.pods, serverPod(fmt.Sprintf("pod-%03d", i)))
 	}
@@ -99,6 +103,10 @@ func (s *podServer) serve(w http.ResponseWriter, r *http.Request) {
 func (s *podServer) servePods(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	flush := w.(http.Flusher).Flush
+	if s.failing.Load() {
+		http.Error(w, "the server is currently unable to handle the request", http.StatusServiceUnavailable)
+		return
+	}
 	if q.Get("watch") != "" {
 		s.watches.Add(1)
 		w.Header().Set("Content-Type", "application/json")
@@ -109,6 +117,8 @@ func (s *podServer) servePods(w http.ResponseWriter, r *http.Request) {
 			case ev := <-s.events:
 				w.Write(ev)
 				flush()
+			case <-s.drop:
+				return
 			case <-r.Context().Done():
 				return
 			}
@@ -337,4 +347,40 @@ func TestOverviewReadsThePodsAnOpenListAlreadyHolds(t *testing.T) {
 	svc.StopWatch("c", "", "v1", "pods", "")
 	srv.add("pod-new")
 	eventually(t, "the new pod in the cache", func() bool { return len(mustList(t, cache, "c")) == 121 })
+}
+
+// While the pods watch cannot list or watch the cluster, the cache keeps
+// serving the pods it holds; Health says they are stale, and stops saying so
+// once the watch is current again.
+func TestHealthReportsAFailingPodsWatch(t *testing.T) {
+	srv := newPodServer(t, 10)
+	svc, cache, hub := start(t, srv)
+	if err := svc.StartWatch("c", "", "v1", "pods", "", "age", "desc"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "the list", func() bool { _, completed, _ := hub.sent(); return len(completed) == 1 })
+	eventually(t, "the watch", func() bool { return srv.watches.Load() == 1 })
+	if h := cache.Health("c"); !h.Synced || h.Stale() || h.LastSyncAt.IsZero() {
+		t.Fatalf("health after the list: %+v", h)
+	}
+
+	srv.failing.Store(true)
+	srv.drop <- struct{}{}
+	eventually(t, "the failure to show", func() bool { return cache.Health("c").Stale() })
+	if h := cache.Health("c"); h.LastError == "" || h.FailingSince.IsZero() {
+		t.Fatalf("health while failing: %+v", h)
+	}
+	if pods := mustList(t, cache, "c"); len(pods) != 10 {
+		t.Fatalf("the cache serves %d pods while failing, want the 10 it holds", len(pods))
+	}
+
+	srv.failing.Store(false)
+	deadline := time.Now().Add(10 * time.Second)
+	for cache.Health("c").Stale() {
+		if time.Now().After(deadline) {
+			t.Fatalf("still stale after the cluster answered again: %+v", cache.Health("c"))
+		}
+		svc.RetryNow("c")
+		time.Sleep(20 * time.Millisecond)
+	}
 }

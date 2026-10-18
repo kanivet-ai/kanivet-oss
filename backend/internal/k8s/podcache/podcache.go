@@ -367,6 +367,15 @@ func (f *feed) Failing(err error) {
 	}
 }
 
+// Recovered records that the failing watch resumed where it left off: the
+// pods held are current again, though not relisted.
+func (f *feed) Recovered() {
+	f.cache.mu.Lock()
+	defer f.cache.mu.Unlock()
+	f.failingSince = time.Time{}
+	f.lastErr = ""
+}
+
 // Close detaches the feed. Nothing keeps its pods current any more, so they
 // are not served again: the next read waits for the next watch's listing.
 func (f *feed) Close() {

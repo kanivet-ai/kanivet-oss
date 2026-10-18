@@ -88,6 +88,19 @@ type Service struct {
 	// backoff its watches are waiting out. Guarded by retryMu.
 	retryMu sync.Mutex
 	retry   map[string]chan struct{}
+	// restart holds, per cluster, the channel restartCluster closes to have
+	// its watches rebuild their clients and relist; prints the fingerprint of
+	// the client config they were built from. Both guarded by restartMu.
+	restartMu sync.Mutex
+	restart   map[string]chan struct{}
+	prints    map[string]string
+
+	// health is how current each topic's rows are, guarded by healthMu.
+	healthMu sync.Mutex
+	health   map[string]*topicHealth
+	// passes serializes each topic's snapshot passes, guarded by passMu.
+	passMu sync.Mutex
+	passes map[string]*topicPass
 
 	// sinks are the object sinks by kind and feeds the running watches' feeds
 	// by topic, both guarded by feedMu.
@@ -339,6 +352,9 @@ func NewService(client *k8s.Client, hub Broadcaster) *Service {
 	}
 	if client != nil {
 		svc.printerCols = printercolumns.NewResolver(printercolumns.FetchFromDynamic(client))
+		// Off the caller's goroutine: it may be a request handler, and
+		// comparing configs reads each watched cluster's kubeconfig.
+		client.OnClusterCacheRefreshed(func(cluster string) { go svc.clientConfigChanged(cluster) })
 	}
 	manager.SetOnCleanup(func(key string) {
 		cleaned := manager.CleanupIfNotWatching(key, func() {
@@ -347,6 +363,7 @@ func NewService(client *k8s.Client, hub Broadcaster) *Service {
 			svc.clearSyncState(key)
 			svc.clearEpoch(key)
 			svc.clearSnapshotSavedAt(key)
+			svc.clearTopicHealth(key)
 		})
 		if cleaned {
 			log.Printf("k8s watcher: cleared cache and batcher state for %s", key)
@@ -530,7 +547,7 @@ func (s *Service) acquireWatch(cluster, group, version, kind, namespace string) 
 // IsWatching reports whether a live (or grace-pending) cluster-wide watch exists
 // for the resource, meaning its events already keep downstream consumers fresh.
 func (s *Service) IsWatching(cluster, group, version, resource string) bool {
-	return s.manager.HasWatch(topics.BuildItemsTopic(cluster, group, version, resource, ""))
+	return s.manager.isLive(topics.BuildItemsTopic(cluster, group, version, resource, ""))
 }
 
 func (s *Service) StopWatch(cluster, group, version, kind, namespace string) {
@@ -551,6 +568,7 @@ func (s *Service) StopAllForCluster(cluster string) {
 		s.clearSyncState(topic)
 		s.clearEpoch(topic)
 		s.clearSnapshotSavedAt(topic)
+		s.clearTopicHealth(topic)
 	}
 	s.indexedClustersMu.Lock()
 	delete(s.indexedClusters, cluster)
@@ -558,6 +576,11 @@ func (s *Service) StopAllForCluster(cluster string) {
 	s.clusterErrMu.Lock()
 	delete(s.clusterErr, cluster)
 	s.clusterErrMu.Unlock()
+	if !s.manager.HasPrefix(prefix) {
+		s.restartMu.Lock()
+		delete(s.prints, cluster)
+		s.restartMu.Unlock()
+	}
 	if len(stopped) > 0 {
 		log.Printf("k8s watcher: force-stopped %d watches for cluster %s", len(stopped), cluster)
 	}
@@ -581,21 +604,17 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	s.syncStateMu.RLock()
 	status := s.syncState[topic]
 	s.syncStateMu.RUnlock()
+	var listErr error
 	if status != nil {
 		select {
 		case <-status.done:
-			if status.err != nil {
-				// The first list failed: there is no snapshot to replay, but
-				// the subscriber must still leave its loading state. This is
-				// the same signal a failing list sends to the first one.
-				if s.manager.HasWatch(topic) {
-					s.sendInitialSyncComplete(topic, 0, 0)
-				}
-				return
-			}
+			// A failed first list leaves nothing confirmed to replay, but
+			// the subscriber must still leave its loading state: it gets
+			// what the cache holds, flagged, like the first one did.
+			listErr = status.err
 		case <-time.After(cachedDataSyncWait):
 			if s.manager.HasWatch(topic) {
-				s.sendInitialSyncComplete(topic, 0, 0)
+				s.sendListPending(topic)
 			}
 			return
 		}
@@ -603,6 +622,15 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	if !s.manager.HasWatch(topic) {
 		return
 	}
+	// One snapshot pass at a time (see topicPass). A relist that started
+	// after the wait above holds the topic until its own sync is out, and
+	// this pass then replays what that list left.
+	unlock, ok := s.lockTopicPass(context.Background(), topic, cachedDataSyncWait)
+	if !ok {
+		s.sendListPending(topic)
+		return
+	}
+	defer unlock()
 	// Live events go out after the snapshot's pages, as each page may be
 	// older than they are: held from before the snapshot is read until
 	// sync_complete, they are flushed just ahead of it.
@@ -613,7 +641,16 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 		log.Printf("Failed to flush topic %s before resync: %v", topic, err)
 	}
 	cachedItems := s.cache.GetAll(topic)
-	epoch := s.nextEpoch(topic)
+	health := s.topicHealthOf(topic)
+	// The cache is a snapshot to prune by only while the watch keeps it
+	// current. A failing watch's rows, or a persisted snapshot no live list
+	// has confirmed, go out as they are (epoch 0: the client adds them and
+	// prunes nothing) under a sync that says why they may be out of date.
+	authoritative := listErr == nil && health.failingSince.IsZero() && !health.unconfirmed
+	var epoch uint64
+	if authoritative {
+		epoch = s.nextEpoch(topic)
+	}
 	sortCachedItems(cachedItems, sortBy, sortOrder)
 	for i := 0; i < len(cachedItems); {
 		size := 200
@@ -638,8 +675,29 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 		}
 		i = end
 	}
-	s.sendInitialSyncComplete(topic, len(cachedItems), epoch)
-	log.Printf("[PERF] sendCachedData: %d items in %v (epoch=%d)", len(cachedItems), time.Since(t0), epoch)
+	if authoritative {
+		s.sendInitialSyncComplete(topic, len(cachedItems), epoch)
+		if health.failing() {
+			// Desynced: the rows are current, but this subscriber may keep
+			// missing updates, as the others have.
+			s.sendTopicStatus(health.status(topic))
+		}
+		log.Printf("[PERF] sendCachedData: %d items in %v (epoch=%d)", len(cachedItems), time.Since(t0), epoch)
+		return
+	}
+	code, text := health.code, health.err
+	switch {
+	case !health.failingSince.IsZero():
+	case listErr != nil:
+		code, text = failureCode(listErr, codeListFailed), listErr.Error()
+	default:
+		code, text = codeListFailed, "no list of the cluster has confirmed these rows yet"
+	}
+	s.sendSyncLocked(topic, failedSync(topic, len(cachedItems), code, text, health.lastSyncAt))
+	if health.failing() {
+		s.sendTopicStatus(health.status(topic))
+	}
+	log.Printf("[PERF] sendCachedData: %d unconfirmed items in %v (%s)", len(cachedItems), time.Since(t0), code)
 }
 
 // broadcastBulk sends a bulk_list chunk. A connection refuses a message over
@@ -769,8 +827,10 @@ func snapshotEligible(topic string) (cluster string, ok bool) {
 // live LIST runs, so cold opens render instantly. Items go into the resource
 // cache so the post-LIST stale diff emits deletions for anything that vanished
 // while the app was closed. No initial-sync-complete is sent here: the live
-// LIST that follows owns reconciliation.
-func (s *Service) preloadSnapshot(topic string) {
+// LIST that follows owns reconciliation. Until it completes the rows are
+// unconfirmed: a revisit is not sent them as an authoritative snapshot, and a
+// failing LIST says so instead of closing the preload as if it were current.
+func (s *Service) preloadSnapshot(ctx context.Context, topic string) {
 	if s.db == nil {
 		return
 	}
@@ -788,6 +848,15 @@ func (s *Service) preloadSnapshot(topic string) {
 	if err := jsonv2.Unmarshal(data, &items); err != nil || len(items) == 0 {
 		return
 	}
+	unlock, ok := s.lockTopicPass(ctx, topic, 0)
+	if !ok {
+		return
+	}
+	defer unlock()
+	if ctx.Err() != nil {
+		return
+	}
+	s.noteTopicPreloaded(topic)
 	sortBy, sortOrder := s.hub.GetSortPreference(topic)
 	sortCachedItems(items, sortBy, sortOrder)
 	epoch := s.nextEpoch(topic)
@@ -869,6 +938,7 @@ func (s *Service) saveSnapshot(topic string) {
 // client it cannot build with backoff and reports credential errors.
 func (s *Service) watchResources(ctx context.Context, cluster, group, version, kind, namespace, topic string) {
 	s.cache.Clear(topic)
+	s.clearTopicHealth(topic)
 	// The first list is pending from here, not only once the goroutine gets
 	// to it, so a revisit in the meantime waits for it rather than replaying
 	// the still-empty cache as an authoritative snapshot.
@@ -927,7 +997,11 @@ func (s *Service) runWatchLoop(ctx context.Context, cluster string, gvr schema.G
 			log.Printf("k8s watcher: giving up on %s after %d panics", topic, restarts)
 			err := fmt.Errorf("watch for %s keeps failing", topic)
 			s.finishSync(ctx, s.pendingSync(ctx, topic), err)
-			s.sendInitialSyncComplete(topic, 0, 0)
+			s.sendFailedSync(topic, s.cache.Count(topic), codeWatchStopped, err.Error())
+			s.noteTopicFailing(ctx, topic, err, codeWatchStopped)
+			// Nothing keeps the rows current any more: the next subscribe
+			// starts the watch over instead of replaying them.
+			s.manager.markStopped(topic, ctx)
 			return
 		}
 		log.Printf("k8s watcher: restarting %s in %v after a panic", topic, delay)
@@ -959,8 +1033,18 @@ func (s *Service) runWatchLoopGuarded(ctx context.Context, cluster string, gvr s
 func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) {
 	var latestRV string
 	consecutiveFailures := 0
-	s.preloadSnapshot(topic)
+	s.preloadSnapshot(ctx, topic)
+	// failed reports a failed attempt to the topic's subscribers and feed;
+	// the first of a run of failed lists also closes the list with a failed
+	// sync, so the UI leaves its loading state while the list is retried.
+	failed := func(err error, code string, closeList bool) {
+		if closeList && consecutiveFailures == 0 && ctx.Err() == nil {
+			s.sendFailedSync(topic, 0, code, err.Error())
+		}
+		s.noteTopicFailing(ctx, topic, err, code)
+	}
 
+	var restart <-chan struct{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -971,6 +1055,14 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 		// Taken before the attempt, so that a RetryNow that lands while it is
 		// still failing is not missed by the backoff that follows.
 		retry := s.retrySignal(cluster)
+		if signalled(restart) {
+			// The cluster's client config changed (a kubeconfig reload, a
+			// context pointed elsewhere): rebuild the client and relist, so
+			// the stale diff drops whatever the old config's cluster had.
+			log.Printf("k8s watcher: client config of %s changed, relisting %s", cluster, topic)
+			resource, latestRV = nil, ""
+		}
+		restart = s.restartSignal(cluster)
 
 		if resource == nil {
 			var err error
@@ -982,16 +1074,16 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 				}
 				if consecutiveFailures == 0 {
 					// Like a failed list: revisits must not replay the empty
-					// cache as authoritative, and the UI leaves its loading
-					// state while the client is retried.
+					// cache as authoritative.
 					s.finishSync(ctx, s.pendingSync(ctx, topic), err)
-					s.sendInitialSyncComplete(topic, 0, 0)
 				}
+				failed(err, failureCode(err, codeListFailed), true)
 				if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 					return
 				}
 				continue
 			}
+			s.noteClientConfig(cluster)
 		}
 
 		needsList := latestRV == ""
@@ -1016,8 +1108,8 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 					resource = nil
 					latestRV = ""
 				}
-				if consecutiveFailures == 0 {
-					s.sendInitialSyncComplete(topic, 0, 0)
+				if !signalled(restart) {
+					failed(listErr, failureCode(listErr, codeListFailed), true)
 				}
 				if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 					return
@@ -1027,6 +1119,10 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 			consecutiveFailures = 0
 			s.markClusterHealthy(cluster)
 			s.saveSnapshotSoon(topic)
+			if signalled(restart) {
+				// Listed with the old client: list again with the new one.
+				continue
+			}
 		}
 
 		// A half-open connection delivers nothing and never errors, so each
@@ -1040,9 +1136,21 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 			scoped = resource.Namespace(namespace)
 		}
 		watchCtx, cancelWatch := context.WithTimeout(ctx, time.Duration(watchSeconds)*time.Second+watchClientGrace)
+		// A client config change ends the watch at once, not when it would
+		// next be recycled.
+		go func(restart <-chan struct{}) {
+			select {
+			case <-restart:
+				cancelWatch()
+			case <-watchCtx.Done():
+			}
+		}(restart)
 		w, err := scoped.Watch(watchCtx, watchOpts)
 		if err != nil {
 			cancelWatch()
+			if signalled(restart) {
+				continue
+			}
 			log.Printf("k8s watcher: watch failed for %s: %v", topic, err)
 			if isVClusterTransient(err, cluster) {
 				if !s.recoverVCluster(ctx, cluster) {
@@ -1060,6 +1168,7 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 				resource = nil
 				latestRV = ""
 			}
+			failed(err, failureCode(err, codeWatchFailed), false)
 			if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 				return
 			}
@@ -1070,16 +1179,23 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 		s.markClusterHealthy(cluster)
 
 		watchStart := time.Now()
-		events, expired, watchErr := s.processWatchEvents(ctx, w, cluster, gvr, topic, &latestRV)
+		// The watch resumes from latestRV, so once it holds it has missed
+		// nothing: the topic is current again without a relist.
+		up := func() { s.noteTopicRecovered(ctx, topic) }
+		events, expired, watchErr := s.processWatchEvents(ctx, w, cluster, gvr, topic, &latestRV, up)
 		w.Stop()
 		cancelWatch()
 
+		if signalled(restart) {
+			continue
+		}
 		if watchErr != nil {
 			if isCredErr, code, msg := isCredentialError(watchErr); isCredErr {
 				s.sendClusterErrorWithDetails(cluster, code, msg, watchErr.Error(), true)
 				resource = nil
 				latestRV = ""
 			}
+			failed(watchErr, failureCode(watchErr, codeWatchFailed), false)
 			if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 				return
 			}
@@ -1088,13 +1204,14 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 		if expired {
 			log.Printf("k8s watcher: RV expired for %s, forcing relist", topic)
 			latestRV = ""
-		} else if events == 0 && time.Since(watchStart) < time.Second && ctx.Err() == nil {
+		} else if events == 0 && time.Since(watchStart) < watchHeldAfter && ctx.Err() == nil {
 			// A watch closed right after it opened, with nothing delivered,
 			// is a failure (client-go's reflector treats it the same way): a
 			// server, proxy or dying port-forward that drops every watch
 			// would otherwise be re-watched in a tight loop, since watches
 			// are not client-side rate limited.
 			log.Printf("k8s watcher: watch for %s closed immediately, backing off", topic)
+			failed(errors.New("the watch closed as soon as it opened"), codeWatchFailed, false)
 			if !sleepBackoff(ctx, retry, &consecutiveFailures) {
 				return
 			}
@@ -1105,6 +1222,9 @@ func (s *Service) watchLoop(ctx context.Context, cluster string, gvr schema.Grou
 }
 
 const (
+	// watchHeldAfter is how long a watch must stay open, with nothing
+	// delivered, to count as holding; one that closes sooner is a failure.
+	watchHeldAfter   = time.Second
 	watchClientGrace = 30 * time.Second
 	// A list that takes longer is a stuck connection, not a big list: the
 	// first page is 25 items, the full list is served from the watch cache.
@@ -1164,6 +1284,102 @@ func (s *Service) RetryNow(cluster string) {
 	s.retryMu.Unlock()
 }
 
+// signalled reports whether ch, if any, is closed.
+func signalled(ch <-chan struct{}) bool {
+	if ch == nil {
+		return false
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// restartSignal is closed when the cluster's watches must rebuild their client
+// and relist.
+func (s *Service) restartSignal(cluster string) <-chan struct{} {
+	s.restartMu.Lock()
+	defer s.restartMu.Unlock()
+	ch := s.restart[cluster]
+	if ch == nil {
+		if s.restart == nil {
+			s.restart = make(map[string]chan struct{})
+		}
+		ch = make(chan struct{})
+		s.restart[cluster] = ch
+	}
+	return ch
+}
+
+// noteClientConfig remembers what the cluster's client config was when a
+// watch built its client, so a cache refresh can tell whether it changed.
+func (s *Service) noteClientConfig(cluster string) {
+	if s.client == nil {
+		return
+	}
+	s.restartMu.Lock()
+	_, known := s.prints[cluster]
+	s.restartMu.Unlock()
+	if known {
+		return
+	}
+	fp := s.client.ConfigFingerprint(cluster)
+	if fp == "" {
+		// A vcluster, or a config that cannot be read right now.
+		return
+	}
+	s.restartMu.Lock()
+	if s.prints == nil {
+		s.prints = make(map[string]string)
+	}
+	if _, known := s.prints[cluster]; !known {
+		s.prints[cluster] = fp
+	}
+	s.restartMu.Unlock()
+}
+
+// clientConfigChanged is called after the client's cached clients for a
+// cluster (every cluster for "") were dropped. Running watches hold on to the
+// client they were built with, so a kubeconfig reload that points a context
+// at another cluster, or gives it other credentials, left lists showing the
+// old cluster while detail views read the new one. The watches of each
+// cluster whose config did change rebuild their client and relist.
+func (s *Service) clientConfigChanged(cluster string) {
+	s.restartMu.Lock()
+	var clusters []string
+	for c := range s.prints {
+		if cluster == "" || c == cluster {
+			clusters = append(clusters, c)
+		}
+	}
+	s.restartMu.Unlock()
+	for _, c := range clusters {
+		fp := s.client.ConfigFingerprint(c)
+		if fp == "" {
+			// Unreadable for now (a kubeconfig being rewritten, a context
+			// removed): the watches fail on their own if it stays so.
+			continue
+		}
+		s.restartMu.Lock()
+		old, known := s.prints[c]
+		changed := known && old != fp
+		if changed {
+			s.prints[c] = fp
+			if ch := s.restart[c]; ch != nil {
+				close(ch)
+				delete(s.restart, c)
+			}
+		}
+		s.restartMu.Unlock()
+		if changed {
+			log.Printf("k8s watcher: client config of %s changed, restarting its watches", c)
+			s.RetryNow(c)
+		}
+	}
+}
+
 // backoffDelay doubles from 1 s up to 30 s per attempt, with equal jitter: a
 // cluster's topics usually fail together (an apiserver restart drops all
 // their watches), and spreading their retries keeps them from reconnecting
@@ -1185,15 +1401,33 @@ func isExpiredErr(err error) bool {
 }
 
 // processWatchEvents applies a watch's events until it ends, returning how
-// many it delivered (bookmarks included).
-func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, cluster string, gvr schema.GroupVersionResource, topic string, latestRV *string) (events int, expired bool, err error) {
+// many it delivered (bookmarks included). up, unless nil, is called once the
+// watch holds: on its first event, or once it has stayed open for a second.
+func (s *Service) processWatchEvents(ctx context.Context, w watch.Interface, cluster string, gvr schema.GroupVersionResource, topic string, latestRV *string, up func()) (events int, expired bool, err error) {
+	var held <-chan time.Time
+	if up != nil {
+		t := time.NewTimer(watchHeldAfter)
+		defer t.Stop()
+		held = t.C
+	}
+	holds := func() {
+		if up != nil {
+			up()
+			up, held = nil, nil
+		}
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return events, false, nil
+		case <-held:
+			holds()
 		case event, ok := <-w.ResultChan():
 			if !ok {
 				return events, false, nil
+			}
+			if event.Type != watch.Error {
+				holds()
 			}
 			switch event.Type {
 			case watch.Error:
@@ -1236,6 +1470,13 @@ const listPageSize = 100
 
 func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace string, topic string, resource resourceLister) (string, error) {
 	const firstPageSize = 25
+	// The list is a snapshot pass: no replay may interleave its pages, flushes
+	// and stale diff with this one's (see topicPass).
+	unlock, ok := s.lockTopicPass(ctx, topic, 0)
+	if !ok {
+		return "", ctx.Err()
+	}
+	defer unlock()
 	sortBy, sortOrder := s.hub.GetSortPreference(topic)
 	if err := s.hub.FlushTopic(topic); err != nil {
 		log.Printf("Failed to flush topic %s before list sync: %v", topic, err)
@@ -1310,8 +1551,8 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 		// from its resourceVersion, so an object the first page saw but
 		// that was deleted before the full list would never get a delete
 		// event. The stale diff below removes it instead.
-		s.broadcastPage(topic, pageItems, nil, sortBy, sortOrder, true, epoch, total)
-		s.broadcastPage(topic, fullPageItems, nil, sortBy, sortOrder, false, epoch, total)
+		s.broadcastPage(ctx, topic, pageItems, nil, sortBy, sortOrder, true, epoch, total)
+		s.broadcastPage(ctx, topic, fullPageItems, nil, sortBy, sortOrder, false, epoch, total)
 	}
 
 	for page := range rest.pages {
@@ -1324,7 +1565,7 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 			}
 			pageItems = append(pageItems, item)
 		}
-		s.broadcastPage(topic, pageItems, currentItems, sortBy, sortOrder, false, epoch, total)
+		s.broadcastPage(ctx, topic, pageItems, currentItems, sortBy, sortOrder, false, epoch, total)
 	}
 	if rest.err != nil {
 		log.Printf("k8s watcher: failed to list %s: %v", topic, rest.err)
@@ -1334,6 +1575,11 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 		return "", rest.err
 	}
 	listResourceVersion := rest.rv
+	if ctx.Err() != nil {
+		// The watch was stopped: its topic state may already be cleared, and
+		// a stale diff now would write to the next watch's.
+		return "", ctx.Err()
+	}
 
 	// The quick first page and the full RV=0 list overlap, so the true item
 	// count is the full list's key set — summing page sizes double-counts.
@@ -1362,7 +1608,11 @@ func (s *Service) fetchAndBroadcastListSync(ctx context.Context, cluster string,
 		log.Printf("Failed to flush topic %s after list broadcast: %v", topic, err)
 	}
 	log.Printf("k8s watcher: sent %d items for %s (RV=%s)", activeItems, topic, listResourceVersion)
+	_, recovered := s.noteTopicSynced(ctx, topic)
 	s.sendInitialSyncComplete(topic, activeItems, epoch)
+	if recovered != nil {
+		s.sendTopicStatus(recovered)
+	}
 	if namespace == "" {
 		s.countThrottler.update(cluster, gvr.Group, gvr.Resource, activeItems)
 	}
@@ -1506,9 +1756,11 @@ func (s *Service) rowOf(obj runtime.Object, gvr schema.GroupVersionResource, col
 // in currentItems unless that is nil. Every page carries the sync's epoch, so
 // the client can drop the rows the closing sync_complete no longer covers,
 // and the size of the whole list when the server gave it, so the client can
-// tell how much of the list it has.
-func (s *Service) broadcastPage(topic string, items []map[string]interface{}, currentItems map[string]bool, sortBy, sortOrder string, isMinimal bool, epoch uint64, total int) int {
-	if len(items) == 0 {
+// tell how much of the list it has. Nothing is cached or sent once the watch
+// under ctx is stopped: its topic's cache may already be cleared, or belong
+// to the watch that replaced it.
+func (s *Service) broadcastPage(ctx context.Context, topic string, items []map[string]interface{}, currentItems map[string]bool, sortBy, sortOrder string, isMinimal bool, epoch uint64, total int) int {
+	if len(items) == 0 || ctx.Err() != nil {
 		return 0
 	}
 	sortCachedItems(items, sortBy, sortOrder)
@@ -1535,6 +1787,10 @@ func (s *Service) broadcastPage(topic string, items []map[string]interface{}, cu
 }
 
 func (s *Service) handleResourceEventSimple(ctx context.Context, event watch.Event, cluster string, gvr schema.GroupVersionResource, topic string) {
+	if ctx.Err() != nil {
+		// Stopped: as in broadcastPage, the topic is no longer this watch's.
+		return
+	}
 	action := strings.ToLower(string(event.Type))
 	if event.Type == watch.Deleted {
 		s.feedFor(ctx, topic).Delete(event.Object)
@@ -1775,10 +2031,24 @@ type pendingCleanup struct {
 }
 
 type watchRef struct {
-	cancel     context.CancelFunc
+	cancel context.CancelFunc
+	// ctx is the running watch's context; stopped is set once that watch
+	// has given up, so that the next StartWatch runs it again.
+	ctx        context.Context
+	stopped    bool
 	refCount   int
 	generation uint64
 	lastActive uint64
+}
+
+// markStopped records that the watch running under ctx gave up. The entry and
+// its references stay; the next StartWatch of the key starts a new watch.
+func (m *WatchManager) markStopped(key string, ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if wr, ok := m.watches[key]; ok && wr.ctx == ctx {
+		wr.stopped = true
+	}
 }
 
 // SetMaxWatches caps the number of live watches (active + grace-pending). When a
@@ -1809,7 +2079,7 @@ func (m *WatchManager) StartWatch(key string, watchFunc func(context.Context) er
 		log.Printf("k8s watcher: cancelled pending cleanup for %s (re-subscribed)", key)
 	}
 
-	if wr, ok := m.watches[key]; ok {
+	if wr, ok := m.watches[key]; ok && !wr.stopped {
 		wr.refCount++
 		m.activeSeq++
 		wr.lastActive = m.activeSeq
@@ -1825,7 +2095,18 @@ func (m *WatchManager) StartWatch(key string, watchFunc func(context.Context) er
 	}
 
 	m.activeSeq++
-	m.watches[key] = &watchRef{cancel: cancel, refCount: 1, generation: 1, lastActive: m.activeSeq}
+	if wr, ok := m.watches[key]; ok {
+		// The watch had given up: start it over, keeping the references
+		// its subscribers still hold.
+		wr.cancel()
+		wr.cancel, wr.ctx, wr.stopped = cancel, ctx, false
+		wr.refCount++
+		wr.generation++
+		wr.lastActive = m.activeSeq
+		m.mu.Unlock()
+		return false, nil
+	}
+	m.watches[key] = &watchRef{cancel: cancel, ctx: ctx, refCount: 1, generation: 1, lastActive: m.activeSeq}
 	evicted := m.evictOverCapLocked()
 	callback := m.onCleanup
 	m.mu.Unlock()
@@ -1969,6 +2250,26 @@ func (m *WatchManager) HasWatch(key string) bool {
 	defer m.mu.Unlock()
 	_, ok := m.watches[key]
 	return ok
+}
+
+// HasPrefix reports whether any watch's key starts with prefix.
+func (m *WatchManager) HasPrefix(prefix string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key := range m.watches {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isLive reports whether the key's watch exists and has not given up.
+func (m *WatchManager) isLive(key string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	wr, ok := m.watches[key]
+	return ok && !wr.stopped
 }
 
 // StopAllPrefix cancels and removes every idle watch (refcount <= 0) whose key
@@ -2165,27 +2466,70 @@ func (m *ResourceEventMessage) GetData() map[string]interface{} {
 
 // sendInitialSyncComplete signals list load completion. A non-zero epoch marks
 // the snapshot authoritative: the client may drop rows it did not see in that
-// epoch. Epoch 0 (failure paths) only clears loading state client-side. It is
-// sent directly, behind the bulk pages and any flushed events, rather than
-// waiting out the event batcher's window.
+// epoch; failure paths send failedSync instead. The caller holds the topic's
+// pass (lockTopicPass): the flush ahead of it must not release events another
+// pass is holding back.
 func (s *Service) sendInitialSyncComplete(topic string, itemCount int, epoch uint64) {
-	msg := &InitialSyncMessage{
-		BaseMessage: core.BaseMessage{
-			MessageType: "sync_complete",
-			Timestamp:   time.Now(),
-		},
-		Channel:   "items",
-		Topic:     topic,
-		ItemCount: itemCount,
-		Epoch:     epoch,
+	s.sendSyncLocked(topic, &InitialSyncMessage{
+		BaseMessage: core.BaseMessage{MessageType: "sync_complete", Timestamp: time.Now()},
+		Channel:     "items",
+		Topic:       topic,
+		ItemCount:   itemCount,
+		Epoch:       epoch,
+		LastSyncAt:  unixMilli(s.topicHealthOf(topic).lastSyncAt),
+	})
+}
+
+// failedSync is the sync_complete of a list that did not complete: epoch 0,
+// so the client leaves its loading state and prunes nothing, flagged with why
+// and with when the topic last listed.
+func failedSync(topic string, itemCount int, code, text string, lastSyncAt time.Time) *InitialSyncMessage {
+	return &InitialSyncMessage{
+		BaseMessage: core.BaseMessage{MessageType: "sync_complete", Timestamp: time.Now()},
+		Channel:     "items",
+		Topic:       topic,
+		ItemCount:   itemCount,
+		Failed:      true,
+		Error:       text,
+		ErrorCode:   code,
+		LastSyncAt:  unixMilli(lastSyncAt),
 	}
+}
+
+// sendFailedSync sends a failed sync_complete from outside a pass, waiting
+// for the topic's pass in flight, if any, to end first.
+func (s *Service) sendFailedSync(topic string, itemCount int, code, text string) {
+	unlock, ok := s.lockTopicPass(context.Background(), topic, cachedDataSyncWait)
+	if !ok {
+		// A pass that long is a list, which sends its own sync.
+		return
+	}
+	defer unlock()
+	s.sendSyncLocked(topic, failedSync(topic, itemCount, code, text, s.topicHealthOf(topic).lastSyncAt))
+}
+
+// sendListPending lets a subscriber that waited cachedDataSyncWait for a list
+// still in flight leave its loading state. It sends no rows and flushes
+// nothing, so it needs no pass: the list in flight holds the topic's, and
+// sends its own sync when it is done.
+func (s *Service) sendListPending(topic string) {
+	s.broadcastSync(topic, failedSync(topic, 0, "timeout", "the cluster has not answered the list yet", s.topicHealthOf(topic).lastSyncAt))
+}
+
+// sendSyncLocked sends a sync_complete directly, behind the bulk pages and
+// any flushed events, rather than waiting out the event batcher's window.
+func (s *Service) sendSyncLocked(topic string, msg *InitialSyncMessage) {
 	if err := s.hub.FlushTopic(topic); err != nil {
 		log.Printf("Failed to flush topic %s before sync complete: %v", topic, err)
 	}
+	s.broadcastSync(topic, msg)
+}
+
+func (s *Service) broadcastSync(topic string, msg *InitialSyncMessage) {
 	if err := s.hub.BroadcastDirect(topic, msg); err != nil {
 		log.Printf("Failed to broadcast sync complete for topic %s: %v", topic, err)
 	} else {
-		log.Printf("Sent initial sync complete for %s with %d items (epoch=%d)", topic, itemCount, epoch)
+		log.Printf("Sent initial sync complete for %s with %d items (epoch=%d, failed=%v)", topic, msg.ItemCount, msg.Epoch, msg.Failed)
 	}
 }
 
@@ -2196,6 +2540,14 @@ type InitialSyncMessage struct {
 	Topic            string `json:"topic"`
 	ItemCount        int    `json:"itemCount"`
 	Epoch            uint64 `json:"epoch,omitempty"`
+	// Failed marks a sync whose list did not complete; Error and ErrorCode
+	// say why.
+	Failed    bool   `json:"failed,omitempty"`
+	Error     string `json:"error,omitempty"`
+	ErrorCode string `json:"errorCode,omitempty"`
+	// LastSyncAt is when the topic's last list completed, in unix
+	// milliseconds; 0 if none has.
+	LastSyncAt int64 `json:"lastSyncAt,omitempty"`
 }
 
 func (m *InitialSyncMessage) Marshal() ([]byte, error) {
@@ -2211,6 +2563,18 @@ func (m *InitialSyncMessage) GetData() map[string]interface{} {
 	}
 	if m.Epoch > 0 {
 		data["epoch"] = m.Epoch
+	}
+	if m.Failed {
+		data["failed"] = true
+	}
+	if m.Error != "" {
+		data["error"] = m.Error
+	}
+	if m.ErrorCode != "" {
+		data["errorCode"] = m.ErrorCode
+	}
+	if m.LastSyncAt > 0 {
+		data["lastSyncAt"] = m.LastSyncAt
 	}
 	return data
 }
@@ -2322,9 +2686,15 @@ var transientErrorCodes = map[string]bool{
 	"cluster_error":     true,
 }
 
+// A transient error is shown once the cluster has failed more than once and
+// kept failing for transientFailureGrace, with no success in between: a blip
+// (an apiserver restart failing every topic at once) recovers within it. The
+// count is of failures since the cluster last answered, not within a window
+// from the first one: an unreachable cluster takes 30-60 s to fail each
+// attempt, so a window that restarted every 30 s never saw enough of them.
 const (
-	transientFailureThreshold = 3
-	transientFailureWindow    = 30 * time.Second
+	transientFailureThreshold = 2
+	transientFailureGrace     = 10 * time.Second
 )
 
 func (s *Service) sendClusterErrorWithDetails(cluster, errorCode, errorMessage, details string, recoverable bool) {
@@ -2337,15 +2707,15 @@ func (s *Service) sendClusterErrorWithDetails(cluster, errorCode, errorMessage, 
 		s.clusterErrMu.Lock()
 		st, ok := s.clusterErr[cluster]
 		now := time.Now()
-		if !ok || now.Sub(st.firstAt) > transientFailureWindow {
+		if !ok {
 			st = &clusterErrState{firstAt: now}
 			s.clusterErr[cluster] = st
 		}
 		st.failures++
 		st.lastCode = errorCode
-		if st.failures < transientFailureThreshold {
+		if !st.sent && (st.failures < transientFailureThreshold || now.Sub(st.firstAt) < transientFailureGrace) {
 			s.clusterErrMu.Unlock()
-			log.Printf("Suppressed transient cluster error for %s (failure %d/%d): %s", cluster, st.failures, transientFailureThreshold, errorCode)
+			log.Printf("Suppressed transient cluster error for %s (failure %d, failing for %v): %s", cluster, st.failures, now.Sub(st.firstAt).Round(time.Second), errorCode)
 			return
 		}
 		st.sent = true
