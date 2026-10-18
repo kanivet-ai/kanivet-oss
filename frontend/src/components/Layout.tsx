@@ -11,7 +11,7 @@ import UpdateBanner from './UpdateBanner';
 import ClusterErrorBanner from './ClusterErrorBanner';
 import { useStore } from '../store';
 import type { StoreState } from '../store/types';
-import { resumeShownList, retryCluster } from '../store/clusterRetry';
+import { needsReload, resumeShownList, retryCluster } from '../store/clusterRetry';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { ClusterSelectorModal } from './ClusterSelectorModal';
@@ -95,6 +95,11 @@ const Layout = () => {
       const detail = (event as CustomEvent<{ cluster: string }>).detail;
       if (!detail?.cluster) return;
       useStore.getState().clearClusterError(detail.cluster);
+      // A cluster that never loaded while failing is loaded as Retry would.
+      if (needsReload(useStore, detail.cluster)) {
+        window.dispatchEvent(new CustomEvent('cluster:retry', { detail: { cluster: detail.cluster } }));
+        return;
+      }
       // Whatever left the list on screen without a subscription while the
       // cluster was failing, it follows the cluster again from here.
       resumeShownList(useStore, detail.cluster);

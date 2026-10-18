@@ -5,7 +5,7 @@ vi.mock('../services/api', () => ({ default: api }));
 const forgetTreeLoad = vi.hoisted(() => vi.fn());
 vi.mock('./resourceSlice', () => ({ forgetTreeLoad }));
 
-const { resumeShownList, retryCluster } = await import('./clusterRetry');
+const { needsReload, resumeShownList, retryCluster } = await import('./clusterRetry');
 
 const CLUSTER = 'c1';
 const pods = { group: '', version: 'v1', name: 'pods', kind: 'Pod', namespaced: true };
@@ -126,5 +126,30 @@ describe('a cluster that answers again', () => {
     const page = makeStore({ healthy: true }, { id: 'cluster-overview', type: 'overview', data: {} });
     resumeShownList(page.store, CLUSTER);
     expect(page.state.startRealtime).not.toHaveBeenCalled();
+  });
+});
+
+describe('a cluster the backend reports recovered', () => {
+  const withTree = (treeData: any[], healthy: boolean | undefined) => {
+    const { store, state } = makeStore({ healthy: true });
+    state.clusterStatuses = healthy === undefined ? {} : { [CLUSTER]: { healthy } };
+    state.activeTabs = [{ id: CLUSTER, state: { treeData } }];
+    return store;
+  };
+
+  it('is loaded as Retry would when its tree never loaded while it failed', () => {
+    // Signed out at start: the status check and the tree failed, and the
+    // backend's own retry got through before the check after the sign-in.
+    expect(needsReload(withTree([], true), CLUSTER)).toBe(true);
+    expect(needsReload(withTree([{ id: 'workloads' }], false), CLUSTER)).toBe(true);
+    expect(needsReload(withTree([{ id: 'workloads' }], undefined), CLUSTER)).toBe(true);
+  });
+
+  it('only has its list restarted when it had loaded before failing', () => {
+    expect(needsReload(withTree([{ id: 'workloads' }], true), CLUSTER)).toBe(false);
+  });
+
+  it('leaves clusters with no tab open to load when they are opened', () => {
+    expect(needsReload(withTree([], false), 'not-open')).toBe(false);
   });
 });

@@ -62,6 +62,20 @@ export const retryCluster = async (store: Store, cluster: string): Promise<boole
 };
 
 /**
+ * Whether a cluster that answers again needs what a retry loads, not only its
+ * list restarted: its status or its tree failed to load while it was failing.
+ * The backend's own retries often get through before the check that follows a
+ * sign-in does, and the tree is not loaded again on their account.
+ */
+export const needsReload = (store: Store, cluster: string): boolean => {
+  const state = store.getState();
+  // A cluster with no tab open loads when it is opened.
+  const tab = state.activeTabs?.find((t) => t.id === cluster);
+  if (!tab) return false;
+  return !state.clusterStatuses[cluster]?.healthy || !(tab.state?.treeData?.length);
+};
+
+/**
  * Starts the list on screen when it has no subscription, once its cluster
  * answers again. A list that is already subscribed is left as it is.
  */
