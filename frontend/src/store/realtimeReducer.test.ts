@@ -421,3 +421,39 @@ describe('applyRealtimeEvents', () => {
     expect(pendingListing(s)).toBeNull();
   });
 });
+
+describe('failed and authoritative syncs', () => {
+  it('a failed sync keeps every row and is not taken for a sync', () => {
+    const s = newRealtimeSession();
+    const base = [pod('a'), pod('b')];
+    const r = applyRealtimeEvents(base, [
+      { action: 'sync', epoch: 0, itemCount: 0, failed: true, error: 'forbidden', errorCode: 'forbidden', lastSyncAt: 42 },
+    ], s);
+    expect(r.items).toBe(base);
+    expect(r.syncSeen).toBe(false);
+    expect(r.completedEpoch).toBeUndefined();
+    expect(r.failure).toEqual({ error: 'forbidden', errorCode: 'forbidden', lastSyncAt: 42 });
+  });
+
+  it('a sync after a failure in the same batch wins', () => {
+    const s = newRealtimeSession();
+    const r = applyRealtimeEvents([], [
+      { action: 'sync', epoch: 0, failed: true },
+      { action: 'added', item: pod('a'), epoch: 1 },
+      { action: 'sync', epoch: 1, itemCount: 1 },
+    ], s);
+    expect(r.failure).toBeUndefined();
+    expect(r.syncSeen).toBe(true);
+  });
+
+  it('reports the rows a completed listing dropped, not those deleted by an event', () => {
+    const s = newRealtimeSession();
+    const r = applyRealtimeEvents([pod('gone'), pod('kept'), pod('deleted')], [
+      { action: 'deleted', item: pod('deleted') },
+      { action: 'added', item: pod('kept'), epoch: 2 },
+      { action: 'sync', epoch: 2, itemCount: 1 },
+    ], s);
+    expect(names(r.items)).toEqual(['kept']);
+    expect(names(r.removed || [])).toEqual(['gone']);
+  });
+});

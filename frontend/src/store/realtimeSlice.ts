@@ -1,6 +1,7 @@
 import { StateCreator } from 'zustand';
 import api from '../services/api';
-import { ListSync, RealtimeSlice, StoreState } from './types';
+import { ListSync, RealtimeSlice, StoreState, TopicHealth } from './types';
+import { PAGE_KINDS } from './pageKinds';
 import { isRolloutComplete } from './utils';
 import { notifyRolloutComplete } from '../services/islandNotifications';
 import {
@@ -9,13 +10,19 @@ import {
   itemKey,
   newRealtimeSession,
   pendingListing,
+  ApplyResult,
   RealtimeEvent,
   RealtimeSession,
 } from './realtimeReducer';
 
+type TopicFailure = NonNullable<TopicHealth['failing']>;
+
 interface RealtimeRuntime {
   topic: string;
   cluster: string;
+  // The resource the topic lists, and the order it was asked for in.
+  resource: any;
+  sort: { by: string; order: 'asc' | 'desc' };
   session: RealtimeSession;
   pendingEvents: RealtimeEvent[];
   batchTimer: number | null;
@@ -34,6 +41,13 @@ interface RealtimeRuntime {
   interaction: { last: number; deferredSince: number };
   markInteraction: () => void;
   onEvent: (evt: any) => void;
+  // Set while the backend reports it cannot keep this list current.
+  failing: TopicFailure | null;
+  // Reports the load as failed when no list arrives in time.
+  loadTimer: ReturnType<typeof setTimeout> | null;
+  // A subscribe sent again after the backend lost the list; backs off.
+  resubscribeTimer: ReturnType<typeof setTimeout> | null;
+  resubscribeAttempt: number;
 }
 
 // Subscriptions of tabs the user switched away from stay open, up to this
@@ -48,6 +62,14 @@ const FRAME_FALLBACK_MS = 500;
 const MAX_CACHED_TOPICS = 12;
 // How long a list may take to arrive before the load is reported as failed.
 const LOAD_TIMEOUT_MS = 30000;
+const LOAD_TIMEOUT_MESSAGE = 'Loading is taking longer than expected. The resource may not be available in this cluster.';
+const LIST_FAILED_MESSAGE = 'The list could not be read from the cluster.';
+// Asking again for a list the backend lost: quickly at first, then less often.
+const RESUBSCRIBE_BASE_MS = 1000;
+const RESUBSCRIBE_MAX_MS = 30000;
+// Backend error codes after which only a new subscribe brings the list back:
+// it lost track of what this client has, or its watch stopped.
+const RESUBSCRIBE_CODES = new Set(['desynced', 'watch_stopped']);
 
 // A list that is still arriving is re-sorted and re-rendered whole on every
 // flush, so its flushes are spaced out as it grows: the usual window up to
@@ -127,12 +149,48 @@ const closeRuntime = (rt: RealtimeRuntime) => {
   rt.session.stopped = true;
   api.unsubscribe(rt.topic, rt.onEvent);
   clearTimer(rt);
+  if (rt.loadTimer) clearTimeout(rt.loadTimer);
+  if (rt.resubscribeTimer) clearTimeout(rt.resubscribeTimer);
+  rt.loadTimer = null;
+  rt.resubscribeTimer = null;
   stopListeningForInteraction(rt);
   rt.pendingEvents.length = 0;
 };
 
-const clearLoadTimeout = () => {
-  if ((window as any).__kanivetLoadTimeout) { clearTimeout((window as any).__kanivetLoadTimeout); (window as any).__kanivetLoadTimeout = null; }
+const subscribe = (rt: RealtimeRuntime) => {
+  const res = rt.resource;
+  api.subscribeToItems(rt.cluster, res.group || '', res.version, res.name, '', rt.onEvent, rt.sort.by, rt.sort.order);
+};
+
+const sameFailure = (a?: TopicFailure | null, b?: TopicFailure | null) =>
+  a === b || (!!a && !!b && a.error === b.error && a.errorCode === b.errorCode && a.since === b.since);
+
+const isLiveList = (resource: any) =>
+  !!resource?.version && !!resource?.name && !PAGE_KINDS.has(resource?.kind);
+
+// Whether obj, opened in a detail tab for resource, is an object of the listed
+// resource type. Detail tabs keep their resource as it was opened (a plural
+// name, or 'customresourcedefinitions' for a CRD), so several spellings match.
+const lower = (s: any) => String(s || '').toLowerCase();
+const isListedType = (listed: any, resource: any, obj: any) => {
+  const kind = lower(listed?.kind);
+  const plural = lower(listed?.name);
+  const group =
+    typeof resource?.group === 'string'
+      ? resource.group
+      : typeof obj.apiVersion === 'string' && obj.apiVersion
+        ? obj.apiVersion.includes('/')
+          ? obj.apiVersion.split('/')[0]
+          : ''
+        : undefined;
+  if (group !== undefined && group !== (listed?.group || '')) return false;
+  if (obj.kind)
+    return lower(obj.kind) === kind || lower(obj.kind) === plural;
+  return (
+    lower(resource?.kind) === kind ||
+    lower(resource?.kind) === plural ||
+    lower(resource?.name) === plural
+  );
 };
 
 export const createRealtimeSlice: StateCreator<
@@ -141,15 +199,196 @@ export const createRealtimeSlice: StateCreator<
   [],
   RealtimeSlice
 > = (set, get) => {
-  const armLoadTimeout = (resourceName: string, ms = LOAD_TIMEOUT_MS) => {
-    clearLoadTimeout();
-    (window as any).__kanivetLoadTimeout = setTimeout(() => {
-      const currentState = get().getCurrentTabState();
-      if (currentState?.isLoadingListItems && !currentState?.hasReceivedInitialListData) {
-        console.error('⚠️ Timeout reached while loading:', resourceName);
-        get().updateCurrentTabState({ isLoadingListItems: false, hasReceivedInitialListData: false, loadError: 'Loading is taking longer than expected. The resource may not be available in this cluster.' });
+  // ---- Topic health -------------------------------------------------------
+
+  const writeHealth = (topic: string, next: TopicHealth) => {
+    const prev = get().topicHealth?.[topic];
+    if (
+      prev &&
+      prev.live === next.live &&
+      prev.lastSyncAt === next.lastSyncAt &&
+      sameFailure(prev.failing, next.failing)
+    )
+      return;
+    set((st) => ({ topicHealth: { ...(st.topicHealth || {}), [topic]: next } }));
+  };
+
+  // Patches the list state of rt's cluster tab while rt is the list on screen.
+  const patchShownList = (rt: RealtimeRuntime, patch: Record<string, any>) => {
+    if (runtime() !== rt) return;
+    const st = get();
+    if (st.currentTab !== rt.cluster) return;
+    const state = st.getCurrentTabState();
+    const node = state?.selectedNode;
+    if (!state || node?.type !== 'resource' || itemsTopic(rt.cluster, node.data) !== rt.topic) return;
+    const changed = Object.keys(patch).some((k) => (state as any)[k] !== patch[k]);
+    if (changed) st.updateCurrentTabState(patch);
+  };
+
+  // A list arrived whole, or its rows are arriving: what is shown is current.
+  const markLive = (rt: RealtimeRuntime, complete: boolean, lastSyncAt?: number) => {
+    const prev = get().topicHealth?.[rt.topic];
+    if (complete) {
+      rt.failing = null;
+      rt.resubscribeAttempt = 0;
+      if (rt.resubscribeTimer) {
+        clearTimeout(rt.resubscribeTimer);
+        rt.resubscribeTimer = null;
+      }
+    }
+    writeHealth(rt.topic, {
+      live: true,
+      failing: rt.failing,
+      lastSyncAt: complete ? lastSyncAt || Date.now() : prev?.lastSyncAt,
+    });
+  };
+
+  // The backend cannot keep rt's list current. The rows stay; they are no
+  // longer presented as live.
+  const markFailing = (rt: RealtimeRuntime, failure: TopicFailure, lastSyncAt?: number) => {
+    const prev = get().topicHealth?.[rt.topic];
+    // A repeated report of the same failure keeps when it started.
+    const since = rt.failing && rt.failing.error === failure.error && rt.failing.errorCode === failure.errorCode
+      ? rt.failing.since
+      : failure.since;
+    rt.failing = { ...failure, since };
+    if (rt.loadTimer) {
+      clearTimeout(rt.loadTimer);
+      rt.loadTimer = null;
+    }
+    writeHealth(rt.topic, {
+      live: false,
+      failing: rt.failing,
+      lastSyncAt: lastSyncAt || prev?.lastSyncAt,
+    });
+    if (failure.errorCode && RESUBSCRIBE_CODES.has(failure.errorCode)) scheduleResubscribe(rt);
+  };
+
+  // Asks the backend for rt's list again, backing off while it keeps failing.
+  const scheduleResubscribe = (rt: RealtimeRuntime) => {
+    if (rt.resubscribeTimer || rt.session.stopped) return;
+    const delay = Math.min(RESUBSCRIBE_MAX_MS, RESUBSCRIBE_BASE_MS * 2 ** rt.resubscribeAttempt);
+    rt.resubscribeAttempt++;
+    rt.resubscribeTimer = setTimeout(() => {
+      rt.resubscribeTimer = null;
+      if (rt.session.stopped) return;
+      // A stopped watch is restarted by a fresh subscription; a lost one only
+      // needs the snapshot sent again.
+      if (rt.failing?.errorCode === 'watch_stopped') api.unsubscribe(rt.topic, rt.onEvent);
+      subscribe(rt);
+    }, delay);
+  };
+
+  // Reports rt's load as failed when no list arrived in time.
+  const armLoadTimer = (rt: RealtimeRuntime, ms = LOAD_TIMEOUT_MS) => {
+    if (rt.loadTimer) clearTimeout(rt.loadTimer);
+    rt.loadTimer = setTimeout(() => {
+      rt.loadTimer = null;
+      if (rt.session.stopped) return;
+      if (runtime() === rt) {
+        const currentState = get().getCurrentTabState();
+        if (currentState?.isLoadingListItems && !currentState?.hasReceivedInitialListData) {
+          console.error('⚠️ Timeout reached while loading:', rt.resource?.name);
+          get().updateCurrentTabState({ isLoadingListItems: false, hasReceivedInitialListData: false, loadError: LOAD_TIMEOUT_MESSAGE });
+        }
+      }
+      if (!rt.synced && !rt.failing) {
+        markFailing(rt, { error: LOAD_TIMEOUT_MESSAGE, errorCode: 'timeout', since: Date.now() });
       }
     }, ms);
+  };
+
+  // A topic_status message: the backend's view of the topic, sent when it
+  // changes and repeated while the topic is failing.
+  const onTopicStatus = (rt: RealtimeRuntime, event: any) => {
+    const lastSyncAt = typeof event.lastSyncAt === 'number' && event.lastSyncAt > 0 ? event.lastSyncAt : undefined;
+    if (event.state === 'failing') {
+      const failure: TopicFailure = {
+        error: event.error || LIST_FAILED_MESSAGE,
+        ...(event.errorCode && { errorCode: event.errorCode }),
+        since: typeof event.failingSince === 'number' && event.failingSince > 0 ? event.failingSince : Date.now(),
+      };
+      markFailing(rt, failure, lastSyncAt);
+      patchShownList(rt, { isLoadingListItems: false, loadError: failure.error });
+      return;
+    }
+    if (event.state === 'ok') {
+      const prev = get().topicHealth?.[rt.topic];
+      rt.failing = null;
+      rt.resubscribeAttempt = 0;
+      writeHealth(rt.topic, { live: rt.synced, failing: null, lastSyncAt: lastSyncAt || prev?.lastSyncAt });
+      patchShownList(
+        rt,
+        rt.synced
+          ? { isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined }
+          : { loadError: undefined },
+      );
+    }
+  };
+
+  // What a batch says about the list: it arrived ('ok', complete), its rows
+  // are arriving ('streamed'), or the backend could not read it ('failed').
+  const outcomeOf = (rt: RealtimeRuntime, result: ApplyResult, events: RealtimeEvent[]) => {
+    if (result.failure) {
+      const failure: TopicFailure = {
+        error: result.failure.error || LIST_FAILED_MESSAGE,
+        ...(result.failure.errorCode && { errorCode: result.failure.errorCode }),
+        since: Date.now(),
+      };
+      markFailing(rt, failure, result.failure.lastSyncAt || undefined);
+      return 'failed' as const;
+    }
+    if (result.syncSeen) {
+      let lastSyncAt: number | undefined;
+      for (const ev of events) if (ev.action === 'sync' && !ev.failed && ev.lastSyncAt) lastSyncAt = ev.lastSyncAt;
+      rt.synced = true;
+      markLive(rt, true, lastSyncAt);
+      return 'ok' as const;
+    }
+    // Rows of the listing this subscription asked for. Rows from a cache or
+    // an earlier visit are not: they wait for a sync before they count as live.
+    if (result.changed && events.some((ev) => ev.epoch && ev.action !== 'sync')) {
+      rt.synced = true;
+      markLive(rt, false);
+      return 'streamed' as const;
+    }
+    return null;
+  };
+
+  // Open detail tabs of objects a completed listing no longer has: they went
+  // while nothing was watching (a reconnect, a parked list), so no deleted
+  // event will ever say so.
+  const markListingRemovals = (rt: RealtimeRuntime, result: ApplyResult) => {
+    if (!result.removed?.length) return;
+    const idx = get().tabIndexMap.get(rt.cluster) ?? -1;
+    const tab = idx === -1 ? undefined : get().activeTabs[idx];
+    if (!tab || tab.state.detailTabs.length === 0) return;
+    const gone = new Map<string, any>();
+    for (const obj of result.removed) {
+      const key = itemKey(obj);
+      // Added back later in the same batch.
+      if (findItem(rt.session, result.items, key)) continue;
+      gone.set(key, obj);
+    }
+    if (gone.size === 0) return;
+    let changed = false;
+    const detailTabs = tab.state.detailTabs.map((dt) => {
+      if (dt.isDeleted || (dt.cluster && dt.cluster !== rt.cluster) || !dt.item) return dt;
+      const name = dt.item.metadata?.name || dt.item.name;
+      const namespace = dt.item.metadata?.namespace || dt.item.namespace || '';
+      const obj = gone.get(`${namespace}/${name}`);
+      if (!obj || !isListedType(rt.resource, dt.resource, dt.item)) return dt;
+      const uid = dt.item.metadata?.uid || dt.item.uid;
+      if (uid && obj.uid && uid !== obj.uid) return dt;
+      changed = true;
+      return { ...dt, isDeleted: true };
+    });
+    if (!changed) return;
+    set((st) => ({
+      activeTabs: st.activeTabs.map((t) =>
+        t.id === rt.cluster ? { ...t, state: { ...t.state, detailTabs } } : t,
+      ),
+    }));
   };
 
   // Writes a topic's list into the current cluster tab: the tab-level list and
@@ -172,11 +411,13 @@ export const createRealtimeSlice: StateCreator<
     });
   };
 
-  // The list tabs of the current cluster tab that show rt's topic in a split
-  // pane while another topic is the on-screen one.
-  const paneTabsShowing = (rt: RealtimeRuntime): Set<string> | null => {
+  // The list tabs of rt's cluster tab that show rt's topic in a split pane.
+  // Only while that cluster tab is on screen, unless anyCluster: a pane of a
+  // cluster tab in the background is still a pane, and its list must survive
+  // until that tab is shown again.
+  const paneTabsShowing = (rt: RealtimeRuntime, anyCluster = false): Set<string> | null => {
     const st = get();
-    if (st.currentTab !== rt.cluster) return null;
+    if (!anyCluster && st.currentTab !== rt.cluster) return null;
     const idx = st.tabIndexMap.get(rt.cluster) ?? -1;
     const t = idx === -1 ? undefined : st.activeTabs[idx];
     const shown = Object.values(t?.state.activeResourceListTabByPane || {});
@@ -190,6 +431,22 @@ export const createRealtimeSlice: StateCreator<
         (ids ??= new Set()).add(r2.id);
     }
     return ids;
+  };
+
+  // Writes rt's list into the list tabs of split panes that show it.
+  const writePaneTabs = (rt: RealtimeRuntime, paneTabs: Set<string>) => {
+    set((st) => {
+      const idx = st.tabIndexMap.get(rt.cluster) ?? -1;
+      if (idx === -1) return {};
+      const t = st.activeTabs[idx];
+      if (!t.state.resourceListTabs.some((r2) => paneTabs.has(r2.id) && r2.items !== rt.items)) return {};
+      const resourceListTabs = t.state.resourceListTabs.map((r2) =>
+        paneTabs.has(r2.id) ? { ...r2, items: rt.items } : r2,
+      );
+      const tabs = [...st.activeTabs];
+      tabs[idx] = { ...t, state: { ...t.state, resourceListTabs } };
+      return { activeTabs: tabs };
+    });
   };
 
   const requestFlushFrame = (rt: RealtimeRuntime) => {
@@ -260,27 +517,11 @@ export const createRealtimeSlice: StateCreator<
       const events = rt.pendingEvents.splice(0, rt.pendingEvents.length);
       const result = applyRealtimeEvents(rt.items, events, rt.session);
       rt.items = result.items;
-      if (
-        result.syncSeen ||
-        result.completedEpoch !== undefined ||
-        (result.changed && result.items.length > 0)
-      )
-        rt.synced = true;
+      outcomeOf(rt, result, events);
       cacheItems(rt.topic, result.items);
       const paneTabs = result.changed ? paneTabsShowing(rt) : null;
-      if (paneTabs) {
-        set((st) => {
-          const idx = st.tabIndexMap.get(rt.cluster) ?? -1;
-          if (idx === -1) return {};
-          const t = st.activeTabs[idx];
-          const resourceListTabs = t.state.resourceListTabs.map((r2) =>
-            paneTabs.has(r2.id) ? { ...r2, items: result.items } : r2,
-          );
-          const tabs = [...st.activeTabs];
-          tabs[idx] = { ...t, state: { ...t.state, resourceListTabs } };
-          return { activeTabs: tabs };
-        });
-      }
+      if (paneTabs) writePaneTabs(rt, paneTabs);
+      markListingRemovals(rt, result);
       return;
     }
     const resNow: any = state.selectedNode!.data;
@@ -327,24 +568,26 @@ export const createRealtimeSlice: StateCreator<
       selectedItem = liveItem ?? (removed ? null : selectedItem);
     }
 
-    const authoritative = result.completedEpoch !== undefined;
-    const live = result.syncSeen || authoritative || (result.changed && result.items.length > 0);
-    if (live) rt.synced = true;
+    const outcome = outcomeOf(rt, result, events);
     const listSync = listSyncOf(rt, state.listSync);
-    const needsListCommit = result.changed || selectedItem !== state.selectedItem
-      || (result.syncSeen && (state.isLoadingListItems || !state.hasReceivedInitialListData))
-      || listSync !== (state.listSync ?? null);
-    if (needsListCommit) {
-      const patch: any = { listSync };
-      if (live) {
-        patch.isLoadingListItems = false;
-        patch.hasReceivedInitialListData = true;
-        patch.loadError = undefined;
-      }
-      commitList(resNow, result.items, patch, selectedItem);
+    // A failed list leaves the rows as they were, no longer shown as live.
+    const patch: any = { listSync };
+    if (outcome === 'failed') {
+      patch.isLoadingListItems = false;
+      patch.loadError = rt.failing?.error;
+    } else if (outcome) {
+      patch.isLoadingListItems = false;
+      patch.hasReceivedInitialListData = true;
+      patch.loadError = rt.failing?.error;
     }
+    const flagsChanged = Object.keys(patch).some((k) => k !== 'listSync' && (state as any)[k] !== patch[k]);
+    const needsListCommit = result.changed || selectedItem !== state.selectedItem
+      || flagsChanged
+      || listSync !== (state.listSync ?? null);
+    if (needsListCommit) commitList(resNow, result.items, patch, selectedItem);
 
     updateDetails(resNow, events);
+    markListingRemovals(rt, result);
   };
 
   // Open detail tabs and the detail panel follow live changes of the objects
@@ -368,35 +611,12 @@ export const createRealtimeSlice: StateCreator<
     }
     if (lastByKey.size === 0) return;
 
-    // Detail tabs keep their resource as it was opened (a plural name, or
-    // 'customresourcedefinitions' for a CRD), so several spellings match.
-    const lower = (s: any) => String(s || '').toLowerCase();
-    const kind = lower(resNow.kind);
-    const plural = lower(resNow.name);
-    const isListedType = (resource: any, obj: any) => {
-      const group =
-        typeof resource?.group === 'string'
-          ? resource.group
-          : typeof obj.apiVersion === 'string' && obj.apiVersion
-            ? obj.apiVersion.includes('/')
-              ? obj.apiVersion.split('/')[0]
-              : ''
-            : undefined;
-      if (group !== undefined && group !== (resNow.group || '')) return false;
-      if (obj.kind)
-        return lower(obj.kind) === kind || lower(obj.kind) === plural;
-      return (
-        lower(resource?.kind) === kind ||
-        lower(resource?.kind) === plural ||
-        lower(resource?.name) === plural
-      );
-    };
     const eventFor = (resource: any, obj: any) => {
       if (!obj) return undefined;
       const ev = lastByKey.get(
         `${obj.metadata?.namespace || obj.namespace || ''}/${obj.metadata?.name || obj.name}`,
       );
-      return ev && isListedType(resource, obj) ? ev : undefined;
+      return ev && isListedType(resNow, resource, obj) ? ev : undefined;
     };
 
     const changed = new Map<string, { name: string; namespace: string }>();
@@ -466,7 +686,13 @@ export const createRealtimeSlice: StateCreator<
     }
   };
 
-  const createRuntime = (topic: string, cluster: string, items: any[]): RealtimeRuntime => {
+  const createRuntime = (
+    topic: string,
+    cluster: string,
+    resource: any,
+    items: any[],
+    sort: { by: string; order: 'asc' | 'desc' },
+  ): RealtimeRuntime => {
     // No interaction yet: starting at 0 would read as "the user just did
     // something" for the first 250ms after load and hold updates back.
     const interaction = { last: -Infinity, deferredSince: 0 };
@@ -474,6 +700,8 @@ export const createRealtimeSlice: StateCreator<
       interaction,
       topic,
       cluster,
+      resource,
+      sort,
       session: newRealtimeSession(),
       pendingEvents: [],
       batchTimer: null,
@@ -486,6 +714,10 @@ export const createRealtimeSlice: StateCreator<
         interaction.last = performance.now();
       },
       onEvent: () => {},
+      failing: null,
+      loadTimer: null,
+      resubscribeTimer: null,
+      resubscribeAttempt: 0,
     };
     rt.onEvent = (evt: any) => {
       if (rt.session.stopped || !evt.isBatch || !evt.events) return;
@@ -495,10 +727,27 @@ export const createRealtimeSlice: StateCreator<
       for (const event of evt.events) {
         const type = event.messageType || event.MessageType || event.type;
         if (type === 'sync_complete') {
-          if (runtime() === rt) clearLoadTimeout();
+          if (rt.loadTimer) {
+            clearTimeout(rt.loadTimer);
+            rt.loadTimer = null;
+          }
           const count = event.itemCount ?? event.ItemCount;
-          rt.pendingEvents.push({ action: 'sync', epoch: event.epoch || event.Epoch || 0, itemCount: typeof count === 'number' ? count : undefined });
+          const epoch = event.epoch || event.Epoch || 0;
+          // Epoch 0 closes no listing: the backend could not read the list.
+          const failed = event.failed === true || !(epoch > 0);
+          const lastSyncAt = typeof event.lastSyncAt === 'number' && event.lastSyncAt > 0 ? event.lastSyncAt : undefined;
+          rt.pendingEvents.push({
+            action: 'sync',
+            epoch,
+            itemCount: typeof count === 'number' ? count : undefined,
+            ...(failed && { failed: true, error: event.error || undefined, errorCode: event.errorCode || undefined }),
+            ...(lastSyncAt && { lastSyncAt }),
+          });
           pushed = true;
+          continue;
+        }
+        if (type === 'topic_status') {
+          onTopicStatus(rt, event);
           continue;
         }
         const channel = event.Channel || event.channel;
@@ -515,6 +764,12 @@ export const createRealtimeSlice: StateCreator<
         scheduleFlush(rt);
       }
     };
+    // A fresh subscription is not live until its list arrives. A failure
+    // the backend reported stays shown until then; a timeout of our own is
+    // for the subscription it timed.
+    const prev = get().topicHealth?.[topic];
+    const failing = prev?.failing?.errorCode === 'timeout' ? null : prev?.failing ?? null;
+    writeHealth(topic, { live: false, failing, lastSyncAt: prev?.lastSyncAt });
     return rt;
   };
 
@@ -523,7 +778,6 @@ export const createRealtimeSlice: StateCreator<
     const rt = runtime();
     (window as any).__kanivetRealtime = undefined;
     (window as any).__kanivetVisibleUids = undefined;
-    clearLoadTimeout();
     if (!rt || rt.session.stopped) return;
     stopListeningForInteraction(rt);
     if (!api.wsHandlers.has(rt.topic)) {
@@ -541,10 +795,11 @@ export const createRealtimeSlice: StateCreator<
     parked.delete(rt.topic);
     parked.set(rt.topic, rt);
     while (parked.size > MAX_PARKED_TOPICS) {
-      // The oldest no split pane shows: a pane's list must stay live.
+      // The oldest no split pane shows, on any cluster tab: a pane's list
+      // must stay live, or come back frozen when its cluster tab does.
       let oldest: string | undefined;
       for (const [topic, p] of parked) {
-        if (!paneTabsShowing(p)) {
+        if (!paneTabsShowing(p, true)) {
           oldest = topic;
           break;
         }
@@ -561,8 +816,48 @@ export const createRealtimeSlice: StateCreator<
   const resubscribePane = (rt: RealtimeRuntime, tabIds: Set<string>) => {
     const tab = get().getCurrentTabState()?.resourceListTabs.find((r2) => tabIds.has(r2.id));
     if (!tab) return;
-    const res: any = tab.resource;
-    api.subscribeToItems(rt.cluster, res.group || '', res.version, res.name, '', rt.onEvent, tab.sortBy || 'age', tab.sortOrder || 'desc');
+    rt.sort = { by: tab.sortBy || 'age', order: tab.sortOrder || 'desc' };
+    subscribe(rt);
+  };
+
+  // Every list a split pane of the current cluster tab shows is subscribed,
+  // not only the focused one: a cluster tab switched back to, or restored,
+  // starts only its focused list, and the others would stay as they were.
+  const ensurePaneSubscriptions = () => {
+    const st = get();
+    const cluster = st.currentTab;
+    if (!cluster) return;
+    const idx = st.tabIndexMap.get(cluster) ?? -1;
+    const t = idx === -1 ? undefined : st.activeTabs[idx];
+    const shown = Object.values(t?.state.activeResourceListTabByPane || {});
+    if (!t || shown.length < 2) return;
+    const onScreen = runtime();
+    const parked = parkedRuntimes();
+    for (const r2 of t.state.resourceListTabs) {
+      if (!shown.includes(r2.id) || !isLiveList(r2.resource)) continue;
+      if (r2.cluster && r2.cluster !== cluster) continue;
+      const topic = itemsTopic(cluster, r2.resource);
+      if (onScreen?.topic === topic && !onScreen.session.stopped) continue;
+      const existing = parked.get(topic);
+      if (existing && !existing.session.stopped && api.wsHandlers.has(topic)) {
+        // Kept current while its cluster tab was in the background: only
+        // the subscription saw those changes.
+        const paneTabs = paneTabsShowing(existing);
+        if (paneTabs && existing.synced) writePaneTabs(existing, paneTabs);
+        continue;
+      }
+      if (existing) {
+        parked.delete(topic);
+        closeRuntime(existing);
+      }
+      const rt = createRuntime(topic, cluster, r2.resource, r2.items || [], {
+        by: r2.sortBy || 'age',
+        order: r2.sortOrder || 'desc',
+      });
+      parked.set(topic, rt);
+      armLoadTimer(rt);
+      subscribe(rt);
+    }
   };
 
   // Makes rt the on-screen subscription.
@@ -571,7 +866,120 @@ export const createRealtimeSlice: StateCreator<
     listenForInteraction(rt);
   };
 
+  // Starts the list of the selected tree node.
+  const startShownList = (forceRefresh?: boolean) => {
+    const { currentTab } = get();
+    const tabState = get().getCurrentTabState();
+    if (!currentTab || !tabState?.selectedNode || tabState.selectedNode.type !== 'resource') return;
+    const res = tabState.selectedNode.data as any;
+    const topicKey = itemsTopic(currentTab, res);
+    const sortTab = tabState.resourceListTabs?.find((r2) => r2.id === tabState.activeResourceListTab);
+    const sort = { by: sortTab?.sortBy || 'age', order: sortTab?.sortOrder || 'desc' } as const;
+    const existing = runtime();
+    if (existing?.topic === topicKey && api.wsHandlers.has(topicKey)) {
+      // A synced subscription is already live, so a refresh would only resend
+      // the same list. Resubscribe only while it is still waiting for data.
+      if (forceRefresh && !existing.synced) {
+        existing.sort = { ...sort };
+        subscribe(existing);
+      }
+      return;
+    }
+    parkActive();
+
+    // A parked subscription that already delivered its list resumes as is, and
+    // one still waiting for its list keeps waiting while the wait is shorter
+    // than the load timeout. An older one is replaced below, so a failed
+    // subscribe is retried.
+    const parked = parkedRuntimes().get(topicKey);
+    if (parked) parkedRuntimes().delete(topicKey);
+    const resumable =
+      parked &&
+      !parked.session.stopped &&
+      api.wsHandlers.has(topicKey) &&
+      (parked.synced || Date.now() - parked.startedAt < LOAD_TIMEOUT_MS);
+    if (parked && resumable && parked.synced) {
+      activate(parked);
+      const state = get().getCurrentTabState();
+      const selectedItem = state?.selectedItem
+        ? (findItem(
+            parked.session,
+            parked.items,
+            itemKey(state.selectedItem),
+          ) ?? null)
+        : null;
+      // A list the backend stopped keeping current is shown as such.
+      const loadError = parked.failing?.error;
+      const upToDate =
+        state?.listItems === parked.items &&
+        state?.hasReceivedInitialListData &&
+        !state?.isLoadingListItems &&
+        state?.loadError === loadError &&
+        selectedItem === (state?.selectedItem ?? null);
+      const listSync = listSyncOf(parked, state?.listSync);
+      if (!upToDate || listSync !== (state?.listSync ?? null)) {
+        commitList(res, parked.items, { isLoadingListItems: false, hasReceivedInitialListData: true, loadError, listSync }, selectedItem);
+      }
+      // Events that arrived while parked are flushed on the on-screen cadence.
+      if (parked.pendingEvents.length > 0) {
+        clearTimer(parked);
+        parked.interaction.deferredSince = performance.now();
+        scheduleFlush(parked);
+      }
+      return;
+    }
+    if (parked && !resumable) closeRuntime(parked);
+
+    const activeListTab = tabState.resourceListTabs?.find((rt) => rt.id === tabState.activeResourceListTab);
+    const activeListTabMatches = activeListTab
+      && activeListTab.cluster === currentTab
+      && (activeListTab.resource.group || '') === (res.group || '')
+      && (activeListTab.resource.version || '') === (res.version || '')
+      && (
+        (activeListTab.resource.name || '').toLowerCase() === (res.name || '').toLowerCase()
+        || (activeListTab.resource.kind || '').toLowerCase() === (res.kind || '').toLowerCase()
+      );
+    // Rows already on screen (a cache, an earlier visit) stay while the list
+    // arrives, but as rows still loading: hasReceivedInitialListData is set
+    // only by the stream.
+    const preservedItems = tabState.listItems?.length
+      ? tabState.listItems
+      : activeListTabMatches
+        ? activeListTab.items
+        : [];
+    get().updateCurrentTabState({
+      isLoadingListItems: true,
+      hasReceivedInitialListData: false,
+      loadError: undefined,
+      listSync: null,
+      listItems: preservedItems,
+    });
+
+    // Not resubscribed even when forced: its list is on its way, and asking
+    // again would make the backend send all of it a second time. The load
+    // timeout still counts from the first subscribe.
+    if (parked && resumable) {
+      activate(parked);
+      if (!parked.loadTimer && !parked.failing) {
+        armLoadTimer(parked, LOAD_TIMEOUT_MS - (Date.now() - parked.startedAt));
+      }
+      if (parked.failing) get().updateCurrentTabState({ isLoadingListItems: false, loadError: parked.failing.error });
+      if (parked.pendingEvents.length > 0) {
+        clearTimer(parked);
+        scheduleFlush(parked);
+      }
+      return;
+    }
+
+    const rt = createRuntime(topicKey, currentTab, res, preservedItems, { ...sort });
+    activate(rt);
+    armLoadTimer(rt);
+    subscribe(rt);
+  };
+
   return {
+    topicHealth: {},
+
     // Starts at once; calls that follow within 50ms collapse into one more
     // start at the end of the burst. That one is never forced: resubscribing
     // would only repeat a subscribe this burst has just sent.
@@ -587,123 +995,14 @@ export const createRealtimeSlice: StateCreator<
     },
 
     _startRealtimeInternal: (forceRefresh?: boolean) => {
-      const { currentTab } = get();
-      const tabState = get().getCurrentTabState();
-      if (!currentTab || !tabState?.selectedNode || tabState.selectedNode.type !== 'resource') return;
-      const res = tabState.selectedNode.data as any;
+      if (!get().currentTab) return;
       if (!api.isReady()) {
         if ((window as any).__kanivetStartRetryTimer) clearTimeout((window as any).__kanivetStartRetryTimer);
         (window as any).__kanivetStartRetryTimer = setTimeout(() => get()._startRealtimeInternal(forceRefresh), 100);
         return;
       }
-      const topicKey = itemsTopic(currentTab, res);
-      const existing = runtime();
-      if (existing?.topic === topicKey && api.wsHandlers.has(topicKey)) {
-        // A synced subscription is already live, so a refresh would only resend
-        // the same list. Resubscribe only while it is still waiting for data.
-        if (forceRefresh && !existing.synced) {
-          const sortTab = tabState.resourceListTabs?.find((r2) => r2.id === tabState.activeResourceListTab);
-          api.subscribeToItems(currentTab, res.group || '', res.version, res.name, '', existing.onEvent, sortTab?.sortBy || 'age', sortTab?.sortOrder || 'desc');
-        }
-        return;
-      }
-      parkActive();
-
-      // A parked subscription that already delivered its list resumes as is, and
-      // one still waiting for its list keeps waiting while the wait is shorter
-      // than the load timeout. An older one is replaced below, so a failed
-      // subscribe is retried.
-      const parked = parkedRuntimes().get(topicKey);
-      if (parked) parkedRuntimes().delete(topicKey);
-      const resumable =
-        parked &&
-        !parked.session.stopped &&
-        api.wsHandlers.has(topicKey) &&
-        (parked.synced || Date.now() - parked.startedAt < LOAD_TIMEOUT_MS);
-      if (parked && resumable && parked.synced) {
-        activate(parked);
-        const state = get().getCurrentTabState();
-        const selectedItem = state?.selectedItem
-          ? (findItem(
-              parked.session,
-              parked.items,
-              itemKey(state.selectedItem),
-            ) ?? null)
-          : null;
-        const upToDate =
-          state?.listItems === parked.items &&
-          state?.hasReceivedInitialListData &&
-          !state?.isLoadingListItems &&
-          selectedItem === (state?.selectedItem ?? null);
-        const listSync = listSyncOf(parked, state?.listSync);
-        if (!upToDate || listSync !== (state?.listSync ?? null)) {
-          commitList(res, parked.items, { isLoadingListItems: false, hasReceivedInitialListData: true, loadError: undefined, listSync }, selectedItem);
-        }
-        // Events that arrived while parked are flushed on the on-screen cadence.
-        if (parked.pendingEvents.length > 0) {
-          clearTimer(parked);
-          parked.interaction.deferredSince = performance.now();
-          scheduleFlush(parked);
-        }
-        return;
-      }
-      if (parked && !resumable) closeRuntime(parked);
-
-      const activeListTab = tabState.resourceListTabs?.find((rt) => rt.id === tabState.activeResourceListTab);
-      const activeListTabMatches = activeListTab
-        && activeListTab.cluster === currentTab
-        && (activeListTab.resource.group || '') === (res.group || '')
-        && (activeListTab.resource.version || '') === (res.version || '')
-        && (
-          (activeListTab.resource.name || '').toLowerCase() === (res.name || '').toLowerCase()
-          || (activeListTab.resource.kind || '').toLowerCase() === (res.kind || '').toLowerCase()
-        );
-      const preservedItems = tabState.listItems?.length
-        ? tabState.listItems
-        : activeListTabMatches
-          ? activeListTab.items
-          : [];
-      get().updateCurrentTabState({
-        isLoadingListItems: true,
-        hasReceivedInitialListData: false,
-        loadError: undefined,
-        listSync: null,
-        listItems: preservedItems,
-      });
-
-      // Not resubscribed even when forced: its list is on its way, and asking
-      // again would make the backend send all of it a second time. The load
-      // timeout still counts from the first subscribe.
-      if (parked && resumable) {
-        armLoadTimeout(
-          res.name,
-          LOAD_TIMEOUT_MS - (Date.now() - parked.startedAt),
-        );
-        activate(parked);
-        if (parked.pendingEvents.length > 0) {
-          clearTimer(parked);
-          scheduleFlush(parked);
-        }
-        return;
-      }
-      armLoadTimeout(res.name);
-
-      const sortListTab = tabState?.resourceListTabs?.find(
-        (r2) => r2.id === tabState.activeResourceListTab,
-      );
-      const rt = createRuntime(topicKey, currentTab, preservedItems);
-      activate(rt);
-
-      api.subscribeToItems(
-        currentTab,
-        res.group || '',
-        res.version,
-        res.name,
-        '',
-        rt.onEvent,
-        sortListTab?.sortBy || 'age',
-        sortListTab?.sortOrder || 'desc',
-      );
+      startShownList(forceRefresh);
+      ensurePaneSubscriptions();
     },
 
     parkRealtime: () => {
@@ -718,7 +1017,6 @@ export const createRealtimeSlice: StateCreator<
         closeRuntime(rt);
         (window as any).__kanivetRealtime = undefined;
         (window as any).__kanivetVisibleUids = undefined;
-        clearLoadTimeout();
       }
       const parked = parkedRuntimes();
       for (const [topic, p] of [...parked]) {
@@ -737,7 +1035,9 @@ export const createRealtimeSlice: StateCreator<
       const parked = parkedRuntimes();
       for (const [topic, p] of [...parked]) {
         // Callers restart only the on-screen list; one a split pane shows
-        // stays open and asks for its list again instead of freezing.
+        // stays open and asks for its list again instead of freezing. A pane
+        // of a cluster tab in the background is closed, and subscribed again
+        // when that tab is shown.
         const shown = p.session.stopped ? null : paneTabsShowing(p);
         if (shown) {
           resubscribePane(p, shown);
@@ -748,7 +1048,6 @@ export const createRealtimeSlice: StateCreator<
       }
       (window as any).__kanivetRealtime = undefined;
       (window as any).__kanivetVisibleUids = undefined;
-      clearLoadTimeout();
     },
   };
 };

@@ -64,9 +64,17 @@ export async function getCategories(cluster: string): Promise<any[]> {
 
 export async function getResources(cluster: string, category: string, skipCounts: boolean = false): Promise<any[]> {
   const params: any = { cluster, category };
-  if (skipCounts) params.skipCounts = 'true';
-  const result = await apiClient.request('/resources/list', params);
-  return result.resources || [];
+  if (skipCounts) {
+    params.skipCounts = 'true';
+    const result = await apiClient.request('/resources/list', params);
+    return result.resources || [];
+  }
+  // Counts change all the time and the backend pushes new ones: a cached
+  // answer would put an older number back over a pushed one.
+  const result = await apiClient.requestFresh('/resources/list', params);
+  // Marks each resource as counted, so a count that is absent without
+  // countPending is known to be unavailable rather than not asked for.
+  return (result.resources || []).map((res: any) => ({ ...res, countFetched: true }));
 }
 
 export async function getNamespaces(cluster: string): Promise<string[]> {

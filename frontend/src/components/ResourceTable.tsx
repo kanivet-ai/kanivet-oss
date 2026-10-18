@@ -5,6 +5,7 @@ import {
   type Virtualizer,
 } from '@tanstack/react-virtual';
 import ResourceRow from './ResourceRow';
+import ListFreshnessBanner from './ListFreshnessBanner';
 import { useResizableColumns } from '../hooks/useResizableColumns';
 import { hasActions as hasResourceActions } from '../utils/resourceActions';
 
@@ -31,6 +32,9 @@ interface ResourceTableProps {
   rolloutStatuses: Map<string, any>;
   handleNamespaceChange: (namespace: string) => void;
   loadError: string | null;
+  // When the list was last known complete, for the banner over rows that are
+  // not live.
+  lastSyncAt?: number;
   onRetry: () => void;
   cluster: string | null;
   scrollPosition?: number;
@@ -77,6 +81,7 @@ const ResourceTable = memo(
     rolloutStatuses,
     handleNamespaceChange,
     loadError,
+    lastSyncAt,
     onRetry,
     cluster,
     scrollPosition,
@@ -378,6 +383,16 @@ const ResourceTable = memo(
     );
 
     return (
+      <>
+      {selectedNode && (
+        <ListFreshnessBanner
+          rowCount={displayItems.length}
+          hasReceivedData={hasReceivedData}
+          loadError={loadError}
+          lastSyncAt={lastSyncAt}
+          onRetry={onRetry}
+        />
+      )}
       <div className="resource-table-scroll-wrapper">
         <div ref={headerContainerRef} className="resource-table-header-container">
           <table className="resource-table resource-table-header" style={{ width: tableWidth, minWidth: tableMinWidth }}>
@@ -568,6 +583,7 @@ const ResourceTable = memo(
           )}
         </div>
       </div>
+      </>
     );
   },
   (prevProps, nextProps) => {
@@ -587,6 +603,7 @@ const ResourceTable = memo(
     if (prevProps.hasReceivedData !== nextProps.hasReceivedData) return false;
     if (prevProps.rolloutStatuses !== nextProps.rolloutStatuses) return false;
     if (prevProps.loadError !== nextProps.loadError) return false;
+    if (prevProps.lastSyncAt !== nextProps.lastSyncAt) return false;
     if (prevProps.cluster !== nextProps.cluster) return false;
     return true;
   },

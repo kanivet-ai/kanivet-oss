@@ -219,7 +219,11 @@ const Layout = () => {
         if (resourceJson) resource = JSON.parse(resourceJson);
       } catch {}
     }
-    if (!resource) return;
+    if (!resource) {
+      // A page is selected; lists its split panes show still start.
+      store.startRealtime();
+      return;
+    }
 
     let savedItem: { name: string; namespace?: string } | null = null;
     const listTab = tabState?.resourceListTabs.find((rt) => rt.id === tabState.activeResourceListTab);

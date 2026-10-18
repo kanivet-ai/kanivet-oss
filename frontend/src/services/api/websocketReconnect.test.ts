@@ -358,3 +358,47 @@ describe('heartbeat', () => {
     expect(Date.now() - manager.lastHeartbeat).toBeLessThan(1000);
   });
 });
+
+describe('messages the backend rejects as rate limited', () => {
+  const subscribePods = () =>
+    manager.subscribeToItems('c1', '', 'v1', 'pods', '', () => {}, 'age', 'desc');
+  const podsTopic = 'items:c1::v1:pods:';
+
+  it('sends a rejected subscribe again after a short, growing delay', async () => {
+    const ws = await connect();
+    subscribePods();
+    expect(ws.sent).toHaveLength(1);
+
+    ws.message({ type: 'error', code: 'rate_limited', topic: podsTopic, requestType: 'subscribe' });
+    await tick(249);
+    expect(ws.sent).toHaveLength(1);
+    await tick(1);
+    expect(ws.sent).toHaveLength(2);
+    expect(ws.sent[1]).toEqual(ws.sent[0]);
+
+    ws.message({ type: 'error', code: 'rate_limited', topic: podsTopic });
+    await tick(499);
+    expect(ws.sent).toHaveLength(2);
+    await tick(1);
+    expect(ws.sent).toHaveLength(3);
+  });
+
+  it('does not send again what was stopped meanwhile', async () => {
+    const ws = await connect();
+    subscribePods();
+    ws.message({ type: 'error', code: 'rate_limited', topic: podsTopic });
+    manager.unsubscribe(podsTopic);
+    await tick(5000);
+    expect(types(ws)).toEqual(['subscribe:items', 'unsubscribe:']);
+  });
+
+  it('gives up after a few attempts', async () => {
+    const ws = await connect();
+    subscribePods();
+    for (let i = 0; i < 8; i++) {
+      ws.message({ type: 'error', code: 'rate_limited', key: podsTopic });
+      await tick(5000);
+    }
+    expect(ws.sent).toHaveLength(6);
+  });
+});
