@@ -111,8 +111,8 @@ export const createTabSlice: StateCreator<StoreState, [], [], TabSlice> = (set, 
     } catch {}
     if (tabId && tabId !== prevTab) {
       if (recordHistory) void get().recordCurrentNavigation().catch(console.error);
-      const tabState = get().getCurrentTabState();
-      if (tabState?.selectedNode?.type === 'resource') get().startRealtime();
+      // Also with a page selected: the lists its split panes show restart.
+      get().startRealtime();
     }
   },
 
