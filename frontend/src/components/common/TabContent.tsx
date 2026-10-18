@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { ArrowUpIcon, DrawingPinIcon, Pencil2Icon, ReaderIcon } from '@radix-ui/react-icons';
 import ResourceDetailView from '../detailView/ResourceDetailView';
 // Pulled in here by HelmReleaseDetailView before it was split out: keeps the
@@ -31,6 +31,42 @@ interface TabContentProps {
   onPinClick?: () => void;
   isDeleted?: boolean;
 }
+
+/** What the panel says about an object that was deleted before it loaded. */
+export const deletedDescription = (item: any): string => {
+  const kind = item?.kind && item.kind !== 'Resource' ? item.kind : 'Resource';
+  const name = item?.metadata?.name || item?.name || '';
+  const namespace = item?.metadata?.namespace || item?.namespace || '';
+  return `${kind}${name ? ` ${name}` : ''}${namespace ? ` in ${namespace}` : ''} was deleted.`;
+};
+
+// Recipe for empty / error states (styles/DESIGN.md): centred, 13px --text2.
+const emptyStateStyle: CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center', textAlign: 'center',
+  height: '100%', padding: '24px 16px', fontSize: 13, color: 'var(--text2)',
+};
+const recreatedBannerStyle: CSSProperties ={ background: 'var(--warning-bg)', color: 'var(--warning-fg)' };
+
+/** Says when the tab is not showing the object it was opened on as it is now. */
+const TabStatusBanner = ({ isDeleted, isRecreated }: { isDeleted?: boolean; isRecreated?: boolean }) => {
+  if (isDeleted) {
+    return (
+      <div className="tab-content-deleted-banner" role="status">
+        <span className="deleted-icon">⚠</span>
+        <span>This resource no longer exists</span>
+      </div>
+    );
+  }
+  if (isRecreated) {
+    return (
+      <div className="tab-content-deleted-banner" role="status" style={recreatedBannerStyle}>
+        <span className="deleted-icon">⚠</span>
+        <span>This resource was deleted and created again. Showing the new one.</span>
+      </div>
+    );
+  }
+  return null;
+};
 
 const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentProps) => {
   const { openBottomTab } = useStore(useShallow((s) => ({ openBottomTab: s.openBottomTab })));
@@ -192,12 +228,7 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
     const releaseKey = `${cluster}-${item.namespace}-${item.name}`;
     return (
       <div className={`tab-content-inner tab-content-${mode}`}>
-        {isDeleted && (
-          <div className="tab-content-deleted-banner">
-            <span className="deleted-icon">⚠</span>
-            <span>This resource no longer exists</span>
-          </div>
-        )}
+        <TabStatusBanner isDeleted={isDeleted} isRecreated={tab?.isRecreated} />
         <div className="view-content-root">
           <div className="view-tab-content">
             <div className="tab-content-body">
@@ -297,17 +328,17 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
 
   return (
     <div className={`tab-content-inner tab-content-${mode}`}>
-      {isDeleted && (
-        <div className="tab-content-deleted-banner">
-          <span className="deleted-icon">⚠</span>
-          <span>This resource no longer exists</span>
-        </div>
-      )}
+      <TabStatusBanner isDeleted={isDeleted} isRecreated={tab?.isRecreated} />
       <div className="view-content-root">
         <div className="view-tab-content">
           <div className="tab-content-body">
             <div className="tab-content-pretty">
-              {!hasBasicInfo ? (
+              {isDeleted && !isFullyLoaded ? (
+                // Nothing was ever loaded for it: a skeleton would wait forever.
+                <div className="tab-content-deleted-empty" style={emptyStateStyle}>
+                  {deletedDescription({ ...item, kind: item.kind || tab?.resource?.kind })}
+                </div>
+              ) : !hasBasicInfo ? (
                 <ResourceDetailSkeleton resource={item} cluster={cluster} mode={mode} actions={actionButtons} />
               ) : !isFullyLoaded ? (
                 <ResourceDetailSkeleton resource={item} cluster={cluster} mode={mode} actions={actionButtons} />

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { applyLoadedDetails } from './applyLoadedDetails';
+import { applyDetailsToTabs, applyEventsToTabs, applyLoadedDetails, markDetailsDeleted, refOf } from './applyLoadedDetails';
 
 const pod = (name: string, namespace = 'ns', extra: any = {}) => ({
   kind: 'Pod',
@@ -68,5 +68,102 @@ describe('applyLoadedDetails', () => {
   it('returns the tabs untouched when the cluster tab was closed meanwhile', () => {
     const tabs = [tab('cluster-b')];
     expect(applyLoadedDetails(tabs, 'cluster-a', full)).toBe(tabs);
+  });
+});
+
+const object = (kind: string, name: string, { metadata, ...extra }: any = {}) => ({
+  kind,
+  apiVersion: kind === 'Deployment' ? 'apps/v1' : 'v1',
+  metadata: { name, namespace: 'ns', uid: `${kind}-${name}-1`, ...(metadata || {}) },
+  ...extra,
+});
+const detailTab = (id: string, item: any, extra: any = {}) => ({ id, item, cluster: 'c', isPinned: true, location: 'detail', ...extra });
+
+describe('applyDetailsToTabs (a refresh)', () => {
+  it('writes the refreshed object into the tab the panel renders, not only detailData', () => {
+    const before = object('Pod', 'api-0', { status: { phase: 'Pending' } });
+    const tabs = [tab('c', { detailData: before, detailTabs: [detailTab('dt', before)], activeDetailTab: 'dt' })];
+    const after = object('Pod', 'api-0', { status: { phase: 'Running' } });
+    const next = applyDetailsToTabs(tabs, 'c', after);
+    expect(next[0].state.detailTabs[0].item.status.phase).toBe('Running');
+    expect(next[0].state.detailData.status.phase).toBe('Running');
+    // A background refresh does not open a collapsed panel.
+    expect(next[0].state.isDetailsPanelCollapsed).toBe(true);
+  });
+
+  it('updates the tab it was asked for even when another one is on screen by the time it answers', () => {
+    const asked = object('Pod', 'api-0');
+    const shown = object('Pod', 'worker-1');
+    const tabs = [tab('c', { detailData: shown, activeDetailTab: 'b', detailTabs: [detailTab('a', asked), detailTab('b', shown)] })];
+    const next = applyDetailsToTabs(tabs, 'c', object('Pod', 'api-0', { status: { phase: 'Running' } }));
+    expect(next[0].state.detailTabs[0].item.status.phase).toBe('Running');
+    expect(next[0].state.detailTabs[1]).toBe(tabs[0].state.detailTabs[1]);
+    expect(next[0].state.detailData).toBe(shown);
+  });
+
+  it('does not put a Deployment into the tab of a Service with the same name', () => {
+    const service = object('Service', 'api');
+    const tabs = [tab('c', { detailData: service, activeDetailTab: 'dt', detailTabs: [detailTab('dt', service)] })];
+    expect(applyDetailsToTabs(tabs, 'c', object('Deployment', 'api'))).toBe(tabs);
+  });
+
+  it('keeps the events it has, and marks a recreated object instead of silently swapping it', () => {
+    const events = [{ reason: 'Started' }];
+    const pod = { ...object('Pod', 'api-0'), events };
+    const tabs = [tab('c', { detailData: pod, activeDetailTab: 'dt', detailTabs: [detailTab('dt', pod)] })];
+    const same = applyDetailsToTabs(tabs, 'c', object('Pod', 'api-0'));
+    expect(same[0].state.detailTabs[0].item.events).toBe(events);
+    expect(same[0].state.detailTabs[0].isRecreated).toBe(false);
+
+    const recreated = applyDetailsToTabs(tabs, 'c', object('Pod', 'api-0', { metadata: { uid: 'new' } }));
+    const dt = recreated[0].state.detailTabs[0];
+    expect(dt.isRecreated).toBe(true);
+    expect(dt.item.metadata.uid).toBe('new');
+    // Those events were the predecessor's.
+    expect(dt.item.events).toBeUndefined();
+  });
+
+  it('clears the deleted mark when the object is there again', () => {
+    const pod = object('Pod', 'api-0');
+    const tabs = [tab('c', { activeDetailTab: 'dt', detailTabs: [detailTab('dt', pod, { isDeleted: true })] })];
+    expect(applyDetailsToTabs(tabs, 'c', { ...pod })[0].state.detailTabs[0].isDeleted).toBe(false);
+  });
+});
+
+describe('markDetailsDeleted', () => {
+  it('marks the tabs showing the object, and only those', () => {
+    const tabs = [tab('c', { detailTabs: [
+      detailTab('pod', { name: 'api', namespace: 'ns' }, { resource: { group: '', version: 'v1', kind: 'Pod' } }),
+      detailTab('svc', object('Service', 'api')),
+    ] })];
+    const next = markDetailsDeleted(tabs, 'c', refOf({ name: 'api', namespace: 'ns' }, { group: '', version: 'v1', kind: 'Pod' }));
+    expect(next[0].state.detailTabs[0].isDeleted).toBe(true);
+    expect(next[0].state.detailTabs[1].isDeleted).toBeUndefined();
+    expect(markDetailsDeleted(next, 'c', refOf({ name: 'api', namespace: 'ns' }, { group: '', version: 'v1', kind: 'Pod' }))).toBe(next);
+  });
+});
+
+describe('applyEventsToTabs', () => {
+  it('puts a Deployment\'s events on its tab, not on the Service of the same name', () => {
+    const deployment = object('Deployment', 'api');
+    const service = object('Service', 'api');
+    const tabs = [tab('c', { detailData: service, activeDetailTab: 'svc', detailTabs: [detailTab('dep', deployment), detailTab('svc', service)] })];
+    const events = [{ reason: 'ScalingReplicaSet' }];
+    const next = applyEventsToTabs(tabs, 'c', deployment, events);
+    expect(next[0].state.detailTabs[0].item.events).toBe(events);
+    expect(next[0].state.detailTabs[1].item.events).toBeUndefined();
+    expect(next[0].state.detailData.events).toBeUndefined();
+  });
+
+  it('does not give one incarnation of an object the events of another', () => {
+    const pod = object('Pod', 'api-0', { metadata: { uid: 'new' } });
+    const tabs = [tab('c', { detailTabs: [detailTab('dt', pod)] })];
+    expect(applyEventsToTabs(tabs, 'c', object('Pod', 'api-0', { metadata: { uid: 'old' } }), [{ reason: 'Killing' }])).toBe(tabs);
+  });
+
+  it('replaces events with an empty list once they are gone', () => {
+    const pod = { ...object('Pod', 'api-0'), events: [{ reason: 'Started' }] };
+    const tabs = [tab('c', { detailTabs: [detailTab('dt', pod)] })];
+    expect(applyEventsToTabs(tabs, 'c', pod, [])[0].state.detailTabs[0].item.events).toEqual([]);
   });
 });
