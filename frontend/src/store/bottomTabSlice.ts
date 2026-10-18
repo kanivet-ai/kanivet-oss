@@ -1,6 +1,26 @@
 import { StateCreator } from 'zustand';
 import { BottomTabSlice, StoreState, BottomTab } from './types';
 
+/** Whether two objects a bottom tab can show are the same one: name,
+ * namespace, Kind and apiVersion, a side that does not know one not counting. */
+export const sameBottomObject = (a: any, b: any): boolean =>
+  (a?.metadata?.name || a?.name) === (b?.metadata?.name || b?.name) &&
+  (a?.metadata?.namespace || a?.namespace || '') === (b?.metadata?.namespace || b?.namespace || '') &&
+  (!a?.kind || !b?.kind || a.kind === b.kind) &&
+  (!a?.apiVersion || !b?.apiVersion || a.apiVersion === b.apiVersion);
+
+/**
+ * Prefixes the Kind to the titles of `added` and the tabs of its type and
+ * cluster titled the same, once they show objects of different Kinds
+ * ("Deployment api (ns)" next to "Service api (ns)").
+ */
+export const withDistinctTitles = (tabs: BottomTab[], added: BottomTab): BottomTab[] => {
+  const clashing = tabs.filter((t) =>
+    t.type === added.type && t.cluster === added.cluster && t.title === added.title && t.resource?.kind);
+  if (!clashing.some((t) => t.resource.kind !== added.resource?.kind)) return tabs;
+  return tabs.map((t) => (clashing.includes(t) ? { ...t, title: `${t.resource.kind} ${t.title}` } : t));
+};
+
 export const createBottomTabSlice: StateCreator<StoreState, [], [], BottomTabSlice> = (set, get) => ({
   bottomTabs: [],
   activeBottomTab: null,
@@ -20,14 +40,20 @@ export const createBottomTabSlice: StateCreator<StoreState, [], [], BottomTabSli
       const createCount = bottomTabs.filter((tab) => tab.type === 'create').length;
       title = createCount > 0 ? `New Resource ${createCount + 1}` : 'New Resource';
     } else {
+      // A Deployment and a Service (or a StatefulSet) often share a name: the
+      // tab of one must not stand in for the other, or Edit saves the wrong object.
       const existingTab = bottomTabs.find((tab) =>
-        tab.type === type && tab.resource.metadata?.name === resourceName && tab.resource.metadata?.namespace === namespace && tab.cluster === cluster
+        tab.type === type && tab.cluster === cluster && sameBottomObject(tab.resource, resource)
       );
       if (existingTab) { set({ activeBottomTab: existingTab.id }); return; }
     }
 
-    const newTab: BottomTab = { id: `${type}-${resourceName}-${namespace || 'default'}-${Date.now()}`, type, title, resource, cluster, location: 'bottom' };
-    set({ bottomTabs: [...bottomTabs, newTab], activeBottomTab: newTab.id });
+    const kind = resource.kind || '';
+    const newTab: BottomTab = {
+      id: `${type}-${kind ? `${kind}-` : ''}${resourceName}-${namespace || 'default'}-${Date.now()}`,
+      type, title, resource, cluster, location: 'bottom',
+    };
+    set({ bottomTabs: withDistinctTitles([...bottomTabs, newTab], newTab), activeBottomTab: newTab.id });
   },
 
   closeBottomTab: (tabId: string) => {
