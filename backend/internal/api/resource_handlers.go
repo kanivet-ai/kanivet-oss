@@ -157,7 +157,7 @@ func (h *Handler) GetResourceDetailsQuery(c *gin.Context) {
 	gvr := schema.GroupVersionResource{Group: group, Version: version, Resource: resourceName}
 	cacheKey := h.cache.BuildKey("detail", cluster, group, version, resourceName, namespace, name)
 
-	data, err := h.cache.GetOrSet(cacheKey, 10*time.Second, func() (interface{}, error) {
+	fetch := func() (interface{}, error) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
 		var resource *unstructured.Unstructured
@@ -174,7 +174,18 @@ func (h *Handler) GetResourceDetailsQuery(c *gin.Context) {
 		// view renders immediately instead of blocking on event enrichment.
 		h.cleanVerboseFields(resource)
 		return resource, nil
-	})
+	}
+	var data interface{}
+	if wantsFresh(c) {
+		// The caller is about to act on the object (the YAML editor opening
+		// it): read it from the API server and replace whatever was cached.
+		data, err = fetch()
+		if err == nil {
+			h.cache.Set(cacheKey, data, 10*time.Second)
+		}
+	} else {
+		data, err = h.cache.GetOrSet(cacheKey, 10*time.Second, fetch)
+	}
 
 	if err != nil {
 		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "the server could not find the requested resource") {
@@ -210,11 +221,14 @@ func (h *Handler) GetResourceEventsQuery(c *gin.Context) {
 
 	// Kind is part of the key and the query: a Deployment, Service and HPA that
 	// share a name (standard Helm practice) must not share an events list.
-	cacheKey := h.cache.BuildKey("resource-events", cluster, group, version, kind, namespace, name)
+	// The optional uid query parameter narrows the list to this incarnation
+	// of the object, and apiVersion to its API group.
+	obj := eventsObject(c, kind, namespace, name)
+	cacheKey := h.cache.BuildKey("resource-events", cluster, group, version, obj.Kind, namespace, name, obj.APIVersion, obj.UID)
 	data, _ := h.cache.GetOrSet(cacheKey, 5*time.Second, func() (interface{}, error) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 		defer cancel()
-		events := h.fetchResourceEvents(ctx, cluster, namespace, name, kind)
+		events := h.fetchResourceEvents(ctx, cluster, obj)
 		if events == nil {
 			events = []interface{}{}
 		}
@@ -1061,31 +1075,25 @@ func (h *Handler) SetDetailTabState(c *gin.Context) {
 // list. kind may be empty. This no longer blocks any detail response — it backs
 // the dedicated events endpoint so the detail view loads instantly and pulls
 // events separately.
-func (h *Handler) fetchResourceEvents(ctx context.Context, cluster, namespace, name, kind string) []interface{} {
+func (h *Handler) fetchResourceEvents(ctx context.Context, cluster string, obj db.EventObject) []interface{} {
 	if !h.eventListener.IsListening(cluster) {
 		log.Printf("Starting event listener for cluster %s on first resource events request", cluster)
 		if err := h.eventListener.StartListening(cluster); err != nil {
 			log.Printf("Failed to start event listener for cluster %s: %v", cluster, err)
-			return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
+			return h.buildEventsDirect(ctx, cluster, obj)
 		}
 		// The listener's initial DB sync is still in flight on first start, so
 		// serve this request from the live API rather than waiting for it.
-		return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
+		return h.buildEventsDirect(ctx, cluster, obj)
 	}
 
-	var events []db.K8sEvent
-	var err error
-	if kind != "" {
-		events, err = h.db.GetEventsForResourceByKind(cluster, namespace, name, kind, "")
-	} else {
-		events, err = h.db.GetEventsForResource(cluster, namespace, name, "")
-	}
+	events, err := h.db.GetEventsForObject(cluster, obj)
 	if err != nil {
-		log.Printf("Failed to get events from database for %s/%s: %v", namespace, name, err)
-		return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
+		log.Printf("Failed to get events from database for %s/%s: %v", obj.Namespace, obj.Name, err)
+		return h.buildEventsDirect(ctx, cluster, obj)
 	}
 	if len(events) == 0 {
-		return h.buildEventsDirect(ctx, cluster, namespace, name, kind)
+		return h.buildEventsDirect(ctx, cluster, obj)
 	}
 
 	eventsList := make([]interface{}, len(events))
@@ -1113,26 +1121,52 @@ func (h *Handler) fetchResourceEvents(ctx context.Context, cluster, namespace, n
 	return eventsList
 }
 
-// eventsFieldSelector builds the core/v1 Events field selector for one object.
-// Namespace and kind are only added when known so cluster-scoped objects and
-// legacy callers without a kind keep matching.
-func eventsFieldSelector(name, namespace, kind string) string {
-	parts := []string{"involvedObject.name=" + name}
-	if namespace != "" {
-		parts = append(parts, "involvedObject.namespace="+namespace)
+// wantsFresh reports whether the request asks to bypass the backend cache
+// with fresh=1 or fresh=true.
+func wantsFresh(c *gin.Context) bool {
+	switch strings.ToLower(c.Query("fresh")) {
+	case "1", "true":
+		return true
 	}
-	if kind != "" {
-		parts = append(parts, "involvedObject.kind="+kind)
+	return false
+}
+
+// eventsObject reads the object a resource-events request is about: the path
+// names it, and the optional uid, kind and apiVersion query parameters
+// narrow or override it. Only an explicit apiVersion narrows by API group.
+func eventsObject(c *gin.Context, kind, namespace, name string) db.EventObject {
+	if k := c.Query("kind"); k != "" {
+		kind = k
+	}
+	return db.EventObject{Namespace: namespace, Name: name, Kind: kind, APIVersion: c.Query("apiVersion"), UID: c.Query("uid")}
+}
+
+// eventsFieldSelector builds the core/v1 Events field selector for one object.
+// Namespace, kind and uid are only added when known so cluster-scoped objects
+// and legacy callers without a kind keep matching. The API version is left
+// out: the selector could only match it exactly, and for multi-version CRDs
+// the recorded version can differ from the one browsed.
+func eventsFieldSelector(obj db.EventObject) string {
+	parts := []string{"involvedObject.name=" + obj.Name}
+	if obj.Namespace != "" {
+		parts = append(parts, "involvedObject.namespace="+obj.Namespace)
+	}
+	if obj.Kind != "" {
+		parts = append(parts, "involvedObject.kind="+obj.Kind)
+	}
+	if obj.UID != "" {
+		parts = append(parts, "involvedObject.uid="+obj.UID)
 	}
 	return strings.Join(parts, ",")
 }
 
-func (h *Handler) buildEventsDirect(ctx context.Context, cluster, namespace, name, kind string) []interface{} {
+func (h *Handler) buildEventsDirect(ctx context.Context, cluster string, obj db.EventObject) []interface{} {
 	client, err := h.k8s.GetClientForCluster(cluster)
 	if err != nil {
 		return nil
 	}
-	fieldSelector := eventsFieldSelector(name, namespace, kind)
+	namespace := obj.Namespace
+	fieldSelector := eventsFieldSelector(obj)
 	timeout := int64(2)
 	limit := int64(50)
 	events, err := client.CoreV1().Events(namespace).List(ctx, metav1.ListOptions{

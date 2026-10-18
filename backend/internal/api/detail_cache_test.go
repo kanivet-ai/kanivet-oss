@@ -70,9 +70,15 @@ func newDetailFixture(t *testing.T) *detailFixture {
 // view and the YAML editor do: by Kind.
 func (f *detailFixture) replicas(t *testing.T) int64 {
 	t.Helper()
+	return f.replicasWith(t, "")
+}
+
+// replicasWith adds query to the detail request, e.g. "&fresh=1".
+func (f *detailFixture) replicasWith(t *testing.T, query string) int64 {
+	t.Helper()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/cluster/resource/apps/v1/Deployment/ns/d1?cluster=c1", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/cluster/resource/apps/v1/Deployment/ns/d1?cluster=c1"+query, nil)
 	c.Params = gin.Params{{Key: "group", Value: "apps"}, {Key: "version", Value: "v1"}, {Key: "kind", Value: "Deployment"}, {Key: "namespace", Value: "ns"}, {Key: "name", Value: "d1"}}
 	f.h.GetResourceDetailsQuery(c)
 	if rec.Code != http.StatusOK {
@@ -105,6 +111,27 @@ func TestWatchEventEvictsCachedDetail(t *testing.T) {
 
 	if got := f.replicas(t); got != 2 {
 		t.Fatalf("detail still serves the pre-change object: replicas = %d, want 2", got)
+	}
+}
+
+// fresh=1 skips the cached copy, even one no event has evicted yet, and
+// leaves the fresh object cached for the readers after it.
+func TestFreshDetailBypassesTheCache(t *testing.T) {
+	f := newDetailFixture(t)
+	if got := f.replicas(t); got != 1 {
+		t.Fatalf("replicas = %d, want 1", got)
+	}
+	if _, err := f.dyn.Resource(deploymentsGVR).Namespace("ns").Update(context.Background(), deployment(2), metav1.UpdateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := f.replicas(t); got != 1 {
+		t.Fatalf("without fresh the cached copy is served: replicas = %d, want 1", got)
+	}
+	if got := f.replicasWith(t, "&fresh=1"); got != 2 {
+		t.Fatalf("fresh=1 served the cached copy: replicas = %d, want 2", got)
+	}
+	if got := f.replicas(t); got != 2 {
+		t.Fatalf("the fresh read was not cached: replicas = %d, want 2", got)
 	}
 }
 
