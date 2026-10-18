@@ -17,6 +17,13 @@ const RECONNECT_MAX_MS = 30_000;
 // a long outage cannot grow it.
 const OUTBOX_LIMIT = 500;
 
+// A start the backend turned away as rate limited is sent again after a short,
+// growing delay, a few times at most.
+const RATE_LIMIT_RETRY_BASE_MS = 250;
+const RATE_LIMIT_RETRY_MAX_MS = 4000;
+const RATE_LIMIT_MAX_RETRIES = 5;
+const RATE_LIMIT_RESET_MS = 30_000;
+
 // Streams the backend keeps per connection: after a reconnect they are asked
 // for again, since the new connection knows nothing of them. Logs are not
 // here, they restart themselves on `connection:restored`.
@@ -94,6 +101,10 @@ export class WebSocketManager {
   // What has been started on the current connection, so a topic that a
   // `connection:restored` listener already restarted is not asked for twice.
   private sentOnConnection: Set<string> = new Set();
+  // The last start message sent for each key, so one the backend rejected as
+  // rate limited can be sent again; and the retries pending for them.
+  private lastStart: Map<string, any> = new Map();
+  private rateLimitRetries: Map<string, { attempt: number; at: number; timer?: ReturnType<typeof setTimeout> }> = new Map();
 
   constructor() {
     this.backendPortPromise = this.initBackendPort();
@@ -461,6 +472,7 @@ export class WebSocketManager {
         this.reconnectAttempt = 0;
         this.sessionFailureNotified = false;
         this.sentOnConnection.clear();
+        this.lastStart.clear();
         this.lastHeartbeat = Date.now();
         this.startHeartbeatCheck();
         const reconnectedAfterDisconnect = this.wasDisconnected;
@@ -536,6 +548,11 @@ export class WebSocketManager {
       const msg = JSON.parse(ev.data);
 
       if (msg.type === 'heartbeat') return;
+
+      if (msg.type === 'error' && msg.code === 'rate_limited') {
+        this.retryRateLimited(msg);
+        return;
+      }
 
       if (msg.type === 'cluster_error') {
         logger.warn('Cluster connection error:', msg);
@@ -749,9 +766,54 @@ export class WebSocketManager {
 
   private sendNow(message: any, info: MessageInfo) {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    if (info.key && info.op === 'start') this.sentOnConnection.add(info.key);
-    else if (info.key && info.op === 'stop') this.sentOnConnection.delete(info.key);
+    if (info.key && info.op === 'start') {
+      this.sentOnConnection.add(info.key);
+      this.lastStart.set(info.key, message);
+    } else if (info.key && info.op === 'stop') {
+      this.sentOnConnection.delete(info.key);
+      this.lastStart.delete(info.key);
+      const retry = this.rateLimitRetries.get(info.key);
+      if (retry?.timer) clearTimeout(retry.timer);
+      this.rateLimitRetries.delete(info.key);
+    }
     this.ws.send(JSON.stringify(message));
+  }
+
+  // The backend rejected a message as rate limited. A start it names (by its
+  // key or topic) is sent again after a short delay, unless it was stopped
+  // meanwhile; anything else is left as it is.
+  private retryRateLimited(msg: any) {
+    const key: string | undefined =
+      (typeof msg.key === 'string' && msg.key) ||
+      (typeof msg.topic === 'string' && msg.topic) ||
+      undefined;
+    if (!key) {
+      logger.warn('Rate limited message without a key', msg);
+      return;
+    }
+    const message = this.lastStart.get(key);
+    if (!message) return;
+    const now = Date.now();
+    const previous = this.rateLimitRetries.get(key);
+    // A rejection long after the last one starts the count over.
+    const retry = previous && now - previous.at < RATE_LIMIT_RESET_MS ? previous : { attempt: 0, at: now };
+    if (retry.timer) return;
+    retry.at = now;
+    if (retry.attempt >= RATE_LIMIT_MAX_RETRIES) {
+      // Kept, so rejections that go on do not start the count over.
+      logger.warn(`Giving up on ${key} after ${retry.attempt} rate-limited retries`);
+      this.rateLimitRetries.set(key, retry);
+      return;
+    }
+    const delay = Math.min(RATE_LIMIT_RETRY_MAX_MS, RATE_LIMIT_RETRY_BASE_MS * 2 ** retry.attempt);
+    retry.attempt++;
+    retry.timer = setTimeout(() => {
+      retry.timer = undefined;
+      // Stopped, or replaced by a newer start, while it waited.
+      if (this.lastStart.get(key) !== message) return;
+      this.sendWS(message);
+    }, delay);
+    this.rateLimitRetries.set(key, retry);
   }
 
   private enqueue(message: any, info: MessageInfo) {
