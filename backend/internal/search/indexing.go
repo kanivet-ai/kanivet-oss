@@ -656,14 +656,7 @@ func (s *Service) smartIndexResourceType(cluster, group, version, resource, kind
 		log.Printf("[SEARCH] Reconcile removed %d stale %s/%s/%s entries in cluster %s", len(removed), group, version, resource, cluster)
 		s.eventHandler.forgetFingerprints(removed)
 		if s.db != nil {
-			ids := removed
-			go func() {
-				for _, id := range ids {
-					if err := s.db.DeleteSearchableResource(id); err != nil {
-						log.Printf("[SEARCH] Failed to delete stale resource %s from DB: %v", id, err)
-					}
-				}
-			}()
+			s.eventHandler.deleteFromDB(removed...)
 		}
 	}
 

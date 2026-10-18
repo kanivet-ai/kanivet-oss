@@ -168,9 +168,10 @@ func clusterFromID(id string) string {
 }
 
 // RemoveByCoordinates removes documents matching cluster+namespace+name from the
-// cluster's shard, regardless of kind form. Returns the number removed.
-func (s *ShardedIndex) RemoveByCoordinates(cluster, namespace, name string) int {
-	return s.shardForCluster(cluster).RemoveByCoordinates(cluster, namespace, name)
+// cluster's shard, limited to one resource type but regardless of kind form.
+// Returns the removed IDs.
+func (s *ShardedIndex) RemoveByCoordinates(cluster string, t TypeCoords, namespace, name string) []string {
+	return s.shardForCluster(cluster).RemoveByCoordinates(cluster, t, namespace, name)
 }
 
 // ReconcileType removes stale documents of a resource type on the cluster's

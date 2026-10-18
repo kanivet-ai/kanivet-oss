@@ -511,22 +511,35 @@ func (idx *MemoryIndex) Remove(id string) error {
 	return nil
 }
 
-// RemoveByCoordinates removes every document matching cluster+namespace+name
-// regardless of the kind form stored in its ID. This is the fallback for delete
-// events whose payload kind doesn't match what was indexed (e.g. a stripped
-// watch DELETE where the kind became the plural resource name). It returns the
-// number of documents removed.
-func (idx *MemoryIndex) RemoveByCoordinates(cluster, namespace, name string) int {
-	if name == "" {
-		return 0
+// TypeCoords names the resource type a coordinate-based removal is limited
+// to. Resource is the plural resource name or the Kind, in any spelling; Group
+// is compared only when GroupKnown, since a stripped delete payload may not
+// say it.
+type TypeCoords struct {
+	Group      string
+	GroupKnown bool
+	Resource   string
+}
+
+// RemoveByCoordinates removes the documents of one resource type matching
+// cluster+namespace+name, whatever kind form is stored in their ID or Kind.
+// This is the fallback for delete events whose payload kind doesn't match
+// what was indexed (e.g. a stripped watch DELETE where the kind became the
+// plural resource name). Documents of other types sharing the name (the
+// Service and ConfigMap of a Deployment called web) are kept. It returns the
+// IDs of the documents removed.
+func (idx *MemoryIndex) RemoveByCoordinates(cluster string, t TypeCoords, namespace, name string) []string {
+	if name == "" || t.Resource == "" {
+		return nil
 	}
+	plural := utils.PluralizeKind(t.Resource)
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	d := idx.getData()
 
 	ids := d.nameDocs[strings.ToLower(name)]
 	if len(ids) == 0 {
-		return 0
+		return nil
 	}
 	var victims []uint32
 	for id := range ids {
@@ -537,18 +550,26 @@ func (idx *MemoryIndex) RemoveByCoordinates(cluster, namespace, name string) int
 		if d.pools.Clusters.Get(compact.Cluster) != cluster {
 			continue
 		}
-		if d.pools.Namespaces.Get(compact.Namespace) != namespace {
+		if d.pools.Names.Get(compact.Name) != name || d.pools.Namespaces.Get(compact.Namespace) != namespace {
+			continue
+		}
+		if t.GroupKnown && d.pools.Groups.Get(compact.Group) != t.Group {
+			continue
+		}
+		if d.typeKeyFor(compact).kind != plural && utils.PluralizeKind(d.pools.Kinds.Get(compact.Kind)) != plural {
 			continue
 		}
 		victims = append(victims, id)
 	}
+	removed := make([]string, 0, len(victims))
 	for _, id := range victims {
+		removed = append(removed, d.pools.IDs.Get(d.compactDocs[id].ID))
 		idx.removeDocLocked(d, id)
 	}
-	if len(victims) > 0 {
+	if len(removed) > 0 {
 		idx.updateStatsIncrementalLocked(d)
 	}
-	return len(victims)
+	return removed
 }
 
 // ReconcileType removes indexed documents of a resource type (identified by

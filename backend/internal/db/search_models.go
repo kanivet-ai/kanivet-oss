@@ -209,6 +209,21 @@ func (db *DB) DeleteSearchableResource(uid string) error {
 	return db.DB.Where("resource_id = ?", uid).Delete(&SearchableResource{}).Error
 }
 
+// DeleteSearchableResources deletes the rows with the given resource IDs, in
+// chunks that stay under SQLite's bound-parameter limit.
+func (db *DB) DeleteSearchableResources(ids []string) error {
+	const chunk = 500
+	return db.Transaction(func(tx *gorm.DB) error {
+		for start := 0; start < len(ids); start += chunk {
+			end := min(start+chunk, len(ids))
+			if err := tx.Where("resource_id IN ?", ids[start:end]).Delete(&SearchableResource{}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 // Indexing status
 
 func (db *DB) GetIndexingStatus(cluster string) (*IndexingStatus, error) {
