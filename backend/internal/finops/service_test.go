@@ -7,6 +7,8 @@ import (
 
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/k8s"
+	"github.com/kanivet/backend/internal/k8s/podcache"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/kubernetes/fake"
 )
@@ -81,6 +83,47 @@ func TestService_EndpointsShareOneComputation(t *testing.T) {
 	}
 	if got := findResourceCost(d, "Node", "", "node-a"); got == nil {
 		t.Errorf("Node lookup failed")
+	}
+}
+
+// frozenPods serves fixed pods from a pod cache whose watch fails since
+// failing (zero: healthy).
+type frozenPods struct {
+	pods    []*v1.Pod
+	failing time.Time
+}
+
+func (f frozenPods) List(context.Context, string) ([]*v1.Pod, error) { return f.pods, nil }
+
+func (f frozenPods) Health(string) podcache.Health {
+	return podcache.Health{Synced: true, FailingSince: f.failing}
+}
+
+// While the pod cache's watch fails, costs come from frozen pods; the
+// dashboard must say so instead of looking current.
+func TestService_DashboardFlagsFrozenPods(t *testing.T) {
+	nodeA := testNode("node-a", "m5.xlarge", false)
+	pod := testPod("shop", "web-1", "node-a", "1", "4Gi")
+	failing := time.Unix(1000, 0)
+	for _, tc := range []struct {
+		name    string
+		failing time.Time
+	}{{"healthy", time.Time{}}, {"failing", failing}} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newTestService(&nodeA)
+			svc.SetPodLister(frozenPods{pods: []*v1.Pod{&pod}, failing: tc.failing})
+			d, err := svc.GetDashboard(context.Background(), "prod")
+			if err != nil {
+				t.Fatal(err)
+			}
+			s := d.Summary
+			if s.PodsStale != !tc.failing.IsZero() {
+				t.Fatalf("podsStale = %t", s.PodsStale)
+			}
+			if s.PodsStale && (s.PodsStaleSince == nil || !s.PodsStaleSince.Equal(failing)) {
+				t.Fatalf("podsStaleSince = %v, want %v", s.PodsStaleSince, failing)
+			}
+		})
 	}
 }
 

@@ -78,6 +78,19 @@
   font-variant-numeric: tabular-nums;
 }
 
+.rs-pods-stale {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--danger-fg);
+  cursor: default;
+}
+
+.rs-pods-stale svg {
+  width: 11px;
+  height: 11px;
+}
+
 .rs-export {
   position: relative;
 }

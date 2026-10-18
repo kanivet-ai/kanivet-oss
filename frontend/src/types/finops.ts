@@ -57,6 +57,9 @@ export interface ClusterCostSummary {
   pricingInfo: PricingInfo;
   vcluster?: VClusterCost;
   lastUpdated: string;
+  /** Computed from pods the pod cache stopped keeping current (its watch fails since podsStaleSince). */
+  podsStale?: boolean;
+  podsStaleSince?: string;
 }
 
 export interface CostBreakdown {
