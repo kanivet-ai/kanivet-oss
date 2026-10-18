@@ -137,18 +137,28 @@ func TestInvalidateExpiresSWREntriesAndDropsOthers(t *testing.T) {
 	if v, ok := c.Get("resources:c2:workloads"); !ok || v != "other cluster" {
 		t.Error("invalidation reached another cluster's entry")
 	}
-	refreshed := make(chan struct{})
 	v := getWithin(t, 200*time.Millisecond, func() (interface{}, error) {
 		return c.GetOrSetSWR("resources:c1:workloads", time.Minute, time.Minute, func() (interface{}, error) {
-			defer close(refreshed)
 			return "new counts", nil
 		})
 	})
-	if v != "counts" {
-		t.Fatalf("read after invalidation = %v, want the previous counts", v)
+	if v != "new counts" {
+		t.Fatalf("read after invalidation = %v, want the refreshed counts", v)
 	}
-	<-refreshed
-	waitFor(t, func() bool { return cachedValue(c, "resources:c1:workloads") == "new counts" })
+	if got := cachedValue(c, "resources:c1:workloads"); got != "new counts" {
+		t.Fatalf("cached after refresh = %v", got)
+	}
+
+	// A failed refresh of an invalidated entry falls back to what was there.
+	c.Invalidate("resources:c1:*")
+	v = getWithin(t, 200*time.Millisecond, func() (interface{}, error) {
+		return c.GetOrSetSWR("resources:c1:workloads", time.Minute, time.Minute, func() (interface{}, error) {
+			return nil, errors.New("apiserver down")
+		})
+	})
+	if v != "new counts" {
+		t.Fatalf("read after a failed refresh = %v, want the previous counts", v)
+	}
 
 	c.Invalidate("resources:c1:workloads")
 	c.Delete("resources:c1:workloads")
@@ -157,5 +167,78 @@ func TestInvalidateExpiresSWREntriesAndDropsOthers(t *testing.T) {
 	}
 	if v, _ := c.Get("resources:c1:workloads"); v != "refetched" {
 		t.Fatalf("after Delete the next read must wait for a fetch, got %v", v)
+	}
+}
+
+// A fetch that was running when its key was invalidated read the object
+// before the change; storing it would serve the old value for a whole ttl.
+func TestInvalidateDuringFetchDoesNotStorePreChangeValue(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		invalidate func(c *Cache)
+	}{
+		{"Invalidate key", func(c *Cache) { c.Invalidate("detail:x") }},
+		{"Invalidate prefix", func(c *Cache) { c.Invalidate("detail:*") }},
+		{"Delete", func(c *Cache) { c.Delete("detail:x") }},
+		{"DeleteByPrefix", func(c *Cache) { c.DeleteByPrefix("detail:") }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c := New(time.Minute, 0)
+			started := make(chan struct{})
+			release := make(chan struct{})
+			done := make(chan interface{})
+			go func() {
+				v, _ := c.GetOrSet("detail:x", 10*time.Second, func() (interface{}, error) {
+					close(started)
+					<-release
+					return "old", nil
+				})
+				done <- v
+			}()
+			<-started
+			tc.invalidate(c)
+			// A read after the change does not join the superseded fetch.
+			v := getWithin(t, time.Second, func() (interface{}, error) {
+				return c.GetOrSet("detail:x", 10*time.Second, func() (interface{}, error) { return "new", nil })
+			})
+			if v != "new" {
+				t.Fatalf("read after invalidation = %v, want new", v)
+			}
+			close(release)
+			if v := <-done; v != "old" {
+				t.Fatalf("waiting caller got %v", v)
+			}
+			if v, ok := c.Get("detail:x"); !ok || v != "new" {
+				t.Fatalf("cached = %v, %v; want new", v, ok)
+			}
+		})
+	}
+}
+
+func TestInvalidateDuringBackgroundRefreshDoesNotStoreIt(t *testing.T) {
+	c := New(time.Minute, 0)
+	if _, err := c.GetOrSetSWR("k", 10*time.Millisecond, time.Minute, func() (interface{}, error) { return "v1", nil }); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	if v, _ := c.GetOrSetSWR("k", 10*time.Millisecond, time.Minute, func() (interface{}, error) {
+		close(started)
+		<-release
+		return "pre-change", nil
+	}); v != "v1" {
+		t.Fatalf("stale get = %v", v)
+	}
+	<-started
+	c.Invalidate("k")
+	close(release)
+	waitFor(t, func() bool {
+		c.mu.RLock()
+		defer c.mu.RUnlock()
+		return len(c.fetching) == 0
+	})
+	if v, _ := c.GetOrSetSWR("k", 10*time.Millisecond, time.Minute, func() (interface{}, error) { return "post-change", nil }); v != "post-change" {
+		t.Fatalf("read after invalidation = %v, want post-change", v)
 	}
 }
