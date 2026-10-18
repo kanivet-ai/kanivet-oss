@@ -2,9 +2,11 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -81,6 +83,42 @@ type DashboardMetrics struct {
 	MetricsAvailable bool                   `json:"metricsAvailable"`
 	CriticalAlerts   []CriticalAlert        `json:"criticalAlerts"`
 	ResourceCapacity *ResourceCapacity      `json:"resourceCapacity"`
+
+	// Stale is set when a section is not current: it was carried forward
+	// from an earlier update, or computed from pods the cache serves while
+	// its watch is failing. StaleSections names them (by their JSON key),
+	// StaleReason says why, and StaleSince (unix ms) is the oldest time one
+	// of them was last fresh.
+	Stale         bool     `json:"stale"`
+	StaleReason   string   `json:"staleReason,omitempty"`
+	StaleSince    int64    `json:"staleSince,omitempty"`
+	StaleSections []string `json:"staleSections,omitempty"`
+	// SectionUpdatedAt is when each section shown was last read fresh
+	// (unix ms), so carried-forward data is never stamped as current.
+	SectionUpdatedAt map[string]int64 `json:"sectionUpdatedAt,omitempty"`
+}
+
+// The dashboard's sections, named by their JSON keys.
+const (
+	sectionResourceCounts   = "resourceCounts"
+	sectionPodStatus        = "podStatus"
+	sectionNodeStatus       = "nodeStatus"
+	sectionWorkloadStatus   = "workloadStatus"
+	sectionEvents           = "events"
+	sectionCriticalAlerts   = "criticalAlerts"
+	sectionResourceCapacity = "resourceCapacity"
+)
+
+// dashboardSections lists every section in the order staleness reports them.
+var dashboardSections = []string{
+	sectionResourceCounts, sectionPodStatus, sectionNodeStatus, sectionWorkloadStatus,
+	sectionEvents, sectionCriticalAlerts, sectionResourceCapacity,
+}
+
+// podSections are computed from pods, so they are stale while the pods are.
+var podSections = map[string]bool{
+	sectionResourceCounts: true, sectionPodStatus: true,
+	sectionCriticalAlerts: true, sectionResourceCapacity: true,
 }
 
 type PodStatusMetrics struct {
@@ -201,6 +239,15 @@ func (h *DashboardHandler) listAllPods(ctx context.Context, cluster string, clie
 		pods[i] = &list.Items[i]
 	}
 	return pods, nil
+}
+
+// podHealth reports how current the pods listAllPods serves are. Pods listed
+// from the API are current, as are those of a lister that cannot say.
+func (h *DashboardHandler) podHealth(cluster string) podcache.Health {
+	if r, ok := h.pods.(podcache.HealthReporter); ok {
+		return r.Health(cluster)
+	}
+	return podcache.Health{}
 }
 
 func (h *DashboardHandler) HandleMessage(ctx context.Context, conn *core.Connection, msg *core.IncomingMessage) error {
@@ -413,15 +460,36 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		nodes, nodeErr = clientset.CoreV1().Nodes().List(ctx, fromWatchCache)
 	}()
 	prefetchWg.Wait()
+	health := h.podHealth(cluster)
+	podsStale := podErr == nil && health.Stale()
 
-	// Neither pods nor nodes could be read: the cluster is down, which is
-	// not an update to broadcast as authoritative.
-	if podErr != nil && nodeErr != nil {
+	// Neither pods nor nodes could be read (pods the cache keeps serving
+	// while its watch fails were not read either): the cluster is down,
+	// which is not an update to broadcast as authoritative.
+	if nodeErr != nil && (podErr != nil || podsStale) {
+		if podErr == nil {
+			podErr = podsWatchError(health)
+		}
 		return nil, fmt.Errorf("cluster unreachable: %w", podErr)
 	}
 
 	var wg sync.WaitGroup
 	var mu sync.Mutex
+	// failures records why each section could not be read fresh.
+	failures := map[string]string{}
+	fail := func(section string, err error) {
+		mu.Lock()
+		if _, ok := failures[section]; !ok {
+			failures[section] = err.Error()
+		}
+		mu.Unlock()
+	}
+	if podErr != nil {
+		fail(sectionPodStatus, podErr)
+	}
+	if nodeErr != nil {
+		fail(sectionNodeStatus, nodeErr)
+	}
 
 	// Counts for lists already in hand come for free; only the rest are
 	// queried. Workloads and services are listed in full below, and those
@@ -443,6 +511,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		defer wg.Done()
 		if err := h.fetchResourceCounts(ctx, cluster, metrics, &mu, counted); err != nil {
 			log.Printf("[Dashboard] Failed to fetch resource counts: %v", err)
+			fail(sectionResourceCounts, err)
 		}
 	}()
 
@@ -468,6 +537,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		defer wg.Done()
 		if err := h.fetchWorkloadStatus(ctx, cluster, metrics, &mu, prev); err != nil {
 			log.Printf("[Dashboard] Failed to fetch workload status: %v", err)
+			fail(sectionWorkloadStatus, err)
 		}
 	}()
 
@@ -475,6 +545,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		defer wg.Done()
 		if err := h.fetchRecentEvents(ctx, cluster, metrics, &mu); err != nil {
 			log.Printf("[Dashboard] Failed to fetch recent events: %v", err)
+			fail(sectionEvents, err)
 		}
 	}()
 
@@ -486,6 +557,7 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 		}
 		if err := h.fetchCriticalAlerts(ctx, cluster, pods, metrics, &mu); err != nil {
 			log.Printf("[Dashboard] Failed to fetch critical alerts: %v", err)
+			fail(sectionCriticalAlerts, err)
 		}
 	}()
 
@@ -500,7 +572,21 @@ func (h *DashboardHandler) fetchDashboardMetrics(ctx context.Context, cluster st
 
 	wg.Wait()
 	metrics.MetricsAvailable = <-metricsDone
+	// Read before carryForward fills the gaps: a section is fresh when this
+	// round set it in full.
+	fresh := map[string]bool{
+		// Counts come from the pod, node and workload lists too.
+		sectionResourceCounts: podErr == nil && nodeErr == nil &&
+			failures[sectionResourceCounts] == "" && failures[sectionWorkloadStatus] == "",
+		sectionPodStatus:        metrics.PodStatus != nil,
+		sectionNodeStatus:       metrics.NodeStatus != nil,
+		sectionWorkloadStatus:   metrics.WorkloadStatus != nil && failures[sectionWorkloadStatus] == "",
+		sectionEvents:           metrics.Events != nil,
+		sectionCriticalAlerts:   metrics.CriticalAlerts != nil,
+		sectionResourceCapacity: metrics.ResourceCapacity != nil,
+	}
 	carryForward(metrics, prev)
+	markStaleness(metrics, prev, fresh, failures, podsStale, health, time.Now())
 
 	if info, ok := h.clusterInfo(ctx, cluster, clientset, nodes); ok {
 		mu.Lock()
@@ -563,6 +649,79 @@ func carryForward(m, prev *DashboardMetrics) {
 	}
 }
 
+// podsWatchError describes a pods watch that keeps failing.
+func podsWatchError(h podcache.Health) error {
+	if h.LastError != "" {
+		return fmt.Errorf("pods watch failing: %s", h.LastError)
+	}
+	return errors.New("pods watch failing")
+}
+
+// markStaleness records when each section was last fresh and flags the
+// update stale when any section shown is not. fresh says which sections this
+// round read in full; pod sections are stale too while the pod cache serves
+// pods its watch no longer keeps current.
+func markStaleness(m, prev *DashboardMetrics, fresh map[string]bool, failures map[string]string, podsStale bool, health podcache.Health, now time.Time) {
+	nowMs := now.UnixMilli()
+	present := map[string]bool{
+		sectionResourceCounts:   len(m.ResourceCounts) > 0,
+		sectionPodStatus:        m.PodStatus != nil,
+		sectionNodeStatus:       m.NodeStatus != nil,
+		sectionWorkloadStatus:   m.WorkloadStatus != nil,
+		sectionEvents:           m.Events != nil,
+		sectionCriticalAlerts:   m.CriticalAlerts != nil,
+		sectionResourceCapacity: m.ResourceCapacity != nil,
+	}
+	m.SectionUpdatedAt = make(map[string]int64, len(dashboardSections))
+	m.Stale, m.StaleReason, m.StaleSince, m.StaleSections = false, "", 0, nil
+	for _, s := range dashboardSections {
+		if !present[s] {
+			continue
+		}
+		podStale := podsStale && podSections[s]
+		if fresh[s] && !podStale {
+			m.SectionUpdatedAt[s] = nowMs
+			continue
+		}
+		// As of the oldest of what it holds: the previous update's time for
+		// what was carried forward, the start of the failures for pods the
+		// watch stopped keeping current.
+		var at int64
+		if !fresh[s] && prev != nil {
+			at = prev.SectionUpdatedAt[s]
+		}
+		if podStale {
+			if fs := health.FailingSince.UnixMilli(); at == 0 || fs < at {
+				at = fs
+			}
+		}
+		if at != 0 {
+			m.SectionUpdatedAt[s] = at
+			if m.StaleSince == 0 || at < m.StaleSince {
+				m.StaleSince = at
+			}
+		}
+		m.StaleSections = append(m.StaleSections, s)
+	}
+	if len(m.StaleSections) == 0 {
+		return
+	}
+	m.Stale = true
+	var reasons []string
+	if podsStale {
+		reasons = append(reasons, podsWatchError(health).Error())
+	}
+	for _, s := range dashboardSections {
+		if r := failures[s]; r != "" {
+			reasons = append(reasons, s+": "+r)
+		}
+	}
+	if len(reasons) == 0 {
+		reasons = append(reasons, "could not refresh "+strings.Join(m.StaleSections, ", "))
+	}
+	m.StaleReason = strings.Join(reasons, "; ")
+}
+
 // clusterInfo returns version/platform/provider/arch, refreshed at most every
 // clusterInfoTTL: the previous path re-ran the full cluster status probe
 // (listing every node and namespace) plus a node list on every 30s tick.
@@ -607,6 +766,7 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 
 	var countWg sync.WaitGroup
 	sem := make(chan struct{}, 5)
+	var failed []string
 
 	for _, rt := range resourceTypes {
 		if counted[rt.name] {
@@ -624,6 +784,9 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 			count, err := h.k8sClient.GetResourceCount(ctx, cluster, gvr)
 			if err != nil {
 				// No count is better than a zero: the previous one is kept.
+				mu.Lock()
+				failed = append(failed, name)
+				mu.Unlock()
 				return
 			}
 
@@ -635,6 +798,10 @@ func (h *DashboardHandler) fetchResourceCounts(ctx context.Context, cluster stri
 	}
 
 	countWg.Wait()
+	if len(failed) > 0 {
+		sort.Strings(failed)
+		return fmt.Errorf("could not count %s", strings.Join(failed, ", "))
+	}
 	return nil
 }
 
@@ -700,7 +867,11 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 	// A kind that fails to list keeps its previous health, or, with none,
 	// leaves the whole section out rather than report zero workloads.
 	incomplete := false
-	failed := func(keep func(*WorkloadStatusMetrics)) {
+	var listErr error
+	failed := func(err error, keep func(*WorkloadStatusMetrics)) {
+		if listErr == nil {
+			listErr = err
+		}
 		if prevWorkloads == nil {
 			incomplete = true
 			return
@@ -710,7 +881,7 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 
 	deployments, err := clientset.AppsV1().Deployments("").List(ctx, fromWatchCache)
 	if err != nil {
-		failed(func(p *WorkloadStatusMetrics) { workloadStatus.Deployments = p.Deployments })
+		failed(err, func(p *WorkloadStatusMetrics) { workloadStatus.Deployments = p.Deployments })
 	} else {
 		workloadStatus.Deployments.Total = len(deployments.Items)
 		counts["apps:deployments"] = len(deployments.Items)
@@ -723,7 +894,7 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 
 	statefulSets, err := clientset.AppsV1().StatefulSets("").List(ctx, fromWatchCache)
 	if err != nil {
-		failed(func(p *WorkloadStatusMetrics) { workloadStatus.StatefulSets = p.StatefulSets })
+		failed(err, func(p *WorkloadStatusMetrics) { workloadStatus.StatefulSets = p.StatefulSets })
 	} else {
 		workloadStatus.StatefulSets.Total = len(statefulSets.Items)
 		counts["apps:statefulsets"] = len(statefulSets.Items)
@@ -736,7 +907,7 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 
 	daemonSets, err := clientset.AppsV1().DaemonSets("").List(ctx, fromWatchCache)
 	if err != nil {
-		failed(func(p *WorkloadStatusMetrics) { workloadStatus.DaemonSets = p.DaemonSets })
+		failed(err, func(p *WorkloadStatusMetrics) { workloadStatus.DaemonSets = p.DaemonSets })
 	} else {
 		workloadStatus.DaemonSets.Total = len(daemonSets.Items)
 		counts["apps:daemonsets"] = len(daemonSets.Items)
@@ -755,7 +926,7 @@ func (h *DashboardHandler) fetchWorkloadStatus(ctx context.Context, cluster stri
 		metrics.ResourceCounts[k] = n
 	}
 	mu.Unlock()
-	return nil
+	return listErr
 }
 
 type eventWithTime struct {
