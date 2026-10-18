@@ -389,6 +389,17 @@
   background: var(--hover);
 }
 
+/* A note between log lines (where a stream ended), set apart from them. */
+.lv-line.lv-marker {
+  color: var(--text3);
+  border-top: 1px solid var(--hair);
+  background: var(--inset);
+}
+
+.lv-line.lv-marker .lv-level {
+  display: none;
+}
+
 /* Level carries the signal (coloured token); errors keep a faint wash for scanning. */
 .lv-line.lv-error {
   border-left-color: transparent;

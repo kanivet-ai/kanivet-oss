@@ -2,6 +2,13 @@ import { useCallback, useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import api from '../services/api';
 import { useStore } from '../store';
+import {
+  collectHelmChunk,
+  finishHelmSnapshot,
+  helmMountPlan,
+  newHelmSnapshotCollector,
+  pruneHelmReleases,
+} from './helmSnapshot';
 
 const NO_RELEASES: any[] = [];
 
@@ -32,6 +39,7 @@ export const useHelmReleasesStream = (
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clusterRef = useRef(options.cluster);
   clusterRef.current = options.cluster;
+  const snapshotRef = useRef(newHelmSnapshotCollector());
 
   // Only the helm fields of the cluster's tab: other writes to the tab (list
   // updates, tree counts) do not re-render the releases page.
@@ -58,6 +66,7 @@ export const useHelmReleasesStream = (
   const setHelmReleasesProgress = useStore((state) => state.setHelmReleasesProgress);
   const setHelmReleasesError = useStore((state) => state.setHelmReleasesError);
   const clearHelmReleases = useStore((state) => state.clearHelmReleases);
+  const updateHelmReleases = useStore((state) => state.updateHelmReleases);
 
   const subscribe = useCallback((cluster: string) => {
     // Send subscribe message over existing WS
@@ -70,6 +79,7 @@ export const useHelmReleasesStream = (
     });
 
     const topic = 'helm';
+    snapshotRef.current = newHelmSnapshotCollector();
     const handler = (raw: any) => {
       const data = raw?.payload || raw;
       if (!data) return;
@@ -86,8 +96,12 @@ export const useHelmReleasesStream = (
       }
 
       // Handle releases - add incrementally to the store
+      const snapshotId = typeof data.snapshotId === 'number' && data.snapshotId > 0 ? data.snapshotId : null;
       if (data.releases && Array.isArray(data.releases)) {
-        addHelmReleases(clusterRef.current, data.releases);
+        if (snapshotId !== null && data.releases.length > 0) {
+          collectHelmChunk(snapshotRef.current, snapshotId, data.releases);
+        }
+        if (data.releases.length > 0) addHelmReleases(clusterRef.current, data.releases);
         setHelmReleasesLoading(clusterRef.current, false);
       }
 
@@ -95,7 +109,7 @@ export const useHelmReleasesStream = (
       if (data.eventType && data.release) {
         const { eventType, release } = data;
         console.log(`[Helm] Real-time event: ${eventType} ${release.namespace}/${release.name}`, release);
-        
+
         if (eventType === 'deleted') {
           console.log(`[Helm] Removing release from store: ${release.namespace}/${release.name}`);
           removeHelmRelease(clusterRef.current, release.namespace, release.name);
@@ -107,7 +121,17 @@ export const useHelmReleasesStream = (
         console.log(`[Helm] Received event without release data:`, data);
       }
 
-      // Handle completion
+      // Handle completion. A listing's Done makes it the whole list: the
+      // releases it did not include were uninstalled meanwhile.
+      if (data.done && snapshotId !== null && !data.error) {
+        const keep = finishHelmSnapshot(snapshotRef.current, snapshotId);
+        if (keep) {
+          const tab = useStore.getState().activeTabs.find((t) => t.id === clusterRef.current);
+          const current = tab?.state.helmReleases || [];
+          const pruned = pruneHelmReleases(current, keep);
+          if (pruned !== current) updateHelmReleases(clusterRef.current, pruned);
+        }
+      }
       if (data.done) {
         setHelmReleasesStreaming(clusterRef.current, false);
         setHelmReleasesLoading(clusterRef.current, false);
@@ -130,7 +154,7 @@ export const useHelmReleasesStream = (
     );
     (api as any).wsHandlers.get(topic).add(handler);
     hasSubscribedRef.current = true;
-  }, [addHelmReleases, removeHelmRelease, setHelmReleasesLoading, setHelmReleasesStreaming, setHelmReleasesProgress, setHelmReleasesError]);
+  }, [addHelmReleases, removeHelmRelease, updateHelmReleases, setHelmReleasesLoading, setHelmReleasesStreaming, setHelmReleasesProgress, setHelmReleasesError]);
 
   const unsubscribe = useCallback((cluster: string) => {
     // Send unsubscribe message
@@ -167,7 +191,7 @@ export const useHelmReleasesStream = (
     setHelmReleasesStreaming(cluster, true);
     setHelmReleasesError(cluster, null);
     setHelmReleasesProgress(cluster, null);
-    
+
     // Small delay to ensure unsubscribe is processed
     if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
     refreshTimerRef.current = setTimeout(() => {
@@ -189,31 +213,25 @@ export const useHelmReleasesStream = (
     if (!options.cluster || options.enabled === false) return;
 
     const cluster = options.cluster;
-    
-    // Check if we already have fresh data (less than 30 seconds old)
+
+    // Always subscribe: the last unmount unsubscribed, so cached releases
+    // would otherwise never change again. Fresh ones are shown meanwhile,
+    // without a loading state, and the snapshot replaces them.
     const currentTab = useStore.getState().activeTabs.find((t) => t.id === cluster);
-    const currentReleases = currentTab?.state.helmReleases || [];
-    const currentLastFetch = currentTab?.state.helmReleasesLastFetch;
-    const isStreaming = currentTab?.state.helmReleasesStreaming;
-    
-    if (currentReleases.length > 0 && currentLastFetch) {
-      const age = Date.now() - currentLastFetch;
-      if (age < 30000) {
-        // Data is fresh, just ensure loading is false
-        setHelmReleasesLoading(cluster, false);
-        return;
-      }
+    const plan = helmMountPlan({
+      releases: currentTab?.state.helmReleases,
+      lastFetch: currentTab?.state.helmReleasesLastFetch,
+    });
+
+    if (plan.showLoading) {
+      setHelmReleasesLoading(cluster, true);
+      setHelmReleasesStreaming(cluster, true);
+      setHelmReleasesProgress(cluster, null);
+    } else {
+      setHelmReleasesLoading(cluster, false);
     }
-
-    // If already streaming, don't start again
-    if (isStreaming) return;
-
-    // Start loading
-    setHelmReleasesLoading(cluster, true);
-    setHelmReleasesStreaming(cluster, true);
     setHelmReleasesError(cluster, null);
-    setHelmReleasesProgress(cluster, null);
-    
+
     subscribe(cluster);
 
     return () => {

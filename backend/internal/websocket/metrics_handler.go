@@ -72,17 +72,24 @@ type MetricsStreamRequest struct {
 }
 
 // streamPayload is one update of a stream. Stale marks an answer served from
-// the chart cache while the live one is fetched; Transient marks an error the
-// stream expects to recover from on its own.
+// the chart cache while the live one is fetched, or, without Data, that the
+// live refreshes have stopped arriving (failing or slow) and what the chart
+// shows is as of LastSuccessAt (unix ms, the last live answer). Transient
+// marks an error the stream expects to recover from on its own.
 type streamPayload[D any] struct {
-	Type      string `json:"type"`
-	Topic     string `json:"topic"`
-	Timestamp int64  `json:"timestamp"`
-	Data      *D     `json:"data,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Stale     bool   `json:"stale,omitempty"`
-	Transient bool   `json:"transient,omitempty"`
+	Type          string `json:"type"`
+	Topic         string `json:"topic"`
+	Timestamp     int64  `json:"timestamp"`
+	Data          *D     `json:"data,omitempty"`
+	Error         string `json:"error,omitempty"`
+	Stale         bool   `json:"stale,omitempty"`
+	Transient     bool   `json:"transient,omitempty"`
+	LastSuccessAt int64  `json:"lastSuccessAt,omitempty"`
 }
+
+// metricsStaleAfter is how many intervals without a live answer make what a
+// chart shows stale.
+const metricsStaleAfter = 2
 
 type MetricsStreamResponse = streamPayload[metrics.MetricResponse]
 
@@ -198,12 +205,16 @@ type fetchResult[D any] struct {
 // still running is skipped rather than piling another query on a slow store.
 // A slow or failing store never ends the stream — refreshes back off while
 // failures repeat, and the chart keeps what it shows until they have repeated
-// a few times. An update identical to the last one sent is not sent again.
+// a few times, but is marked stale as soon as a refresh fails or none has
+// answered for metricsStaleAfter intervals. An update identical to the last
+// one sent is not sent again.
 func runStream[D any](ctx context.Context, conn streamConn, interval time.Duration, done func(), msgType, topic string,
 	fetch func(context.Context) (*D, error), hasData func(*D) bool, warm []func(context.Context) (*D, error)) {
 	defer done()
 
 	var last []byte
+	// lastOK is when the last live answer arrived.
+	var lastOK time.Time
 	// send reports false when the connection is gone. An update dropped
 	// because the client is behind is simply superseded by the next one.
 	send := func(payload streamPayload[D]) bool {
@@ -217,6 +228,9 @@ func runStream[D any](ctx context.Context, conn streamConn, interval time.Durati
 			return true
 		}
 		payload.Timestamp = time.Now().Unix()
+		if !lastOK.IsZero() {
+			payload.LastSuccessAt = lastOK.UnixMilli()
+		}
 		b, err := core.NewOutgoingMessage(core.MessageType(msgType), payload).Marshal()
 		if err == nil {
 			err = conn.Send(b)
@@ -258,13 +272,30 @@ func runStream[D any](ctx context.Context, conn streamConn, interval time.Durati
 		failures int
 		notUntil time.Time
 		warmed   bool
+		// markedStale is set once the chart was told its data is stale,
+		// until the next live answer.
+		markedStale bool
 	)
+	// markStale tells a chart showing live data that no refresh is
+	// arriving: it keeps what it shows, flagged as of lastOK.
+	markStale := func() bool {
+		if markedStale || lastOK.IsZero() {
+			return true
+		}
+		markedStale = true
+		return send(streamPayload[D]{Stale: true})
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			log.Printf("[MetricsStream] Context cancelled for topic %s", topic)
 			return
 		case <-ticker.C:
+			if !lastOK.IsZero() && time.Since(lastOK) > metricsStaleAfter*interval && (running || time.Now().Before(notUntil)) {
+				if !markStale() {
+					return
+				}
+			}
 			if running || time.Now().Before(notUntil) {
 				continue
 			}
@@ -278,12 +309,18 @@ func runStream[D any](ctx context.Context, conn streamConn, interval time.Durati
 			if r.err == nil {
 				failures, notUntil = 0, time.Time{}
 				payload.Data = r.data
+				lastOK, markedStale = time.Now(), false
 			} else {
 				failures++
 				notUntil = time.Now().Add(backoff(interval, failures))
 				log.Printf("[MetricsStream] Refresh %d of %s failed: %v", failures, topic, r.err)
 				if metrics.IsTransient(r.err) {
 					if answered && failures < metricsReportAfter {
+						// Held back from the chart, but it must not
+						// pass for live meanwhile.
+						if !markStale() {
+							return
+						}
 						continue
 					}
 					payload.Error, payload.Transient = metricsSlowMessage, true

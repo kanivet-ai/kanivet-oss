@@ -19,6 +19,14 @@ import GCPIcon from './GCPIcon';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { parseClusterName } from '../utils/clusterUtils';
 import ArgoOverviewWidget from './ArgoOverviewWidget';
+import {
+  DashboardFreshness,
+  FRESH_DASHBOARD,
+  dashboardStaleMessage,
+  formatAsOf,
+  isSectionStale,
+  nextDashboardFreshness,
+} from './dashboardFreshness';
 import './ClusterDashboard.css';
 
 /** The cloud the cluster runs on, or the cluster globe when it is not a known one. */
@@ -147,6 +155,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
       criticalAlerts: (source?.criticalAlerts || []) as CriticalAlert[],
       resourceCapacity: source?.resourceCapacity || null as { cpu: { requested: number; allocatable: number; percentage: number; unit: string }; memory: { requested: number; allocatable: number; percentage: number; unit: string } } | null,
       isLoading: !source,
+      freshness: (source?.freshness || FRESH_DASHBOARD) as DashboardFreshness,
       // Counts the dashboard messages applied; the effect below publishes each one.
       streamSeq: 0,
     };
@@ -154,7 +163,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
 
   const [dashboardState, setDashboardState] = useState(getInitialState);
 
-  const { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, isLoading, podStatus, nodeStatus, workloadStatus, events, clusterInfo, resourceUsage, topConsumers } = dashboardState;
+  const { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, isLoading, podStatus, nodeStatus, workloadStatus, events, clusterInfo, resourceUsage, topConsumers, freshness } = dashboardState;
 
   useLayoutEffect(() => {
     const source = clusterDashboardCache.get(cluster) || cachedDashboard;
@@ -175,6 +184,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
             metricsAvailable: source.metricsAvailable ?? prev.metricsAvailable,
             criticalAlerts: source.criticalAlerts ?? prev.criticalAlerts,
             resourceCapacity: source.resourceCapacity ?? prev.resourceCapacity,
+            freshness: source.freshness ?? prev.freshness,
             isLoading: false,
           };
         });
@@ -188,8 +198,8 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
   useEffect(() => {
     if (dashboardState.streamSeq === 0) return;
     hasReceivedDataRef.current = true;
-    const { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, podStatus, nodeStatus, workloadStatus, events, clusterInfo } = dashboardState;
-    const published = { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, podStatus, nodeStatus, workloadStatus, events, clusterInfo, isLoading: false };
+    const { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, podStatus, nodeStatus, workloadStatus, events, clusterInfo, freshness } = dashboardState;
+    const published = { resourceCounts, metricsAvailable, criticalAlerts, resourceCapacity, podStatus, nodeStatus, workloadStatus, events, clusterInfo, freshness, isLoading: false };
     clusterDashboardCache.set(cluster, published);
     updateTabStateRef.current?.({ dashboardData: published } as any);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,8 +211,20 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
     let subscribed = false;
 
     const handleDashboardUpdate = (msg: any) => {
-      if (msg.type !== 'dashboard' || !msg.data) return;
+      if (msg.type !== 'dashboard') return;
       if (msg.cluster && msg.cluster !== cluster) return;
+      if (!msg.data) {
+        // The cluster could not be read: keep what is shown and say how old
+        // it is, rather than drop the frame and look live.
+        if (!msg.error) return;
+        setDashboardState(prev => ({
+          ...prev,
+          freshness: nextDashboardFreshness(prev.freshness, msg),
+          isLoading: false,
+          streamSeq: prev.streamSeq + 1,
+        }));
+        return;
+      }
 
       const d = msg.data;
       const hasResourceCounts = d.resourceCounts && Object.keys(d.resourceCounts).length > 0;
@@ -219,6 +241,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           workloadStatus: d.workloadStatus || prev.workloadStatus,
           events: d.events?.length ? d.events : prev.events,
           clusterInfo: d.clusterInfo || prev.clusterInfo || { version: '', platform: '', provider: '', architecture: '', nodeCount: 0 },
+          freshness: nextDashboardFreshness(prev.freshness, msg),
           isLoading: false,
         };
 
@@ -306,8 +329,24 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
   }, [resourceCounts, cluster, nodeStatus, podStatus, workloadStatus]);
 
 
+  const countsStale = isSectionStale(freshness, 'resourceCounts');
+  const staleTitle = (section: string) =>
+    isSectionStale(freshness, section) ? `Not updating — as of ${formatAsOf(freshness.asOf)}` : undefined;
+  const staleMarker = (section: string) =>
+    isSectionStale(freshness, section) ? (
+      <span className="dashboard-stale-marker" title={staleTitle(section)}>
+        <span className="ap-dot ap-dot--warning" />
+        As of {formatAsOf(freshness.asOf)}
+      </span>
+    ) : null;
+
   const renderCompactMetricCard = (metric: MetricCard) => (
-    <div key={metric.title} className="compact-metric-card">
+    <div
+      key={metric.title}
+      className="compact-metric-card"
+      data-stale={countsStale ? 'true' : undefined}
+      title={countsStale ? staleTitle('resourceCounts') : undefined}
+    >
       <div className="compact-metric-header">
         <div className="compact-metric-icon" data-tone={metric.color}>
           {metric.icon}
@@ -327,7 +366,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
     </div>
   );
 
-  const renderCompactPieChart = (data: Record<string, number>, colors: Record<string, string>, title: string, icon: React.ReactNode) => {
+  const renderCompactPieChart = (data: Record<string, number>, colors: Record<string, string>, title: string, icon: React.ReactNode, section?: string) => {
     const total = Object.values(data).reduce((sum, val) => sum + val, 0);
 
     if (total === 0) {
@@ -336,6 +375,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           <div className="compact-pie-header">
             <div className="compact-pie-icon">{icon}</div>
             <span className="compact-pie-title">{title}</span>
+            {section && staleMarker(section)}
           </div>
           <div className="compact-pie-visual">
             <div className="compact-pie-center">
@@ -370,10 +410,11 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
     });
 
     return (
-      <div className="compact-pie-chart">
+      <div className="compact-pie-chart" data-stale={section && isSectionStale(freshness, section) ? 'true' : undefined}>
         <div className="compact-pie-header">
           <div className="compact-pie-icon">{icon}</div>
           <span className="compact-pie-title">{title}</span>
+          {section && staleMarker(section)}
         </div>
         <div className="compact-pie-visual">
           <svg viewBox="0 0 100 100" className="compact-pie-svg">
@@ -472,6 +513,13 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
         </div>
       </div>
 
+      {freshness.stale && (
+        <div className="dashboard-stale-banner" role="status">
+          <span className={`ap-dot ${freshness.error ? 'ap-dot--danger' : 'ap-dot--warning'}`} />
+          <span>{dashboardStaleMessage(freshness)}</span>
+        </div>
+      )}
+
       {/* Compact Metrics Row */}
       <div className="compact-metrics-row">
         {metrics.map(renderCompactMetricCard)}
@@ -486,6 +534,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
             <ExclamationTriangleIcon />
             <span>Critical alerts</span>
             <span className="alert-count">{criticalAlerts.length}</span>
+            {staleMarker('criticalAlerts')}
           </div>
           <div className="critical-alerts-list">
             {criticalAlerts.map((alert, idx) => (
@@ -585,6 +634,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
           <div className="compact-section-header">
             <BarChartIcon />
             <span>Scheduling capacity</span>
+            {staleMarker('resourceCapacity')}
             <div className="capacity-explainer" title="Based on pod resource requests, not actual usage">
               <InfoCircledIcon />
               <span>Reservations</span>
@@ -729,7 +779,8 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
               podStatus as unknown as Record<string, number>,
               { running: 'var(--success)', pending: 'var(--warning)', failed: 'var(--danger)', succeeded: 'var(--accent-vcluster)', unknown: 'var(--text-tertiary)' },
               'Pod status',
-              getResourceIcon('pod')
+              getResourceIcon('pod'),
+              'podStatus'
             )}
           </div>
         )}
@@ -747,7 +798,8 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
               },
               { healthy: 'var(--success)', unhealthy: 'var(--danger)', jobs: 'var(--accent-vcluster)' },
               'Workload health',
-              <K.WorkloadsIcon />
+              <K.WorkloadsIcon />,
+              'workloadStatus'
             )}
           </div>
         )}
@@ -759,6 +811,7 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
             <div className="compact-section-header">
               <K.EventIcon />
               <span>Recent events</span>
+              {staleMarker('events')}
             </div>
             <div className="compact-events-filters">
               <button

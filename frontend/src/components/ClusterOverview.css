@@ -568,3 +568,19 @@
   color: var(--text2);
   line-height: 1.4;
 }
+
+.overview-stale-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 7px 10px;
+  background: var(--warning-bg);
+  color: var(--text);
+  border-radius: 8px;
+  font-size: 12.5px;
+}
+
+.overview-stale-banner .ap-dot {
+  flex-shrink: 0;
+}

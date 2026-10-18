@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { wsManager } from '../../services/api/websocket';
-import { LogBuffer, RawBatchLine } from './logEngine';
+import { LogBuffer } from './logEngine';
+import { createLogFeedState, FeedEnd, FeedStatus } from './logFeedState';
 import { subscribeLogStream } from './logSubscription';
+
+export type { FeedEnd, FeedStatus } from './logFeedState';
 
 export interface PodInfo {
   name: string;
@@ -15,8 +18,6 @@ export interface ContainerInfo {
   name: string;
   init: boolean;
 }
-
-export type FeedStatus = 'connecting' | 'live' | 'ended' | 'error';
 
 export interface FeedOptions {
   cluster: string;
@@ -41,46 +42,18 @@ export function useLogFeed(o: FeedOptions, active = true) {
   const [containers, setContainers] = useState<ContainerInfo[]>([]);
   const [status, setStatus] = useState<FeedStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [end, setEnd] = useState<FeedEnd | null>(null);
 
   const key = `${o.kind}:${o.cluster}:${o.namespace}:${o.name}:${o.container}:${o.tailLines}:${o.previous ? 1 : 0}`;
 
   useEffect(() => {
     if (!o.cluster || !o.namespace || !o.name) return;
-    let lastSeq = 0;
+    const feed = createLogFeedState(buffer, { setStatus, setError, setEnd, setPods, setContainers });
 
     const handler = (raw: any) => {
       const d = raw?.payload || raw;
       if (!d || (d.key && d.key !== key)) return;
-      switch (d.type) {
-        case 'connected':
-          setStatus('live');
-          break;
-        case 'pods':
-          setPods(d.pods || []);
-          break;
-        case 'containers':
-          setContainers(d.containers || []);
-          break;
-        case 'end':
-          setStatus('ended');
-          break;
-        case 'error':
-          setError(d.error || 'log stream error');
-          setStatus('error');
-          break;
-        case 'batch': {
-          if (typeof d.sequence === 'number') {
-            if (d.sequence <= lastSeq) return;
-            lastSeq = d.sequence;
-          }
-          const lines: RawBatchLine[] = Array.isArray(d.lines)
-            ? d.lines.map((l: any) => (typeof l === 'string' ? { data: l } : l))
-            : [];
-          buffer.append(lines);
-          setStatus((s) => (s === 'connecting' ? 'live' : s));
-          break;
-        }
-      }
+      feed.handle(d);
     };
 
     return subscribeLogStream(wsManager, window, {
@@ -93,16 +66,11 @@ export function useLogFeed(o: FeedOptions, active = true) {
       tailLines: o.tailLines,
       follow: !o.previous,
       previous: o.previous,
-    }, handler, () => {
-      lastSeq = 0;
-      buffer.clear();
-      setStatus('connecting');
-      setError(null);
-    }, () => setStatus('connecting'));
+    }, handler, feed.restart, feed.disconnect);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
 
   const version = useSyncExternalStore(active ? buffer.subscribe : noSubscription, buffer.getVersion);
 
-  return { buffer, version, pods, containers, status, error };
+  return { buffer, version, pods, containers, status, error, end };
 }
