@@ -2,22 +2,57 @@ import logger from '../../utils/logger';
 import { apiClient } from './client';
 import { PortForward } from './types';
 
+export interface ResourceDetailsOptions {
+  /** Skip the backend's short-lived detail cache: a refresh or an editor
+   * must show the object as it is now. */
+  fresh?: boolean;
+}
+
 export async function getResourceDetails(
-  cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal
+  cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal,
+  options?: ResourceDetailsOptions,
 ): Promise<any> {
   const encodedGroup = group || '_';
   const encodedNamespace = namespace || '_';
   const endpoint = `/cluster/resource/${encodeURIComponent(encodedGroup)}/${encodeURIComponent(version)}/${encodeURIComponent(kind)}/${encodeURIComponent(encodedNamespace)}/${encodeURIComponent(name)}`;
-  return await apiClient.request(endpoint, { cluster }, false, signal);
+  const params: Record<string, string> = { cluster };
+  if (options?.fresh) params.fresh = '1';
+  return await apiClient.request(endpoint, params, false, signal);
+}
+
+/** Loads `item` (a Kubernetes object, with kind and apiVersion) as it is now,
+ * past the backend's detail cache. */
+export async function fetchLatestResource(cluster: string, item: any, signal?: AbortSignal): Promise<any> {
+  const apiVersion: string = item?.apiVersion || '';
+  const slash = apiVersion.lastIndexOf('/');
+  const group = slash === -1 ? '' : apiVersion.slice(0, slash);
+  const version = slash === -1 ? apiVersion : apiVersion.slice(slash + 1);
+  const namespace = item?.metadata?.namespace || item?.namespace || '';
+  const name = item?.metadata?.name || item?.name;
+  return getResourceDetails(cluster, group, version, item?.kind, namespace, name, signal, { fresh: true });
+}
+
+export interface ResourceEventsOptions {
+  /** Only this object's events, not those of an earlier one of the same name. */
+  uid?: string;
+  /** The object's Kind and apiVersion, so a Service and a Deployment of the
+   * same name do not share their events. */
+  kind?: string;
+  apiVersion?: string;
 }
 
 export async function getResourceEvents(
-  cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal
+  cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal,
+  options?: ResourceEventsOptions,
 ): Promise<any[]> {
   const encodedGroup = group || '_';
   const encodedNamespace = namespace || '_';
   const endpoint = `/cluster/resource-events/${encodeURIComponent(encodedGroup)}/${encodeURIComponent(version)}/${encodeURIComponent(kind)}/${encodeURIComponent(encodedNamespace)}/${encodeURIComponent(name)}`;
-  const events = await apiClient.request(endpoint, { cluster }, false, signal);
+  const params: Record<string, string> = { cluster };
+  if (options?.uid) params.uid = options.uid;
+  if (options?.kind) params.kind = options.kind;
+  if (options?.apiVersion) params.apiVersion = options.apiVersion;
+  const events = await apiClient.request(endpoint, params, false, signal);
   return Array.isArray(events) ? events : [];
 }
 
