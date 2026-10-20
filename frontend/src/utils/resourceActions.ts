@@ -248,7 +248,7 @@ export const handleActionSelect = async (
       }
       break;
     case 'scale':
-      const currentReplicas = item.replicas || item.spec?.replicas || 1;
+      const currentReplicas = item.replicas ?? item.spec?.replicas ?? 1;
       setScaleDialog({ item, currentReplicas });
       break;
     case 'delete':

@@ -61,6 +61,27 @@ describe('workload logs actions', () => {
   });
 });
 
+describe('scale actions', () => {
+  it.each([
+    [{ replicas: 0 }, 0],
+    [{ spec: { replicas: 0 } }, 0],
+    [{ replicas: 0, spec: { replicas: 3 } }, 0],
+    [{ replicas: 3 }, 3],
+    [{ spec: { replicas: 2 } }, 2],
+    [{ replicas: null, spec: { replicas: 0 } }, 0],
+    [{}, 1],
+  ])('opens the dialog with the current replica count for %j', async (replicas, expected) => {
+    const { params } = logsRouteParams('Deployment');
+    params.action = 'scale';
+    params.item = { name: 'api', namespace: 'ns', ...replicas };
+    await handleActionSelect(params);
+    expect(params.setScaleDialog).toHaveBeenCalledWith({
+      item: params.item,
+      currentReplicas: expected,
+    });
+  });
+});
+
 describe('edit and shell actions', () => {
   it.each(['edit', 'shell'])('%s uses the freshly loaded details, not the stale tab detailData', async (action) => {
     const { openBottomTab, params } = logsRouteParams('Pod');

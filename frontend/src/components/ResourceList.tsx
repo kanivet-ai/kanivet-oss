@@ -409,7 +409,7 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       const namespace = e?.detail?.namespace;
       const target = listItems.find((i: any) => i.name === name && i.namespace === namespace);
       if (target) {
-        const currentReplicas = target.replicas || target.spec?.replicas || 1;
+        const currentReplicas = target.replicas ?? target.spec?.replicas ?? 1;
         setScaleDialog({ item: target, currentReplicas });
         setFocusArea('list');
       }
