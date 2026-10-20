@@ -56,6 +56,9 @@ type Hub struct {
 	wg               sync.WaitGroup
 	heartbeatStarted sync.Once
 	chain            atomic.Pointer[MessageHandlerFunc]
+	// lifeMu orders registration (including wg.Add) before shutdown cancels
+	// the hub, snapshots its connections, and waits for their goroutines.
+	lifeMu sync.Mutex
 	// connCount mirrors the entries of connections so the MaxConnections check
 	// is O(1) and a reservation closes the check/insert race.
 	connCount atomic.Int64
@@ -116,6 +119,12 @@ func (h *Hub) AddConnectionCloseHandler(handler ConnectionCloseHandler) {
 }
 
 func (h *Hub) RegisterConnection(conn *Connection) error {
+	h.lifeMu.Lock()
+	defer h.lifeMu.Unlock()
+	if err := h.ctx.Err(); err != nil {
+		return err
+	}
+
 	if conn.id == "" {
 		conn.id = ConnectionID(uuid.New().String())
 	}
@@ -398,7 +407,9 @@ func (h *Hub) Router() Router {
 }
 
 func (h *Hub) Shutdown(ctx context.Context) error {
+	h.lifeMu.Lock()
 	h.cancel()
+	h.lifeMu.Unlock()
 
 	// Close concurrently: each close may wait on a client that stopped
 	// reading, and serial closes would add those waits up.
