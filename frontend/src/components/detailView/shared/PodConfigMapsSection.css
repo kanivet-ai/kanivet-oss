@@ -1,0 +1,161 @@
+/* Pod → ConfigMaps — one row per referenced ConfigMap, usages underneath, values on expand. */
+.pod-cm-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.pod-cm-item {
+  border-bottom: 1px solid var(--hair);
+}
+
+.pod-cm-item:last-child {
+  border-bottom: 0;
+}
+
+.pod-cm-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 10px;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.pod-cm-header:hover {
+  background: var(--hover);
+}
+
+.pod-cm-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 14px;
+  background: transparent;
+  border: 0;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.pod-cm-chevron {
+  display: inline-flex;
+  color: var(--text3);
+}
+
+.pod-cm-name {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-cm-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--text3);
+  cursor: pointer;
+}
+
+.pod-cm-open:hover {
+  background: var(--ctrl);
+  color: var(--blue);
+}
+
+.pod-cm-usages {
+  list-style: none;
+  margin: 0;
+  padding: 0 14px 8px 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.pod-cm-usages li {
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.pod-cm-container {
+  color: var(--text3);
+  flex-shrink: 0;
+}
+
+.pod-cm-container::after {
+  content: ':';
+}
+
+.pod-cm-usage {
+  font-family: var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.pod-cm-note {
+  padding: 8px 14px 10px 36px;
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.pod-cm-note--danger {
+  color: var(--red);
+}
+
+.pod-cm-entries {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--hair);
+  background: var(--inset);
+}
+
+.pod-cm-entry {
+  border-bottom: 1px solid var(--hair);
+}
+
+.pod-cm-entry:last-child {
+  border-bottom: 0;
+}
+
+.pod-cm-entry-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  min-height: 28px;
+}
+
+.pod-cm-key {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pod-cm-value {
+  margin: 0;
+  padding: 0 14px 8px;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
