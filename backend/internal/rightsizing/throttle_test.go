@@ -15,6 +15,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -617,6 +618,7 @@ func TestControlledCancelledProbeKeepsBreakerHalfOpen(t *testing.T) {
 type overloadedStore struct {
 	capacity int
 	base     time.Duration
+	rand     *rand.Rand
 
 	mu       sync.Mutex
 	inflight int
@@ -630,21 +632,22 @@ func (s *overloadedStore) QueryRange(ctx context.Context, cluster, query string,
 	s.inflight++
 	n := s.inflight
 	s.peak = max(s.peak, n)
+	capacity := s.capacity
+	// Small, seeded service-time variation avoids artificial lockstep when
+	// many virtual timers would otherwise expire at exactly the same instant.
+	jitter := 0.9 + 0.2*s.rand.Float64()
 	s.mu.Unlock()
 	defer func() {
 		s.mu.Lock()
 		s.inflight--
 		s.mu.Unlock()
 	}()
-	s.mu.Lock()
-	capacity := s.capacity
-	s.mu.Unlock()
 	if n > 2*capacity {
 		s.rejected.Add(1)
-		time.Sleep(s.base / 4)
+		time.Sleep(time.Duration(float64(s.base/4) * jitter))
 		return nil, &metrics.HTTPStatusError{Store: "mimir", Code: 429}
 	}
-	time.Sleep(s.base * time.Duration(1+max(0, n-capacity)))
+	time.Sleep(time.Duration(float64(s.base*time.Duration(1+max(0, n-capacity))) * jitter))
 	s.served.Add(1)
 	return nil, nil
 }
@@ -658,15 +661,18 @@ func (s *overloadedStore) QueryInstant(ctx context.Context, cluster, query strin
 // take. AIMD must keep the store near capacity, shed almost nothing, and give
 // each user a fair share.
 func TestSimulatedUsersShareAnOverloadedStoreFairly(t *testing.T) {
-	if testing.Short() {
-		t.Skip("timing simulation")
-	}
-	store := &overloadedStore{capacity: 4, base: 10 * time.Millisecond}
+	// Scheduler delays on a busy runner must not become simulated store
+	// latency. synctest advances time only while all workers are blocked.
+	synctest.Test(t, simulateUsersSharingStore)
+}
+
+func simulateUsersSharingStore(t *testing.T) {
+	store := &overloadedStore{capacity: 4, base: 10 * time.Millisecond, rand: rand.New(rand.NewPCG(1, 2))}
 	const users, workers = 3, 12
 	// Fairness is judged on the steady state: AIMD clients converge to equal
 	// shares, but in the first second one may lose a few rounds of 429s and
 	// trail by chance, which made a whole-run comparison flaky.
-	const warmup, run = time.Second, 4 * time.Second
+	const warmup, run = 5 * time.Second, 35 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), run)
 	defer cancel()
 
@@ -693,6 +699,10 @@ func TestSimulatedUsersShareAnOverloadedStoreFairly(t *testing.T) {
 				for ctx.Err() == nil {
 					if _, err := c.QueryRange(ctx, "c", "q", time.Time{}, time.Time{}.Add(24*time.Hour), time.Minute); err == nil {
 						done[u].Add(1)
+					} else if errors.Is(err, ErrStoreBusy) {
+						// The breaker's pause extends past the run's deadline.
+						// Retrying immediately would spin without advancing time.
+						return
 					}
 				}
 			}()
@@ -731,11 +741,16 @@ func TestSimulatedUsersShareAnOverloadedStoreFairly(t *testing.T) {
 // must notice and back off so the store mostly stops shedding load, instead of
 // keeping it pinned at the rejection point.
 func TestSimulatedStoreDegradationMakesClientsBackOff(t *testing.T) {
-	if testing.Short() {
-		t.Skip("timing simulation")
-	}
-	store := &overloadedStore{capacity: 6, base: 10 * time.Millisecond}
-	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	synctest.Test(t, simulateStoreDegradation)
+}
+
+func simulateStoreDegradation(t *testing.T) {
+	store := &overloadedStore{capacity: 6, base: 10 * time.Millisecond, rand: rand.New(rand.NewPCG(3, 4))}
+	// Allow a full retry sequence to settle, then observe many breaker and
+	// retry cycles. A 1.5-second sample could be dominated by one jittered
+	// burst even when the clients were backing off correctly.
+	const beforeDrop, settle, observe = 1500 * time.Millisecond, 10 * time.Second, 30 * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), beforeDrop+settle+observe)
 	defer cancel()
 	var wg sync.WaitGroup
 	for u := range 3 {
@@ -747,18 +762,20 @@ func TestSimulatedStoreDegradationMakesClientsBackOff(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				for ctx.Err() == nil {
-					_, _ = c.QueryRange(ctx, "c", "q", time.Time{}, time.Time{}.Add(24*time.Hour), time.Minute)
+					if _, err := c.QueryRange(ctx, "c", "q", time.Time{}, time.Time{}.Add(24*time.Hour), time.Minute); errors.Is(err, ErrStoreBusy) {
+						return // the breaker cannot reopen before the run ends
+					}
 				}
 			}()
 		}
 	}
-	time.Sleep(1500 * time.Millisecond)
+	time.Sleep(beforeDrop)
 	store.mu.Lock()
 	store.capacity = 1
 	store.mu.Unlock()
 	rejectedAtDrop := store.rejected.Load()
 	servedAtDrop := store.served.Load()
-	time.Sleep(time.Second) // let them adapt
+	time.Sleep(settle)
 	adaptRejected, adaptServed := store.rejected.Load(), store.served.Load()
 	wg.Wait()
 	lateRejected := store.rejected.Load() - adaptRejected
@@ -769,8 +786,8 @@ func TestSimulatedStoreDegradationMakesClientsBackOff(t *testing.T) {
 	}
 	// Latency alone never takes a client below one query in flight (so a
 	// small client isn't starved by a big one), so three uncoordinated
-	// clients against a store that now rejects above two settle into a
-	// trickle of rejections: 14-24% across runs and machines. Without
+	// clients against a store that now rejects above two still produce
+	// occasional overload answers while probing for capacity. Without
 	// backing off nearly everything would be rejected: 30 workers on a
 	// store that takes two. The breaker pause here is 100-200ms; in
 	// production it is a minute or two, which sheds far less.

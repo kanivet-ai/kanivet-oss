@@ -322,6 +322,7 @@ func TestWebSocketServerShutdown(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		defer conn.Close()
 		connections[i] = conn
 	}
 
@@ -332,15 +333,17 @@ func TestWebSocketServerShutdown(t *testing.T) {
 	if err := server.Shutdown(ctx); err != nil {
 		t.Errorf("Shutdown failed: %v", err)
 	}
+	if got := server.Hub().CountConnections(); got != 0 {
+		t.Errorf("Shutdown left %d connections registered", got)
+	}
 
 	// Connections should be closed
 	for i, conn := range connections {
 		_ = conn.SetReadDeadline(time.Now().Add(time.Second))
 		_, _, err := conn.ReadMessage()
-		if err == nil {
-			t.Errorf("Connection %d should have been closed", i)
+		if !websocket.IsCloseError(err, websocket.CloseNormalClosure) {
+			t.Errorf("Connection %d: got %v, want a normal close frame", i, err)
 		}
-		_ = conn.Close()
 	}
 }
 

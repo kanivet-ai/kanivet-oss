@@ -8,6 +8,7 @@ import MetricsPropertyGroup from './shared/MetricsPropertyGroup';
 import ConditionsView from './shared/ConditionsView';
 import SpecificationSection from './shared/SpecificationSection';
 import EventsSection from './shared/EventsSection';
+import PodConfigMapsSection from './shared/PodConfigMapsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
 import api from '../../services/api';
@@ -32,6 +33,7 @@ import Dialog from '../common/Dialog';
 import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
+import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -526,6 +528,12 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                   <>
                     <ContainersSection resource={resource} cluster={cluster} onVolumeClick={handleResourceClick} />
                     <div className="section-divider" />
+                    {collectPodConfigMapRefs(spec).length > 0 && (
+                      <>
+                        <PodConfigMapsSection key={metadata.uid} spec={spec} namespace={metadata.namespace || 'default'} cluster={cluster} handleResourceClick={handleResourceClick} />
+                        <div className="section-divider" />
+                      </>
+                    )}
                   </>
                 )}
 
