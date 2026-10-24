@@ -3,6 +3,19 @@ export interface RealtimeEvent {
   item?: any;
   epoch?: number;
   itemCount?: number;
+  // A sync that closes a list the backend could not read. It carries no rows
+  // and reconciles nothing: what is on screen is still what it was.
+  failed?: boolean;
+  error?: string;
+  errorCode?: string;
+  // When the backend last had the whole list (unix ms), 0 when never.
+  lastSyncAt?: number;
+}
+
+export interface SyncFailure {
+  error?: string;
+  errorCode?: string;
+  lastSyncAt?: number;
 }
 
 export interface RealtimeSession {
@@ -22,7 +35,13 @@ export interface ApplyResult {
   items: any[];
   changed: boolean;
   completedEpoch?: number;
+  // A sync that was not a failure arrived in this batch.
   syncSeen: boolean;
+  // Set when the last sync of the batch was a failed one.
+  failure?: SyncFailure;
+  // Objects a completed listing no longer has, dropped without a deleted event
+  // of their own (they went while the subscription was not watching).
+  removed?: any[];
 }
 
 export const newRealtimeSession = (): RealtimeSession => ({
@@ -103,10 +122,17 @@ export function applyRealtimeEvents(
   let changed = false;
   let completedEpoch: number | undefined;
   let syncSeen = false;
+  let failure: SyncFailure | undefined;
+  let removedByListing: any[] | undefined;
 
   for (const ev of events) {
     if (ev.action === 'sync') {
+      if (ev.failed) {
+        failure = { error: ev.error, errorCode: ev.errorCode, lastSyncAt: ev.lastSyncAt };
+        continue;
+      }
       syncSeen = true;
+      failure = undefined;
       const e = ev.epoch || 0;
       if (e > 0) {
         const seen = s.epochSeen.get(e) || new Set<string>();
@@ -115,6 +141,7 @@ export function applyRealtimeEvents(
         if (complete) {
           for (const [key, pos] of [...index]) {
             if (!seen.has(key) && (s.touch.get(key) || 0) < started) {
+              (removedByListing ??= []).push((next ?? base)[pos]);
               remove(key, pos);
               changed = true;
             }
@@ -200,7 +227,11 @@ export function applyRealtimeEvents(
     }
   }
 
-  if (!changed) return { items: baseItems, changed, completedEpoch, syncSeen };
+  const extra = {
+    ...(failure && { failure }),
+    ...(removedByListing && { removed: removedByListing }),
+  };
+  if (!changed) return { items: baseItems, changed, completedEpoch, syncSeen, ...extra };
   s.items = next!;
-  return { items: next!, changed, completedEpoch, syncSeen };
+  return { items: next!, changed, completedEpoch, syncSeen, ...extra };
 }

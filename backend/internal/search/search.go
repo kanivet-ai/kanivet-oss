@@ -11,7 +11,15 @@ import (
 	"github.com/kanivet/backend/internal/utils"
 )
 
+// Search returns the documents matching query, limited to clusters the
+// current kubeconfigs name, each marked with when it was indexed and whether
+// it is stale (see annotateFreshness).
 func (s *Service) Search(query string, options SearchOptions) ([]SearchResult, error) {
+	clusters, ok := s.restrictToKnownClusters(options.Clusters)
+	if !ok {
+		return []SearchResult{}, nil
+	}
+	options.Clusters = clusters
 	searchQuery := s.parseQuery(query, options)
 	if clusters := queryClusters(searchQuery); len(clusters) > 0 {
 		s.mu.Lock()
@@ -26,13 +34,13 @@ func (s *Service) Search(query string, options SearchOptions) ([]SearchResult, e
 		return s.searchWithKinds(searchQuery)
 	}); err == nil {
 		results := cached.([]SearchResult)
-		return results, nil
+		return s.annotateFreshness(results), nil
 	}
 	results, err := s.searchWithKinds(searchQuery)
 	if err != nil {
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
-	return results, nil
+	return s.annotateFreshness(results), nil
 }
 
 func (s *Service) searchWithKinds(query SearchQuery) ([]SearchResult, error) {
@@ -377,6 +385,7 @@ func (s *Service) searchDBFallback(query SearchQuery, limit int, existingResults
 			break
 		}
 	}
+	dbResults = s.keepKnownClusters(dbResults)
 	if len(dbResults) > 0 {
 		log.Printf("[SEARCH] DB fallback returned %d additional results for query '%s'", len(dbResults), query.Text)
 	}

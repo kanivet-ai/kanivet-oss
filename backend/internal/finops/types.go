@@ -172,6 +172,11 @@ type ClusterCostSummary struct {
 	PricingInfo PricingInfo   `json:"pricingInfo"`
 	VCluster    *VClusterCost `json:"vcluster,omitempty"`
 	LastUpdated time.Time     `json:"lastUpdated"`
+	// PodsStale is set when the dashboard was computed from pods the pod
+	// cache had stopped keeping current: its watch has been failing since
+	// PodsStaleSince.
+	PodsStale      bool       `json:"podsStale,omitempty"`
+	PodsStaleSince *time.Time `json:"podsStaleSince,omitempty"`
 }
 
 // VClusterCost puts a vcluster's spend in the context of its host cluster.

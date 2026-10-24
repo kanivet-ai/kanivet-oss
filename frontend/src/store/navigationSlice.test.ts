@@ -202,3 +202,11 @@ it('reveals the category and nested API-version group for custom resources', asy
   expect(state().expandedNodes.has('custom')).toBe(true);
   expect(state().expandedNodes.has('custom-example.io-v1')).toBe(true);
 });
+
+it('shows an object deleted since it was visited as deleted when history goes back to it', async () => {
+  await visit(entry('first')); await visit(entry('second'));
+  vi.mocked(api.getResourceDetails).mockRejectedValue({ response: { status: 404 } });
+  await store.getState().navigateBack();
+  await vi.waitFor(() => expect(activeDetail().isDeleted).toBe(true));
+  expect(activeDetail().item.metadata.name).toBe('first');
+});

@@ -481,7 +481,14 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     />
                   )}
                   {resource.kind === 'Pod' && cluster.startsWith('vcluster:') && metadata.namespace && metadata.name && (
-                    <VClusterHostRows cluster={cluster} namespace={metadata.namespace} name={metadata.name} />
+                    <VClusterHostRows
+                      cluster={cluster}
+                      namespace={metadata.namespace}
+                      name={metadata.name}
+                      uid={metadata.uid}
+                      nodeName={spec.nodeName}
+                      phase={status.phase}
+                    />
                   )}
                   {resource.kind === 'Pod' && status.podIP && (
                     <PropertyRow label="Pod IP" value={status.podIP} copyText={status.podIP} mono />

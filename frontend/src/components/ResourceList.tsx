@@ -36,6 +36,8 @@ import { createNavigationHandlers } from '../utils/keyboardShortcuts';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { getNextSortOrder, getSortIndicator } from '../utils/columnSorting';
 import { lazyView } from '../utils/lazyView';
+import { itemsTopic } from '../store/realtimeSlice';
+import { PAGE_KINDS } from '../store/pageKinds';
 import './ResourceList.css';
 
 // Full pages other than the cluster overview load on demand (warmed when idle).
@@ -50,8 +52,6 @@ const IncidentTimelinePage = lazyView(
   () => import('./incidents/IncidentTimelinePage'),
 );
 
-// Resource-list tabs that show a full page rather than a resource table.
-const PAGE_KINDS = new Set(['ClusterSettings', 'ClusterDashboard', 'FinOpsDashboard', 'RightsizingDashboard', 'HelmReleases', 'IncidentTimeline', 'ArgoApplicationsOverview']);
 
 // Scroll offset of each list, by cluster and list. Kept out of the store: the
 // table reports it on every scroll frame and only a remount reads it. It is
@@ -367,28 +367,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
       currentAbortControllerRef.current = abortController;
 
       try {
+        // loadDetails puts the answer into the detail tab of the cluster it
+        // was asked for. Copying the detail of the cluster on screen now
+        // into that tab put another cluster's object there after a switch.
         await loadDetails(currentTab, resource, item, abortController.signal);
-        if (currentLoadingRequestRef.current === requestId) {
-          const updatedTabState = getCurrentTabState();
-          if (updatedTabState?.activeDetailTab && updatedTabState.detailData) {
-            const activeDetailTabId = updatedTabState.activeDetailTab;
-            useStore.setState((s) => ({
-              activeTabs: s.activeTabs.map((t) =>
-                t.id === currentTab
-                  ? {
-                    ...t,
-                    state: {
-                      ...t.state,
-                      detailTabs: t.state.detailTabs.map((dt) =>
-                        dt.id === activeDetailTabId ? { ...dt, item: updatedTabState.detailData } : dt
-                      ),
-                    },
-                  }
-                  : t
-              ),
-            }));
-          }
-        }
       } catch (error: any) {
         if (currentLoadingRequestRef.current === requestId) {
           currentLoadingRequestRef.current = null;
@@ -635,6 +617,33 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
     [sortBy, sortOrder]
   );
 
+  // Loading, received and failed are kept for the list on screen (the tree
+  // selection) in the cluster tab's state, and for every list by topic. A
+  // split pane showing another list reads its own, not the focused one's.
+  const listTopic =
+    currentTab && selectedNode?.type === 'resource' && selectedNode.data?.version && selectedNode.data?.name
+      ? itemsTopic(currentTab, selectedNode.data)
+      : null;
+  const tabNode = tabState?.selectedNode;
+  const shownTopic =
+    currentTab && tabNode?.type === 'resource' && tabNode.data ? itemsTopic(currentTab, tabNode.data) : null;
+  const ownsTabState = !listTopic || shownTopic === listTopic;
+  const listHealth = useStore((s) => (listTopic ? s.topicHealth?.[listTopic] : undefined));
+  const listIsLoading = ownsTabState ? !!tabState?.isLoadingListItems : !listHealth?.live && !listHealth?.failing;
+  const listHasReceived = ownsTabState ? !!tabState?.hasReceivedInitialListData : !!listHealth?.live;
+  const listLoadError = (ownsTabState ? tabState?.loadError : listHealth?.failing?.error) ?? null;
+  const releaseRealtimeTopics = useStore((s) => s.releaseRealtimeTopics);
+  const retryList = useCallback(() => {
+    if (ownsTabState || !listTopic) {
+      void reloadListItems();
+      return;
+    }
+    // A pane's own list: subscribed again from scratch, the focused one is
+    // left as it is.
+    releaseRealtimeTopics((t) => t === listTopic);
+    startRealtime(true);
+  }, [ownsTabState, listTopic, reloadListItems, releaseRealtimeTopics, startRealtime]);
+
   const isDisconnected = useStore(
     (s) =>
       s.getOverallState() !== 'connected' ||
@@ -697,13 +706,14 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
           onActionClick={actions.handleActionClick}
           restartingItems={restartingItems}
           resourceKind={resourceKindForColumns}
-          isLoading={tabState?.isLoadingListItems || false}
-          hasReceivedData={tabState?.hasReceivedInitialListData || false}
+          isLoading={listIsLoading}
+          hasReceivedData={listHasReceived}
           rolloutStatuses={rolloutStatuses}
           handleNamespaceChange={handleNamespaceChange}
-          loadError={tabState?.loadError ?? null}
+          loadError={listLoadError}
+          lastSyncAt={listHealth?.lastSyncAt}
           cluster={currentTab}
-          onRetry={reloadListItems}
+          onRetry={retryList}
           scrollPosition={scrollPosition}
           onScrollChange={handleScrollChange}
           totalBeforeNamespaceFilter={listItems.length}

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // DefaultSearchShards is the default number of search index shards. Sized to a
@@ -168,15 +169,21 @@ func clusterFromID(id string) string {
 }
 
 // RemoveByCoordinates removes documents matching cluster+namespace+name from the
-// cluster's shard, regardless of kind form. Returns the number removed.
-func (s *ShardedIndex) RemoveByCoordinates(cluster, namespace, name string) int {
-	return s.shardForCluster(cluster).RemoveByCoordinates(cluster, namespace, name)
+// cluster's shard, limited to one resource type but regardless of kind form.
+// Returns the removed IDs.
+func (s *ShardedIndex) RemoveByCoordinates(cluster string, t TypeCoords, namespace, name string) []string {
+	return s.shardForCluster(cluster).RemoveByCoordinates(cluster, t, namespace, name)
 }
 
 // ReconcileType removes stale documents of a resource type on the cluster's
 // shard whose namespace/name is absent from liveKeys. Returns the removed IDs.
-func (s *ShardedIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}) []string {
-	return s.shardForCluster(cluster).ReconcileType(cluster, group, version, kind, liveKeys)
+func (s *ShardedIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}, listedAt time.Time) []string {
+	return s.shardForCluster(cluster).ReconcileType(cluster, group, version, kind, liveKeys, listedAt)
+}
+
+// KindDefinitions returns the cluster's KindDefinition documents.
+func (s *ShardedIndex) KindDefinitions(cluster string) []SearchableResource {
+	return s.shardForCluster(cluster).KindDefinitions(cluster)
 }
 
 // DocumentCount sums document counts across all shards.
@@ -312,6 +319,15 @@ func (s *ShardedIndex) HasDocument(id string) bool {
 }
 
 // Stats aggregates stats across shards.
+// Clusters returns the clusters that have documents in any shard.
+func (s *ShardedIndex) Clusters() []string {
+	var out []string
+	for _, sh := range s.shards {
+		out = append(out, sh.Clusters()...)
+	}
+	return out
+}
+
 func (s *ShardedIndex) Stats() IndexStats {
 	var agg IndexStats
 	clusterSet := make(map[string]struct{})

@@ -1,18 +1,19 @@
 import { describe, expect, it, vi } from 'vitest';
 
-const { post, request, invalidateCache } = vi.hoisted(() => ({ post: vi.fn(), request: vi.fn(), invalidateCache: vi.fn() }));
+const { post, request, requestFresh, invalidateCache } = vi.hoisted(() => ({ post: vi.fn(), request: vi.fn(), requestFresh: vi.fn(), invalidateCache: vi.fn() }));
 
 vi.mock('./client', () => ({
   apiClient: {
     getAxios: () => ({ post }),
     request,
+    requestFresh,
     invalidateCache,
     getCacheKey: (endpoint: string, params?: any) => `${endpoint}:${JSON.stringify(params || {})}`,
   },
 }));
 vi.mock('./sseFetch', () => ({ streamJsonLines: vi.fn() }));
 
-import { getCachedBatchClusterStatus, getClusterStatus } from './clusters';
+import { getCachedBatchClusterStatus, getClusterStatus, getResources } from './clusters';
 
 describe('getCachedBatchClusterStatus', () => {
   it('requests cached statuses without forcing a probe', async () => {
@@ -41,5 +42,20 @@ describe('getClusterStatus', () => {
 
     expect(request).toHaveBeenLastCalledWith('/cluster/status', { cluster: 'c1', force: 'true' }, false);
     expect(invalidateCache).toHaveBeenLastCalledWith('/cluster/status:{"cluster":"c1"}');
+  });
+});
+
+describe('getResources', () => {
+  it('reads counts fresh every time and marks them as counted', async () => {
+    requestFresh.mockResolvedValue({ resources: [{ name: 'pods', count: 70 }] });
+    await expect(getResources('c1', 'workloads')).resolves.toEqual([{ name: 'pods', count: 70, countFetched: true }]);
+    expect(requestFresh).toHaveBeenLastCalledWith('/resources/list', { cluster: 'c1', category: 'workloads' });
+    expect(request).not.toHaveBeenCalledWith('/resources/list', expect.anything());
+  });
+
+  it('answers a listing without counts from the request cache', async () => {
+    request.mockResolvedValueOnce({ resources: [{ name: 'pods' }] });
+    await expect(getResources('c1', 'workloads', true)).resolves.toEqual([{ name: 'pods' }]);
+    expect(request).toHaveBeenLastCalledWith('/resources/list', { cluster: 'c1', category: 'workloads', skipCounts: 'true' });
   });
 });

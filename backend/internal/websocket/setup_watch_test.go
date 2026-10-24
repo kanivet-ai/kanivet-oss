@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ type fakeWatch struct {
 	resyncs    int
 	onResync   func(call int)
 	resyncCall []time.Time
+	desyncs    []bool
 }
 
 func (f *fakeWatch) StartWatch(cluster, group, version, kind, namespace, sortBy, sortOrder string) error {
@@ -61,6 +63,18 @@ func (f *fakeWatch) Resync(topic string) {
 	if hook != nil {
 		hook(n)
 	}
+}
+
+func (f *fakeWatch) SetDesynced(topic string, desynced bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.desyncs = append(f.desyncs, desynced)
+}
+
+func (f *fakeWatch) desyncReports() []bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]bool(nil), f.desyncs...)
 }
 
 func (f *fakeWatch) snapshot() (refs, underflow, stops int) {
@@ -249,7 +263,56 @@ func TestDropWithinCooldownIsDeferredNotLost(t *testing.T) {
 	waitFor(t, "the deferred resync", func() bool { return resyncCount(f) == 2 })
 }
 
-// A client that keeps losing the resync cannot make it loop forever.
+// Past its quick reruns a resync that keeps losing messages used to give up
+// until the next drop, which on a quiet topic never came. It now reports the
+// topic desynced, keeps retrying on a slow timer, and clears the report once
+// a pass goes through.
+func TestResyncKeepsRetryingADesyncedTopicSlowly(t *testing.T) {
+	f := &fakeWatch{}
+	r := newTestCoordinator(f)
+	r.cooldown = 10 * time.Millisecond
+	r.slowRetries = []time.Duration{40 * time.Millisecond, 80 * time.Millisecond}
+	var lossy atomic.Bool
+	lossy.Store(true)
+	f.onResync = func(int) {
+		if lossy.Load() {
+			r.request("items:t")
+		}
+	}
+	r.request("items:t")
+	waitFor(t, "the desync report", func() bool { return len(f.desyncReports()) == 1 })
+	if got := f.desyncReports(); !got[0] {
+		t.Fatalf("reports %v, want desynced", got)
+	}
+	n := resyncCount(f)
+	if n < r.maxReruns+1 || n > r.maxReruns+2 {
+		t.Fatalf("reported after %d passes, want %d", n, r.maxReruns+1)
+	}
+	waitFor(t, "slow retries", func() bool { return resyncCount(f) >= n+3 })
+	f.mu.Lock()
+	calls := f.resyncCall
+	slow, slower := calls[n].Sub(calls[n-1]), calls[n+2].Sub(calls[n+1])
+	f.mu.Unlock()
+	if slow < 40*time.Millisecond || slower < 80*time.Millisecond {
+		t.Fatalf("slow retries %v then %v, want at least the slow delays", slow, slower)
+	}
+	if got := f.desyncReports(); len(got) != 1 {
+		t.Fatalf("reports %v while still desynced, want one", got)
+	}
+
+	lossy.Store(false)
+	waitFor(t, "the desync to clear", func() bool { return len(f.desyncReports()) == 2 })
+	if got := f.desyncReports(); got[1] {
+		t.Fatalf("reports %v, want cleared", got)
+	}
+	settled := resyncCount(f)
+	time.Sleep(150 * time.Millisecond)
+	if resyncCount(f) != settled {
+		t.Fatal("resyncs went on after a pass went through")
+	}
+}
+
+// A client that keeps losing the resync cannot make it loop quickly forever.
 func TestResyncRerunsAreBounded(t *testing.T) {
 	f := &fakeWatch{}
 	r := newTestCoordinator(f)

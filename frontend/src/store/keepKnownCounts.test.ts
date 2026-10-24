@@ -28,6 +28,16 @@ describe('keepKnownCounts', () => {
     expect(next[0].children![0].count).toBe(3);
   });
 
+  it('keeps an old count over a fetched one that is pending', () => {
+    const fetched = { ...res('pods'), data: { name: 'pods', countFetched: true, countPending: true } };
+    expect(keepKnownCounts([res('pods', 780)], [fetched])[0].count).toBe(780);
+  });
+
+  it('drops an old count when the backend counted and has none (forbidden, not served)', () => {
+    const fetched = { ...res('pods'), data: { name: 'pods', countFetched: true } };
+    expect(keepKnownCounts([res('pods', 780)], [fetched])[0].count).toBeUndefined();
+  });
+
   it('returns the new nodes as they are when nothing was loaded before', () => {
     const placeholders = [res('pods')];
     expect(keepKnownCounts(undefined, placeholders)).toBe(placeholders);

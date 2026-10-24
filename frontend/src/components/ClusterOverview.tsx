@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, type ReactNode } from 'react';
+import React, { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowTopRightIcon, ArrowBottomRightIcon, ExclamationTriangleIcon } from '@radix-ui/react-icons';
 import { useStore } from '../store';
 import api from '../services/api';
 import { DashboardOverviewMetric } from '../store/types';
 import { NodeIcon, PodIcon, ServiceIcon, NamespaceIcon } from './icons/kube';
+import { FRESH_DASHBOARD, dashboardStaleMessage, nextDashboardFreshness } from './dashboardFreshness';
 import './ClusterOverview.css';
 
 const ICONS: Record<DashboardOverviewMetric['iconKey'], ReactNode> = {
@@ -28,6 +29,9 @@ const ClusterOverview: React.FC = () => {
   const clusterData = useStore(s => (currentTab && s.clusterDashboards[currentTab]) || EMPTY_DASHBOARD);
   const refreshRef = useRef<NodeJS.Timeout | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  // Like the streamed overview: a load that fails keeps what is shown and
+  // says how old it is.
+  const [freshness, setFreshness] = useState(FRESH_DASHBOARD);
 
   const loadDashboard = async () => {
     const cluster = currentTab;
@@ -35,6 +39,11 @@ const ClusterOverview: React.FC = () => {
     abortRef.current?.abort();
     const ctrl = new AbortController();
     abortRef.current = ctrl;
+    let failed = false;
+    const fail = (error: string) => {
+      failed = true;
+      setFreshness(prev => nextDashboardFreshness(prev, { error }));
+    };
     try {
       await api.streamClusterDashboard(cluster, (type, data) => {
         switch (type) {
@@ -65,19 +74,26 @@ const ClusterOverview: React.FC = () => {
             updateClusterDashboard(cluster, { clusterInfo: data });
             break;
           case 'error':
+            fail(typeof data === 'string' ? data : 'Failed to load cluster dashboard');
             window.dispatchEvent(new CustomEvent('cluster:error', {
               detail: { cluster, errorCode: 'cluster_error', errorMessage: typeof data === 'string' ? data : 'Failed to load cluster dashboard', recoverable: true },
             }));
             break;
         }
       }, ctrl.signal);
+      if (!failed && !ctrl.signal.aborted) {
+        setFreshness(prev => nextDashboardFreshness(prev, { timestamp: new Date().toISOString(), data: { stale: false } }));
+      }
     } catch (err: any) {
-      if (err?.name !== 'AbortError') console.error('Failed to load dashboard:', err);
+      if (err?.name === 'AbortError') return;
+      console.error('Failed to load dashboard:', err);
+      fail(err?.message || 'Failed to load cluster dashboard');
     }
   };
 
   useEffect(() => {
     if (!currentTab) return;
+    setFreshness(FRESH_DASHBOARD);
     loadDashboard();
     refreshRef.current = setInterval(loadDashboard, 300000);
     return () => {
@@ -179,6 +195,13 @@ const ClusterOverview: React.FC = () => {
         <h3>Cluster Overview</h3>
         <span className="overview-subtitle">{currentTab}</span>
       </div>
+
+      {freshness.stale && (
+        <div className="overview-stale-banner" role="status">
+          <span className="ap-dot ap-dot--danger" />
+          <span>{dashboardStaleMessage(freshness)}</span>
+        </div>
+      )}
 
       {/* Metric Cards */}
       <div className="metrics-grid">

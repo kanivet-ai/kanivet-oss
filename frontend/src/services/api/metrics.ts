@@ -471,6 +471,16 @@ export function workloadStreamTopic(
   return `workload_metrics:${cluster}:${namespace}:${metricType}:${timeRange}:${pods}`;
 }
 
+/**
+ * How current the data a stream delivers is. Stale while it is a preview from
+ * the cache, or while the live refreshes are failing or slow: the chart keeps
+ * it, as of lastSuccessAt (unix ms) when known.
+ */
+export interface MetricsFreshness {
+  stale: boolean;
+  lastSuccessAt?: number;
+}
+
 interface MetricsStreamOptions<T> {
   cluster: string;
   messageType: 'metrics' | 'workload_metrics';
@@ -479,9 +489,14 @@ interface MetricsStreamOptions<T> {
   identity: Record<string, unknown>;
   settings: Record<string, unknown>;
   normalize: (data: any) => T;
-  onData: (data: T) => void;
+  onData: (data: T, freshness: MetricsFreshness) => void;
   onError: (error: string) => void;
 }
+
+const freshnessOf = (payload: any): MetricsFreshness => ({
+  stale: !!payload.stale,
+  lastSuccessAt: typeof payload.lastSuccessAt === 'number' && payload.lastSuccessAt > 0 ? payload.lastSuccessAt : undefined,
+});
 
 function openMetricsStream<T>(options: MetricsStreamOptions<T>): () => void {
   const { cluster, messageType, topic, onData, onError } = options;
@@ -495,6 +510,8 @@ function openMetricsStream<T>(options: MetricsStreamOptions<T>): () => void {
   if (!handlers.has(messageType)) handlers.set(messageType, new Set());
 
   let receivedInitialResponse = false;
+  // The last data delivered, flagged again when the stream says it went stale.
+  let last: T | undefined;
   const initialResponseTimeout = window.setTimeout(() => {
     if (receivedInitialResponse) return;
     const message = 'Metrics provider is unavailable: no answer from the metrics stream';
@@ -521,7 +538,11 @@ function openMetricsStream<T>(options: MetricsStreamOptions<T>): () => void {
     } else if (payload.data) {
       // A preview from the cache says nothing about reaching the provider now.
       if (!payload.stale) markMetricsProviderAvailable(cluster);
-      onData(options.normalize(payload.data));
+      last = options.normalize(payload.data);
+      onData(last, freshnessOf(payload));
+    } else if (payload.stale && last !== undefined) {
+      // No live answer is arriving: what is shown is getting old.
+      onData(last, freshnessOf(payload));
     }
   };
 
@@ -552,7 +573,7 @@ export function startMetricsStream(
   pod: string,
   metricType: string,
   timeRange: string,
-  onData: (data: MetricsSeries) => void,
+  onData: (data: MetricsSeries, freshness?: MetricsFreshness) => void,
   onError: (error: string) => void,
   containerName?: string,
   provider?: string,
@@ -602,7 +623,7 @@ export function startWorkloadMetricsStream(
   podNames: string[],
   metricType: string,
   timeRange: string,
-  onData: (data: WorkloadSeries) => void,
+  onData: (data: WorkloadSeries, freshness?: MetricsFreshness) => void,
   onError: (error: string) => void,
   provider?: string,
   streamingRate: number = 2,

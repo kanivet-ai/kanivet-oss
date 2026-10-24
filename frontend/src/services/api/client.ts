@@ -234,6 +234,23 @@ class ApiClient {
     return request;
   }
 
+  // A read that must be current, such as the sidebar counts: never answered
+  // from the cache (a count a minute old was written over the one the
+  // backend had just pushed) and never cached. Identical reads in flight
+  // still share one round trip.
+  async requestFresh(endpoint: string, params?: any): Promise<any> {
+    const key = `fresh:${this.getCacheKey(endpoint, params)}`;
+    const pending = this.inflight.get(key);
+    if (pending) return pending;
+    const request = this.fetchAndCache(endpoint, params, false, key);
+    const forget = () => {
+      if (this.inflight.get(key) === request) this.inflight.delete(key);
+    };
+    request.then(forget, forget);
+    this.inflight.set(key, request);
+    return request;
+  }
+
   private async fetchAndCache(
     endpoint: string,
     params: any,

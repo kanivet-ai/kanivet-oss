@@ -108,6 +108,23 @@ func (s *simpleRateLimiter) Reset(connID core.ConnectionID) {
 	delete(s.buckets, connID)
 }
 
+// rateLimitExempt are the message types the rate limiter never throttles:
+// subscriptions (dropping one desyncs the watch refcounts) and the start and
+// stop of the streams. A reconnect replays every open stream, restarts its
+// log tails and flushes the client's outbox at once; those used to share a
+// 10-message bucket, and the ones past it were dropped without a word, so a
+// view stayed on a stream that never restarted.
+var rateLimitExempt = []core.MessageType{
+	"subscribe", "unsubscribe", "ping", "pong",
+	"dashboard", "metrics", "helm", "logs", "cloud.discover",
+}
+
+// The bucket for everything else: a burst of 50, refilled at 50 a second.
+const (
+	rateLimitBurst  = 50
+	rateLimitRefill = 20 * time.Millisecond
+)
+
 type Server struct {
 	hub         *core.Hub
 	server      *transport.Server
@@ -122,11 +139,11 @@ func NewServer() *Server {
 	hubConfig := core.DefaultHubConfig()
 	hub := core.NewHub(hubConfig, router, subManager)
 
-	rateLimiter := newSimpleRateLimiter(10, 100*time.Millisecond)
+	rateLimiter := newSimpleRateLimiter(rateLimitBurst, rateLimitRefill)
 
 	hub.AddMiddleware(core.RecoveryMiddleware())
 	hub.AddMiddleware(core.LoggingMiddleware(nil))
-	hub.AddMiddleware(core.RateLimitMiddleware(rateLimiter, "subscribe", "unsubscribe", "ping", "pong"))
+	hub.AddMiddleware(core.RateLimitMiddleware(rateLimiter, rateLimitExempt...))
 
 	hub.StartHeartbeat(10 * time.Second)
 

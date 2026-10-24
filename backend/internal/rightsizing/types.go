@@ -286,6 +286,11 @@ type WorkloadReport struct {
 	HPA *HPACoupling `json:"hpa,omitempty"`
 	// RiskScore orders the triage table: higher is more urgent.
 	RiskScore float64 `json:"riskScore"`
+	// Carried is set when the workload's namespace could not be read this
+	// time and this is its result from an earlier report, computed at
+	// ComputedAt.
+	Carried    bool       `json:"carried,omitempty"`
+	ComputedAt *time.Time `json:"computedAt,omitempty"`
 }
 
 type Signals struct {
@@ -376,6 +381,12 @@ type Report struct {
 	// Stale is set when this is a persisted report from an earlier run being
 	// shown while a fresh one computes.
 	Stale bool `json:"stale,omitempty"`
+	// PodsStale is set when the report was computed from pods the pod cache
+	// had stopped keeping current: its watch of the cluster has been failing
+	// since PodsStaleSince, so workloads created, scaled or deleted since are
+	// not reflected.
+	PodsStale      bool       `json:"podsStale,omitempty"`
+	PodsStaleSince *time.Time `json:"podsStaleSince,omitempty"`
 	// Engine is the reportEngine that computed the report; persisted reports
 	// of an earlier release have none.
 	Engine int `json:"engine,omitempty"`

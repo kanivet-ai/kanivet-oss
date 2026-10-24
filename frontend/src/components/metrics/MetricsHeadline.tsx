@@ -10,6 +10,16 @@ interface MetricsHeadlineProps {
   referenceLabel?: string;
   /** Extra trailing context, e.g. "across 8 pods". */
   suffix?: string;
+  /** The value is not live: the stream's refreshes stopped arriving. */
+  stale?: boolean;
+  /** Unix ms of the last live answer, shown with a stale value. */
+  staleSince?: number;
+}
+
+/** "as of 14:02" for a stale value, or "not updating" without a time. */
+export function staleLabel(since: number | undefined): string {
+  if (!since) return 'Not updating';
+  return `As of ${new Date(since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
 }
 
 /**
@@ -24,6 +34,8 @@ export const MetricsHeadline: React.FC<MetricsHeadlineProps> = ({
   reference,
   referenceLabel = 'requested',
   suffix,
+  stale = false,
+  staleSince,
 }) => {
   const series = (values || []).filter((v): v is number => typeof v === 'number' && Number.isFinite(v));
   if (series.length === 0) return <div className="mx-headline mx-headline-empty" aria-hidden="true" />;
@@ -41,7 +53,7 @@ export const MetricsHeadline: React.FC<MetricsHeadlineProps> = ({
   if (suffix) context.push(suffix);
 
   return (
-    <div className="mx-headline">
+    <div className="mx-headline" data-stale={stale ? 'true' : undefined}>
       {/* "286m" reads as one token; "1.2 cores" / "512 MiB" keep the space */}
       <span className="mx-headline-value">{current.unit === 'm' ? `${current.value}m` : current.value}</span>
       {current.unit !== 'm' && <span className="mx-headline-unit">{current.unit}</span>}
@@ -52,6 +64,12 @@ export const MetricsHeadline: React.FC<MetricsHeadlineProps> = ({
           title="Change across the selected window"
         >
           {delta < 0 ? '↓' : '↑'} {Math.abs(delta)}%
+        </span>
+      )}
+      {stale && (
+        <span className="mx-headline-stale" title="The metrics store is not answering; this is the last value it sent">
+          <span className="ap-dot ap-dot--warning" />
+          {staleLabel(staleSince)}
         </span>
       )}
     </div>

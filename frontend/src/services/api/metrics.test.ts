@@ -181,6 +181,33 @@ describe('metrics streams', () => {
     expect(getCachedMetricsProviderStatus('c')).not.toBeNull();
   });
 
+  // A chart used to show a cache preview, and data the stream had stopped
+  // refreshing, as live.
+  it('says when the data shown is stale', () => {
+    const onData = vi.fn();
+    startMetricsStream('c', 'apps', 'web-0', 'cpu', '15m', onData, () => undefined);
+    const topic = 'metrics:c:apps:web-0:cpu:15m';
+
+    deliver('metrics', { topic, stale: true, data: { timestamps: [1], values: [1] } });
+    expect(onData.mock.calls[0][1]).toEqual({ stale: true, lastSuccessAt: undefined });
+
+    deliver('metrics', { topic, lastSuccessAt: 5000, data: { timestamps: [1], values: [2] } });
+    expect(onData.mock.calls[1][1]).toEqual({ stale: false, lastSuccessAt: 5000 });
+
+    // The refreshes stopped answering: the last data again, flagged stale.
+    deliver('metrics', { topic, stale: true, lastSuccessAt: 5000 });
+    expect(onData).toHaveBeenCalledTimes(3);
+    expect(onData.mock.calls[2][0]).toBe(onData.mock.calls[1][0]);
+    expect(onData.mock.calls[2][1]).toEqual({ stale: true, lastSuccessAt: 5000 });
+  });
+
+  it('ignores a stale marker before any data', () => {
+    const onData = vi.fn();
+    startMetricsStream('c', 'apps', 'web-0', 'cpu', '15m', onData, () => undefined);
+    deliver('metrics', { topic: 'metrics:c:apps:web-0:cpu:15m', stale: true, lastSuccessAt: 5000 });
+    expect(onData).not.toHaveBeenCalled();
+  });
+
   it('streams a workload once for all its pods', () => {
     const onData = vi.fn();
     const stop = startWorkloadMetricsStream(

@@ -61,11 +61,7 @@ func DefaultConfigWatchPaths() []string {
 	}
 
 	if kubeconfigEnv := os.Getenv("KUBECONFIG"); kubeconfigEnv != "" {
-		separator := ":"
-		if strings.Contains(kubeconfigEnv, ";") {
-			separator = ";"
-		}
-		for _, path := range strings.Split(kubeconfigEnv, separator) {
+		for _, path := range filepath.SplitList(kubeconfigEnv) {
 			path = strings.TrimSpace(path)
 			if path != "" {
 				paths = append(paths, path)

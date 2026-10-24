@@ -41,6 +41,8 @@ export interface DetailTab {
   location?: 'detail' | 'center';
   paneId?: string;
   isDeleted?: boolean;
+  /** The object was deleted and created again (another uid) while the tab was open. */
+  isRecreated?: boolean;
 }
 
 export interface ResourceListTab {
@@ -279,7 +281,11 @@ export interface ResourceSlice {
   selectItem: (item: any) => void;
   loadDetails: (cluster: string, resource: any, item: any, signal?: AbortSignal) => Promise<any>;
   loadResourceEvents: (cluster: string, resource: any, details: any, signal?: AbortSignal) => Promise<void>;
-  updateDetailData: (data: any) => void;
+  /** Loads the object a detail tab shows again, with its events, into every
+   * tab of `cluster` showing it; a 404 marks those tabs deleted. */
+  refreshDetails: (cluster: string, resource: any, item: any, signal?: AbortSignal) => Promise<void>;
+  /** Puts `data` into the detail tabs of `cluster` (default: the current one) showing that object. */
+  updateDetailData: (data: any, cluster?: string) => void;
   setSearchQuery: (query: string) => void;
   performSearch: (query: string) => void;
   toggleNodeExpansion: (nodeId: string) => void;
@@ -304,7 +310,22 @@ export interface ResourceSlice {
   removeRolloutTracking: (key: string) => void;
 }
 
+// How current a list subscription is, by topic (`items:<cluster>:…`). Kept per
+// topic rather than per cluster tab, so every pane showing a list reads its
+// own state.
+export interface TopicHealth {
+  // A complete list arrived on the current subscription and nothing has
+  // failed since: the rows on screen are live.
+  live: boolean;
+  // Set while the backend cannot keep the list current.
+  failing?: { error: string; errorCode?: string; since: number } | null;
+  // When the list was last known complete (unix ms), from the backend or from
+  // a sync seen in this session.
+  lastSyncAt?: number;
+}
+
 export interface RealtimeSlice {
+  topicHealth: Record<string, TopicHealth>;
   startRealtime: (forceRefresh?: boolean) => void;
   _startRealtimeInternal: (forceRefresh?: boolean) => void;
   // Takes the on-screen subscription off screen but keeps it open, so a later

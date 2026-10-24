@@ -53,6 +53,28 @@ type Lister interface {
 	List(ctx context.Context, cluster string) ([]*corev1.Pod, error)
 }
 
+// Health says how current the pods a List returns are.
+type Health struct {
+	// Synced is false until the cluster's watch has completed a listing.
+	Synced bool
+	// LastSyncAt is when the last full listing completed.
+	LastSyncAt time.Time
+	// FailingSince is set while the watch cannot list or watch the cluster:
+	// the pods served are as of LastSyncAt plus whatever events arrived before
+	// the failures began.
+	FailingSince time.Time
+	LastError    string
+}
+
+// Stale reports whether the pods are no longer being kept current.
+func (h Health) Stale() bool { return !h.FailingSince.IsZero() }
+
+// HealthReporter is implemented by listers that can say how current their
+// pods are. Readers type-assert for it so test stubs need not implement it.
+type HealthReporter interface {
+	Health(cluster string) Health
+}
+
 var errClosed = errors.New("pod cache closed")
 
 type Cache struct {
@@ -125,6 +147,19 @@ func (c *Cache) List(ctx context.Context, name string) ([]*corev1.Pod, error) {
 			return nil, fmt.Errorf("pod cache for %s not synced: %w", name, ctx.Err())
 		}
 	}
+}
+
+// Health reports how current the cluster's pods are. It does not retain the
+// cluster's watch.
+func (c *Cache) Health(name string) Health {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cl := c.clusters[name]
+	if cl == nil || cl.feed == nil {
+		return Health{}
+	}
+	f := cl.feed
+	return Health{Synced: f.synced, LastSyncAt: f.lastSyncAt, FailingSince: f.failingSince, LastError: f.lastErr}
 }
 
 // retain notes a read of the cluster and makes sure its pods watch is kept
@@ -242,6 +277,11 @@ type feed struct {
 	// that was current when it was last seen.
 	listing uint64
 	synced  bool
+	// lastSyncAt is when a full listing last completed; failingSince and
+	// lastErr are set while the watch keeps failing after it.
+	lastSyncAt   time.Time
+	failingSince time.Time
+	lastErr      string
 }
 
 type listed struct {
@@ -302,6 +342,9 @@ func (f *feed) Synced() {
 			delete(f.pods, key)
 		}
 	}
+	f.lastSyncAt = time.Now()
+	f.failingSince = time.Time{}
+	f.lastErr = ""
 	if f.synced {
 		return
 	}
@@ -309,6 +352,28 @@ func (f *feed) Synced() {
 	if cl := c.clusters[f.cluster]; cl != nil && cl.feed == f {
 		c.notify(cl)
 	}
+}
+
+// Failing records that the watch could not list or watch the cluster. The pods
+// held keep being served, flagged stale through Health, until the next Synced.
+func (f *feed) Failing(err error) {
+	f.cache.mu.Lock()
+	defer f.cache.mu.Unlock()
+	if f.failingSince.IsZero() {
+		f.failingSince = time.Now()
+	}
+	if err != nil {
+		f.lastErr = err.Error()
+	}
+}
+
+// Recovered records that the failing watch resumed where it left off: the
+// pods held are current again, though not relisted.
+func (f *feed) Recovered() {
+	f.cache.mu.Lock()
+	defer f.cache.mu.Unlock()
+	f.failingSince = time.Time{}
+	f.lastErr = ""
 }
 
 // Close detaches the feed. Nothing keeps its pods current any more, so they

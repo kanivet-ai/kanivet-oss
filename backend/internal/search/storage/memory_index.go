@@ -157,6 +157,11 @@ type SearchResult struct {
 	Resource SearchableResource `json:"resource"`
 	Score    float64            `json:"score"`
 	Matches  []SearchMatch      `json:"matches"`
+	// IndexedAt is when the document was last indexed, in Unix milliseconds.
+	IndexedAt int64 `json:"indexedAt"`
+	// Stale is set when the document comes from an earlier session and this
+	// session has not refreshed its cluster yet.
+	Stale bool `json:"stale"`
 }
 
 // SearchMatch represents where a search term was found
@@ -511,22 +516,35 @@ func (idx *MemoryIndex) Remove(id string) error {
 	return nil
 }
 
-// RemoveByCoordinates removes every document matching cluster+namespace+name
-// regardless of the kind form stored in its ID. This is the fallback for delete
-// events whose payload kind doesn't match what was indexed (e.g. a stripped
-// watch DELETE where the kind became the plural resource name). It returns the
-// number of documents removed.
-func (idx *MemoryIndex) RemoveByCoordinates(cluster, namespace, name string) int {
-	if name == "" {
-		return 0
+// TypeCoords names the resource type a coordinate-based removal is limited
+// to. Resource is the plural resource name or the Kind, in any spelling; Group
+// is compared only when GroupKnown, since a stripped delete payload may not
+// say it.
+type TypeCoords struct {
+	Group      string
+	GroupKnown bool
+	Resource   string
+}
+
+// RemoveByCoordinates removes the documents of one resource type matching
+// cluster+namespace+name, whatever kind form is stored in their ID or Kind.
+// This is the fallback for delete events whose payload kind doesn't match
+// what was indexed (e.g. a stripped watch DELETE where the kind became the
+// plural resource name). Documents of other types sharing the name (the
+// Service and ConfigMap of a Deployment called web) are kept. It returns the
+// IDs of the documents removed.
+func (idx *MemoryIndex) RemoveByCoordinates(cluster string, t TypeCoords, namespace, name string) []string {
+	if name == "" || t.Resource == "" {
+		return nil
 	}
+	plural := utils.PluralizeKind(t.Resource)
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	d := idx.getData()
 
 	ids := d.nameDocs[strings.ToLower(name)]
 	if len(ids) == 0 {
-		return 0
+		return nil
 	}
 	var victims []uint32
 	for id := range ids {
@@ -537,18 +555,26 @@ func (idx *MemoryIndex) RemoveByCoordinates(cluster, namespace, name string) int
 		if d.pools.Clusters.Get(compact.Cluster) != cluster {
 			continue
 		}
-		if d.pools.Namespaces.Get(compact.Namespace) != namespace {
+		if d.pools.Names.Get(compact.Name) != name || d.pools.Namespaces.Get(compact.Namespace) != namespace {
+			continue
+		}
+		if t.GroupKnown && d.pools.Groups.Get(compact.Group) != t.Group {
+			continue
+		}
+		if d.typeKeyFor(compact).kind != plural && utils.PluralizeKind(d.pools.Kinds.Get(compact.Kind)) != plural {
 			continue
 		}
 		victims = append(victims, id)
 	}
+	removed := make([]string, 0, len(victims))
 	for _, id := range victims {
+		removed = append(removed, d.pools.IDs.Get(d.compactDocs[id].ID))
 		idx.removeDocLocked(d, id)
 	}
-	if len(victims) > 0 {
+	if len(removed) > 0 {
 		idx.updateStatsIncrementalLocked(d)
 	}
-	return len(victims)
+	return removed
 }
 
 // ReconcileType removes indexed documents of a resource type (identified by
@@ -559,7 +585,11 @@ func (idx *MemoryIndex) RemoveByCoordinates(cluster, namespace, name string) int
 // entries regardless of whether they were indexed with the singular Kind or the
 // plural resource name. KindDefinition documents are never touched. Returns the
 // string IDs of the removed documents.
-func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}) []string {
+//
+// Documents indexed at or after listedAt are kept whatever liveKeys says: a
+// watch event indexed them after the LIST that built liveKeys began, so they
+// may be newer than it. A zero listedAt keeps nothing back.
+func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, liveKeys map[string]struct{}, listedAt time.Time) []string {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 	d := idx.getData()
@@ -582,7 +612,7 @@ func (idx *MemoryIndex) ReconcileType(cluster, group, version, kind string, live
 		if ns != "" {
 			key = ns + "/" + name
 		}
-		if _, alive := liveKeys[key]; !alive {
+		if _, alive := liveKeys[key]; !alive && (listedAt.IsZero() || compact.UpdatedAt < listedAt.Unix()) {
 			victims = append(victims, id)
 		}
 	}
@@ -1036,6 +1066,27 @@ func paginate(results []SearchResult, offset, limit int) []SearchResult {
 		results = results[:limit]
 	}
 	return results
+}
+
+// KindDefinitions returns the cluster's KindDefinition documents, without
+// their labels, annotations or keywords.
+func (idx *MemoryIndex) KindDefinitions(cluster string) []SearchableResource {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	d := idx.getData()
+	c, ok := d.pools.Clusters.Lookup(cluster)
+	if !ok {
+		return nil
+	}
+	var out []SearchableResource
+	for id := range d.kindDocs["kinddefinition"] {
+		compact, ok := d.compactDocs[id]
+		if !ok || compact.Cluster != c {
+			continue
+		}
+		out = append(out, compact.ToSearchable(d.pools))
+	}
+	return out
 }
 
 // ListResourceIDsByType returns the string IDs of all indexed documents of a kind in a cluster
@@ -1672,6 +1723,19 @@ func (idx *MemoryIndex) RemoveCluster(cluster string) int {
 }
 
 // Stats returns index statistics
+// Clusters returns the clusters that have documents in the index. Unlike
+// Stats().Clusters it is never behind the index.
+func (idx *MemoryIndex) Clusters() []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	d := idx.getData()
+	out := make([]string, 0, len(d.clusterDocs))
+	for id := range d.clusterDocs {
+		out = append(out, d.pools.Clusters.Get(id))
+	}
+	return out
+}
+
 func (idx *MemoryIndex) Stats() IndexStats {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()

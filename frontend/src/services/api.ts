@@ -72,11 +72,11 @@ class API {
   async getResources(cluster: string, category: string, skipCounts: boolean = false): Promise<any[]> { return clusters.getResources(cluster, category, skipCounts); }
   async getNamespaces(cluster: string): Promise<string[]> { return clusters.getNamespaces(cluster); }
 
-  async getResourceDetails(cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal): Promise<any> {
-    return resources.getResourceDetails(cluster, group, version, kind, namespace, name, signal);
+  async getResourceDetails(cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal, options?: resources.ResourceDetailsOptions): Promise<any> {
+    return resources.getResourceDetails(cluster, group, version, kind, namespace, name, signal, options);
   }
-  async getResourceEvents(cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal): Promise<any[]> {
-    return resources.getResourceEvents(cluster, group, version, kind, namespace, name, signal);
+  async getResourceEvents(cluster: string, group: string, version: string, kind: string, namespace: string, name: string, signal?: AbortSignal, options?: resources.ResourceEventsOptions): Promise<any[]> {
+    return resources.getResourceEvents(cluster, group, version, kind, namespace, name, signal, options);
   }
   async updateResource(cluster: string, yamlContent: string): Promise<any> { return resources.updateResource(cluster, yamlContent); }
   async createResource(cluster: string, yamlContent: string): Promise<any> { return resources.createResource(cluster, yamlContent); }
@@ -255,7 +255,7 @@ class API {
   emitMetricsSettingsChanged(cluster: string): void { metrics.emitMetricsSettingsChanged(cluster); }
   startMetricsStream(
     cluster: string, namespace: string, pod: string, metricType: string, timeRange: string,
-    onData: (data: { labels: string[]; values: number[]; unit?: string }) => void,
+    onData: (data: { labels: string[]; values: number[]; unit?: string }, freshness?: metrics.MetricsFreshness) => void,
     onError: (error: string) => void,
     containerName?: string, provider?: string, streamingRate: number = 2, nodeName?: string
   ): () => void {

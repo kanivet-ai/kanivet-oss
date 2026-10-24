@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import api from '../services/api';
+import type { MetricsFreshness } from '../services/api/metrics';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import MonitoringSettingsModal from './MonitoringSettingsModal';
@@ -71,6 +72,8 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('15m');
   const [metricsData, setMetricsData] = useState<{ labels: string[]; values: number[]; unit?: string } | null>(null);
   const [loading, setLoading] = useState(false);
+  // Whether the series shown is live, from the stream.
+  const [freshness, setFreshness] = useState<MetricsFreshness | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
@@ -98,6 +101,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
     }
     setError(null);
     setLoading(true);
+    setFreshness(null);
 
     cleanupRef.current = api.startMetricsStream(
       cluster,
@@ -105,8 +109,9 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
       podName,
       selectedMetric,
       selectedTimeRange,
-      (data) => {
+      (data, dataFreshness?: MetricsFreshness) => {
         setMetricsData(data);
+        setFreshness(dataFreshness ?? null);
         setLoading(false);
         setError(null);
       },
@@ -232,6 +237,8 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
             unit={metricsData?.unit}
             reference={request}
             referenceLabel="requested"
+            stale={!!freshness?.stale && !!freshness.lastSuccessAt}
+            staleSince={freshness?.lastSuccessAt}
           />
 
           <MetricsChartFrame
@@ -239,7 +246,7 @@ export const PodMetrics: React.FC<PodMetricsProps> = ({
             providerLabel={providerChipLabel(provider)}
             providerTitle={providerDetail(provider)}
             state={frameState}
-            stale={loading && !!metricsData}
+            stale={(loading && !!metricsData) || !!freshness?.stale}
             errorMessage={error || undefined}
             emptyMessage={`No samples in the last ${describeTimeRange(selectedTimeRange)}`}
             zoomed={isZoomed}

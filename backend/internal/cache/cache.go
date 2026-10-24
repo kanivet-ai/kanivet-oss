@@ -14,12 +14,20 @@ type entry struct {
 	// staleUntil, set by GetOrSetSWR, keeps the value servable past exp while
 	// a background fetch replaces it.
 	staleUntil int64
+	// invalidated marks a stale-while-revalidate entry expired by Invalidate
+	// rather than by its ttl: the next read waits for a fresh value instead of
+	// being served this one.
+	invalidated bool
 }
 
 type inflight struct {
 	done chan struct{}
 	val  interface{}
 	err  error
+	// superseded is set, under Cache.mu, when the key is invalidated or
+	// deleted while the fetch runs: its value may predate the change, so it is
+	// returned to the callers already waiting but never stored.
+	superseded bool
 }
 
 type Cache struct {
@@ -56,16 +64,19 @@ func (c *Cache) GetOrSet(key string, ttl time.Duration, fetcher func() (interfac
 	if v, ok := c.Get(key); ok {
 		return v, nil
 	}
-	return c.fetch(key, fetcher, func(v interface{}) { c.Set(key, v, ttl) })
+	return c.fetch(key, fetcher, func(v interface{}) entry { return c.newEntry(v, ttl) })
 }
 
 // GetOrSetSWR is GetOrSet with stale-while-revalidate: for up to maxStale
 // after its ttl a value is still returned at once, and one background fetch
 // replaces it. Callers wait for the fetch only when nothing usable is cached.
+// An entry expired by Invalidate is not served stale: the change that
+// invalidated it must show on the next read, so that read waits for the fetch
+// and falls back to the previous value only if the fetch fails.
 // The fetcher of a background refresh outlives the request that started it,
 // so it must not depend on that request's context.
 func (c *Cache) GetOrSetSWR(key string, ttl, maxStale time.Duration, fetcher func() (interface{}, error)) (interface{}, error) {
-	store := func(v interface{}) { c.setSWR(key, v, ttl, maxStale) }
+	store := func(v interface{}) entry { return swrEntry(v, ttl, maxStale) }
 	now := time.Now().UnixNano()
 	c.mu.RLock()
 	e, ok := c.items[key]
@@ -74,6 +85,14 @@ func (c *Cache) GetOrSetSWR(key string, ttl, maxStale time.Duration, fetcher fun
 		return e.value, nil
 	}
 	if ok && now <= e.staleUntil {
+		if e.invalidated {
+			v, err := c.fetch(key, fetcher, store)
+			if err != nil {
+				log.Printf("[Cache] refresh of invalidated %s failed, serving the previous value: %v", key, err)
+				return e.value, nil
+			}
+			return v, nil
+		}
 		c.refreshInBackground(key, fetcher, store)
 		return e.value, nil
 	}
@@ -81,10 +100,12 @@ func (c *Cache) GetOrSetSWR(key string, ttl, maxStale time.Duration, fetcher fun
 }
 
 // fetch runs fetcher once per key at a time: concurrent callers for the same
-// key wait for the running fetch and share its result.
-func (c *Cache) fetch(key string, fetcher func() (interface{}, error), store func(interface{})) (interface{}, error) {
+// key wait for the running fetch and share its result. A fetch superseded by
+// an invalidation is not joined: its value may predate the change, so a new
+// fetch takes its place.
+func (c *Cache) fetch(key string, fetcher func() (interface{}, error), store func(interface{}) entry) (interface{}, error) {
 	c.mu.Lock()
-	if f, ok := c.fetching[key]; ok {
+	if f, ok := c.fetching[key]; ok && !f.superseded {
 		c.mu.Unlock()
 		<-f.done
 		return f.val, f.err
@@ -101,14 +122,23 @@ func (c *Cache) fetch(key string, fetcher func() (interface{}, error), store fun
 	}()
 	f.val, f.err = fetcher()
 	if f.err == nil {
-		store(f.val)
+		c.store(key, f, store(f.val))
 	}
 	return f.val, f.err
 }
 
+// store saves e under key unless f was superseded while it ran.
+func (c *Cache) store(key string, f *inflight, e entry) {
+	c.mu.Lock()
+	if !f.superseded {
+		c.items[key] = e
+	}
+	c.mu.Unlock()
+}
+
 // refreshInBackground starts a fetch for key unless one is already running. A
 // failed refresh keeps the stale value; the next read past ttl retries it.
-func (c *Cache) refreshInBackground(key string, fetcher func() (interface{}, error), store func(interface{})) {
+func (c *Cache) refreshInBackground(key string, fetcher func() (interface{}, error), store func(interface{}) entry) {
 	c.mu.Lock()
 	if _, ok := c.fetching[key]; ok {
 		c.mu.Unlock()
@@ -130,22 +160,43 @@ func (c *Cache) refreshInBackground(key string, fetcher func() (interface{}, err
 			log.Printf("[Cache] background refresh of %s failed, serving the stale value: %v", key, f.err)
 			return
 		}
-		store(f.val)
+		c.store(key, f, store(f.val))
 	}()
 }
 
 func (c *Cache) finish(key string, f *inflight) {
 	c.mu.Lock()
-	delete(c.fetching, key)
+	if c.fetching[key] == f {
+		delete(c.fetching, key)
+	}
 	c.mu.Unlock()
 	close(f.done)
 }
 
-func (c *Cache) setSWR(key string, value interface{}, ttl, maxStale time.Duration) {
+func swrEntry(value interface{}, ttl, maxStale time.Duration) entry {
 	now := time.Now()
-	c.mu.Lock()
-	c.items[key] = entry{value: value, exp: now.Add(ttl).UnixNano(), staleUntil: now.Add(ttl + maxStale).UnixNano()}
-	c.mu.Unlock()
+	return entry{value: value, exp: now.Add(ttl).UnixNano(), staleUntil: now.Add(ttl + maxStale).UnixNano()}
+}
+
+func (c *Cache) newEntry(value interface{}, ttl time.Duration) entry {
+	if ttl == 0 {
+		ttl = c.def
+	}
+	var exp int64
+	if ttl > 0 {
+		exp = time.Now().Add(ttl).UnixNano()
+	}
+	return entry{value: value, exp: exp}
+}
+
+// supersedeLocked marks the fetches running for keys matching match, so their
+// possibly pre-change values are not stored.
+func (c *Cache) supersedeLocked(match func(string) bool) {
+	for k, f := range c.fetching {
+		if match(k) {
+			f.superseded = true
+		}
+	}
 }
 
 func (c *Cache) BuildKey(parts ...string) string {
@@ -153,10 +204,10 @@ func (c *Cache) BuildKey(parts ...string) string {
 }
 
 // Invalidate drops the entries matching pattern, a key or a prefix ending in
-// "*". An entry stored by GetOrSetSWR is expired instead of dropped, so the
-// next read still answers at once and refreshes it in the background: watch
-// events invalidate whole clusters' entries many times a minute. Delete and
-// DeleteByPrefix always drop.
+// "*". An entry stored by GetOrSetSWR is kept, marked invalidated, so the
+// next read can fall back to it if its refresh fails; that read still waits
+// for the refresh. Delete and DeleteByPrefix always drop. Either way a fetch
+// already running for a matching key does not store its result.
 func (c *Cache) Invalidate(pattern string) {
 	now := time.Now().UnixNano()
 	c.mu.Lock()
@@ -167,16 +218,19 @@ func (c *Cache) Invalidate(pattern string) {
 				c.invalidateLocked(k, e, now)
 			}
 		}
+		c.supersedeLocked(func(k string) bool { return strings.HasPrefix(k, prefix) })
 		return
 	}
 	if e, ok := c.items[pattern]; ok {
 		c.invalidateLocked(pattern, e, now)
 	}
+	c.supersedeLocked(func(k string) bool { return k == pattern })
 }
 
 func (c *Cache) invalidateLocked(key string, e entry, now int64) {
 	if now < e.staleUntil {
 		e.exp = now - 1
+		e.invalidated = true
 		c.items[key] = e
 		return
 	}
@@ -186,25 +240,21 @@ func (c *Cache) invalidateLocked(key string, e entry, now int64) {
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	c.items = make(map[string]entry)
+	c.supersedeLocked(func(string) bool { return true })
 	c.mu.Unlock()
 }
 
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	delete(c.items, key)
+	c.supersedeLocked(func(k string) bool { return k == key })
 	c.mu.Unlock()
 }
 
 func (c *Cache) Set(key string, value interface{}, ttl time.Duration) {
-	if ttl == 0 {
-		ttl = c.def
-	}
-	var exp int64
-	if ttl > 0 {
-		exp = time.Now().Add(ttl).UnixNano()
-	}
+	e := c.newEntry(value, ttl)
 	c.mu.Lock()
-	c.items[key] = entry{value: value, exp: exp}
+	c.items[key] = e
 	c.mu.Unlock()
 }
 
@@ -245,5 +295,6 @@ func (c *Cache) DeleteByPrefix(prefix string) {
 			delete(c.items, k)
 		}
 	}
+	c.supersedeLocked(func(k string) bool { return strings.HasPrefix(k, prefix) })
 	c.mu.Unlock()
 }

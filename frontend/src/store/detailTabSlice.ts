@@ -38,7 +38,7 @@ export const createDetailTabSlice: StateCreator<StoreState, [], [], DetailTabSli
         activeTabs: state.activeTabs.map((t) =>
           t.id === cluster ? {
             ...t, state: { ...t.state, activeDetailTab: newId, isDetailsPanelCollapsed: false, detailData,
-              detailTabs: t.state.detailTabs.map((dt) => dt.id === existingTab.id ? { ...dt, id: newId, item: detailData, isPinned: isPinned || dt.isPinned } : dt),
+              detailTabs: t.state.detailTabs.map((dt) => dt.id === existingTab.id ? { ...dt, id: newId, item: detailData, isPinned: isPinned || dt.isPinned, isRecreated: false } : dt),
             },
           } : t
         ),

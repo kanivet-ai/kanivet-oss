@@ -192,7 +192,7 @@ func (s *Service) calculateDashboard(ctx context.Context, cluster string) (*Dash
 
 	provider := detectProvider(nodes)
 	s.ensurePricing(provider, nodes)
-	return computeDashboard(computeInput{
+	return s.markPodsHealth(cluster, computeDashboard(computeInput{
 		cluster:        cluster,
 		provider:       provider,
 		nodes:          nodes,
@@ -203,7 +203,7 @@ func (s *Service) calculateDashboard(ctx context.Context, cluster string) (*Dash
 		hpas:           hpas,
 		pricingStatus:  s.pricing.GetStatus(provider),
 		now:            s.now(),
-	}), nil
+	})), nil
 }
 
 // calculateVClusterDashboard prices a vcluster from its host: every pod the
@@ -267,7 +267,7 @@ func (s *Service) calculateVClusterDashboard(ctx context.Context, cluster, host,
 		hostHourly += controlPlaneHourly(provider)
 	}
 
-	return computeDashboard(computeInput{
+	return s.markPodsHealth(host, computeDashboard(computeInput{
 		cluster:          cluster,
 		provider:         provider,
 		nodes:            nodes,
@@ -284,7 +284,21 @@ func (s *Service) calculateVClusterDashboard(ctx context.Context, cluster, host,
 		},
 		pricingStatus: s.pricing.GetStatus(provider),
 		now:           s.now(),
-	}), nil
+	})), nil
+}
+
+// markPodsHealth flags a dashboard computed from pods the pod cache had
+// stopped keeping current for cluster, the one its pods were read from.
+func (s *Service) markPodsHealth(cluster string, d *Dashboard) *Dashboard {
+	hr, ok := s.pods.(podcache.HealthReporter)
+	if !ok || d == nil || d.Summary == nil {
+		return d
+	}
+	if h := hr.Health(cluster); h.Stale() {
+		since := h.FailingSince
+		d.Summary.PodsStale, d.Summary.PodsStaleSince = true, &since
+	}
+	return d
 }
 
 // splitVClusterPods separates the pods a vcluster synced to its host namespace

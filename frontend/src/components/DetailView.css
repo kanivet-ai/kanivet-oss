@@ -774,8 +774,11 @@ body.resizing-width .detail-resize-handle {
 .tab-content-action-btn .ap-action-icon,
 .pin-detail-btn .ap-action-icon,
 .quick-action-btn .ap-action-icon {
-  width: auto;
-  height: auto;
+  /* The width of the 13px icons, so a text glyph (Shell's $) starts its
+     label where the others do. */
+  width: 13px;
+  height: 13px;
+  flex: none;
   border-radius: 0;
   background: transparent;
   color: var(--blue);

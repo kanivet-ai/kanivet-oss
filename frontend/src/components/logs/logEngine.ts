@@ -15,6 +15,8 @@ export interface LogLine {
   ts: number;
   tsStr: string;
   level: LogLevel;
+  /** A note from the viewer between log lines (e.g. where a stream ended), not a log line. */
+  marker?: boolean;
 }
 
 export interface RawBatchLine {
@@ -151,6 +153,25 @@ export class LogBuffer {
       const removed = this.lines.splice(0, this.lines.length - TRIM_TO);
       for (const r of removed) this.counts[r.level]--;
     }
+    this.bump();
+  }
+
+  /** Adds a note after the lines so far, set apart from them. */
+  appendMarker(text: string) {
+    const line: LogLine = {
+      id: this.nextId++,
+      text,
+      lower: text.toLowerCase(),
+      segs: null,
+      pod: '',
+      container: '',
+      ts: 0,
+      tsStr: '',
+      level: 'none',
+      marker: true,
+    };
+    this.lines.push(line);
+    this.counts.none++;
     this.bump();
   }
 

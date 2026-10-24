@@ -9,7 +9,9 @@ import { Editor } from './MonacoEditor';
 import * as yaml from 'js-yaml';
 import { Cross2Icon, ExclamationTriangleIcon, CheckCircledIcon, UpdateIcon, CheckIcon, PlayIcon, CrossCircledIcon } from '@radix-ui/react-icons';
 import api from '../services/api';
+import { fetchLatestResource } from '../services/api/resources';
 import { saveResourceYaml } from '../utils/saveResourceYaml';
+import { cachedCopyNotice, errorMessage, isNotFound, type SourceNotice } from './detailView/shared/sourceNotice';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
 import { installKanivetMonacoTheme, KANIVET_MONACO_THEME } from '../utils/monacoTheme';
@@ -18,6 +20,18 @@ import './YamlEditor.css';
 
 const isMac = navigator.platform.startsWith('Mac');
 const Kbd = ({ k }: { k: string }) => <kbd>{(isMac ? '⌘' : 'Ctrl+') + k}</kbd>;
+
+// The object as the user edits it: without the fields the server owns.
+const toEditableYaml = (object: any): string => {
+  const resourceCopy = JSON.parse(JSON.stringify(object));
+  delete resourceCopy.metadata?.managedFields;
+  delete resourceCopy.metadata?.uid;
+  delete resourceCopy.metadata?.selfLink;
+  delete resourceCopy.events;
+  return yaml.dump(resourceCopy, { lineWidth: -1, noRefs: true, sortKeys: false });
+};
+
+const cachedBannerStyle: React.CSSProperties = { background: 'var(--warning-bg)', color: 'var(--warning-fg)' };
 
 interface YamlEditorProps {
   resource: any;
@@ -34,6 +48,8 @@ const YamlEditor = ({ resource, cluster, mode = 'edit', onSave }: YamlEditorProp
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  // Set while the editor shows a copy it could not confirm with the cluster.
+  const [sourceNotice, setSourceNotice] = useState<SourceNotice | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDryRunning, setIsDryRunning] = useState(false);
@@ -172,61 +188,25 @@ data:
       fetchHelmValues();
     } else if (resource) {
       // Always fetch fresh resource data when mounting the editor
-      const fetchFreshResource = async () => {
-        try {
-          const group = resource.apiVersion?.includes('/')
-            ? resource.apiVersion.split('/')[0]
-            : '';
-          const version = resource.apiVersion?.includes('/')
-            ? resource.apiVersion.split('/')[1]
-            : resource.apiVersion;
-          const namespace = resource.metadata?.namespace || '';
-          const name = resource.metadata?.name;
-          const kind = resource.kind;
-
-          // Fetch the latest version
-          const freshResource = await api.getResourceDetails(
-            cluster,
-            group,
-            version,
-            kind,
-            namespace,
-            name,
-          );
-
-          const resourceCopy = JSON.parse(JSON.stringify(freshResource));
-          delete resourceCopy.metadata?.managedFields;
-          delete resourceCopy.metadata?.uid;
-          delete resourceCopy.metadata?.selfLink;
-          delete resourceCopy.events;
-          const yamlStr = yaml.dump(resourceCopy, {
-            lineWidth: -1,
-            noRefs: true,
-            sortKeys: false,
-          });
-          setYamlContent(yamlStr);
+      let cancelled = false;
+      fetchLatestResource(cluster, resource)
+        .then((freshResource) => {
+          if (cancelled) return;
+          setYamlContent(toEditableYaml(freshResource));
           setIsDirty(false);
           setError(null);
-        } catch (error: any) {
-          // If fetch fails, fall back to the provided resource
+          setSourceNotice(null);
+        })
+        .catch((error: any) => {
+          if (cancelled) return;
+          // The copy Kanivet had is shown, but never as if it were current.
           console.warn('Failed to fetch fresh resource, using provided data:', error);
-          const resourceCopy = JSON.parse(JSON.stringify(resource));
-          delete resourceCopy.metadata?.managedFields;
-          delete resourceCopy.metadata?.uid;
-          delete resourceCopy.metadata?.selfLink;
-          delete resourceCopy.events;
-          const yamlStr = yaml.dump(resourceCopy, {
-            lineWidth: -1,
-            noRefs: true,
-            sortKeys: false,
-          });
-          setYamlContent(yamlStr);
+          setYamlContent(toEditableYaml(resource));
           setIsDirty(false);
           setError(null);
-        }
-      };
-
-      fetchFreshResource();
+          setSourceNotice(cachedCopyNotice(error));
+        });
+      return () => { cancelled = true; };
     }
   }, [resource, cluster, mode]);
 
@@ -448,7 +428,8 @@ data:
             sortKeys: false,
           });
           setYamlContent(yamlStr);
-          updateDetailData(updatedResource);
+          updateDetailData(updatedResource, cluster);
+          setSourceNotice(null);
           setIsDirty(false);
           showSuccess(`Updated ${updatedResource.kind} "${updatedResource.metadata?.name}" successfully`);
           onSave?.(yamlStr);
@@ -483,46 +464,21 @@ data:
 
     setIsRefreshing(true);
     try {
-      const group = resource.apiVersion?.includes('/')
-        ? resource.apiVersion.split('/')[0]
-        : '';
-      const version = resource.apiVersion?.includes('/')
-        ? resource.apiVersion.split('/')[1]
-        : resource.apiVersion;
-      const namespace = resource.metadata?.namespace || '';
-      const name = resource.metadata?.name;
-      const kind = resource.kind;
-
       // Invalidate cache and fetch fresh data
       api.invalidateCache();
-      const freshResource = await api.getResourceDetails(
-        cluster,
-        group,
-        version,
-        kind,
-        namespace,
-        name,
-      );
-
-      const resourceCopy = JSON.parse(JSON.stringify(freshResource));
-      delete resourceCopy.metadata?.managedFields;
-      delete resourceCopy.metadata?.uid;
-      delete resourceCopy.metadata?.selfLink;
-      delete resourceCopy.events;
-      const yamlStr = yaml.dump(resourceCopy, {
-        lineWidth: -1,
-        noRefs: true,
-        sortKeys: false,
-      });
-      setYamlContent(yamlStr);
+      const freshResource = await fetchLatestResource(cluster, resource);
+      setYamlContent(toEditableYaml(freshResource));
       setIsDirty(false);
       setError(null);
       setSuccess(null);
+      setSourceNotice(null);
 
-      // Update the detail data in the store
-      updateDetailData(freshResource);
+      // The detail tabs showing this object get it too.
+      updateDetailData(freshResource, cluster);
     } catch (error: any) {
-      setError(`Failed to refresh: ${error.message}`);
+      // The editor keeps what it shows; the notice says what that is now.
+      setSourceNotice(cachedCopyNotice(error));
+      if (!isNotFound(error)) setError(`Failed to refresh: ${errorMessage(error)}`);
     } finally {
       setIsRefreshing(false);
     }
@@ -599,6 +555,16 @@ data:
           </button>
         </div>
       </div>
+      {sourceNotice && (
+        <div
+          className={`yaml-editor-banner${sourceNotice.kind === 'deleted' ? ' error' : ''}`}
+          style={sourceNotice.kind === 'cached' ? cachedBannerStyle : undefined}
+          role="status"
+        >
+          <ExclamationTriangleIcon />
+          <div className="banner-message">{sourceNotice.message}</div>
+        </div>
+      )}
       {error && (
         <div className="yaml-editor-banner error" role="alert">
           <ExclamationTriangleIcon />

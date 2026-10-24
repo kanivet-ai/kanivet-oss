@@ -146,6 +146,59 @@ type Client struct {
 	// onCacheReset runs after cached clients are dropped, so whatever chose
 	// their credentials can look again. Guarded by mu.
 	onCacheReset func()
+	// onRefreshed are told, after RefreshClusterCache, which cluster's ("" for
+	// every one) clients were dropped. Guarded by mu.
+	onRefreshed []func(cluster string)
+}
+
+// OnClusterCacheRefreshed registers a callback RefreshClusterCache runs once
+// a cluster's cached clients are dropped, with the cluster ("" for all). It is
+// for holders of long-lived clients, such as running watches, which keep the
+// client they were built with and would otherwise never see the change.
+func (c *Client) OnClusterCacheRefreshed(fn func(cluster string)) {
+	c.mu.Lock()
+	c.onRefreshed = append(c.onRefreshed, fn)
+	c.mu.Unlock()
+}
+
+// ConfigFingerprint identifies the client config the cluster's clients are
+// built from: the server, its CA and the credentials (not the tokens an exec
+// plugin hands out, which change on their own). It differs once a kubeconfig
+// reload points the context elsewhere or gives it other credentials, and is
+// empty for a vcluster, whose connection is managed separately, or a context
+// that cannot be loaded.
+func (c *Client) ConfigFingerprint(cluster string) string {
+	if IsVClusterID(cluster) {
+		return ""
+	}
+	cfg, err := c.getConfigForCluster(cluster)
+	if err != nil || cfg == nil {
+		return ""
+	}
+	var b strings.Builder
+	field := func(parts ...string) {
+		for _, p := range parts {
+			b.WriteString(strconv.Quote(p))
+			b.WriteByte(',')
+		}
+		b.WriteByte(';')
+	}
+	field(cfg.Host, cfg.APIPath, cfg.ServerName, cfg.CAFile, string(cfg.CAData), strconv.FormatBool(cfg.Insecure))
+	field(cfg.CertFile, string(cfg.CertData), cfg.KeyFile, string(cfg.KeyData))
+	field(cfg.BearerToken, cfg.BearerTokenFile, cfg.Username, cfg.Password)
+	field(cfg.Impersonate.UserName, cfg.Impersonate.UID)
+	field(cfg.Impersonate.Groups...)
+	if cfg.AuthProvider != nil {
+		field(cfg.AuthProvider.Name)
+	}
+	if e := cfg.ExecProvider; e != nil {
+		field(e.Command, e.APIVersion)
+		field(e.Args...)
+		for _, env := range e.Env {
+			field(env.Name, env.Value)
+		}
+	}
+	return b.String()
 }
 
 // SetAWSProfileResolver installs the lookup for per-context AWS profiles. The
@@ -228,11 +281,9 @@ func discoverKubeconfigs() []string {
 		configs = append(configs, abs)
 	}
 	if envPath := os.Getenv("KUBECONFIG"); envPath != "" {
-		sep := ":"
-		if strings.Contains(envPath, ";") {
-			sep = ";"
-		}
-		for _, p := range strings.Split(envPath, sep) {
+		// The OS list separator, as kubectl uses: splitting on ":" breaks
+		// a Windows path at its drive letter.
+		for _, p := range filepath.SplitList(envPath) {
 			if p = strings.TrimSpace(p); p != "" {
 				addConfig(p)
 			}
@@ -310,6 +361,7 @@ func (c *Client) RefreshClusterCache(cluster string) {
 		delete(c.discovery, cluster)
 	}
 	onReset := c.onCacheReset
+	onRefreshed := c.onRefreshed
 	c.mu.Unlock()
 	if onReset != nil {
 		onReset()
@@ -328,6 +380,9 @@ func (c *Client) RefreshClusterCache(cluster string) {
 		delete(c.preferredVersions, cluster)
 	}
 	c.resourceNameMu.Unlock()
+	for _, fn := range onRefreshed {
+		fn(cluster)
+	}
 }
 
 func getOrCreate[T any](cache map[string]T, key string, creator func() (T, error), mu *sync.RWMutex) (T, error) {

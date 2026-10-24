@@ -77,9 +77,48 @@ func (rl *rateLimitMiddleware) Wrap(next MessageHandlerFunc) MessageHandlerFunc 
 			return next(ctx, conn, msg)
 		}
 		if rl.limiter != nil && !rl.limiter.Allow(conn.ID()) {
+			// A message dropped without a word left the client waiting on a
+			// stream that never started; the reply lets it retry.
+			if data, err := rateLimitedReply(msg).Marshal(); err == nil {
+				_ = conn.Send(data)
+			}
 			return ErrRateLimitExceeded
 		}
 		return next(ctx, conn, msg)
+	}
+}
+
+// RateLimitedMessage tells the client that one of its messages was refused
+// by the rate limiter and not handled. RequestType (the refused message's
+// type), Key (the stream key its payload named, if any) and RequestID (its
+// id) say which one.
+type RateLimitedMessage struct {
+	BaseMessage `json:",inline"`
+	Error       string      `json:"error"`
+	Code        string      `json:"code"`
+	RequestType MessageType `json:"messageType"`
+	Key         string      `json:"key,omitempty"`
+	RequestID   string      `json:"requestId,omitempty"`
+}
+
+func (m *RateLimitedMessage) Marshal() ([]byte, error) {
+	return MarshalMessage(m)
+}
+
+func rateLimitedReply(msg *IncomingMessage) *RateLimitedMessage {
+	var payload struct {
+		Key string `json:"key"`
+	}
+	if len(msg.Payload) > 0 {
+		_ = msg.UnmarshalPayload(&payload)
+	}
+	return &RateLimitedMessage{
+		BaseMessage: BaseMessage{MessageType: "error", Timestamp: time.Now()},
+		Error:       ErrRateLimitExceeded.Error(),
+		Code:        "rate_limited",
+		RequestType: msg.Type(),
+		Key:         payload.Key,
+		RequestID:   msg.ID,
 	}
 }
 

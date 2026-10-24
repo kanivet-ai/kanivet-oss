@@ -2,9 +2,10 @@ import { vclusterGate } from './vclusterRestore';
 import { StateCreator } from 'zustand';
 import api from '../services/api';
 import { notifyDrainComplete, notifyRolloutComplete } from '../services/islandNotifications';
-import { ResourceSlice, StoreState, TreeNode, PinnedDetail, RolloutStatusData } from './types';
+import { fetchResourceDetails, fetchResourceEvents } from './loadDetailsApi';
+import { ResourceSlice, StoreState, Tab, TreeNode, PinnedDetail, RolloutStatusData } from './types';
 import { rebuildTabIndex, updateTreeNode, findNodeById, predefinedCategories } from './utils';
-import { applyLoadedDetails } from './applyLoadedDetails';
+import { applyDetailsToTabs, applyEventsToTabs, applyLoadedDetails, markDetailsDeleted, refOf, type ObjectRef } from './applyLoadedDetails';
 import { keepKnownCounts } from './keepKnownCounts';
 import { anyCountPending, countsSettled, refetchCountsLater } from './countRefetch';
 import { liveItemsFor } from './realtimeSlice';
@@ -37,37 +38,29 @@ export const forgetTreeLoad = (cluster: string) => {
   api.invalidateCache(`/resources/categories:${JSON.stringify({ cluster })}`);
 };
 
-// Puts an object's events on the detail panel and the detail tabs showing it.
-const applyResourceEvents = (
-  set: (fn: (state: StoreState) => Partial<StoreState>) => void,
-  cluster: string,
-  details: any,
-  events: any[],
-) => {
-  const name = details?.metadata?.name || details?.name;
-  const namespace = details?.metadata?.namespace || details?.namespace || '';
-  if (!name || !events.length) return;
-  const matches = (item: any) =>
-    item &&
-    (item.metadata?.name || item.name) === name &&
-    (item.metadata?.namespace || item.namespace || '') === namespace;
-  set((state) => ({
-    activeTabs: state.activeTabs.map((t) => {
-      if (t.id !== cluster) return t;
-      const dd = t.state.detailData;
-      return {
-        ...t,
-        state: {
-          ...t.state,
-          detailData: matches(dd) ? { ...dd, events } : dd,
-          detailTabs: t.state.detailTabs.map((dt) =>
-            matches(dt.item) ? { ...dt, item: { ...dt.item, events } } : dt,
-          ),
-        },
-      };
-    }),
-  }));
+type Set = (partial: Partial<StoreState> | ((state: StoreState) => Partial<StoreState>)) => void;
+
+// Applies a change to the cluster tabs only when it changes something.
+const updateTabs = (get: () => StoreState, set: Set, change: (tabs: Tab[]) => Tab[]) => {
+  const before = get().activeTabs;
+  const after = change(before);
+  if (after !== before) set({ activeTabs: after });
 };
+
+// Puts an object's events on the detail panel and the detail tabs showing it.
+const applyResourceEvents = (get: () => StoreState, set: Set, cluster: string, details: any, events: any[]) =>
+  updateTabs(get, set, (tabs) => applyEventsToTabs(tabs, cluster, details, events));
+
+const isNotFound = (error: any) => error?.response?.status === 404;
+
+// Asks for the events of the object `ref` names only, not of another kind
+// with the same name or of an object this one replaced.
+const requestEvents = (cluster: string, resource: any, ref: ObjectRef, signal?: AbortSignal) =>
+  fetchResourceEvents(cluster, resource.group, resource.version, resource.kind, ref.namespace, ref.name, signal, {
+    uid: ref.uid || undefined,
+    kind: ref.kind || undefined,
+    apiVersion: ref.apiVersion || undefined,
+  });
 
 
 /**
@@ -445,13 +438,15 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     // Close the subscription so a new one brings a fresh snapshot from the server.
     get().releaseRealtimeTopics((t) => t === topic);
     get().updateCurrentTabState({ loadError: undefined, isLoadingListItems: true, hasReceivedInitialListData: false, listItems: [], selectedItem: null });
+    // The list tab's rows are the ones being reloaded: they must not stay on
+    // screen as if they were current. The new snapshot fills them again.
+    const tab = activeTabs.find((t) => t.id === currentTab);
+    const activeListTabId = tab?.state.activeResourceListTab;
+    if (activeListTabId && tab.state.resourceListTabs.some((rt) => rt.id === activeListTabId)) {
+      get().updateResourceListTab(activeListTabId, { items: [] });
+    }
     await get().loadListItems(currentTab, resource);
     get().startRealtime(true);
-    const tab = activeTabs.find((t) => t.id === currentTab);
-    if (tab && tab.state.activeResourceListTab) {
-      const activeListTab = tab.state.resourceListTabs.find((rt) => rt.id === tab.state.activeResourceListTab);
-      if (activeListTab) get().updateResourceListTab(tab.state.activeResourceListTab, { items: tabState.listItems });
-    }
   },
 
   selectItem: (item: any) => {
@@ -479,25 +474,20 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       }
       return item;
     }
-    // Events need only the name and namespace the caller already has, so they
-    // load alongside the details instead of after them.
-    const eventsRequest = item?.name
-      ? api.getResourceEvents(
-          cluster,
-          resource.group,
-          resource.version,
-          resource.kind,
-          item.namespace || '',
-          item.name,
-          signal,
-        )
-      : Promise.resolve([]);
+    const ref = refOf(item, resource);
+    // Events need only the identity the caller already has, so they load
+    // alongside the details instead of after them.
+    const eventsRequest = ref.name ? requestEvents(cluster, resource, ref, signal) : Promise.resolve([]);
     eventsRequest.catch(() => {});
     let details;
     try {
-      details = await api.getResourceDetails(cluster, resource.group, resource.version, resource.kind, item.namespace || '', item.name, signal);
+      details = await fetchResourceDetails(cluster, resource.group, resource.version, resource.kind, ref.namespace, ref.name, signal);
     } catch (error: any) {
-      if (error?.response?.status === 404) return;
+      // Gone: the tabs showing it say so instead of keeping a placeholder.
+      if (isNotFound(error)) {
+        if (!signal?.aborted) updateTabs(get, set, (tabs) => markDetailsDeleted(tabs, cluster, ref));
+        return;
+      }
       throw error;
     }
     if (signal?.aborted) return;
@@ -507,10 +497,14 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
     const after = applyLoadedDetails(before, cluster, details);
     if (after === before) return details;
     set({ activeTabs: after });
-    eventsRequest.then(
-      (events) => {
-        if (!signal?.aborted)
-          applyResourceEvents(set, cluster, details, events);
+    // A row from before the object was recreated asked for its predecessor's events.
+    const loadedRef = refOf(details, resource);
+    const events = ref.uid && loadedRef.uid && ref.uid !== loadedRef.uid
+      ? requestEvents(cluster, resource, loadedRef, signal)
+      : eventsRequest;
+    events.then(
+      (list) => {
+        if (!signal?.aborted) applyResourceEvents(get, set, cluster, details, list);
       },
       () => {},
     );
@@ -518,20 +512,46 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
   },
 
   loadResourceEvents: async (cluster: string, resource: any, details: any, signal?: AbortSignal) => {
-    const name = details?.metadata?.name || details?.name;
-    const namespace = details?.metadata?.namespace || details?.namespace || '';
-    if (!name) return;
+    const ref = refOf(details, resource);
+    if (!ref.name) return;
     let events: any[] = [];
     try {
-      events = await api.getResourceEvents(cluster, resource.group, resource.version, resource.kind, namespace, name, signal);
+      events = await requestEvents(cluster, resource, ref, signal);
     } catch {
       return;
     }
     if (signal?.aborted) return;
-    applyResourceEvents(set, cluster, details, events);
+    applyResourceEvents(get, set, cluster, details, events);
   },
 
-  updateDetailData: (data: any) => { get().updateCurrentTabState({ detailData: data }); },
+  refreshDetails: async (cluster: string, resource: any, item: any, signal?: AbortSignal) => {
+    const ref = refOf(item, resource);
+    if (!ref.name || !resource?.version) return;
+    let details: any;
+    try {
+      details = await fetchResourceDetails(cluster, resource.group || '', resource.version, resource.kind, ref.namespace, ref.name, signal, { fresh: true });
+    } catch (error: any) {
+      if (isNotFound(error) && !signal?.aborted) updateTabs(get, set, (tabs) => markDetailsDeleted(tabs, cluster, ref));
+      if (!isNotFound(error)) throw error;
+      return;
+    }
+    if (signal?.aborted || !details) return;
+    updateTabs(get, set, (tabs) => applyDetailsToTabs(tabs, cluster, details));
+    // The events of the object as it is now: a recreated one has a new uid.
+    let events: any[];
+    try {
+      events = await requestEvents(cluster, resource, refOf(details, resource), signal);
+    } catch {
+      return;
+    }
+    if (!signal?.aborted) applyResourceEvents(get, set, cluster, details, events);
+  },
+
+  updateDetailData: (data: any, cluster?: string) => {
+    const target = cluster || get().currentTab;
+    if (!target || !data) return;
+    updateTabs(get, set, (tabs) => applyDetailsToTabs(tabs, target, data));
+  },
   setSearchQuery: (query: string) => { get().updateCurrentTabState({ searchQuery: query }); },
   performSearch: (query: string) => { get().updateCurrentTabState({ searchQuery: query }); },
 

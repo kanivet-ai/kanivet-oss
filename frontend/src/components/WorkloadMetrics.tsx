@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Line } from 'react-chartjs-2';
 import api from '../services/api';
+import type { MetricsFreshness } from '../services/api/metrics';
 import {
   startWorkloadMetricsStream,
   type WorkloadSeries,
@@ -76,6 +77,8 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
   const [selectedTimeRange, setSelectedTimeRange] = useState<TimeRange>('15m');
   const [series, setSeries] = useState<WorkloadSeries | null>(null);
   const [streamError, setStreamError] = useState<string | null>(null);
+  // Whether the series shown is live, from the stream.
+  const [freshness, setFreshness] = useState<MetricsFreshness | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [isZoomed, setIsZoomed] = useState(false);
   const [visiblePods, setVisiblePods] = useState<Set<string>>(new Set());
@@ -129,14 +132,16 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
   useEffect(() => {
     if (!ready || !streamedKey) return;
     setStreamError(null);
+    setFreshness(null);
     return startWorkloadMetricsStream(
       cluster,
       namespace,
       streamedKey.split(','),
       selectedMetric,
       selectedTimeRange,
-      (data) => {
+      (data, dataFreshness?: MetricsFreshness) => {
         setSeries(data);
+        setFreshness(dataFreshness ?? null);
         setStreamError(null);
       },
       (err) => {
@@ -368,6 +373,8 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
         }
         referenceLabel="requested"
         suffix={`${visiblePods.size} of ${pods.length} pods`}
+        stale={!!freshness?.stale && !!freshness.lastSuccessAt}
+        staleSince={freshness?.lastSuccessAt}
       />
 
       <MetricsChartFrame
@@ -375,6 +382,7 @@ export const WorkloadMetrics: React.FC<WorkloadMetricsProps> = ({ cluster, kind,
         providerLabel={providerChipLabel(provider)}
         providerTitle={providerDetail(provider)}
         state={frameState}
+        stale={!!freshness?.stale}
         errorMessage={streamError || undefined}
         emptyMessage={visiblePods.size === 0 ? 'Pick a pod below to chart it' : `No samples in the last ${describeTimeRange(selectedTimeRange)}`}
         loadingMessage="Loading pod metrics…"

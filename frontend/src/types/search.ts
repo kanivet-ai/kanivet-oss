@@ -29,6 +29,10 @@ export interface SearchResult {
   resource: SearchableResource;
   score: number;
   matches: SearchMatch[];
+  /** When the document was last indexed, in epoch milliseconds. */
+  indexedAt?: number;
+  /** From an earlier session, and this session has not refreshed its cluster yet. */
+  stale?: boolean;
 }
 
 export interface SearchOptions {

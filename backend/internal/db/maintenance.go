@@ -198,6 +198,10 @@ func parseSQLiteTime(s string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// VClusterHost returns the host cluster of a vcluster ID, and false for any
+// other cluster name.
+func VClusterHost(id string) (string, bool) { return vclusterHost(id) }
+
 // vclusterHost extracts the host cluster from a vcluster ID of the form
 // "vcluster:<host>:<namespace>:<name>". It mirrors the k8s package's parser
 // without importing client-go into the database layer.
