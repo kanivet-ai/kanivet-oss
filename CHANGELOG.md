@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.7.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.6.1...v0.7.0) (2026-10-24)
+
+
+### Features
+
+* **detail:** show referenced ConfigMaps and their values on pods ([#63](https://github.com/kanivet-ai/kanivet-oss/issues/63)) ([f70de71](https://github.com/kanivet-ai/kanivet-oss/commit/f70de7136f77d68f0c28d98518ee0df210f02a97))
+
+
+### Bug Fixes
+
+* allow scaling workloads from zero replicas ([#59](https://github.com/kanivet-ai/kanivet-oss/issues/59)) ([f909683](https://github.com/kanivet-ai/kanivet-oss/commit/f909683b274755b876b0b1fec48da67abaeec456))
+* never present stale or wrong cluster data as live ([#58](https://github.com/kanivet-ai/kanivet-oss/issues/58)) ([a6881f0](https://github.com/kanivet-ai/kanivet-oss/commit/a6881f0a5bb5966f5214429d3d2c165c9d03d21f))
+* **websocket:** synchronize registration with shutdown ([#60](https://github.com/kanivet-ai/kanivet-oss/issues/60)) ([3b461be](https://github.com/kanivet-ai/kanivet-oss/commit/3b461be263097a88b0d1585ea946e76f8f6aff61))
+
+
+### Tests
+
+* **rightsizing:** stabilize adaptive limiter simulations ([#61](https://github.com/kanivet-ai/kanivet-oss/issues/61)) ([65cc076](https://github.com/kanivet-ai/kanivet-oss/commit/65cc076c6f629b6f6548affae68e45e5e2068f0f))
+
 ## [0.6.1](https://github.com/kanivet-ai/kanivet-oss/compare/v0.6.0...v0.6.1) (2026-10-12)
 
 
