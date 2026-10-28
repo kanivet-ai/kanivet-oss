@@ -259,6 +259,13 @@ func effectiveResources(spec *v1.PodSpec) (cpuReq, cpuLim, memReq, memLim int64)
 	return
 }
 
+// PodRequests is the CPU (millicores) and memory (bytes) the scheduler
+// reserves for a pod on its node, as effectiveResources counts it.
+func PodRequests(spec *v1.PodSpec) (cpu, mem int64) {
+	cpu, _, mem, _ = effectiveResources(spec)
+	return cpu, mem
+}
+
 // resolveOwner names the top-level workload behind a pod's controller
 // reference: ReplicaSets fold into their Deployment (or Argo Rollout) and
 // scheduled Jobs into their CronJob.

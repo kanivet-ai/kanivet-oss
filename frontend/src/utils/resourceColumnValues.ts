@@ -6,6 +6,13 @@ import { printerCellFor } from './resourceListColumns';
 import ResourceLink from '../components/ResourceLink';
 import LiveAge from '../components/common/LiveAge';
 import { isRolloutComplete } from '../store/utils';
+import {
+  NodeLoadMeter,
+  formatNodeCapacityType,
+  nodeInstanceType,
+  nodePool,
+  nodeZone,
+} from './nodeColumns';
 
 type ColumnFormatter = (
   item: any,
@@ -231,6 +238,15 @@ const columnFormatters: Record<string, ColumnFormatter> = {
   'ALLOCATABLE CPU': (item) => formatColumnValue.formatAllocatableCPU(item),
   'ALLOCATABLE MEMORY': (item) =>
     formatColumnValue.formatAllocatableMemory(item),
+  NODEPOOL: (item) => nodePool(item) || '-',
+  'INSTANCE TYPE': (item) => nodeInstanceType(item) || '-',
+  'CAPACITY TYPE': (item) => formatNodeCapacityType(item),
+  ZONE: (item) => nodeZone(item) || '-',
+  CPU: (item) => React.createElement(NodeLoadMeter, { item, metric: 'cpu' }),
+  'CPU REQ': (item) => React.createElement(NodeLoadMeter, { item, metric: 'cpuRequests' }),
+  MEMORY: (item) => React.createElement(NodeLoadMeter, { item, metric: 'memory' }),
+  'MEM REQ': (item) => React.createElement(NodeLoadMeter, { item, metric: 'memoryRequests' }),
+  PODS: (item) => React.createElement(NodeLoadMeter, { item, metric: 'pods' }),
 
   SECRETS: (item) => formatColumnValue.formatSecretsCount(item),
   'AUTOMOUNT TOKEN': (item) => formatColumnValue.formatAutomountToken(item),
