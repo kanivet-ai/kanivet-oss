@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { formatStatus } from '../utils/formatters';
 
 vi.mock('../store', () => ({ useStore: () => ({}) }));
+vi.mock('./useNodeLoad', () => ({ useNodeLoad: () => null }));
 
 const { matchesSearch } = await import('./useResourceListState');
 
