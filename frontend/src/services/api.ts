@@ -17,6 +17,7 @@ import * as incidents from './api/incidents';
 import * as vclusters from './api/vclusters';
 import { IncidentTimelineFilters, IncidentTimelineResponse } from '../types/incidents';
 import type { Evidence, RightsizingProfile, RightsizingReport, RightsizingWindow } from '../types/rightsizing';
+import type { NodeLoadReport } from '../utils/nodeColumns';
 
 export type { ClusterGroup, ClusterInfo } from './api/types';
 
@@ -102,6 +103,7 @@ class API {
     return resources.getRolloutStatus(cluster, group, version, kind, namespace, name);
   }
   async getBatchRolloutStatus(cluster: string, items: any[]): Promise<any> { return resources.getBatchRolloutStatus(cluster, items); }
+  async getNodeLoad(cluster: string): Promise<NodeLoadReport> { return resources.getNodeLoad(cluster); }
   async scaleResource(cluster: string, group: string, version: string, kind: string, namespace: string, name: string, replicas: number): Promise<void> {
     return resources.scaleResource(cluster, group, version, kind, namespace, name, replicas);
   }

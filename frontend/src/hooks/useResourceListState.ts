@@ -4,6 +4,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { sortItems } from '../utils/columnSorting';
 import { formatStatus } from '../utils/formatters';
 import { getResourceCategory } from '../utils/resourceUtils';
+import { withNodeLoad } from '../utils/nodeColumns';
+import { useNodeLoad } from './useNodeLoad';
 
 interface UseResourceListStateProps {
   paneId?: string;
@@ -204,7 +206,7 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
     }
   }, [allCenterTabs.length, activeTabId, paneId, setActiveDetailTab, setActiveBottomTab, setActiveResourceListTab]);
 
-  const listItems = useMemo(() => {
+  const watchedItems = useMemo(() => {
     if (!activeTab) return [];
     return (isResourceListTab && activeTab?.items) || [];
   }, [isResourceListTab, activeTab]);
@@ -238,6 +240,15 @@ export function useResourceListState({ paneId }: UseResourceListStateProps) {
       data: listResource,
     };
   }, [hasActiveTab, listResource, tabNode]);
+
+  // Node rows also carry their load, for the CPU, memory and pods columns.
+  const isNodeList =
+    !!isResourceListTab && !selectedNode?.data?.group && selectedNode?.data?.name === 'nodes';
+  const nodeLoad = useNodeLoad(currentTab, isNodeList);
+  const listItems = useMemo(
+    () => (isNodeList ? withNodeLoad(watchedItems, nodeLoad) : watchedItems),
+    [isNodeList, watchedItems, nodeLoad],
+  );
   const focusArea = tabState?.focusArea || 'tree';
   const namespaces = activeTab ? tabState?.namespaces || [] : [];
 

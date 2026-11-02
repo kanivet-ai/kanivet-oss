@@ -30,7 +30,10 @@ const getBadgeTone = (label: string): BadgeTone => {
     lower.includes('notready') ||
     lower.includes('unknown') ||
     lower.includes('terminating') ||
-    lower.includes('uninstalling')
+    lower.includes('uninstalling') ||
+    lower.includes('cordoned') ||
+    lower.includes('pressure') ||
+    lower.includes('networkunavailable')
   )
     return 'warning';
 

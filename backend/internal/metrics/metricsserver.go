@@ -40,6 +40,32 @@ func (s *Service) ListPodMetrics(ctx context.Context, cluster, namespace string)
 	return &list, nil
 }
 
+// ListNodeMetrics returns metrics-server's current usage for every node,
+// cached like ListPodMetrics.
+func (s *Service) ListNodeMetrics(ctx context.Context, cluster string) (*unstructured.UnstructuredList, error) {
+	b, err := s.queries.answer(ctx, queryHash("metrics-server-nodes", cluster), 2*time.Second, func() ([]byte, error) {
+		dyn, err := s.k8s.GetDynamicClient(cluster)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		list, err := dyn.Resource(schema.GroupVersionResource{Group: "metrics.k8s.io", Version: "v1beta1", Resource: "nodes"}).List(ctx, metav1.ListOptions{})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(list)
+	})
+	if err != nil {
+		return nil, err
+	}
+	var list unstructured.UnstructuredList
+	if err := json.Unmarshal(b, &list); err != nil {
+		return nil, err
+	}
+	return &list, nil
+}
+
 type MetricsServerProvider struct {
 	k8s     k8s.Interface
 	cache   *cache.Cache

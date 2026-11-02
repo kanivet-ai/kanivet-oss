@@ -33,6 +33,7 @@ import (
 	"github.com/kanivet/backend/internal/k8s/watcher"
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
+	"github.com/kanivet/backend/internal/nodeload"
 	"github.com/kanivet/backend/internal/rightsizing"
 	"github.com/kanivet/backend/internal/search"
 	"github.com/kanivet/backend/internal/terminal/infrastructure"
@@ -365,6 +366,10 @@ func main() {
 	finopsService.SetMetricsSource(apiHandler.GetMetricsService())
 	finopsHandler := finops.NewHandler(finopsService)
 
+	// The Nodes list's load columns: pod requests from the shared pod cache,
+	// usage from metrics-server.
+	nodeLoadHandler := nodeload.NewHandler(nodeload.NewService(podCache, apiHandler.GetMetricsService()))
+
 	// Rightsizing reads history through the metrics engine's providers and
 	// prices changes with FinOps rates.
 	rightsizingService := rightsizing.NewService(k8sClient, apiHandler.GetMetricsService(), finopsService, podCache, apiHandler.GetDB())
@@ -561,6 +566,7 @@ func main() {
 		v1.DELETE("/cluster/nodes/:name/taint", apiHandler.RemoveTaint)
 		v1.POST("/cluster/nodes/:name/drain", apiHandler.DrainNode)
 		v1.POST("/cluster/nodes/:name/cordon", apiHandler.CordonNode)
+		v1.GET("/cluster/nodes/load", nodeLoadHandler.GetNodeLoad)
 		v1.GET("/cluster/crossplane/check/:group/:version/:kind", apiHandler.CheckCrossplaneResource)
 		v1.GET("/cluster/crossplane/trace/:group/:version/:kind/:namespace/:name", apiHandler.TraceCrossplaneResource)
 		v1.GET("/cluster/argo/detect", apiHandler.GetArgoDetection)

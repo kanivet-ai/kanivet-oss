@@ -1,5 +1,21 @@
 import { formatStatus } from './formatters';
 import { printerCellValue } from './resourceListColumns';
+import {
+  NodeLoadMetric,
+  nodeCapacityType,
+  nodeInstanceType,
+  nodeLoadPercent,
+  nodePool,
+  nodeZone,
+} from './nodeColumns';
+
+const LOAD_SORT_METRICS: Record<string, NodeLoadMetric> = {
+  cpu: 'cpu',
+  memory: 'memory',
+  'cpu req': 'cpuRequests',
+  'mem req': 'memoryRequests',
+  pods: 'pods',
+};
 
 type SortOrder = 'asc' | 'desc';
 
@@ -50,6 +66,23 @@ const getSortValue = (item: any, column: string): any => {
       return item.capacity
         ? parseInt(item.capacity.replace(/\D/g, '') || '0')
         : 0;
+    case 'nodepool':
+      return nodePool(item) || '';
+    case 'instance type':
+      return nodeInstanceType(item) || '';
+    case 'capacity type':
+      return nodeCapacityType(item) || '';
+    case 'zone':
+      return nodeZone(item) || '';
+    case 'taints':
+      return Array.isArray(item.taints) ? item.taints.length : 0;
+    case 'cpu':
+    case 'memory':
+    case 'cpu req':
+    case 'mem req':
+    case 'pods':
+      // A node without figures sorts as -1, under every known load.
+      return nodeLoadPercent(item, LOAD_SORT_METRICS[column]) ?? -1;
     default: {
       const fromPrinter = printerCellValue(item, column);
       if (fromPrinter !== undefined && fromPrinter !== '') return fromPrinter;

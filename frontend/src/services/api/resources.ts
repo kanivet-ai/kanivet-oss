@@ -1,6 +1,7 @@
 import logger from '../../utils/logger';
 import { apiClient } from './client';
 import { PortForward } from './types';
+import type { NodeLoadReport } from '../../utils/nodeColumns';
 
 export interface ResourceDetailsOptions {
   /** Skip the backend's short-lived detail cache: a refresh or an editor
@@ -207,6 +208,19 @@ export async function getBatchRolloutStatus(cluster: string, items: any[]): Prom
     return response.data;
   } catch (error: any) {
     logger.error(`Failed to get batch rollout status`, { error: error.message });
+    throw error;
+  }
+}
+
+// Requests, pod counts and metrics-server usage for every node, for the
+// Nodes list's load columns.
+export async function getNodeLoad(cluster: string): Promise<NodeLoadReport> {
+  const endpoint = '/cluster/nodes/load';
+  try {
+    const response = await apiClient.getAxios().get(endpoint, { params: { cluster } });
+    return response.data;
+  } catch (error: any) {
+    logger.error(`Failed to get node load`, { error: error.message });
     throw error;
   }
 }

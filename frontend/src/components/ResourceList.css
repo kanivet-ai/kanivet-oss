@@ -2585,3 +2585,58 @@ body.col-resize * {
   content-visibility: auto;
   contain-intrinsic-size: 30px;
 }
+
+/* Node load columns: a small bar and the figure it shows. Column widths
+   are measured from the first rows, before the load arrives, so the "-"
+   placeholder takes the meter's width. */
+.node-load-meter,
+.node-load-empty {
+  display: inline-flex;
+  align-items: center;
+  min-width: 72px;
+}
+
+.node-load-meter {
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.node-load-bar {
+  flex: none;
+  width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--bg-tertiary);
+  overflow: hidden;
+}
+
+.node-load-fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--green);
+}
+
+.node-load-meter.requested .node-load-fill {
+  background: var(--accent);
+}
+
+.node-load-meter.warning .node-load-fill {
+  background: var(--orange);
+}
+
+.node-load-meter.danger .node-load-fill {
+  background: var(--red);
+}
+
+.node-load-meter.danger .node-load-value {
+  color: var(--danger-fg);
+}
+
+.node-load-empty {
+  color: var(--text-muted);
+}
+
+.capacity-type.capacity-spot {
+  color: var(--warning-fg);
+}
