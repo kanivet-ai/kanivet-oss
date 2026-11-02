@@ -329,26 +329,24 @@ export const formatNodeTaints = (item: any): React.ReactElement => {
 
 // Format node version
 export const formatNodeVersion = (item: any): string => {
-  // Backend extracts kubeletVersion as 'version'
-  return item.version || '-';
+  // Backend passes status.nodeInfo through as 'nodeInfo'; 'version' covers
+  // other kinds sharing the VERSION column (e.g. APIService spec.version)
+  return item.version || item.nodeInfo?.kubeletVersion || '-';
 };
 
 // Format node OS image
 export const formatNodeOSImage = (item: any): string => {
-  // Backend now extracts osImage
-  return item.osImage || '-';
+  return item.nodeInfo?.osImage || '-';
 };
 
 // Format node kernel version
 export const formatNodeKernelVersion = (item: any): string => {
-  // Backend now extracts kernelVersion
-  return item.kernelVersion || '-';
+  return item.nodeInfo?.kernelVersion || '-';
 };
 
 // Format container runtime
 export const formatContainerRuntime = (item: any): string => {
-  // Backend now extracts containerRuntimeVersion
-  return item.containerRuntimeVersion || '-';
+  return item.nodeInfo?.containerRuntimeVersion || '-';
 };
 
 // Format node internal IP
