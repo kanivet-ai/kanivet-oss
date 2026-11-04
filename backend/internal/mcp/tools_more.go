@@ -642,6 +642,9 @@ func (d *Deps) dashboard(ctx context.Context, call *mcpreg.Call, in dashboardArg
 		out["namespace"] = in.Namespace
 	}
 	cut := func(name string, rows []Row, n int) {
+		if rows == nil {
+			rows = []Row{}
+		}
 		out[name+"Total"] = len(rows)
 		if len(rows) > n {
 			reasons = append(reasons, Truncated(name, n, len(rows)))
