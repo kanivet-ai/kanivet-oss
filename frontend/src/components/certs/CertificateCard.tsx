@@ -1,4 +1,6 @@
 import React from 'react';
+import AIButton from '../ai/AIButton';
+import { certFixSeed } from '../ai/aiContext';
 import ResourceLink from '../ResourceLink';
 import type { CertificateInfo, CertIssue, CertRef } from '../../types/certs';
 import { displayName, formatDaysLeft, STATUS_LABEL, STATUS_TONE, validityFraction } from './certsView';
@@ -76,6 +78,23 @@ export const CertificateCard: React.FC<Props> = ({ cluster, cert, issues = [], h
             </li>
           ))}
         </ul>
+      )}
+      {(issues.length > 0 || cert.status !== 'ok') && (
+        <div className="cert-ai-row">
+          <AIButton label="Fix with AI" seed={() => {
+            const target = cm?.certificate || cert.usedBy[0] || cert.owner;
+            const detail = [
+              `Certificate ${displayName(cert)} (status ${cert.status}${cert.notAfter ? `, expires ${cert.notAfter}` : ''})`,
+              cert.sans.length ? `SANs: ${cert.sans.join(', ')}` : '',
+              `Issuer: ${cert.issuerCommonName || cert.issuer || 'unknown'}${cert.selfSigned ? ' (self-signed)' : ''}`,
+              `Stored in ${cert.owner.kind} ${cert.owner.namespace ? cert.owner.namespace + '/' : ''}${cert.owner.name}`,
+              ...cert.usedBy.map((u) => `Used by ${u.kind} ${u.namespace ? u.namespace + '/' : ''}${u.name}${u.hosts?.length ? ` hosts ${u.hosts.join(', ')}` : ''}`),
+              cm ? `cert-manager: ${cm.ready ? 'ready' : cm.reason || 'not ready'} ${cm.message || ''}; issuer ${cm.issuerRef.kind} ${cm.issuerRef.name}` : '',
+              ...issues.map((i) => `Problem: ${i.message}`),
+            ].filter(Boolean).join('\n');
+            return certFixSeed(cluster, target as any, issues[0]?.message || `certificate is ${cert.status}`, detail);
+          }} />
+        </div>
       )}
 
       {cert.sans.length > 0 && (

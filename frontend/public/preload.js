@@ -5,6 +5,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   island: {
     notify: (opts) => ipcRenderer.invoke('island:notify', opts),
   },
+  ai: {
+    pickFolder: () => ipcRenderer.invoke('dialog:pickFolder'),
+    openEditorUrl: (url) => ipcRenderer.invoke('shell:openEditorUrl', url),
+  },
   backend: {
     getPort: () => ipcRenderer.invoke('backend:getPort'),
     onPortChanged: (callback) => {

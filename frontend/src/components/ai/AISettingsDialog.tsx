@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as RDialog from '@radix-ui/react-dialog';
 import { groupTools, featureLabel } from './aiUtils';
 import ClientInstallList from './ClientInstallList';
+import CodeLocationsSection from './CodeLocationsSection';
 import { Cross2Icon, EyeOpenIcon, EyeClosedIcon, ReloadIcon, CheckIcon, CopyIcon } from '@radix-ui/react-icons';
 import { useAIStore } from '../../store/aiStore';
 import { aiApi, McpCall } from '../../services/api/ai';
@@ -281,9 +282,11 @@ const AISettingsDialog: React.FC = () => {
                       </div>
                     ))}
                     <div className="ap-card-row ai-muted ai-small">
-                      Investigate (in the inspector and on incidents) runs an installed CLI headless against the read-only endpoint, using its own login. No API keys are stored in Kanivet.
+                      AI chats (Ask AI ⌘J, Investigate, Fix with AI) run an installed CLI headless against the read-only endpoint, using its own login. Chats are saved in ~/.kanivet/ai. No API keys are stored in Kanivet.
                     </div>
                   </div>
+
+                  <CodeLocationsSection />
 
                   <div className="ap-group-label ai-label-row">
                     <span>Live agent activity</span>

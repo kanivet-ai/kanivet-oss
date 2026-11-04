@@ -6,6 +6,8 @@ import React, {
   useState,
 } from 'react';
 import { createPortal } from 'react-dom';
+import AIButton from '../ai/AIButton';
+import { rightsizingDetail, rightsizingSeed } from '../ai/aiContext';
 import {
   CheckIcon,
   ClipboardCopyIcon,
@@ -510,6 +512,9 @@ export const EvidenceSheet: React.FC<Props> = ({
               <ConfidenceMeter level={c.confidence} />
             )}
           </div>
+          {(c.verdict === 'over-provisioned' || c.verdict === 'under-provisioned' || c.verdict === 'no-requests') && !w.vclusterNamespace && (
+            <AIButton label="Apply with AI" seed={() => { onClose(); return rightsizingSeed(cluster, { kind: w.kind, namespace: w.namespace, name: w.name }, rightsizingDetail(c)); }} />
+          )}
           <button
             type="button"
             className="ap-icon-btn"

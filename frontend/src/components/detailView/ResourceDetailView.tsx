@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import InvestigateButton from '../ai/InvestigateButton';
+import { InspectorAIMenuItems, InspectorAskAI } from '../ai/InspectorAI';
 import * as ScrollArea from '@radix-ui/react-scroll-area';
 import { ChevronDownIcon, ChevronRightIcon, ReloadIcon, TrashIcon, SizeIcon, CubeIcon, BarChartIcon, CheckCircledIcon, PlayIcon } from '@radix-ui/react-icons';
 import useResourceNavigation from '../../hooks/useResourceNavigation';
@@ -469,12 +469,11 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="resource-actions-row">
             <QuickActions resource={resource} cluster={cluster} />
             {actions}
-            <InvestigateButton
-              target={{ cluster, kind: resource.kind, apiVersion: resource.apiVersion, namespace: resource.metadata?.namespace, name: resource.metadata?.name }}
-            />
+            <InspectorAskAI resource={resource} cluster={cluster} />
             {/* Secondary actions live in "More" so the primary row stays short. */}
             <HeaderOverflow>
               <CompareActions resource={resource} cluster={cluster} />
+              <InspectorAIMenuItems resource={resource} cluster={cluster} />
               <DeleteAction resource={resource} cluster={cluster} />
             </HeaderOverflow>
           </div>

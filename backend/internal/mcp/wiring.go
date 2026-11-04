@@ -3,6 +3,7 @@ package mcp
 import (
 	"log"
 	"net/http"
+	"path/filepath"
 	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
@@ -49,6 +50,16 @@ func Setup(lazy *Lazy, v1 *gin.RouterGroup, deps Deps) *Service {
 		return svc.ReadOnlyURL(), st.Token, st.Enabled
 	})
 	inv.RegisterRoutes(v1)
+	// Multi-turn AI chats, code fixes and live-patch proposals, persisted
+	// under ~/.kanivet/ai.
+	if chats, err := investigate.NewChatManager(filepath.Join(DefaultStateDir(), "ai"), func() (string, string, bool) {
+		st := svc.Store().Settings()
+		return svc.ReadOnlyURL(), st.Token, st.Enabled
+	}, svc); err != nil {
+		log.Printf("[AI] chats disabled: %v", err)
+	} else {
+		chats.RegisterChatRoutes(v1)
+	}
 	lazy.Set(svc)
 	return svc
 }

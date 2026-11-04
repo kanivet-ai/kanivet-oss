@@ -1,4 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import AIButton from '../ai/AIButton';
+import { networkSeed } from '../ai/aiContext';
 import { LightningBoltIcon, UpdateIcon } from '@radix-ui/react-icons';
 import Dialog from '../common/Dialog';
 import Combobox from '../common/Combobox';
@@ -39,6 +41,17 @@ const PathChecker: React.FC<PathCheckerProps> = ({ cluster, targets, intent, onI
 
   const list = targets?.targets || [];
   const findTarget = useCallback((r: NetRef | null) => list.find((t) => t.ref.kind === r?.kind && t.ref.namespace === r?.namespace && t.ref.name === r?.name), [list]);
+
+  const pathSeed = (kind: 'explain' | 'policy') => {
+    const label = (r: NetRef | null) => (r ? (r.ip || `${r.kind} ${r.namespace ? r.namespace + '/' : ''}${r.name || ''}`) : '?');
+    const detail = !result ? '' : [
+      `Verdict: ${result.verdict} (${result.protocol}${result.port ? '/' + result.port : ' any port'}); ${result.summary}`,
+      result.enforcer ? `Enforced by ${result.enforcer}` : '',
+      ...result.hops.map((h) => `- ${h.title} [${h.status}]: ${h.detail}${h.reasons?.length ? ' — ' + h.reasons.join('; ') : ''}${h.policies?.length ? ' policies: ' + h.policies.map((x) => `${x.namespace ? x.namespace + '/' : ''}${x.name}`).join(', ') : ''}`),
+      ...(result.warnings || []).map((w) => `Warning: ${w}`),
+    ].filter(Boolean).join('\n');
+    return networkSeed(cluster, label(source), label(dest), result?.verdict || 'blocked', detail, kind);
+  };
 
   const run = useCallback(async (src = source, dst = dest, p = port, proto = protocol) => {
     if (!src || !dst) return;
@@ -207,6 +220,8 @@ const PathChecker: React.FC<PathCheckerProps> = ({ cluster, targets, intent, onI
               <button type="button" className="ap-btn ap-btn--sm" onClick={() => { setProbeError(null); setProbeOpen(true); }} disabled={!source || !dest || probing}>
                 <LightningBoltIcon /> {probing ? 'Probing…' : 'Live probe'}
               </button>
+              <AIButton label={result.verdict === 'allowed' ? 'Explain with AI' : 'Explain why blocked'} seed={() => pathSeed('explain')} />
+              {result.verdict !== 'allowed' && <AIButton label="Write a NetworkPolicy" seed={() => pathSeed('policy')} />}
             </div>
           </div>
           {result.warnings?.map((w, i) => <div key={i} className="net-banner net-banner--warning">{w}</div>)}

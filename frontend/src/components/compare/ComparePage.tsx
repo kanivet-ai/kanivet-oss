@@ -9,7 +9,16 @@ import { isCompleteRef, lineForPath, refKey } from '../../utils/compareRefs';
 import { failureMessage } from '../../utils/errorMessage';
 import CompareResourcePicker from './CompareResourcePicker';
 import { setCompareRefs, useCompareRequest } from './compareLauncher';
+import AIButton from '../ai/AIButton';
+import { compareSeed } from '../ai/aiContext';
+import type { CompareResult as AICompareResult } from '../../types/compare';
 import './ComparePage.css';
+
+/** Compact text of a comparison for the AI prompt. */
+function compareDiffText(r: AICompareResult): string {
+  const lines = r.changes.slice(0, 80).map((c) => `${c.type} ${c.path}: ${c.a ?? ''} -> ${c.b ?? ''}`);
+  return [`A: ${r.a.label}`, `B: ${r.b.label}`, `${r.stats.added} added, ${r.stats.removed} removed, ${r.stats.changed} changed`, ...r.summary.map((s) => `* ${s.title}`), ...lines, r.changes.length > 80 ? `…${r.changes.length - 80} more` : ''].filter(Boolean).join('\n');
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   kind: 'Kind',
@@ -125,6 +134,17 @@ const ComparePage: React.FC<{ cluster: string }> = ({ cluster }) => {
           <button className="ap-icon-btn ap-icon-btn--sm" type="button" onClick={() => setReload((n) => n + 1)} disabled={!ready || loading} title="Refresh" aria-label="Refresh">
             <ReloadIcon />
           </button>
+          {result && !result.identical && (
+            <>
+              <AIButton label="Explain differences" seed={() => compareSeed(cluster, result.a.label, result.b.label, compareDiffText(result), 'explain')} />
+              <AIButton label={isDrift ? 'Reconcile drift' : 'Reconcile'} seed={() => {
+                const s = compareSeed(cluster, result.a.label, result.b.label, compareDiffText(result), 'reconcile');
+                const live = (result.a.ref.source || 'live') === 'live' ? result.a.ref : result.b.ref;
+                if (live.kind && live.name) s.resource = { kind: live.kind, apiVersion: live.group ? live.group + '/' + live.version : live.version, namespace: live.namespace, name: live.name, cluster: live.cluster || cluster };
+                return s;
+              }} />
+            </>
+          )}
         </div>
       </div>
 

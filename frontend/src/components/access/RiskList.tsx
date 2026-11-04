@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import type { RbacRisk, RiskSeverity } from '../../types/rbac';
 import RefLink from './RefLink';
+import AIButton from '../ai/AIButton';
+import { accessSeed } from '../ai/aiContext';
 import { countBySeverity, scopeLabel, SEVERITY_ORDER, severityBadge, subjectKey } from './accessUtils';
 
 interface Props {
@@ -17,6 +19,15 @@ const RiskList: React.FC<Props> = ({ cluster, risks, compact, onOpenSubject }) =
   const [severity, setSeverity] = useState<RiskSeverity | 'all'>('all');
   const counts = useMemo(() => countBySeverity(risks), [risks]);
   const shown = severity === 'all' ? risks : risks.filter((r) => r.severity === severity);
+  const riskSeed = (r: RbacRisk, kind: 'explain' | 'tighten') => {
+    const who = r.subjects.map((x) => `${x.kind} ${x.namespace ? x.namespace + '/' : ''}${x.name}`).join(', ') || 'its subjects';
+    const detail = [`${r.title} (${r.severity}, ${scopeLabel(r.scope)})`, r.detail,
+      `Binding: ${(r.binding as any).kind || 'RoleBinding'} ${(r.binding as any).namespace ? (r.binding as any).namespace + '/' : ''}${(r.binding as any).name}`,
+      `Role: ${(r.role as any).kind || 'Role'} ${(r.role as any).namespace ? (r.role as any).namespace + '/' : ''}${(r.role as any).name}`,
+      `Subjects: ${who}`].join('\n');
+    const role = r.role as any;
+    return accessSeed(cluster, who, detail, kind, role?.name ? { kind: role.kind || (role.namespace ? 'Role' : 'ClusterRole'), apiVersion: 'rbac.authorization.k8s.io/v1', namespace: role.namespace, name: role.name } : undefined);
+  };
 
   return (
     <div className={`access-risks${compact ? ' is-compact' : ''}`}>
@@ -42,6 +53,10 @@ const RiskList: React.FC<Props> = ({ cluster, risks, compact, onOpenSubject }) =
                 <span className={`ap-badge ap-badge--sm ${severityBadge(r.severity)}`}>{LABEL[r.severity]}</span>
                 <span className="access-risk-title">{r.title}</span>
                 <span className="access-risk-scope">{scopeLabel(r.scope)}</span>
+                <span className="access-risk-ai">
+                  <AIButton variant="icon" label="Explain these permissions" seed={() => riskSeed(r, 'explain')} />
+                  <AIButton label="Tighten with AI" seed={() => riskSeed(r, 'tighten')} />
+                </span>
               </div>
               <div className="access-risk-detail">{r.detail}</div>
               <div className="access-risk-chain">
