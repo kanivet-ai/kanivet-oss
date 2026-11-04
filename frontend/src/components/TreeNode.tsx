@@ -14,6 +14,7 @@ import clsx from 'clsx';
 import { getResourceIcon, getCategoryIcon } from '../utils/resourceIcons';
 import { useStore } from '../store';
 import ExpandIcon from './icons/ExpandIcon';
+import { PAGE_NODE_TYPES } from './sidebarSections';
 import './TreeNode.css';
 
 /**
@@ -70,31 +71,26 @@ const NO_PATH: boolean[] = [];
 const NO_LABELS: string[] = [];
 
 export const nodeHasChevron = (n: any): boolean =>
-  !n.disabled &&
-  n.type !== 'resource' &&
-  n.type !== 'overview' &&
-  n.type !== 'argo-overview' &&
-  n.type !== 'gitops' &&
-  n.type !== 'cnpg-overview' &&
-  n.type !== 'helm' &&
-  n.type !== 'vcluster' &&
-  n.type !== 'finops' &&
-  n.type !== 'rightsizing' &&
-  n.type !== 'certificates' &&
-  n.type !== 'topology' &&
-  n.type !== 'network' &&
-  n.type !== 'cluster-settings' &&
-  n.type !== 'incident-timeline' &&
-  n.type !== 'issues' &&
-  n.type !== 'audit' &&
-  n.type !== 'changes' &&
-  n.type !== 'access';
+  !n.disabled && n.type !== 'resource' && n.type !== 'vcluster' && !PAGE_NODE_TYPES.has(n.type);
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'gitops', 'cnpg-overview', 'helm', 'finops', 'rightsizing', 'network', 'topology', 'certificates', 'cluster-settings', 'incident-timeline', 'changes', 'issues', 'audit', 'access']);
+const OPENS_TAB = new Set(['resource', ...PAGE_NODE_TYPES]);
 
-const nodeMatchesSearch = (
+// Page nodes whose icon is registered under another name.
+const PAGE_ICON_ALIAS: Record<string, string> = { 'argo-overview': 'argocd', 'cnpg-overview': 'cnpg' };
+
+const nodeIcon = (node: any) => {
+  if (node.type === 'issues' || node.type === 'audit') return <HealthNavIcon kind={node.type} />;
+  if (PAGE_NODE_TYPES.has(node.type)) return getCategoryIcon(PAGE_ICON_ALIAS[node.type] || node.type);
+  if (node.type === 'resource') return getResourceIcon(node.label);
+  if (node.type === 'category') return getCategoryIcon(node.label);
+  if (node.type === 'apiVersion') return getCategoryIcon('package');
+  if (node.type === 'vclusters' || node.type === 'vcluster') return getCategoryIcon('vclusters');
+  return getCategoryIcon('folder');
+};
+
+export const nodeMatchesSearch = (
   node: any,
   searchQuery: string,
   ancestorLabels: string[] = [],
@@ -375,43 +371,7 @@ const TreeNode = ({
               {node.count === undefined || node.count === null ? '-' : `${node.count}`}
             </span>
           )}
-          <span className="tree-node-icon">
-            {node.type === 'overview'
-              ? getCategoryIcon('overview')
-              : node.type === 'argo-overview'
-                ? getCategoryIcon('argocd')
-              : node.type === 'gitops'
-                ? getCategoryIcon('gitops')
-              : node.type === 'cnpg-overview'
-                ? getCategoryIcon('cnpg')
-                : node.type === 'finops'
-                  ? getCategoryIcon('finops')
-                  : node.type === 'rightsizing'
-                    ? getCategoryIcon('rightsizing')
-                    : node.type === 'certificates'
-                      ? getCategoryIcon('certificates')
-                  : node.type === 'access'
-                    ? getCategoryIcon('access')
-                  : node.type === 'topology'
-                    ? getCategoryIcon('topology')
-                  : node.type === 'network'
-                    ? getCategoryIcon('network')
-                  : node.type === 'cluster-settings'
-                    ? getCategoryIcon('cluster-settings')
-                  : node.type === 'issues' || node.type === 'audit'
-                    ? <HealthNavIcon kind={node.type} />
-                  : node.type === 'helm'
-                    ? getCategoryIcon('helm')
-                    : node.type === 'resource'
-                      ? getResourceIcon(node.label)
-                      : node.type === 'category'
-                        ? getCategoryIcon(node.label)
-                        : node.type === 'apiVersion'
-                          ? getCategoryIcon('package')
-                          : node.type === 'vclusters' || node.type === 'vcluster'
-                            ? getCategoryIcon('vclusters')
-                            : getCategoryIcon('folder')}
-          </span>
+          <span className="tree-node-icon">{nodeIcon(node)}</span>
           <div className="tree-node-label-wrapper">
             <span className="tree-node-label">{node.label}</span>
           </div>

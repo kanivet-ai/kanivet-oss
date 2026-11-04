@@ -7,7 +7,16 @@ import {
   useMemo,
 } from 'react';
 import { pageResources } from '../store/navigationTargets';
-import TreeNode, { TreeCursorContext, createTreeCursor } from './TreeNode';
+import TreeNode, { TreeCursorContext, createTreeCursor, nodeMatchesSearch } from './TreeNode';
+import ExpandIcon from './icons/ExpandIcon';
+import {
+  PAGE_NODE_TYPES,
+  NOT_DETECTED_KEY,
+  groupSidebar,
+  visibleRoots,
+  loadCollapsedSections,
+  saveCollapsedSections,
+} from './sidebarSections';
 import { findTreeResourceNode } from '../utils/searchResults';
 import ScrollContainer from './ScrollContainer';
 import DebugPanel from './DebugPanel';
@@ -234,7 +243,24 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
     return result;
   }, []);
 
-  const allNodesMemo = useMemo(() => getAllNodes(clusterData), [clusterData, getAllNodes]);
+  const [collapsedSections, setCollapsedSections] = useState(loadCollapsedSections);
+  const toggleSection = useCallback((id: string) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      saveCollapsedSections(next);
+      return next;
+    });
+  }, []);
+  const searching = !!searchQuery;
+  const groups = useMemo(() => groupSidebar(clusterData), [clusterData]);
+
+  // Keyboard navigation walks only what is on screen.
+  const allNodesMemo = useMemo(
+    () => getAllNodes(visibleRoots(clusterData, collapsedSections, searching)),
+    [clusterData, collapsedSections, searching, getAllNodes],
+  );
 
   const nodeIndexMap = useMemo(() => {
     const map = new Map<string, any>();
@@ -254,6 +280,10 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
   const effectiveSelectedId = useMemo(() => {
     if (!selectedNode) return null;
     if (selectedNode.id && nodeIndexMap.has(selectedNode.id)) return selectedNode.id;
+    // A page listed under another id (GitOps under Argo CD) is matched by type.
+    if (PAGE_NODE_TYPES.has(selectedNode.type)) {
+      for (const node of nodeIndexMap.values()) if (node.type === selectedNode.type) return node.id;
+    }
     if (selectedNode.type === 'resource' && selectedNode.data?.name) {
       const match = findTreeResourceNode(
         clusterData,
@@ -312,163 +342,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
-      } else if (node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview') {
-        selectNode(node);
-        if (currentTab) {
-          const argoOverviewResource = {
-            name: 'argo-applications-overview',
-            group: 'argoproj.io',
-            version: 'v1alpha1',
-            kind: 'ArgoApplicationsOverview',
-            namespaced: false,
-          };
-          await openResourceListTab(
-            argoOverviewResource,
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          recordNavigation('argo-overview', node.id, node.data).catch(() => {});
-        }
-      } else if (node.type === 'gitops' || node.type === 'cnpg-overview') {
-        selectNode(node);
-        if (currentTab) {
-          const page = pageResources[node.type];
-          await openResourceListTab(page, currentTab, isPinned, freshPaneId || undefined);
-          recordNavigation(node.type, node.id, node.data).catch(() => {});
-        }
-      } else if (node.type === 'helm') {
-        console.log('Node is helm, opening helm releases tab...');
-        selectNode(node);
-        if (currentTab) {
-          const helmResource = {
-            name: 'helm-releases',
-            group: '',
-            version: 'v1',
-            kind: 'HelmReleases',
-            namespaced: false,
-          };
-          await openResourceListTab(
-            helmResource,
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          recordNavigation('helm', node.id, node.data).catch((error) => {
-            console.error('Error recording navigation:', error);
-          });
-        }
-      } else if (node.type === 'finops') {
-        console.log('Node is finops, opening finops dashboard tab...');
-        selectNode(node);
-        if (currentTab) {
-          const finopsResource = {
-            name: 'finops-dashboard',
-            group: '',
-            version: 'v1',
-            kind: 'FinOpsDashboard',
-            namespaced: false,
-          };
-          await openResourceListTab(
-            finopsResource,
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          recordNavigation('finops', node.id, node.data).catch((error) => {
-            console.error('Error recording navigation:', error);
-          });
-        }
-      } else if (node.type === 'network') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(
-            { name: 'network-page', group: '', version: 'v1', kind: 'NetworkPage', namespaced: false },
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          recordNavigation('network', node.id, node.data).catch(() => {});
-        }
-      } else if (node.type === 'rightsizing') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(
-            { name: 'rightsizing-dashboard', group: '', version: 'v1', kind: 'RightsizingDashboard', namespaced: false },
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          recordNavigation('rightsizing', node.id, node.data).catch((error) => {
-            console.error('Error recording navigation:', error);
-          });
-        }
-      } else if (node.type === 'certificates') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(pageResources.certificates, currentTab, isPinned, freshPaneId || undefined);
-          void recordNavigation('certificates', node.id, node.data);
-        }
-      } else if (node.type === 'topology') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(
-            { name: 'topology', group: '', version: 'v1', kind: 'TopologyView', namespaced: false },
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          void recordNavigation('topology', node.id, node.data);
-        }
-      } else if (node.type === 'issues' || node.type === 'audit') {
+      } else if (PAGE_NODE_TYPES.has(node.type) && pageResources[node.type]) {
+        // Every page node opens its page tab; the tab selects the node back.
         selectNode(node);
         if (currentTab) {
           await openResourceListTab(pageResources[node.type], currentTab, isPinned, freshPaneId || undefined);
           recordNavigation(node.type, node.id, node.data).catch(() => {});
-        }
-      } else if (node.type === 'cluster-settings') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(
-            { name: 'cluster-settings', group: '', version: 'v1', kind: 'ClusterSettings', namespaced: false },
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          void recordNavigation('cluster-settings', node.id, node.data);
-        }
-      } else if (node.type === 'access') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(pageResources.access, currentTab, isPinned, freshPaneId || undefined);
-          void recordNavigation('access', node.id, node.data);
-        }
-      } else if (node.type === 'changes') {
-        selectNode(node);
-        if (currentTab) {
-          await openResourceListTab(pageResources.changes, currentTab, isPinned, freshPaneId || undefined);
-          void recordNavigation('changes', node.id, node.data);
-        }
-      } else if (node.type === 'incident-timeline') {
-        console.log('Node is incident-timeline, opening incidents tab...');
-        selectNode(node);
-        if (currentTab) {
-          const incidentsResource = {
-            name: 'incident-timeline',
-            group: '',
-            version: 'v1',
-            kind: 'IncidentTimeline',
-            namespaced: false,
-          };
-          await openResourceListTab(
-            incidentsResource,
-            currentTab,
-            isPinned,
-            freshPaneId || undefined,
-          );
-          recordNavigation('incident-timeline', node.id, node.data).catch((error) => {
-            console.error('Error recording navigation:', error);
-          });
         }
       } else if (node.type === 'vcluster') {
         if (!node.data) return;
@@ -621,7 +500,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
-        if (node.type === 'resource' || node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview') {
+        if (node.type === 'resource' || PAGE_NODE_TYPES.has(node.type)) {
           await handleNodeClick(node, false);
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
@@ -650,7 +529,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
-        if (node.type === 'resource' || node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview') {
+        if (node.type === 'resource' || PAGE_NODE_TYPES.has(node.type)) {
           await handleNodeClick(node, false);
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
@@ -760,16 +639,58 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
       >
         <TreeCursorContext.Provider value={cursor}>
           <div className="tree-content">
-            {clusterData.map((node: any, index: number) => (
-              <TreeNode
-                key={`${currentTab}-${node.id}`}
-                node={node}
-                level={0}
-                searchQuery={searchQuery}
-                onNodeClick={handleNodeClick}
-                isLast={index === clusterData.length - 1}
-              />
-            ))}
+            {groups.map((group) => {
+              if (searching && ![...group.nodes, ...group.notDetected].some((n) => nodeMatchesSearch(n, searchQuery))) return null;
+              const collapsed = !searching && !!group.label && collapsedSections.has(group.id);
+              const foldOpen = searching || !collapsedSections.has(NOT_DETECTED_KEY);
+              const renderNodes = (nodes: any[]) =>
+                nodes.map((node: any, index: number) => (
+                  <TreeNode
+                    key={`${currentTab}-${node.id}`}
+                    node={node}
+                    level={0}
+                    searchQuery={searchQuery}
+                    onNodeClick={handleNodeClick}
+                    isLast={index === nodes.length - 1}
+                  />
+                ));
+              return (
+                <div key={group.id} className={`tree-section tree-section-${group.id}`} role="group" aria-label={group.label || undefined}>
+                  {group.label && (
+                    <button
+                      type="button"
+                      className="tree-section-header"
+                      aria-expanded={!collapsed}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleSection(group.id);
+                      }}
+                    >
+                      <span className="tree-section-title">{group.label}</span>
+                      <span className="tree-section-chevron"><ExpandIcon expanded={!collapsed} /></span>
+                    </button>
+                  )}
+                  {!collapsed && renderNodes(group.nodes)}
+                  {!collapsed && group.notDetected.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        className="tree-section-fold"
+                        aria-expanded={foldOpen}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggleSection(NOT_DETECTED_KEY);
+                        }}
+                      >
+                        <span className="tree-section-chevron"><ExpandIcon expanded={foldOpen} /></span>
+                        <span>Not detected ({group.notDetected.length})</span>
+                      </button>
+                      {foldOpen && renderNodes(group.notDetected)}
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </TreeCursorContext.Provider>
       </ScrollContainer>

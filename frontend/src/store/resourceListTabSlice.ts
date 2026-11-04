@@ -119,6 +119,11 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
         t.id === cluster ? { ...t, state: { ...t.state, resourceListTabs: updatedTabs, activeResourceListTab: newTab.id, listItems: items, activeResourceListTabByPane: { ...(t.state.activeResourceListTabByPane || {}), [paneKey]: newTab.id } } } : t
       ),
     }));
+    // A page opened from a button or link (Issues -> Audit) selects its node;
+    // a resource type keeps the node its caller selected (it may be the
+    // tree's own one, which carries an exact id).
+    const page = pageNode(resource.kind, cluster);
+    if (page && get().currentTab === cluster) get().selectNode(page);
   },
 
   closeResourceListTab: (tabId: string) => {
