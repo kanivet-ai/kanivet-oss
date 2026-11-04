@@ -5,10 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+
+	"github.com/kanivet/backend/internal/mcp/mcpreg"
 )
 
 // Reason explains why a result is empty or partial, so an agent can act on
@@ -111,4 +114,39 @@ type WithReasons struct {
 // Explain returns an empty result carrying the reason for err.
 func Explain(err error, kind, namespace string) WithReasons {
 	return WithReasons{Items: []any{}, Reasons: []Reason{ReasonFor(err, kind, namespace)}}
+}
+
+// registerRead registers a read tool whose failures come back as an empty
+// result with reasons (see ReasonsDoc) rather than as an opaque tool error.
+func registerRead[In any](r *mcpreg.Registry, spec mcpreg.Spec, h mcpreg.Handler[In]) {
+	spec.Description += ReasonsDoc
+	mcpreg.RegisterOn(r, spec, Explained(h))
+}
+
+// Explained wraps a read handler so errors become Explain results. Kind and
+// namespace are taken from the input's Kind/Namespace fields when present.
+func Explained[In any](h mcpreg.Handler[In]) mcpreg.Handler[In] {
+	return func(ctx context.Context, call *mcpreg.Call, in In) (any, error) {
+		out, err := h(ctx, call, in)
+		if err == nil {
+			return out, nil
+		}
+		kind, ns := stringField(in, "Kind"), stringField(in, "Namespace")
+		return Explain(err, kind, ns), nil
+	}
+}
+
+func stringField(v any, name string) string {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() == reflect.Pointer {
+		rv = rv.Elem()
+	}
+	if rv.Kind() != reflect.Struct {
+		return ""
+	}
+	f := rv.FieldByName(name)
+	if f.IsValid() && f.Kind() == reflect.String {
+		return f.String()
+	}
+	return ""
 }

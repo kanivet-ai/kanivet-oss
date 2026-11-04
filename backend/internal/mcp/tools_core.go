@@ -33,43 +33,43 @@ func registerCoreTools(r *mcpreg.Registry, d *Deps) {
 		Description:     "Kube contexts Kanivet knows, which one is open in the UI (the default for every tool), and the cloud provider.",
 	}, d.listClusters)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "list_resources",
 		Title:       "List resources",
 		Description: "Compact one-line rows (name, ns, status, ready, restarts, node, age) for a kind. Filter by namespace, label selector, name substring, or problems=true for only unhealthy objects. Reads Kanivet's watch cache when warm.",
 	}, d.listResources)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "get_resource",
 		Title:       "Get resource",
 		Description: "One object as minified YAML: managedFields, defaults and empty fields removed; Secret values and secret-looking strings redacted.",
 	}, d.getResource)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "get_events",
 		Title:       "Get events",
 		Description: "Kubernetes events, deduplicated (same object+reason+message folded with a count), newest first. Scope to an object with kind/name, or a namespace; warningsOnly defaults to true.",
 	}, d.getEvents)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "get_logs",
 		Title:       "Get logs",
 		Description: "Recent log lines of a pod, or of a workload's pods (Deployment/StatefulSet/DaemonSet/Job). Filter with grep (regex) or errorsOnly; repeated lines are collapsed and secrets scrubbed. previous=true reads the last crashed container.",
 	}, d.getLogs)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "search",
 		Title:       "Search",
 		Description: "Full-text search over Kanivet's resource index (names, labels, annotations, images) across kinds. Fastest way to find a resource when you know part of its name.",
 	}, d.search)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "get_incidents",
 		Title:       "Get incidents",
 		Description: "Kanivet's incident classifier over recent cluster events: grouped, severity-ranked problems (critical/warning) with affected objects and counts. Start here for 'what is wrong in this cluster'.",
 	}, d.getIncidents)
 
-	mcpreg.RegisterOn(r, mcpreg.Spec{
+	registerRead(r, mcpreg.Spec{
 		Name:        "diagnose",
 		Title:       "Diagnose",
 		Description: "Everything needed to explain one resource in a single call: health verdict and findings, owner chain, related objects (pods, node, services, config refs), deduplicated events, the tail of failing containers' logs, and under context the health engine's issues and recent changes for the object when available.",
@@ -209,7 +209,40 @@ func (d *Deps) listResources(ctx context.Context, call *mcpreg.Call, in listArgs
 	if len(rows) > limit {
 		rows = rows[:limit]
 	}
-	return map[string]any{"kind": ki.Kind, "apiVersion": ki.APIVersion(), "total": total, "truncated": total > len(rows), "source": source, "items": rows}, nil
+	out := map[string]any{"kind": ki.Kind, "apiVersion": ki.APIVersion(), "total": total, "truncated": total > len(rows), "source": source, "items": rows}
+	var reasons []Reason
+	if total > len(rows) {
+		reasons = append(reasons, Truncated(ki.Kind, len(rows), total))
+	}
+	if total == 0 && in.Namespace != "" && ki.Namespaced {
+		if r, ok := d.namespaceReason(ctx, call.Cluster, in.Namespace); ok {
+			reasons = append(reasons, r)
+		}
+	}
+	if len(reasons) > 0 {
+		out["reasons"] = reasons
+	}
+	return out, nil
+}
+
+// namespaceReason reports a namespace that does not exist (or cannot be
+// checked), which turns "no objects" into an answer the agent can act on.
+func (d *Deps) namespaceReason(ctx context.Context, cluster, ns string) (Reason, bool) {
+	if d.K8s == nil {
+		return Reason{}, false
+	}
+	cs, err := d.K8s.GetClientForCluster(cluster)
+	if err != nil {
+		return ReasonFor(err, "Namespace", ns), true
+	}
+	if _, err := cs.CoreV1().Namespaces().Get(ctx, ns, metav1.GetOptions{}); err != nil {
+		r := ReasonFor(err, "Namespace", ns)
+		if r.Code == ReasonObjectNotFound {
+			r.Code = ReasonNamespaceNotFound
+		}
+		return r, true
+	}
+	return Reason{}, false
 }
 
 func readyComplete(ready string) bool {

@@ -21,19 +21,19 @@ import (
 )
 
 func registerExtraTools(r *mcpreg.Registry, d *Deps) {
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "list_helm_releases", Feature: "helm", Title: "List Helm releases",
+	registerRead(r, mcpreg.Spec{Name: "list_helm_releases", Feature: "helm", Title: "List Helm releases",
 		Description: "Helm releases (name, namespace, chart, version, status, revision, updated). Failed or pending releases sort first."}, d.listHelm)
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "get_helm_release", Feature: "helm", Title: "Get Helm release",
+	registerRead(r, mcpreg.Spec{Name: "get_helm_release", Feature: "helm", Title: "Get Helm release",
 		Description: "One Helm release: status, notes, revision history, and optionally user values (include=values) or the rendered manifest (include=manifest). Secrets are redacted."}, d.getHelm)
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "list_argo_apps", Feature: "argo", Title: "List Argo CD applications",
+	registerRead(r, mcpreg.Spec{Name: "list_argo_apps", Feature: "argo", Title: "List Argo CD applications",
 		Description: "Argo CD Applications with sync and health status, source repo/path/revision and destination. Out-of-sync or unhealthy apps sort first."}, d.listArgo)
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "get_argo_app", Feature: "argo", Title: "Get Argo CD application",
+	registerRead(r, mcpreg.Spec{Name: "get_argo_app", Feature: "argo", Title: "Get Argo CD application",
 		Description: "One Argo CD Application: minified spec/status including per-resource sync/health, conditions and the last operation."}, d.getArgo)
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "get_metrics", Feature: "metrics", Title: "Get usage metrics",
+	registerRead(r, mcpreg.Spec{Name: "get_metrics", Feature: "metrics", Title: "Get usage metrics",
 		Description: "Current CPU/memory usage from metrics-server. target=pods (optionally one namespace) or nodes (with requests/allocatable load). Sorted by usage, top N."}, d.getMetrics)
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "get_costs", Feature: "finops", Title: "Get costs",
+	registerRead(r, mcpreg.Spec{Name: "get_costs", Feature: "finops", Title: "Get costs",
 		Description: "FinOps cost data. view=summary (default), namespaces, workloads (optionally namespace), nodes or recommendations."}, d.getCosts)
-	mcpreg.RegisterOn(r, mcpreg.Spec{Name: "get_rightsizing", Feature: "finops", Title: "Get rightsizing",
+	registerRead(r, mcpreg.Spec{Name: "get_rightsizing", Feature: "finops", Title: "Get rightsizing",
 		Description: "Rightsizing recommendations from usage history (requests/limits vs observed), with estimated savings. May be partial while history loads."}, d.getRightsizing)
 }
 

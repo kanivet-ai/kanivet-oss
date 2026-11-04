@@ -96,7 +96,7 @@ func (d *Deps) resolveKind(cluster, kind string) (kindInfo, error) {
 		return ki, nil
 	}
 	if d.K8s == nil {
-		return kindInfo{}, fmt.Errorf("unknown kind %q", kind)
+		return kindInfo{}, fmt.Errorf("%w %q", ErrKindUnknown, kind)
 	}
 	resources, err := d.apiResources(cluster)
 	if err != nil {
@@ -116,7 +116,7 @@ func (d *Deps) resolveKind(cluster, kind string) (kindInfo, error) {
 		}
 	}
 	if len(matches) == 0 {
-		return kindInfo{}, fmt.Errorf("unknown kind %q on this cluster", kind)
+		return kindInfo{}, fmt.Errorf("%w %q on this cluster", ErrKindUnknown, kind)
 	}
 	// Prefer the group's preferred version, then a stable version.
 	sort.SliceStable(matches, func(i, j int) bool {
