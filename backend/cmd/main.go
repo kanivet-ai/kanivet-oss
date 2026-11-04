@@ -579,6 +579,18 @@ func main() {
 		v1.POST("/cluster/argo/applications/:namespace/:name/sync", apiHandler.ArgoSyncApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/refresh", apiHandler.ArgoRefreshApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/rollback", apiHandler.ArgoRollbackApplication)
+		v1.GET("/cluster/integrations/detect", apiHandler.GetIntegrationsDetection)
+		v1.GET("/cluster/gitops/status", apiHandler.GetGitOpsStatus)
+		v1.GET("/cluster/gitops/flux", apiHandler.GetFluxObjects)
+		v1.GET("/cluster/gitops/flux/:kind/:namespace/:name", apiHandler.GetFluxObject)
+		v1.POST("/cluster/gitops/flux/:kind/:namespace/:name/reconcile", apiHandler.FluxReconcile)
+		v1.POST("/cluster/gitops/flux/:kind/:namespace/:name/suspend", apiHandler.FluxSuspend)
+		v1.POST("/cluster/gitops/flux/:kind/:namespace/:name/resume", apiHandler.FluxResume)
+		v1.GET("/cluster/cnpg/clusters", apiHandler.GetCNPGClusters)
+		v1.GET("/cluster/cnpg/clusters/:namespace/:name", apiHandler.GetCNPGClusterStatus)
+		v1.POST("/cluster/cnpg/clusters/:namespace/:name/backup", apiHandler.CNPGBackupNow)
+		v1.POST("/cluster/cnpg/clusters/:namespace/:name/promote", apiHandler.CNPGPromote)
+		v1.POST("/cluster/cnpg/clusters/:namespace/:name/restart", apiHandler.CNPGRestart)
 		v1.GET("/cluster/resource-schema/:group/:version/:kind", apiHandler.GetResourceSchema)
 
 		// Cluster groups management
