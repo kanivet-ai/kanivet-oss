@@ -29,6 +29,7 @@ import './Layout.css';
 
 // Not on the first screen: split out, then warmed once the layout has painted.
 const CommandPalette = lazyView(() => import('./CommandPalette'));
+const AIOverlays = lazyView(() => import('./ai/AIOverlays'));
 const FeatureTour = lazyView(() => import('./onboarding/FeatureTour'));
 const ThemeSettings = lazyView(() =>
   import('./ThemeSettings').then((m) => ({ default: m.ThemeSettings })),
@@ -670,6 +671,7 @@ const Layout = () => {
           </div>
         </div>
       </div>
+      <AIOverlays />
       <CommandPalette
         isOpen={isCommandPaletteOpen}
         onClose={() => setIsCommandPaletteOpen(false)}

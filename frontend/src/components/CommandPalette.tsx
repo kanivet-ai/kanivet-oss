@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { AI_PALETTE_COMMANDS, runAIPaletteCommand } from './ai/aiPalette';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -78,6 +79,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Quickly change the active cluster',
       category: 'Commands',
     },
+    ...AI_PALETTE_COMMANDS,
   ];
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -438,6 +440,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const id = String(sel.resource.id || '').replace(/^cmd:/, '');
       if (id === 'switch-cluster') {
         primeClusterSwitch();
+        return;
+      }
+      if (runAIPaletteCommand(id, currentTab)) {
+        onClose();
         return;
       }
     }
