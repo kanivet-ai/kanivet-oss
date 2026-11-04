@@ -346,9 +346,13 @@ function Canvas(props: TopologyCanvasProps) {
     const z = Math.min(W / (width * (1 + FIT.padding)), H / (height * (1 + FIT.padding)), FIT.maxZoom);
     if (z >= READABLE_ZOOM) { void rf.fitView({ ...FIT, duration }); return; }
     const zoom = READABLE_ZOOM;
+    // Too big to read whole: a focus view centres on its focus, an app view
+    // starts at the top left (failing apps sort first).
+    const fp = !app && props.focusId ? layout.positions.get(props.focusId) : undefined;
+    if (fp) { void rf.setCenter(fp.x + NODE_W / 2 + (W * 0.15) / zoom, fp.y + NODE_H / 2, { zoom, duration }); return; }
     const x = width * zoom < W ? (W - width * zoom) / 2 - minX * zoom : EDGE_PAD - minX * zoom;
     void rf.setViewport({ x, y: EDGE_PAD - minY * zoom, zoom }, { duration });
-  }, [rf, app]);
+  }, [rf, app, layout, props.focusId]);
   const fitted = useRef('');
   const [ready, setReady] = useState(false);
   const fitKey = size ? `${structureKey}@${size.width}x${size.height}` : '';
