@@ -76,7 +76,7 @@ const AccessPermissionsSection: React.FC<Props> = ({ resource, cluster }) => {
   return (
     <>
       <PropertyGroup
-        title="Permissions"
+        title={kind === "Role" || kind === "ClusterRole" ? "Permission matrix" : "Permissions"}
         icon={<LockClosedIcon />}
         persistKey={`access-permissions-${kind === 'Pod' ? 'pod' : 'rbac'}`}
         defaultOpen={kind !== 'Pod'}

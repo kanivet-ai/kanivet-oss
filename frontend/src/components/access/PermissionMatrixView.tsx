@@ -54,7 +54,7 @@ const PermissionMatrixView: React.FC<Props> = ({ cluster, matrix, compact, showB
           {matrix.rows.length > 8 && (
             <div className="access-matrix-toolbar">
               <input
-                className="ap-search ap-search--sm access-matrix-filter"
+                className="ap-input ap-input--sm access-matrix-filter"
                 placeholder="Filter resources"
                 value={filter}
                 onChange={(e) => setFilter(e.target.value)}

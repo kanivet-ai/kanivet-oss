@@ -129,7 +129,7 @@ func (g *Graph) risksFor(srcs []grantSource, includeSystem bool) []Risk {
 }
 
 func edgeRisks(e *edge, includeSystem bool) []Risk {
-	system := isSystemBinding(e.binding.Name)
+	system := isSystemBinding(e.binding.Name) || systemSubjectsOnly(e.subjects)
 	if system && !includeSystem {
 		return nil
 	}
@@ -148,9 +148,13 @@ func edgeRisks(e *edge, includeSystem bool) []Risk {
 	} else if e.role != nil {
 		seen := map[string]bool{}
 		for _, r := range e.role.rules {
-			for _, c := range riskChecks {
+			for ci, c := range riskChecks {
 				if seen[c.title] {
 					continue
+				}
+				// A full wildcard implies every other check; one finding says it.
+				if ci > 0 && riskChecks[0].match(r, cw) != "" {
+					break
 				}
 				if sev := c.match(r, cw); sev != "" {
 					seen[c.title] = true
@@ -218,4 +222,28 @@ func (g *Graph) RiskyGrants(opts RiskOptions) []Risk {
 	}
 	sortRisks(out)
 	return out
+}
+
+// systemSubjectsOnly reports whether every subject is a Kubernetes component
+// identity (system:masters, system:kube-scheduler, ...). The public groups
+// system:authenticated, system:unauthenticated and system:serviceaccounts*
+// are not components: grants to them stay visible.
+func systemSubjectsOnly(subjects []SubjectRef) bool {
+	if len(subjects) == 0 {
+		return false
+	}
+	for _, s := range subjects {
+		if s.Kind == KindServiceAccount && s.Namespace == "kube-system" {
+			continue
+		}
+		if s.Kind == KindServiceAccount || !strings.HasPrefix(s.Name, "system:") {
+			return false
+		}
+		switch {
+		case s.Name == "system:anonymous", s.Name == "system:unauthenticated", s.Name == "system:authenticated",
+			strings.HasPrefix(s.Name, "system:serviceaccounts"):
+			return false
+		}
+	}
+	return true
 }

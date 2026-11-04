@@ -120,9 +120,15 @@ func (g *Graph) SubjectPermissions(subject SubjectRef, namespace string) *Permis
 	m.Subject = &subject
 	m.Namespace = namespace
 	m.Warnings = g.warnings
-	for _, r := range g.risksFor(srcs, true) {
-		m.Risks = append(m.Risks, r)
+	// Risks of grants reaching the subject only through broad implicit
+	// groups belong to those groups, not to every subject in them.
+	var direct []grantSource
+	for _, s := range srcs {
+		if s.via == "" {
+			direct = append(direct, s)
+		}
 	}
+	m.Risks = g.risksFor(direct, true)
 	return m
 }
 

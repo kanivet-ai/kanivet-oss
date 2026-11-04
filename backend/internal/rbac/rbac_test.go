@@ -274,3 +274,33 @@ func TestSelfPermissions(t *testing.T) {
 		t.Errorf("self = %+v", res.Matrix)
 	}
 }
+
+func TestFullWildcardIsOneFindingAndComponentsAreSystem(t *testing.T) {
+	s := fixture()
+	s.ClusterRoles = append(s.ClusterRoles, rbacv1.ClusterRole{ObjectMeta: om("god", ""),
+		Rules: []rbacv1.PolicyRule{{Verbs: []string{"*"}, APIGroups: []string{"*"}, Resources: []string{"*"}}}})
+	s.ClusterRoleBindings = append(s.ClusterRoleBindings,
+		rbacv1.ClusterRoleBinding{ObjectMeta: om("god-ops", ""), RoleRef: rbacv1.RoleRef{Kind: "ClusterRole", Name: "god"},
+			Subjects: []rbacv1.Subject{{Kind: "Group", Name: "ops"}}},
+		rbacv1.ClusterRoleBinding{ObjectMeta: om("masters", ""), RoleRef: rbacv1.RoleRef{Kind: "ClusterRole", Name: "cluster-admin"},
+			Subjects: []rbacv1.Subject{{Kind: "Group", Name: "system:masters"}}},
+		rbacv1.ClusterRoleBinding{ObjectMeta: om("everyone", ""), RoleRef: rbacv1.RoleRef{Kind: "ClusterRole", Name: "secret-reader"},
+			Subjects: []rbacv1.Subject{{Kind: "Group", Name: "system:authenticated"}}})
+	var god, everyone []string
+	for _, r := range BuildGraph(s).RiskyGrants(RiskOptions{}) {
+		switch r.Binding.Name {
+		case "god-ops":
+			god = append(god, r.Category)
+		case "masters":
+			t.Error("component-only binding should count as system")
+		case "everyone":
+			everyone = append(everyone, r.Category)
+		}
+	}
+	if len(god) != 1 || god[0] != "wildcard" {
+		t.Errorf("god-ops findings = %v", god)
+	}
+	if len(everyone) != 1 || everyone[0] != "secrets" {
+		t.Errorf("everyone findings = %v", everyone)
+	}
+}

@@ -299,7 +299,7 @@ const AccessPage: React.FC<Props> = ({ cluster }) => {
           <div className="access-split">
             <aside className="access-subject-picker">
               <input
-                className="ap-search ap-search--sm"
+                className="ap-input ap-input--sm"
                 placeholder="Find a subject"
                 value={subjectFilter}
                 onChange={(e) => setSubjectFilter(e.target.value)}
