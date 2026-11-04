@@ -225,3 +225,6 @@
   text-align: left;
   cursor: pointer;
 }
+
+.gitops-col-source { width: 200px; }
+.gitops-col-status { width: 170px; }

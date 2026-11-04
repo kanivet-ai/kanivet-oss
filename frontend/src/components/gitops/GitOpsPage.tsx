@@ -177,9 +177,9 @@ const GitOpsPage = ({ cluster, initialTool }: Props) => {
                     <th className="is-static">Name</th>
                     <th className="is-static gitops-col-kind">Kind</th>
                     <th className="is-static argo-apps-col-status">Health</th>
-                    <th className="is-static">Status</th>
+                    <th className="is-static gitops-col-status">Status</th>
                     <th className="is-static argo-apps-col-rev">Revision</th>
-                    <th className="is-static">Source</th>
+                    <th className="is-static gitops-col-source">Source</th>
                     <th className="is-static argo-apps-col-time">Updated</th>
                     <th className="is-static gitops-col-actions" aria-label="Actions" />
                   </tr>
