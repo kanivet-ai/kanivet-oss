@@ -116,6 +116,7 @@ func mergeLayers(layers [][]layerEntry) *tree {
 			case "deleted":
 				lc.Deleted++
 			}
+			c.Path = "/" + strings.TrimPrefix(c.Path, "/")
 			if len(lc.Changes) < maxChangesPerLayer {
 				lc.Changes = append(lc.Changes, c)
 			} else {

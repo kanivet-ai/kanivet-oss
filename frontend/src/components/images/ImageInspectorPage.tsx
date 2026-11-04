@@ -349,7 +349,7 @@ const FilesView: React.FC<FilesProps> = ({ target, pc, info, layerFilter, setLay
       <div className="image-inspector-files-left">
         <div className="image-inspector-files-bar">
           <input
-            className="ap-search ap-search--sm image-inspector-search"
+            className="ap-input ap-input--sm image-inspector-search"
             placeholder={layerFilter !== null ? 'Filter changes' : 'Search files'}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
