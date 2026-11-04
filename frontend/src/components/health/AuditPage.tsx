@@ -67,7 +67,7 @@ const AuditPage: React.FC<{ cluster: string }> = ({ cluster }) => {
           </span>
         </div>
         <div className="health-toolbar-controls">
-          <div className="ap-segmented ap-segmented--sm" role="tablist">
+          <div className="ap-segmented" role="tablist">
             {(['checks', 'resources', 'namespaces'] as View[]).map((v) => (
               <button key={v} type="button" role="tab" data-active={view === v} className={view === v ? 'is-active' : undefined} onClick={() => setView(v)}>
                 {v === 'checks' ? 'Checks' : v === 'resources' ? 'Resources' : 'Namespaces'}

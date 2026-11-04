@@ -13,8 +13,10 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 44px;
-  padding: 0 16px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  background: var(--toolbar);
   border-bottom: 1px solid var(--hair);
   flex-shrink: 0;
 }
@@ -27,7 +29,7 @@
 }
 
 .net-title-icon {
-  display: inline-flex;
+  display: none;
   width: 16px;
   height: 16px;
   color: var(--blue);
@@ -232,13 +234,6 @@
 }
 
 .net-picker-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
-  right: 0;
-  max-height: 320px;
-  overflow: auto;
-  z-index: 30;
   animation: ap-pop 140ms var(--ease-quiet);
 }
 
@@ -267,7 +262,8 @@
 }
 
 .net-swap {
-  margin-bottom: 2px;
+  /* Bottom-aligned with the 28px fields beside it. */
+  margin-bottom: 0;
 }
 
 .net-port,

@@ -13,15 +13,16 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  height: 36px;
-  padding: 0 14px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
   flex: none;
   background: var(--toolbar);
   border-bottom: 1px solid var(--hair);
 }
 
 .access-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.2px;
 }

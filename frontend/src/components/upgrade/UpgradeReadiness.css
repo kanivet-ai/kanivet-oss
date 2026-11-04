@@ -13,8 +13,9 @@
   justify-content: space-between;
   gap: 16px;
   flex-wrap: wrap;
-  min-height: 52px;
+  min-height: 44px;
   padding: 8px 16px;
+  box-sizing: border-box;
   background: var(--toolbar);
   border-bottom: 1px solid var(--hair);
   flex: none;
@@ -22,7 +23,8 @@
 
 .upgrade-toolbar-title {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  gap: 10px;
   min-width: 0;
 }
 
@@ -34,8 +36,11 @@
 }
 
 .upgrade-toolbar-title span {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .upgrade-toolbar-controls {

@@ -50,7 +50,8 @@ const TopologyPage: React.FC<Props> = ({ cluster }) => {
 
   const leading = (
     <>
-      <div className="ap-segmented ap-segmented--sm topo-scope" role="group" aria-label="Scope">
+      <h2 className="topo-page-title">Topology</h2>
+      <div className="ap-segmented topo-scope" role="group" aria-label="Scope">
         <button type="button" aria-pressed={scope === 'focus'} disabled={!focus} onClick={() => setScope('focus')}>
           Resource
         </button>

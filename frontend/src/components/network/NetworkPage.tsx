@@ -3,7 +3,7 @@ import { ReloadIcon } from '@radix-ui/react-icons';
 import { getErrorMessage } from '../../utils/errorMessage';
 import { getNetworkCoverage, getNetworkFlows, getNetworkTargets } from '../../services/api/network';
 import type { CoverageReport, FlowsResponse, Targets } from '../../types/network';
-import { NetworkIcon } from '../icons/kube';
+import { RouteIcon } from '../icons/kube';
 import CoverageView from './CoverageView';
 import PathChecker from './PathChecker';
 import TrafficView from './TrafficView';
@@ -81,7 +81,7 @@ const NetworkPage: React.FC<{ cluster: string }> = ({ cluster }) => {
     <div className="net-page">
       <div className="net-header">
         <div className="net-title">
-          <span className="net-title-icon"><NetworkIcon /></span>
+          <span className="net-title-icon"><RouteIcon /></span>
           <h2>Network</h2>
         </div>
         <div className="ap-segmented net-views" role="tablist" aria-label="Network views">

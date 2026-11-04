@@ -7,6 +7,7 @@ import ArgoIcon from '../components/icons/ArgoIcon';
 import FluxIcon from '../components/icons/FluxIcon';
 import PostgresIcon from '../components/icons/PostgresIcon';
 import KanivetMark from '../components/icons/KanivetMark';
+import HealthNavIcon from '../components/health/HealthNavIcon';
 import { pluralize } from './pluralization';
 
 type IconRenderer = ReactNode;
@@ -37,9 +38,13 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
   register(m, <K.CertificatesIcon />, 'certificatesdashboard', 'certificates');
   register(m, <UpgradeIcon />, 'upgradereadiness', 'upgrade-readiness');
-  register(m, <K.RbacIcon />, 'accessexplorer');
+  register(m, <K.KeyIcon />, 'accessexplorer');
+  register(m, <K.HistoryIcon />, 'changesfeed');
+  register(m, <K.TimelineIcon />, 'incidenttimeline');
+  register(m, <HealthNavIcon kind="issues" />, 'healthissues');
+  register(m, <HealthNavIcon kind="audit" />, 'healthaudit');
   register(m, <K.TopologyIcon />, 'topologyview', 'topology');
-  register(m, <K.NetworkIcon />, 'networkpage');
+  register(m, <K.RouteIcon />, 'networkpage');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads

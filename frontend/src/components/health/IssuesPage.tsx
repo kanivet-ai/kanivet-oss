@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ReloadIcon } from '@radix-ui/react-icons';
+import { MagnifyingGlassIcon, ReloadIcon } from '@radix-ui/react-icons';
 import { refreshIssues, useIssues } from './healthStore';
 import { groupBySeverity, matchIssue, SEVERITY_LABEL } from './healthView';
 import { HealthEmpty, IssueRow, SeverityDot, UnavailableNote } from './HealthParts';
@@ -46,13 +46,16 @@ const IssuesPage: React.FC<{ cluster: string }> = ({ cluster }) => {
           </span>
         </div>
         <div className="health-toolbar-controls">
-          <input className="ap-search ap-search--sm health-search" placeholder="Filter issues" value={query}
-            onChange={(e) => setQuery(e.target.value)} aria-label="Filter issues" />
+          <label className="ap-search health-search">
+            <MagnifyingGlassIcon />
+            <input type="text" placeholder="Filter issues" value={query}
+              onChange={(e) => setQuery(e.target.value)} aria-label="Filter issues" />
+          </label>
           <select className="ap-select health-select" value={namespace} onChange={(e) => setNamespace(e.target.value)} aria-label="Namespace">
             <option value="">All namespaces</option>
             {namespaces.map((n) => <option key={n} value={n}>{n}</option>)}
           </select>
-          <button type="button" className="ap-btn ap-btn--sm" onClick={() => void openHealthPage(cluster, 'audit')}>Audit</button>
+          <button type="button" className="ap-btn" onClick={() => void openHealthPage(cluster, 'audit')}>Audit</button>
           <button type="button" className="ap-icon-btn" title="Refresh" aria-label="Refresh" onClick={() => void refreshIssues(cluster, true)}>
             <ReloadIcon className={loading ? 'health-spin' : undefined} />
           </button>

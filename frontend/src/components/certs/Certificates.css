@@ -14,8 +14,10 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  height: 44px;
-  padding: 0 16px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  background: var(--toolbar);
   border-bottom: 1px solid var(--hair);
   flex-shrink: 0;
 }
@@ -28,6 +30,7 @@
 }
 
 .cert-title svg {
+  display: none;
   width: 16px;
   height: 16px;
   color: var(--blue);

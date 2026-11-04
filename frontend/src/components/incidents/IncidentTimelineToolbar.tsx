@@ -28,6 +28,7 @@ const IncidentTimelineToolbar: React.FC<Props> = ({ filters, namespaces, kinds, 
   };
   return (
     <div className="incident-toolbar">
+      <h2 className="incident-toolbar-title">Incident timeline</h2>
       <div className="toolbar-group ap-segmented">
         {SEVERITIES.map((s) => (
           <button
