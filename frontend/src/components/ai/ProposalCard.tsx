@@ -24,7 +24,7 @@ export const diffOptions = {
 export const YamlDiff: React.FC<{ original: string; modified: string; language?: string; height?: number }> = ({ original, modified, language = 'yaml', height = 220 }) => (
   <div className="ai-diff" style={{ height }}>
     <Suspense fallback={<div className="ai-empty"><span className="ai-spinner" /> Loading diff…</div>}>
-      <DiffEditor original={original} modified={modified} language={language} theme={KANIVET_MONACO_THEME} beforeMount={installKanivetMonacoTheme} options={diffOptions} />
+      <DiffEditor keepCurrentOriginalModel keepCurrentModifiedModel original={original} modified={modified} language={language} theme={KANIVET_MONACO_THEME} beforeMount={installKanivetMonacoTheme} options={diffOptions} />
     </Suspense>
   </div>
 );

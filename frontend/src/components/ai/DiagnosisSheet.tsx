@@ -48,7 +48,6 @@ const ResourceCards: React.FC<{ refs: FindingResource[]; cluster: string }> = ({
     <div className="ai-dx-cards">
       {refs.slice(0, 8).map((r) => (
         <div key={`${r.kind}/${r.namespace}/${r.name}`} className="ai-dx-card">
-          <span className="ai-dx-card-kind">{r.kind}</span>
           <Ref r={r} cluster={cluster} />
         </div>
       ))}
