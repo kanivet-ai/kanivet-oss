@@ -39,6 +39,9 @@ func (h *Handler) GetCategoriesQuery(c *gin.Context) {
 		if cat.ID == "argocd" && !hasArgo {
 			continue
 		}
+		if h.integrationCategoryHidden(cluster, cat.ID) {
+			continue
+		}
 		out = append(out, cat)
 	}
 	h.respond(c, http.StatusOK, gin.H{"categories": out}, nil)
@@ -79,6 +82,9 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 				return
 			}
 			h.respond(c, http.StatusOK, gin.H{"resources": resources}, nil)
+		case categoryFlux, categoryCNPG:
+			resources, _ := h.getIntegrationResources(cluster, category, false)
+			h.respond(c, http.StatusOK, gin.H{"resources": resources}, nil)
 		default:
 			resources, exists := categoryMap[category]
 			if !exists {
@@ -113,6 +119,8 @@ func (h *Handler) ListResourcesQuery(c *gin.Context) {
 			return h.getCrossplaneResources(cluster)
 		case "argocd":
 			return h.getArgoResources(cluster, true)
+		case categoryFlux, categoryCNPG:
+			return h.getIntegrationResources(cluster, category, true)
 		default:
 			return h.getPredefinedResources(cluster, category)
 		}

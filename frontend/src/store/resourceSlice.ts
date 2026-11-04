@@ -11,6 +11,15 @@ import { anyCountPending, countsSettled, refetchCountsLater } from './countRefet
 import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
+// Page nodes that lead a category's resource list (Argo apps, GitOps, Postgres).
+const makeGitOpsNode = (cluster: string, categoryId: string): TreeNode => ({ id: categoryId === 'flux' ? 'gitops-overview' : `gitops-overview-${categoryId}`, label: 'GitOps', type: 'gitops', data: { cluster } });
+const makeCNPGOverviewNode = (cluster: string): TreeNode => ({ id: 'cnpg-overview', label: 'PostgreSQL clusters', type: 'cnpg-overview', data: { cluster } });
+const categoryPageNodes = (cluster: string, categoryId: string): TreeNode[] => {
+  if (categoryId === 'argocd') return [makeArgoOverviewNode(cluster), makeGitOpsNode(cluster, categoryId)];
+  if (categoryId === 'flux') return [makeGitOpsNode(cluster, categoryId)];
+  if (categoryId === 'cnpg') return [makeCNPGOverviewNode(cluster)];
+  return [];
+};
 
 // Concurrent loads of one cluster's tree share a single run: on startup the
 // hydrate step, the sidebar and the restore effect all ask for it at once.
@@ -144,7 +153,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       [{ id: 'crossplane', name: 'Crossplane' }, { id: 'argocd', name: 'Argo CD' }].forEach((cat) => {
         if (!categoryMap.has(cat.id)) categoryMap.set(cat.id, cat);
       });
-      const categoryOrder = ['workloads', 'networking', 'config', 'storage', 'rbac', 'cluster', 'crossplane', 'argocd', 'custom'];
+      const categoryOrder = ['workloads', 'networking', 'config', 'storage', 'rbac', 'cluster', 'crossplane', 'argocd', 'flux', 'cnpg', 'custom'];
       const categories: any[] = [
         ...categoryOrder.filter((id) => categoryMap.has(id)).map((id) => categoryMap.get(id)),
         ...rawCategories.filter((cat: any) => !categoryOrder.includes(cat.id)),
@@ -294,8 +303,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
 
       const resources = await api.getResources(cluster, metadata.categoryId, true);
       let formattedResources: TreeNode[];
-      if (metadata.categoryId === 'argocd') {
-        formattedResources = [makeArgoOverviewNode(cluster), ...resources.map((res: any) => ({
+      if (['argocd', 'flux', 'cnpg'].includes(metadata.categoryId)) {
+        formattedResources = [...categoryPageNodes(cluster, metadata.categoryId), ...resources.map((res: any) => ({
           id: `${metadata.categoryId}-${res.group || 'core'}-${res.version}-${res.name}`,
           label: res.kind || res.name, type: 'resource', data: res, count: undefined,
         }))];
@@ -346,8 +355,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
           .then((resourcesWithCounts) => {
             const filteredResourcesWithCounts = resourcesWithCounts.filter((res: any) => res.name !== 'replicasets');
             let formattedResourcesWithCounts: TreeNode[];
-            if (metadata.categoryId === 'argocd') {
-              formattedResourcesWithCounts = [makeArgoOverviewNode(cluster), ...filteredResourcesWithCounts.map((res: any) => ({
+            if (['argocd', 'flux', 'cnpg'].includes(metadata.categoryId)) {
+              formattedResourcesWithCounts = [...categoryPageNodes(cluster, metadata.categoryId), ...filteredResourcesWithCounts.map((res: any) => ({
                 id: `${metadata.categoryId}-${res.group || 'core'}-${res.version}-${res.name}`,
                 label: res.kind || res.name, type: 'resource', data: res, count: res.count,
               }))];

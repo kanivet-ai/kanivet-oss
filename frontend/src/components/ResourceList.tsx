@@ -43,6 +43,8 @@ import './ResourceList.css';
 // Full pages other than the cluster overview load on demand (warmed when idle).
 const ClusterSettings = lazyView(() => import('./ClusterSettings'));
 const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
+const GitOpsPage = lazyView(() => import('./gitops/GitOpsPage'));
+const CNPGPage = lazyView(() => import('./cnpg/CNPGPage'));
 const HelmPage = lazyView(() => import('./HelmPage'));
 const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
 const CertificatesPage = lazyView(() => import('./certs/CertificatesPage'));
@@ -1095,6 +1097,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <ChangesFeedPage key={`changes-feed-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'GitOpsOverview' ? (
+                      <GitOpsPage key={`gitops-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'CNPGOverview' ? (
+                      <CNPGPage key={`cnpg-${tab.id}`} cluster={currentTab || ''} />
                     ) : (
                       listContent
                     )}

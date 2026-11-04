@@ -4,6 +4,8 @@ import * as K from '../components/icons/kube';
 import HelmIcon from '../components/icons/HelmIcon';
 import CrossplaneIcon from '../components/icons/CrossplaneIcon';
 import ArgoIcon from '../components/icons/ArgoIcon';
+import FluxIcon from '../components/icons/FluxIcon';
+import PostgresIcon from '../components/icons/PostgresIcon';
 import KanivetMark from '../components/icons/KanivetMark';
 import { pluralize } from './pluralization';
 
@@ -394,6 +396,8 @@ const buildCategoryIcons = (): Record<string, IconRenderer> => {
   register(m, <K.TopologyIcon />, 'topology');
   register(m, <CrossplaneIcon />, 'crossplane');
   register(m, <ArgoIcon />, 'argocd', 'argo cd', 'argo');
+  register(m, <FluxIcon />, 'flux', 'flux cd', 'gitops');
+  register(m, <PostgresIcon />, 'cnpg', 'cloudnativepg', 'postgres');
   register(
     m,
     <K.VirtualClusterIcon />,

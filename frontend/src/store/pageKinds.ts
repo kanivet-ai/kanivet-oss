@@ -17,4 +17,6 @@ export const PAGE_KINDS = new Set([
   'ResourceCompare',
   'UpgradeReadiness',
   'AccessExplorer',
+  'GitOpsOverview',
+  'CNPGOverview',
 ]);

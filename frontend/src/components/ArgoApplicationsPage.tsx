@@ -5,6 +5,7 @@ import { ArgoAppListEntry, ArgoStats, ArgoSyncOptions } from '../services/api/re
 import { formatAge } from '../utils/formatters';
 import { useVisibleInterval } from '../hooks/useVisibleInterval';
 import Dialog from './common/Dialog';
+import { Tone, syncTone, healthTone, statusLabel, StatusBadge, Pivot } from './gitops/statusParts';
 import './ArgoApplicationsPage.css';
 
 interface Props {
@@ -726,36 +727,6 @@ const AppRow = memo(({
   );
 });
 
-/* Status semantics — one mapping for tiles, badges and group headers.
-   Missing is amber rather than red: Argo itself shows it as a warning, and a
-   missing app is usually a pending sync, not an outage. */
-type Tone = 'success' | 'warning' | 'danger' | 'info' | 'neutral';
-
-const syncTone = (status?: string): Tone => {
-  switch ((status || '').toLowerCase()) {
-    case 'synced': return 'success';
-    case 'outofsync': return 'warning';
-    default: return 'neutral';
-  }
-};
-
-const healthTone = (health?: string): Tone => {
-  switch ((health || '').toLowerCase()) {
-    case 'healthy': return 'success';
-    case 'degraded': return 'danger';
-    case 'progressing': return 'info';
-    case 'missing': return 'warning';
-    default: return 'neutral';
-  }
-};
-
-/** Argo's status identifiers in sentence case ("OutOfSync" → "Out of sync"). */
-const statusLabel = (status?: string): string => {
-  if (!status) return 'Unknown';
-  if (status === 'OutOfSync') return 'Out of sync';
-  return status;
-};
-
 const groupTone = (groupBy: GroupBy, key: string): Tone | null => {
   if (groupBy === 'health') return healthTone(key);
   if (groupBy === 'sync') return syncTone(key);
@@ -779,23 +750,6 @@ const destinationTitle = (e: ArgoAppListEntry): string => {
 };
 
 const EmptyValue = () => <span className="argo-apps-empty-value">–</span>;
-
-const StatusBadge = ({ tone, label }: { tone: Tone; label: string }) => (
-  <span className={`ap-badge argo-apps-pill${tone === 'neutral' ? '' : ` ap-badge--${tone}`}`}>{label}</span>
-);
-
-const Pivot = ({ value, label, tone, active, onClick }: { value: number; label: string; tone?: Tone; active: boolean; onClick?: () => void }) => (
-  <button
-    type="button"
-    className={`argo-apps-pivot${tone ? ` pivot-${tone}` : ''}${active ? ' active' : ''}${onClick ? '' : ' static'}`}
-    onClick={onClick}
-    disabled={!onClick}
-    aria-pressed={onClick ? active : undefined}
-  >
-    <span className="argo-apps-pivot-value" data-zero={value === 0 ? 'true' : undefined}>{value}</span>
-    <span className="argo-apps-pivot-label">{label}</span>
-  </button>
-);
 
 const FilterChips = ({ label, values, active, onToggle }: { label: string; values: string[]; active: Set<string>; onToggle: (v: string) => void }) => (
   <div className="argo-apps-chip-group">

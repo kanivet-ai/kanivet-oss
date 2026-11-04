@@ -13,6 +13,8 @@ export const pageResources: Record<string, any> = {
   'argo-overview': { name: 'argo-applications-overview', group: 'argoproj.io', version: 'v1alpha1', kind: 'ArgoApplicationsOverview', namespaced: false },
   compare: { name: 'resource-compare', group: '', version: 'v1', kind: 'ResourceCompare', namespaced: false },
   'upgrade-readiness': { name: 'upgrade-readiness', group: '', version: 'v1', kind: 'UpgradeReadiness', namespaced: false },
+  gitops: { name: 'gitops-overview', group: '', version: 'v1', kind: 'GitOpsOverview', namespaced: false },
+  'cnpg-overview': { name: 'cnpg-overview', group: 'postgresql.cnpg.io', version: 'v1', kind: 'CNPGOverview', namespaced: false },
   'cluster-settings': { name: 'cluster-settings', group: '', version: 'v1', kind: 'ClusterSettings', namespaced: false },
   access: { name: 'access-explorer', group: '', version: 'v1', kind: 'AccessExplorer', namespaced: false },
 };
@@ -33,7 +35,9 @@ type PageNodeType =
   | 'issues'
   | 'audit'
   | 'network'
-  | 'changes';
+  | 'changes'
+  | 'gitops'
+  | 'cnpg-overview';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
@@ -54,6 +58,8 @@ export function pageNode(kind: string, cluster: string | null) {
     ResourceCompare: { id: 'resource-compare', label: 'Compare', type: 'compare' },
     UpgradeReadiness: { id: 'upgrade-readiness', label: 'Upgrade readiness', type: 'upgrade-readiness' },
     AccessExplorer: { id: 'access-explorer', label: 'Access', type: 'access' },
+    GitOpsOverview: { id: 'gitops-overview', label: 'GitOps', type: 'gitops' },
+    CNPGOverview: { id: 'cnpg-overview', label: 'PostgreSQL clusters', type: 'cnpg-overview' },
   };
   const p = pages[kind];
   return p ? { ...p, data: { cluster } } : null;

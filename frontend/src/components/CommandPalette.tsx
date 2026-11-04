@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
 import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
+import { integrationCommands, runIntegrationCommand } from './integrations/paletteCommands';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -134,6 +135,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Open the History view of the resource in the inspector',
       category: 'Commands',
     },
+    ...integrationCommands,
   ];
   const topologyModeRef = useRef(false);
 
@@ -578,6 +580,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       if (id === 'open-changes' || id === 'show-history') {
         onClose();
         runChangesCommand(id);
+        return;
+      }
+      if (runIntegrationCommand(id)) {
+        onClose();
         return;
       }
     }

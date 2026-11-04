@@ -74,6 +74,8 @@ export const nodeHasChevron = (n: any): boolean =>
   n.type !== 'resource' &&
   n.type !== 'overview' &&
   n.type !== 'argo-overview' &&
+  n.type !== 'gitops' &&
+  n.type !== 'cnpg-overview' &&
   n.type !== 'helm' &&
   n.type !== 'vcluster' &&
   n.type !== 'finops' &&
@@ -90,7 +92,7 @@ export const nodeHasChevron = (n: any): boolean =>
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'network', 'topology', 'certificates', 'cluster-settings', 'incident-timeline', 'changes', 'issues', 'audit', 'access']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'gitops', 'cnpg-overview', 'helm', 'finops', 'rightsizing', 'network', 'topology', 'certificates', 'cluster-settings', 'incident-timeline', 'changes', 'issues', 'audit', 'access']);
 
 const nodeMatchesSearch = (
   node: any,
@@ -378,6 +380,10 @@ const TreeNode = ({
               ? getCategoryIcon('overview')
               : node.type === 'argo-overview'
                 ? getCategoryIcon('argocd')
+              : node.type === 'gitops'
+                ? getCategoryIcon('gitops')
+              : node.type === 'cnpg-overview'
+                ? getCategoryIcon('cnpg')
                 : node.type === 'finops'
                   ? getCategoryIcon('finops')
                   : node.type === 'rightsizing'
