@@ -571,6 +571,36 @@ func registerIntegrations(r *mcpreg.Registry, router http.Handler) {
 func registerDiagnose(d Deps) {
 	if d.Health != nil {
 		svc := d.Health
+		mcp.RegisterDashboardSection("issues", func(ctx context.Context, cluster, ns string) (any, error) {
+			f := health.IssueFilter{Cluster: cluster}
+			if ns != "" {
+				f.Namespaces = []string{ns}
+			}
+			rep, err := svc.Issues(ctx, f)
+			if err != nil {
+				return nil, err
+			}
+			top := rep.Issues
+			if len(top) > 5 {
+				top = top[:5]
+			}
+			titles := make([]string, 0, len(top))
+			for _, is := range top {
+				titles = append(titles, string(is.Severity)+": "+is.Title+" ("+is.Resource.Kind+" "+is.Resource.Namespace+"/"+is.Resource.Name+")")
+			}
+			return map[string]any{"summary": rep.Summary, "top": titles}, nil
+		})
+		mcp.RegisterDashboardSection("audit", func(ctx context.Context, cluster, ns string) (any, error) {
+			sc := health.AuditScope{Cluster: cluster}
+			if ns != "" {
+				sc.Namespaces = []string{ns}
+			}
+			rep, err := svc.Audit(ctx, sc)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"score": rep.Score, "resources": rep.Resources}, nil
+		})
 		mcp.RegisterDiagnoseEnricher("issues", func(ctx context.Context, cluster string, o mcp.Ref) (any, error) {
 			rep, err := svc.Issues(ctx, health.IssueFilter{Cluster: cluster, Resource: &health.ResourceRef{APIVersion: o.APIVersion, Kind: o.Kind, Namespace: o.Namespace, Name: o.Name}})
 			if err != nil || len(rep.Issues) == 0 {

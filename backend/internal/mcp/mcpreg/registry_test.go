@@ -159,3 +159,18 @@ func TestHandlerPanicBecomesToolError(t *testing.T) {
 		t.Fatalf("expected tool error, got %v %v", res, err)
 	}
 }
+
+func TestRegistryUnregisterRemovesLive(t *testing.T) {
+	r := New()
+	full := connect(t, r.NewServer(&mcpsdk.Implementation{Name: "k"}, nil, true))
+	RegisterOn(r, Spec{Name: "toggled", Description: "x", Destructive: true}, func(ctx context.Context, c *Call, in echoArgs) (any, error) { return "", nil })
+	if toolNames(t, full)["toggled"] == nil || !r.Has("toggled") {
+		t.Fatal("tool not added live")
+	}
+	r.Unregister("toggled")
+	if toolNames(t, full)["toggled"] != nil || r.Has("toggled") {
+		t.Fatal("tool not removed live")
+	}
+	// Registering again after removal works.
+	RegisterOn(r, Spec{Name: "toggled", Description: "x", Destructive: true}, func(ctx context.Context, c *Call, in echoArgs) (any, error) { return "", nil })
+}

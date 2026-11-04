@@ -76,6 +76,7 @@ func registerCoreTools(r *mcpreg.Registry, d *Deps) {
 	}, d.diagnose)
 
 	registerExtraTools(r, d)
+	registerMoreTools(r, d)
 	registerWriteTools(r, d)
 }
 

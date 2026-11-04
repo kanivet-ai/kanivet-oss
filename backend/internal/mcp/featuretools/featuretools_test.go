@@ -100,7 +100,7 @@ func TestExplainClassifiesErrors(t *testing.T) {
 	gr := schema.GroupResource{Resource: "pods"}
 	cases := map[error]string{
 		apierrors.NewForbidden(gr, "x", errors.New("no")): mcp.ReasonUserForbidden,
-		apierrors.NewNotFound(gr, "x"):                     mcp.ReasonObjectNotFound,
+		apierrors.NewNotFound(gr, "x"):                    mcp.ReasonObjectNotFound,
 		apierrors.NewUnauthorized("expired"):              mcp.ReasonCredentialsRejected,
 		errors.New("dial tcp: connection refused"):        mcp.ReasonClusterDisconnected,
 		errors.New("boom"):                                mcp.ReasonReadError,

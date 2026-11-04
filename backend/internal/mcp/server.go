@@ -84,6 +84,7 @@ func New(stateDir string, deps Deps) (*Service, error) {
 	}
 	s := &Service{deps: deps, store: store, reg: mcpreg.Default}
 	registerOnce.Do(func() { registerCoreTools(s.reg, &s.deps) })
+	s.syncExecTool()
 	s.reg.SetObserver(store.Observe)
 	s.reg.SetClusterResolver(s.resolveCluster)
 
@@ -221,6 +222,7 @@ func (s *Service) resolveCluster(_ context.Context, requested string) (string, e
 type Status struct {
 	Enabled       bool          `json:"enabled"`
 	AllowWrites   bool          `json:"allowWrites"`
+	AllowExec     bool          `json:"allowExec"`
 	ReadOnlyURL   string        `json:"readOnlyUrl"`
 	FullURL       string        `json:"fullUrl"`
 	Token         string        `json:"token"`
@@ -258,6 +260,7 @@ func (s *Service) GetStatus() Status {
 	st := Status{
 		Enabled:       set.Enabled,
 		AllowWrites:   set.AllowWrites,
+		AllowExec:     set.AllowExec,
 		ReadOnlyURL:   s.ReadOnlyURL(),
 		FullURL:       s.FullURL(),
 		Token:         set.Token,
@@ -343,6 +346,7 @@ func (s *Service) RegisterAPI(v1 *gin.RouterGroup) {
 		var body struct {
 			Enabled     *bool `json:"enabled"`
 			AllowWrites *bool `json:"allowWrites"`
+			AllowExec   *bool `json:"allowExec"`
 		}
 		if err := c.ShouldBindJSON(&body); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -355,10 +359,14 @@ func (s *Service) RegisterAPI(v1 *gin.RouterGroup) {
 			if body.AllowWrites != nil {
 				st.AllowWrites = *body.AllowWrites
 			}
+			if body.AllowExec != nil {
+				st.AllowExec = *body.AllowExec
+			}
 		}); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		s.syncExecTool()
 		c.JSON(http.StatusOK, s.GetStatus())
 	})
 	g.POST("/token/rotate", func(c *gin.Context) {
@@ -376,4 +384,16 @@ func (s *Service) RegisterAPI(v1 *gin.RouterGroup) {
 		s.store.SetActiveCluster(body.Cluster)
 		c.JSON(http.StatusOK, gin.H{"ok": true})
 	})
+}
+
+// syncExecTool registers exec_pod when the setting is on and removes it
+// (from the live servers too) when it is off.
+func (s *Service) syncExecTool() {
+	on := s.store.Settings().AllowExec
+	switch {
+	case on && !s.reg.Has(execToolName):
+		registerExecTool(s.reg, &s.deps)
+	case !on && s.reg.Has(execToolName):
+		s.reg.Unregister(execToolName)
+	}
 }

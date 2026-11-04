@@ -14,9 +14,12 @@ import (
 
 // Settings is persisted to ~/.kanivet/mcp.json (mode 0600).
 type Settings struct {
-	Enabled     bool   `json:"enabled"`
-	AllowWrites bool   `json:"allowWrites"`
-	Token       string `json:"token"`
+	Enabled     bool `json:"enabled"`
+	AllowWrites bool `json:"allowWrites"`
+	// AllowExec registers exec_pod (on /mcp only). Off by default: command
+	// output is raw and can contain secrets.
+	AllowExec bool   `json:"allowExec,omitempty"`
+	Token     string `json:"token"`
 }
 
 // Store owns the persisted settings, the live call log and the cluster the

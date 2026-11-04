@@ -402,3 +402,34 @@ func truncate(s string, n int) string {
 	}
 	return s[:n] + "…"
 }
+
+// Has reports whether a tool is registered.
+func (r *Registry) Has(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.byName[name]
+}
+
+// Unregister removes a tool from the registry and from every live server
+// (used for tools that a setting turns on and off). It is a no-op for an
+// unknown name.
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	if !r.byName[name] {
+		r.mu.Unlock()
+		return
+	}
+	delete(r.byName, name)
+	kept := r.entries[:0]
+	for _, e := range r.entries {
+		if e.spec.Name != name {
+			kept = append(kept, e)
+		}
+	}
+	r.entries = kept
+	servers := append([]builtServer(nil), r.servers...)
+	r.mu.Unlock()
+	for _, b := range servers {
+		b.server.RemoveTools(name)
+	}
+}
