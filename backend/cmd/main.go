@@ -34,6 +34,7 @@ import (
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
 	"github.com/kanivet/backend/internal/nodeload"
+	"github.com/kanivet/backend/internal/rbac"
 	"github.com/kanivet/backend/internal/rightsizing"
 	"github.com/kanivet/backend/internal/search"
 	"github.com/kanivet/backend/internal/terminal/infrastructure"
@@ -366,6 +367,9 @@ func main() {
 	finopsService.SetMetricsSource(apiHandler.GetMetricsService())
 	finopsHandler := finops.NewHandler(finopsService)
 
+	// RBAC explorer: access graph, who-can, risky grants, own access.
+	rbacHandler := rbac.NewHandler(rbac.NewService(k8sClient, cacheInstance.Cache))
+
 	// The Nodes list's load columns: pod requests from the shared pod cache,
 	// usage from metrics-server.
 	nodeLoadHandler := nodeload.NewHandler(nodeload.NewService(podCache, apiHandler.GetMetricsService()))
@@ -666,6 +670,8 @@ func main() {
 		finops.GET("/pricing-status", finopsHandler.GetPricingStatus)
 		finops.GET("/pricing-debug", finopsHandler.GetPricingDebug)
 		finops.POST("/preload-pricing", finopsHandler.PreloadPricing)
+
+		rbacHandler.Register(v1)
 
 		rs := v1.Group("/rightsizing")
 		rs.GET("/report", rightsizingHandler.GetReport)
