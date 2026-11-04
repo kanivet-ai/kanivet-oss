@@ -24,6 +24,7 @@ import (
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/cloud"
 	"github.com/kanivet/backend/internal/cluster"
+	"github.com/kanivet/backend/internal/compare"
 	"github.com/kanivet/backend/internal/faults"
 	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/helm"
@@ -359,6 +360,7 @@ func main() {
 	// Setup Helm service
 	helmService := helm.NewService(k8sClient)
 	helmHandler := helm.NewHandler(helmService)
+	compareHandler := compare.NewHandler(compare.NewService(k8sClient, helmService))
 
 	// Setup FinOps service
 	finopsService := finops.NewService(k8sClient, cacheInstance.Cache)
@@ -644,6 +646,8 @@ func main() {
 		v1.POST("/themes/download", themeHandler.DownloadTheme)
 
 		// Helm endpoints
+		v1.POST("/compare", compareHandler.Compare)
+		v1.GET("/compare/baselines", compareHandler.Baselines)
 		v1.GET("/helm/releases", helmHandler.ListReleases)
 		v1.GET("/helm/releases/:namespace/:name", helmHandler.GetRelease)
 		v1.GET("/helm/releases/:namespace/:name/values", helmHandler.GetReleaseValues)
