@@ -81,6 +81,15 @@ export const COMMON_RESOURCES: ResourceOption[] = [
   ['customresourcedefinitions', 'apiextensions.k8s.io'],
 ].map(([resource, group]) => ({ resource, group, label: group ? `${resource.split('/')[0]}.${group}${resource.includes('/') ? `/${resource.split('/')[1]}` : ''}` : resource }));
 
+/** COMMON_RESOURCES as combobox rows, grouped by API group; subresources last. */
+export const RESOURCE_SUGGESTIONS = (() => {
+  const groupName = (o: ResourceOption) =>
+    o.resource.includes('/') ? 'Subresources' : o.group ? o.group.split('.')[0] : 'core';
+  const rows = COMMON_RESOURCES.map((o) => ({ value: o.label, group: groupName(o), hint: o.group || undefined }));
+  const order = ['core', 'apps', 'batch', 'networking', 'rbac', 'apiextensions', 'Subresources'];
+  return rows.sort((a, b) => order.indexOf(a.group) - order.indexOf(b.group));
+})();
+
 export const VERBS = ['get', 'list', 'watch', 'create', 'update', 'patch', 'delete', 'deletecollection', 'escalate', 'bind', 'impersonate', '*'];
 
 export const filterRows = (rows: MatrixRow[], text: string, onlyAllowedVerbs?: string[]): MatrixRow[] => {

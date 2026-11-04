@@ -13,7 +13,8 @@ import type {
 } from '../../types/rbac';
 import { getErrorMessage } from '../../utils/errorMessage';
 import { AccessMode, useAccessIntent } from './accessIntent';
-import { COMMON_RESOURCES, parseResourceInput, scopeLabel, subjectKey, subjectLabel, VERBS } from './accessUtils';
+import Combobox from '../common/Combobox';
+import { COMMON_RESOURCES, RESOURCE_SUGGESTIONS, parseResourceInput, scopeLabel, subjectKey, subjectLabel, VERBS } from './accessUtils';
 import PathList from './PathList';
 import PermissionMatrixView from './PermissionMatrixView';
 import RefLink from './RefLink';
@@ -218,19 +219,14 @@ const AccessPage: React.FC<Props> = ({ cluster }) => {
                   <option key={v} value={v}>{v}</option>
                 ))}
               </select>
-              <input
-                className="ap-input access-input"
-                list="access-resources"
+              <Combobox
+                inputClassName="access-input"
                 value={resourceText}
-                onChange={(e) => setResourceText(e.target.value)}
+                onChange={setResourceText}
+                options={RESOURCE_SUGGESTIONS}
                 placeholder="resource, e.g. pods/exec"
                 aria-label="Resource"
               />
-              <datalist id="access-resources">
-                {COMMON_RESOURCES.map((o) => (
-                  <option key={o.label} value={o.label} />
-                ))}
-              </datalist>
               <span className="access-query-word">in</span>
               <NamespacePicker value={whoNs} onChange={setWhoNs} namespaces={namespaces} allLabel="any namespace" />
               <input

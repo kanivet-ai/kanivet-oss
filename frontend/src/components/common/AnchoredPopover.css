@@ -1,0 +1,49 @@
+/* A portalled suggestion menu: above every card, scroll area and pane. */
+.ap-popover {
+  z-index: 10050;
+  overflow-y: auto;
+  box-sizing: border-box;
+  animation: ap-pop 140ms var(--ease-quiet);
+}
+
+.ap-combobox-group + .ap-combobox-group {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--hair);
+}
+
+.ap-combobox-group-label {
+  padding: 4px 10px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text3);
+}
+
+.ap-combobox-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ap-combobox-option-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ap-combobox-option-hint {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text3);
+  flex: none;
+}
+
+.ap-combobox-option.is-highlighted .ap-combobox-option-hint {
+  color: var(--on-sel2);
+}
+
+.ap-combobox-empty {
+  padding: 6px 10px;
+  font-size: 12.5px;
+  color: var(--text3);
+}

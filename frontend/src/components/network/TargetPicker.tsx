@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Cross2Icon } from '@radix-ui/react-icons';
+import AnchoredPopover from '../common/AnchoredPopover';
 import type { NetRef, Target } from '../../types/network';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { filterTargets, parseEndpoint, refKey, refLabel } from './networkUtils';
@@ -86,7 +87,7 @@ const TargetPicker: React.FC<TargetPickerProps> = ({ label, role, targets, value
         />
       )}
       {open && rows.length > 0 && (
-        <div className="ap-menu net-picker-menu" id={listId} role="listbox">
+        <AnchoredPopover anchor={inputRef} open className="net-picker-menu" id={listId} aria-label={label} minWidth={280}>
           {rows.map((r, i) => (
             <div
               key={refKey(r.ref)}
@@ -104,7 +105,7 @@ const TargetPicker: React.FC<TargetPickerProps> = ({ label, role, targets, value
               )}
             </div>
           ))}
-        </div>
+        </AnchoredPopover>
       )}
     </div>
   );

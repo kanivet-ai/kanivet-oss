@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LightningBoltIcon, UpdateIcon } from '@radix-ui/react-icons';
 import Dialog from '../common/Dialog';
+import Combobox from '../common/Combobox';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { getErrorMessage } from '../../utils/errorMessage';
 import { checkNetworkPath, runNetworkProbe } from '../../services/api/network';
@@ -139,24 +140,21 @@ const PathChecker: React.FC<PathCheckerProps> = ({ cluster, targets, intent, onI
             else if (r?.kind !== dest?.kind || r?.name !== dest?.name) setPort('');
           }}
         />
-        <label className="net-port">
+        <div className="net-port">
           <span className="net-picker-label">Port</span>
-          <input
-            className="ap-input net-port-input ap-tnum"
+          <Combobox
+            inputClassName="net-port-input ap-tnum"
             inputMode="numeric"
             placeholder="any"
             value={port}
-            onChange={(e) => setPort(e.target.value.replace(/[^0-9]/g, '').slice(0, 5))}
-            onKeyDown={(e) => { if (e.key === 'Enter' && canCheck) void run(); }}
-            list={destPorts.length ? 'net-dest-ports' : undefined}
+            onChange={setPort}
+            sanitize={(v) => v.replace(/[^0-9]/g, '').slice(0, 5)}
+            onEnter={() => { if (canCheck) void run(); }}
+            options={destPorts.map((p) => ({ value: String(p.port), hint: p.name }))}
+            menuMinWidth={140}
             aria-label="Port"
           />
-          {destPorts.length > 0 && (
-            <datalist id="net-dest-ports">
-              {destPorts.map((p) => <option key={p.port} value={p.port}>{p.name || ''}</option>)}
-            </datalist>
-          )}
-        </label>
+        </div>
         <label className="net-proto">
           <span className="net-picker-label">Protocol</span>
           <select className="ap-select" value={protocol} onChange={(e) => setProtocol(e.target.value)} aria-label="Protocol">
