@@ -15,7 +15,16 @@ g, err := svc.Neighbors(ctx, cluster, topology.Ref{Kind: "Deployment", Namespace
 g, err := svc.NamespaceGraph(ctx, cluster, "shop", topology.Filters{Kinds: []string{"Service", "Deployment"}})
 ```
 
-Both return `*topology.Graph{Nodes, Edges, Focus, Truncated, Warnings}`.
+// get_cluster_overview: per-namespace pod and workload health rollups,
+// with the application names found (5 cluster-wide LISTs, cached ~10s).
+ov, err := svc.ClusterOverview(ctx, cluster) // *topology.Overview{Namespaces, Warnings}
+```
+
+The graph queries return `*topology.Graph{Nodes, Edges, Focus, Truncated, Warnings}`.
+Each node also carries `app`, the application it belongs to (labels
+`app.kubernetes.io/name`, `instance`, `part-of`, `app`, `k8s-app`, then the
+Helm release), which the UI's Application view groups by.
+HTTP for the overview: `GET /api/v1/cluster/topology/overview?cluster=`.
 Node IDs are `Kind/namespace/name` (`Kind//name` for cluster-scoped).
 Each node carries `health` (healthy | warning | error | unknown), a short
 `status`, its controller `owner` ID, and `missing` for dangling references.

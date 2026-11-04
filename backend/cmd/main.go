@@ -657,6 +657,7 @@ func main() {
 		v1.GET("/cluster/nodes/load", nodeLoadHandler.GetNodeLoad)
 		v1.GET("/cluster/topology/neighbors/:group/:version/:kind/:namespace/:name", apiHandler.GetTopologyNeighbors)
 		v1.GET("/cluster/topology/namespace/:namespace", apiHandler.GetTopologyNamespace)
+		v1.GET("/cluster/topology/overview", apiHandler.GetTopologyOverview)
 		if imagesHandler != nil {
 			imagesHandler.Register(v1)
 		}

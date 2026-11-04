@@ -64,6 +64,10 @@ type Node struct {
 	// Missing marks a node that is referenced but was not found (a Secret a
 	// pod mounts that does not exist, or one we may not read).
 	Missing bool `json:"missing,omitempty"`
+	// App names the application the resource belongs to, from its labels
+	// (app.kubernetes.io/name, instance, part-of, app, k8s-app) or its Helm
+	// release. Empty when nothing says so; the UI then falls back to owners.
+	App string `json:"app,omitempty"`
 }
 
 // Edge is a directed, labelled relationship.

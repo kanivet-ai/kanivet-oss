@@ -25,7 +25,7 @@ func (g *fullGraph) node(u *unstructured.Unstructured) string {
 		return id
 	}
 	h, st := healthOf(u)
-	n := &Node{ID: id, Ref: r, UID: string(u.GetUID()), Health: h, Status: st}
+	n := &Node{ID: id, Ref: r, UID: string(u.GetUID()), Health: h, Status: st, App: appOf(u.GetLabels(), u.GetAnnotations())}
 	if c := metav1.GetControllerOf(u); c != nil {
 		if owner := g.snap.byUID[string(c.UID)]; owner != nil {
 			n.Owner = refOf(owner).ID()
