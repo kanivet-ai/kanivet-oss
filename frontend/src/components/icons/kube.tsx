@@ -441,6 +441,15 @@ export const RightsizingIcon = (p: KubeIconProps) => (
   </Svg>
 );
 
+/** A padlock: TLS certificates. */
+export const CertificatesIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <rect x={3} y={7} width={10} height={6.75} rx={1.5} />
+    <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+    <path d="M8 9.75v1.25" />
+  </Svg>
+);
+
 /** Hexagon with a live core. */
 export const WorkloadsIcon = (p: KubeIconProps) => (
   <Svg {...p}>

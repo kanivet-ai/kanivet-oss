@@ -32,6 +32,7 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <K.ConfigIcon />, 'clustersettings');
   register(m, <K.FinOpsIcon />, 'finopsdashboard', 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
+  register(m, <K.CertificatesIcon />, 'certificatesdashboard', 'certificates');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads
@@ -383,6 +384,7 @@ const buildCategoryIcons = (): Record<string, IconRenderer> => {
   register(m, <HelmIcon />, 'helm', 'helm releases');
   register(m, <K.FinOpsIcon />, 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizing');
+  register(m, <K.CertificatesIcon />, 'certificates');
   register(m, <CrossplaneIcon />, 'crossplane');
   register(m, <ArgoIcon />, 'argocd', 'argo cd', 'argo');
   register(

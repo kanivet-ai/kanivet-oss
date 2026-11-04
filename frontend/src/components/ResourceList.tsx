@@ -45,6 +45,7 @@ const ClusterSettings = lazyView(() => import('./ClusterSettings'));
 const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
 const HelmPage = lazyView(() => import('./HelmPage'));
 const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
+const CertificatesPage = lazyView(() => import('./certs/CertificatesPage'));
 const RightsizingDashboard = lazyView(
   () => import('./rightsizing/RightsizingDashboard'),
 );
@@ -1060,6 +1061,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <ClusterSettings key={`cluster-settings-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'FinOpsDashboard' ? (
                       <FinOpsDashboard key={`finops-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'CertificatesDashboard' ? (
+                      <CertificatesPage key={`certificates-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'RightsizingDashboard' ? (
                       <RightsizingDashboard key={`rightsizing-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'HelmReleases' ? (

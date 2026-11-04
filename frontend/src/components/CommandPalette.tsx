@@ -7,6 +7,7 @@ import { useShallow } from 'zustand/react/shallow';
 import type { RecentResource, SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
+import { pageResources } from '../store/navigationTargets';
 import { createLatestRequest } from '../utils/latestRequest';
 import {
   dedupeByIdentity,
@@ -76,6 +77,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       id: 'switch-cluster',
       name: 'switch cluster',
       description: 'Quickly change the active cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'open-certificates',
+      name: 'certificates',
+      description: 'Open TLS certificates and expiry for the current cluster',
       category: 'Commands',
     },
   ];
@@ -438,6 +445,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const id = String(sel.resource.id || '').replace(/^cmd:/, '');
       if (id === 'switch-cluster') {
         primeClusterSwitch();
+        return;
+      }
+      if (id === 'open-certificates') {
+        if (currentTab) void useStore.getState().openResourceListTab(pageResources.certificates, currentTab);
+        onClose();
         return;
       }
     }

@@ -18,6 +18,7 @@ import { useShallow } from 'zustand/react/shallow';
 const EMPTY_TREE: any[] = [];
 import { createTreeNavigationHandlers } from '../utils/keyboardShortcuts';
 import api from '../services/api';
+import { pageResources } from '../store/navigationTargets';
 import './TreeSidebar.css';
 
 interface TreeSidebarProps {
@@ -383,6 +384,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           recordNavigation('rightsizing', node.id, node.data).catch((error) => {
             console.error('Error recording navigation:', error);
           });
+        }
+      } else if (node.type === 'certificates') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(pageResources.certificates, currentTab, isPinned, freshPaneId || undefined);
+          void recordNavigation('certificates', node.id, node.data);
         }
       } else if (node.type === 'cluster-settings') {
         selectNode(node);

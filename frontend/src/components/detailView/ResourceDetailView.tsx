@@ -11,6 +11,8 @@ import EventsSection from './shared/EventsSection';
 import PodConfigMapsSection from './shared/PodConfigMapsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
+import { ResourceCertificates } from '../certs/ResourceCertificates';
+import { inspectorScope as certScope } from '../certs/certsView';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -459,6 +461,14 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             {resource.kind === 'ServiceAccount' && <ServiceAccountDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {isArgoApplication && <ApplicationDetailView cluster={cluster} resource={resource} handleResourceClick={handleResourceClick} />}
             {isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && <CustomResourceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            {certScope(resource) && (
+              <>
+                <PropertyGroup title="Certificate" icon={getResourceIcon('certificates')} persistKey="certificates" defaultOpen>
+                  <ResourceCertificates cluster={cluster} {...certScope(resource)!} />
+                </PropertyGroup>
+                <div className="section-divider" />
+              </>
+            )}
 
             {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
               <>
