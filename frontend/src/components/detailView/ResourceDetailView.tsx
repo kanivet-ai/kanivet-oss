@@ -11,6 +11,7 @@ import EventsSection from './shared/EventsSection';
 import PodConfigMapsSection from './shared/PodConfigMapsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
+import DeprecatedApiBadge from '../upgrade/DeprecatedApiBadge';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -417,6 +418,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
               </h2>
               <div className="resource-kind-row">
                 <span className="resource-kind-badge">{resource.kind}</span>
+                <DeprecatedApiBadge resource={resource} cluster={cluster} />
                 {metadata.namespace && (
                   <>
                     <span className="resource-subtitle-sep">·</span>

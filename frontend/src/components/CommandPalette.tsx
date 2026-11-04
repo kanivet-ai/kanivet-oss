@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -76,6 +77,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       id: 'switch-cluster',
       name: 'switch cluster',
       description: 'Quickly change the active cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'upgrade-readiness',
+      name: 'upgrade readiness',
+      description: 'Check deprecated APIs and node skew before a Kubernetes upgrade',
       category: 'Commands',
     },
   ];
@@ -438,6 +445,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const id = String(sel.resource.id || '').replace(/^cmd:/, '');
       if (id === 'switch-cluster') {
         primeClusterSwitch();
+        return;
+      }
+      if (id === 'upgrade-readiness') {
+        onClose();
+        void openUpgradeReadiness(currentTab);
         return;
       }
     }

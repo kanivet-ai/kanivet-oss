@@ -2,10 +2,13 @@ import { useId, useState } from 'react';
 import { useStore } from '../store';
 import ClusterMetricsSettings from './ClusterMetricsSettings';
 import { MonitorIcon } from './icons/kube';
+import UpgradeSettingsSection from './upgrade/UpgradeSettingsSection';
+import { UpgradeIcon } from './upgrade/UpgradeIcon';
 import './ClusterSettings.css';
 
 const SECTIONS = [
   { id: 'metrics', label: 'Metrics', description: 'Choose the source and display preferences for this cluster.', icon: MonitorIcon, component: ClusterMetricsSettings },
+  { id: 'upgrade', label: 'Upgrade', description: 'Check what a Kubernetes version upgrade would break.', icon: UpgradeIcon, component: UpgradeSettingsSection },
 ];
 
 export default function ClusterSettings({ cluster }: { cluster: string }) {

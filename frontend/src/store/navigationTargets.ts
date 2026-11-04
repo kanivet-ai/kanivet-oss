@@ -5,12 +5,13 @@ export const pageResources: Record<string, any> = {
   'incident-timeline': { name: 'incident-timeline', group: '', version: 'v1', kind: 'IncidentTimeline', namespaced: false },
   helm: { name: 'helm-releases', group: '', version: 'v1', kind: 'HelmReleases', namespaced: false },
   'argo-overview': { name: 'argo-applications-overview', group: 'argoproj.io', version: 'v1alpha1', kind: 'ArgoApplicationsOverview', namespaced: false },
+  'upgrade-readiness': { name: 'upgrade-readiness', group: '', version: 'v1', kind: 'UpgradeReadiness', namespaced: false },
   'cluster-settings': { name: 'cluster-settings', group: '', version: 'v1', kind: 'ClusterSettings', namespaced: false },
 };
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
-  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' | 'cluster-settings' }> = {
+  const pages: Record<string, { id: string; label: string; type: 'overview' | 'finops' | 'rightsizing' | 'incident-timeline' | 'helm' | 'argo-overview' | 'cluster-settings' | 'upgrade-readiness' }> = {
     ClusterSettings: { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings' },
     ClusterDashboard: { id: 'cluster-overview', label: 'Overview', type: 'overview' },
     FinOpsDashboard: { id: 'finops-dashboard', label: 'FinOps', type: 'finops' },
@@ -18,6 +19,7 @@ export function pageNode(kind: string, cluster: string | null) {
     IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
     HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
     ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
+    UpgradeReadiness: { id: 'upgrade-readiness', label: 'Upgrade readiness', type: 'upgrade-readiness' },
   };
   const p = pages[kind];
   return p ? { ...p, data: { cluster } } : null;
