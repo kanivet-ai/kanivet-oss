@@ -56,6 +56,7 @@ const RightsizingDashboard = lazyView(
 );
 const AccessPage = lazyView(() => import('./access/AccessPage'));
 const ChangesFeedPage = lazyView(() => import('./changes/ChangesFeedPage'));
+const ImageInspectorPage = lazyView(() => import('./images/ImageInspectorPage'));
 const IncidentTimelinePage = lazyView(
   () => import('./incidents/IncidentTimelinePage'),
 );
@@ -1095,6 +1096,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <AuditPage key={`health-audit-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'ChangesFeed' ? (
                       <ChangesFeedPage key={`changes-feed-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'ImageInspector' ? (
+                      <ImageInspectorPage key={`image-${tab.id}`} cluster={tab.cluster || currentTab || ''} target={tab.resource?.image} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'GitOpsOverview' ? (

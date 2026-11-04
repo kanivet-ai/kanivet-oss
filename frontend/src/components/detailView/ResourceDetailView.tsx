@@ -48,6 +48,7 @@ import '../changes/Changes.css';
 const ResourceHistory = lazyView(() => import('../changes/ResourceHistory'));
 import GitOpsOwnerBadge from '../gitops/GitOpsOwnerBadge';
 import { IntegrationSections } from '../integrations/IntegrationSections';
+import { WorkloadImagesSection } from '../images/InspectImageButton';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -600,6 +601,13 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     cluster={cluster}
                     resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
                   />
+                )}
+
+                {['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob'].includes(resource.kind) && (
+                  <>
+                    <WorkloadImagesSection resource={resource} cluster={cluster} />
+                    <div className="section-divider" />
+                  </>
                 )}
 
                 {['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'].includes(resource.kind) && (

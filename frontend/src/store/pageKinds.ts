@@ -19,4 +19,5 @@ export const PAGE_KINDS = new Set([
   'AccessExplorer',
   'GitOpsOverview',
   'CNPGOverview',
+  'ImageInspector',
 ]);

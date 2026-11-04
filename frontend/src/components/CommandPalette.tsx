@@ -1,3 +1,5 @@
+import { IMAGE_REF_KIND, imagePaletteResults, imageRefFromQuery } from './images/imagePalette';
+import { openImageTab } from './images/openImageTab';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
 import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
@@ -136,6 +138,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       category: 'Commands',
     },
     ...integrationCommands,
+    {
+      id: 'inspect-image',
+      name: 'inspect image…',
+      description: 'Open a container image: config, layers and files',
+      category: 'Commands',
+    },
   ];
   const topologyModeRef = useRef(false);
 
@@ -354,6 +362,18 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     const reach = reachCommandResult(trimmed);
     if (reach) {
       setResults([reach] as any);
+      setSelectedIndex(0);
+      setShowRecent(false);
+      setLoading(false);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
+      return;
+    }
+
+    // "> inspect image <ref>": offer the typed reference.
+    const imageRef = imageRefFromQuery(trimmed);
+    if (imageRef !== null) {
+      setResults(imagePaletteResults(imageRef, currentTab) as any);
       setSelectedIndex(0);
       setShowRecent(false);
       setLoading(false);
@@ -586,6 +606,16 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         onClose();
         return;
       }
+      if (id === 'inspect-image') {
+        handleInputChange({ target: { value: '> inspect image ' } } as React.ChangeEvent<HTMLInputElement>);
+        inputRef.current?.focus();
+        return;
+      }
+    }
+    if (sel?.resource?.kind === IMAGE_REF_KIND) {
+      if (sel.resource.name && currentTab) openImageTab(sel.resource.name, currentTab);
+      onClose();
+      return;
     }
     handleResultSelect(item.result);
   };
@@ -727,6 +757,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       onClose();
       openCompare();
       return;
+    }
+
+    if (resource.kind === IMAGE_REF_KIND || (resource.kind === 'Command' && resource.id === 'cmd:inspect-image')) {
+      return activateNavItem({ kind: 'result', result } as NavItem);
     }
 
     // Handle kind definitions differently

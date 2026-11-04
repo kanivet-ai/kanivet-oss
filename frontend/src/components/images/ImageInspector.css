@@ -1,0 +1,581 @@
+/* Image tab: header, segmented sub-views, overview cards, layer chart and the
+   file browser. Tokens only (see styles/DESIGN.md). */
+
+.image-inspector {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--content);
+  color: var(--text);
+  font-family: var(--font-sans);
+}
+
+.image-inspector-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px 10px;
+  flex: none;
+}
+
+.image-inspector-tile {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+}
+
+.image-inspector-heading {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-inspector-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.image-inspector-title .ap-badge svg {
+  width: 11px;
+  height: 11px;
+}
+
+.image-inspector-subtitle {
+  font-size: 11.5px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.image-inspector-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.image-inspector-meta .ap-sep {
+  color: var(--text4);
+}
+
+.image-inspector-meta .clipboard-copy-btn {
+  margin-left: 2px;
+}
+
+.image-inspector-platform {
+  width: auto;
+  min-width: 130px;
+}
+
+.image-inspector-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 16px 10px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--warning-bg);
+  color: var(--text);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.image-inspector-banner svg {
+  color: var(--orange);
+  flex: none;
+  margin-top: 2px;
+}
+
+.image-inspector-tabs {
+  padding: 0 16px 10px;
+  flex: none;
+  border-bottom: 1px solid var(--hair);
+}
+
+.image-inspector-tabs .ap-segmented {
+  width: 100%;
+  max-width: 420px;
+}
+
+.image-inspector-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.image-inspector-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px 24px;
+}
+
+.image-inspector-scroll > .ap-group-label {
+  display: block;
+  margin: 4px 4px 6px;
+}
+
+.image-inspector-card {
+  margin-bottom: 16px;
+}
+
+.image-inspector-row {
+  gap: 16px;
+}
+
+.image-inspector-row-label {
+  flex: none;
+  width: 150px;
+  font-size: 12.5px;
+}
+
+.image-inspector-row-value {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: flex-end;
+  text-align: right;
+  font-size: 12px;
+  color: var(--text2);
+  word-break: break-all;
+}
+
+.image-inspector-warn {
+  color: var(--orange);
+}
+
+.image-inspector-env {
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.image-inspector-env-name {
+  flex: none;
+  max-width: 45%;
+  font-size: 11.5px;
+  color: var(--text);
+  word-break: break-all;
+}
+
+.image-inspector-env-value {
+  flex: 1;
+  min-width: 0;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--text2);
+  word-break: break-all;
+}
+
+.image-inspector-env-value.is-redacted {
+  color: var(--text3);
+}
+
+.image-inspector-env-value svg {
+  width: 11px;
+  height: 11px;
+  margin-left: 4px;
+  vertical-align: -1px;
+}
+
+/* ---- Layers ------------------------------------------------------------ */
+.image-inspector-layers-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 4px 4px 6px;
+}
+
+.image-inspector-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.image-inspector-layer {
+  display: grid;
+  grid-template-columns: 28px 1fr 76px 48px;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 14px;
+  border: 0;
+  border-bottom: 1px solid var(--hair);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--duration-fast, 120ms) var(--ease-quiet, ease);
+}
+
+.image-inspector-layer:last-child {
+  border-bottom: 0;
+}
+
+.image-inspector-layer:hover {
+  background: var(--hover);
+}
+
+.image-inspector-layer.is-empty {
+  cursor: default;
+  grid-template-columns: 28px 1fr;
+  color: var(--text3);
+}
+
+.image-inspector-layer.is-empty:hover {
+  background: transparent;
+}
+
+.image-inspector-layer-index {
+  font-size: 11.5px;
+  color: var(--text3);
+  text-align: right;
+}
+
+.image-inspector-layer-main {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.image-inspector-layer-cmd {
+  font-size: 11.5px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-inspector-layer-bar {
+  display: block;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ctrl);
+  overflow: hidden;
+}
+
+.image-inspector-layer-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--blue);
+}
+
+.image-inspector-layer-size,
+.image-inspector-layer-share {
+  font-size: 12px;
+  color: var(--text2);
+  text-align: right;
+}
+
+.image-inspector-hint {
+  margin: 0 4px;
+  font-size: 12px;
+  color: var(--text3);
+}
+
+/* ---- Files ------------------------------------------------------------- */
+.image-inspector-files {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(320px, 44%) 1fr;
+}
+
+.image-inspector-files-left {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--sep);
+  background: var(--content);
+}
+
+.image-inspector-files-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hair);
+  flex: none;
+}
+
+.image-inspector-search {
+  flex: 1;
+  min-width: 0;
+}
+
+.image-inspector-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 9px;
+  border-radius: 12px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.image-inspector-chip button {
+  display: inline-flex;
+  border: 0;
+  padding: 2px;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.image-inspector-chip button:hover {
+  background: var(--hover);
+}
+
+.image-inspector-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.image-inspector-tree-summary {
+  padding: 4px 12px 6px;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.image-inspector-tree-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.image-inspector-tree-row:hover {
+  background: var(--hover);
+}
+
+.image-inspector-tree-row.is-selected {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.image-inspector-tree-row.is-selected * {
+  color: var(--on-sel) !important;
+}
+
+.image-inspector-tree-row.is-deleted {
+  cursor: default;
+  color: var(--text3);
+  text-decoration: line-through;
+}
+
+.image-inspector-tree-chevron {
+  display: inline-flex;
+  width: 14px;
+  flex: none;
+  color: var(--text3);
+}
+
+.image-inspector-tree-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--blue);
+}
+
+.image-inspector-tree-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.image-inspector-tree-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.image-inspector-link {
+  color: var(--text3);
+}
+
+.image-inspector-tree-mode {
+  flex: none;
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.image-inspector-tree-layer {
+  flex: none;
+  min-width: 26px;
+  font-size: 11px;
+  color: var(--text3);
+  text-align: right;
+}
+
+.image-inspector-tree-size {
+  flex: none;
+  min-width: 64px;
+  font-size: 11.5px;
+  color: var(--text2);
+  text-align: right;
+}
+
+.image-inspector-op {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.image-inspector-op.is-added { background: var(--success-bg); color: var(--green); }
+.image-inspector-op.is-modified { background: var(--warning-bg); color: var(--orange); }
+.image-inspector-op.is-deleted { background: var(--danger-bg); color: var(--red); }
+
+.image-inspector-preview {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  background: var(--content);
+}
+
+.image-inspector-preview-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 36px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--hair);
+  background: var(--win);
+  font-size: 12px;
+  flex: none;
+}
+
+.image-inspector-preview-meta {
+  flex: none;
+  color: var(--text2);
+  font-size: 11.5px;
+}
+
+.image-inspector-editor {
+  flex: 1;
+  min-height: 0;
+}
+
+/* ---- Empty / loading / error ------------------------------------------- */
+.image-inspector-state {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 32px;
+  text-align: center;
+  color: var(--text2);
+  font-size: 13px;
+  min-height: 160px;
+}
+
+.image-inspector-state-icon {
+  color: var(--text3);
+}
+
+.image-inspector-state-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.image-inspector-state-text {
+  max-width: 520px;
+  line-height: 1.5;
+}
+
+.image-inspector-state-text code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--inset);
+}
+
+.image-inspector-state-sub {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.image-inspector-progress {
+  width: 240px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ctrl);
+  overflow: hidden;
+}
+
+.image-inspector-progress > div {
+  height: 100%;
+  background: var(--blue);
+  transition: width 180ms var(--ease-quiet, ease);
+}
+
+/* Inspect-image action in container sections */
+.inspect-image-btn {
+  margin: 4px 0 2px;
+}
+
+.workload-images {
+  margin: 0 0 4px;
+}
+
+.workload-images-row {
+  gap: 10px;
+}
+
+.workload-images-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.workload-images-ref {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.workload-images-row .inspect-image-btn {
+  margin: 0;
+}
