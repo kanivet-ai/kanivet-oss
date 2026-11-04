@@ -411,6 +411,8 @@ func main() {
 	// TLS certificate inventory (Secrets, cert-manager, webhook CA bundles).
 	certsService := certs.NewService(k8sClient)
 	certsHandler := certs.NewHandler(certsService)
+	// Expired and expiring certificates show up as health issues.
+	certs.RegisterHealthSource(certsService)
 
 	// Network path analysis reads pods from the shared pod cache; observed
 	// traffic comes from the cluster's Prometheus (Istio / Hubble metrics).

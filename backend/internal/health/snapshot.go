@@ -22,6 +22,9 @@ import (
 // rules are tested without a cluster.
 type Snapshot struct {
 	Now             time.Time
+	// External are signals other features computed for this cluster (expiring
+	// certificates, ...), attached per evaluation by Service.Issues.
+	External []Signal
 	Pods            []*corev1.Pod
 	Deployments     []appsv1.Deployment
 	StatefulSets    []appsv1.StatefulSet

@@ -32,7 +32,7 @@ func (s *Service) Issues(ctx context.Context, f IssueFilter) (IssuesReport, erro
 	if err != nil {
 		return IssuesReport{}, err
 	}
-	rep := EvaluateIssues(snap)
+	rep := EvaluateIssues(withExternal(ctx, snap, f.Cluster))
 	rep.Issues = FilterIssues(rep.Issues, f)
 	rep.Summary = summarize(rep.Issues)
 	return rep, nil
@@ -134,7 +134,7 @@ func (s *Service) Resource(ctx context.Context, cluster string, ref ResourceRef)
 	if err != nil {
 		return ResourceHealth{}, err
 	}
-	out := ResourceHealth{Issues: FilterIssues(EvaluateIssues(snap).Issues, IssueFilter{Resource: &ref}), Findings: []Finding{}, Checks: []Check{}}
+	out := ResourceHealth{Issues: FilterIssues(EvaluateIssues(withExternal(ctx, snap, cluster)).Issues, IssueFilter{Resource: &ref}), Findings: []Finding{}, Checks: []Check{}}
 	target := ref
 	if ref.Kind == "Pod" {
 		for _, p := range snap.Pods {
@@ -166,3 +166,15 @@ func (s *Service) RemoveIgnore(ig Ignore) error    { return s.ignores.Remove(ig)
 
 // Refresh drops the cached listing so the next call reads the cluster again.
 func (s *Service) Refresh(cluster string) { s.loader.Forget(cluster) }
+
+// withExternal attaches external signals to a copy of snap; the loader caches
+// snapshots, so the cached one is never modified.
+func withExternal(ctx context.Context, snap *Snapshot, cluster string) *Snapshot {
+	ext := externalSignals(ctx, cluster)
+	if len(ext) == 0 {
+		return snap
+	}
+	cp := *snap
+	cp.External = ext
+	return &cp
+}
