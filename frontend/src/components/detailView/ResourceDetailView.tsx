@@ -472,9 +472,13 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="info-sections">
             {resource.kind === 'CustomResourceDefinition' && <CRDDefinitionView crd={resource} />}
             {resource.kind === 'APIResourceDefinition' && <APIResourceDefinitionView resource={resource} />}
-            {(resource.kind === 'Node' || resource.kind === 'Service') && metadata.name && (
-              <ResourceHealthSection key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`} cluster={cluster}
-                resource={{ apiVersion: 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }} />
+            {/* Health and issues lead the inspector for every kind the engine checks. */}
+            {HEALTH_KINDS.has(resource.kind) && metadata.name && (
+              <ResourceHealthSection
+                key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`}
+                cluster={cluster}
+                resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
+              />
             )}
             {resource.kind === 'Node' && <NodeDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {(resource.kind === 'Event' || resource.kind === 'events') && <EventDetailView resource={resource} handleResourceClick={handleResourceClick} />}
@@ -593,14 +597,6 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     </MetricsPropertyGroup>
                     <div className="section-divider" />
                   </>
-                )}
-
-                {HEALTH_KINDS.has(resource.kind) && metadata.name && (
-                  <ResourceHealthSection
-                    key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`}
-                    cluster={cluster}
-                    resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
-                  />
                 )}
 
                 {['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob'].includes(resource.kind) && (

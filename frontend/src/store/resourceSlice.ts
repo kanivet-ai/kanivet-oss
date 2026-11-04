@@ -196,7 +196,13 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, issuesNode, auditNode, finopsNode, rightsizingNode, networkNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, changesNode, topologyNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          // Health first, then the resource tree, then cluster tools grouped
+          // (activity, structure, security), cost, packaging, integrations.
+          overviewNode, issuesNode, auditNode,
+          ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode,
+          changesNode, topologyNode, networkNode, accessNode, certificatesNode,
+          finopsNode, rightsizingNode,
+          helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };
