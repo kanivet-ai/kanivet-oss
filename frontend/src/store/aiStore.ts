@@ -111,8 +111,10 @@ export const useAIStore = create<AIState>((set, get) => {
       }
     },
     select: (id) => {
-      set({ activeId: id, panelOpen: true, startError: null, pendingTarget: null });
-      if (get().investigations[id]?.status === 'running') poll(id);
+      set((s) => ({ activeId: id, panelOpen: true, startError: null, pendingTarget: null, order: s.order.includes(id) ? s.order : [id, ...s.order] }));
+      const known = get().investigations[id];
+      // Unknown here (e.g. after a reload) or still running: fetch it.
+      if (!known || known.status === 'running') poll(id);
     },
     cancel: async (id) => {
       try {

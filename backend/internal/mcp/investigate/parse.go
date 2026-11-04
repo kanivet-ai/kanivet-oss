@@ -64,7 +64,7 @@ func parseClaudeLine(line []byte) parsed {
 	switch m["type"] {
 	case "system":
 		if m["subtype"] == "init" {
-			status := "connected"
+			status := "not loaded"
 			if servers, ok := m["mcp_servers"].([]any); ok {
 				for _, s := range servers {
 					sm, _ := s.(map[string]any)
@@ -73,7 +73,11 @@ func parseClaudeLine(line []byte) parsed {
 					}
 				}
 			}
-			p.events = append(p.events, Event{Type: "status", Text: "Agent started; Kanivet MCP " + status})
+			typ := "status"
+			if status != "connected" {
+				typ = "error"
+			}
+			p.events = append(p.events, Event{Type: typ, Text: "Agent started; Kanivet MCP " + status})
 		}
 	case "assistant":
 		msg, _ := m["message"].(map[string]any)
@@ -147,11 +151,15 @@ func parseCodexLine(line []byte) parsed {
 			p.events = append(p.events, Event{Type: "text", Text: t})
 			p.final = t
 		}
-	case typ == "error" || typ == "turn.failed":
+	case typ == "error" || typ == "turn.failed" || (typ == "item.completed" && itype == "error"):
 		msg, _ := m["message"].(string)
 		if e, ok := m["error"].(map[string]any); ok {
 			msg, _ = e["message"].(string)
 		}
+		if itype == "error" {
+			msg, _ = item["message"].(string)
+		}
+		p.events = append(p.events, Event{Type: "error", Text: msg})
 		p.err = msg
 	}
 	return p

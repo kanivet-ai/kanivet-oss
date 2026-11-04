@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -171,11 +172,30 @@ func (m *Manager) run(ctx context.Context, inv *Investigation, agent Agent, url,
 		return
 	}
 	var stderr strings.Builder
-	cmd.Stderr = &limitedWriter{w: &stderr, n: 8 << 10}
+	var blocked atomic.Bool
+	errPipe, err := cmd.StderrPipe()
+	if err != nil {
+		inv.finish("failed", err.Error())
+		return
+	}
 	if err := cmd.Start(); err != nil {
 		inv.finish("failed", "could not start "+agent.Name+": "+err.Error())
 		return
 	}
+	stderrDone := make(chan struct{})
+	go func() {
+		defer close(stderrDone)
+		lw := &limitedWriter{w: &stderr, n: 8 << 10}
+		sc := bufio.NewScanner(errPipe)
+		for sc.Scan() {
+			line := sc.Text()
+			_, _ = lw.Write([]byte(line + "\n"))
+			if isMCPBlocked(line) {
+				blocked.Store(true)
+				inv.add(Event{Type: "error", Text: strings.TrimSpace(line)})
+			}
+		}
+	}()
 
 	var final, agentErr string
 	var cost float64
@@ -197,6 +217,7 @@ func (m *Manager) run(ctx context.Context, inv *Investigation, agent Agent, url,
 		}
 	}
 	_, _ = io.Copy(io.Discard, stdout)
+	<-stderrDone
 	waitErr := cmd.Wait()
 
 	findings, report := ExtractFindings(final)
@@ -218,7 +239,12 @@ func (m *Manager) run(ctx context.Context, inv *Investigation, agent Agent, url,
 	}
 	inv.mu.Unlock()
 
+	inv.mu.Lock()
+	toolCalls := inv.ToolCalls
+	inv.mu.Unlock()
 	switch {
+	case blocked.Load() && toolCalls == 0:
+		inv.finish("failed", agent.Name+" did not load Kanivet's MCP server: its managed or enterprise MCP policy blocks it. Allow the \"kanivet\" server in that policy, or use another agent.")
 	case errors.Is(ctx.Err(), context.Canceled):
 		inv.finish("cancelled", "")
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
@@ -303,6 +329,7 @@ func buildCommand(ctx context.Context, agent Agent, prompt, mcpURL, token, workd
 		}
 		cmd := exec.CommandContext(ctx, agent.Path, args...)
 		cmd.Dir = workdir
+		cmd.Stdin = strings.NewReader("")
 		cmd.Env = childEnv(map[string]string{"KANIVET_MCP_TOKEN": token})
 		return cmd, parseCodexLine, nil
 	}
@@ -405,4 +432,10 @@ func (m *Manager) Cancel(id string) bool {
 	}
 	inv.cancel()
 	return true
+}
+
+// isMCPBlocked recognises an agent CLI declining to load the server.
+func isMCPBlocked(line string) bool {
+	l := strings.ToLower(line)
+	return strings.Contains(l, "mcp") && strings.Contains(l, "kanivet") && strings.Contains(l, "polic")
 }

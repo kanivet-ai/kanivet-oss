@@ -194,7 +194,7 @@ func (d *Deps) listResources(ctx context.Context, call *mcpreg.Call, in listArgs
 		if in.NameContains != "" && !strings.Contains(strings.ToLower(r.Name), strings.ToLower(in.NameContains)) {
 			continue
 		}
-		if in.Problems && healthyStatus(r.Status) && !(r.Ready != "" && !readyComplete(r.Ready)) {
+		if in.Problems && healthyStatus(r.Status) && !((r.Status == "Running" || r.Status == "Ready") && r.Ready != "" && !readyComplete(r.Ready)) {
 			continue
 		}
 		rows = append(rows, r)
