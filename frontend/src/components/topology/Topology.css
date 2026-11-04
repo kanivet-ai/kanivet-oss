@@ -201,7 +201,7 @@
 .topo-canvas .react-flow {
   --xy-background-color: transparent;
   --xy-node-border-radius: 10px;
-  --xy-edge-stroke: var(--text4);
+  --xy-edge-stroke: var(--text3);
   --xy-edge-stroke-width: 1.25;
   --xy-edge-label-background-color: var(--content);
   --xy-edge-label-color: var(--text3);
