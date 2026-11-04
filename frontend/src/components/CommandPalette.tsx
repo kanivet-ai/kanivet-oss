@@ -5,6 +5,7 @@ import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
 import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
 import { integrationCommands, runIntegrationCommand } from './integrations/paletteCommands';
 import { AI_PALETTE_COMMANDS, runAIPaletteCommand } from './ai/aiPalette';
+import { PaletteAskRow, paletteAskPosition, runPaletteAsk } from './ai/PaletteAsk';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -55,7 +56,8 @@ const getShortClusterName = (cluster: string): string => {
  */
 type NavItem =
   | { kind: 'recent'; recent: RecentResource }
-  | { kind: 'result'; result: SearchResult };
+  | { kind: 'result'; result: SearchResult }
+  | { kind: 'ask' };
 
 const CATEGORY_ORDER = [
   'Workloads',
@@ -85,7 +87,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const [isContextOpen, setIsContextOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [openActionFor, setOpenActionFor] = useState<string | null>(null);
-  const [, setClusterMode] = useState(false);
+  const [clusterMode, setClusterMode] = useState(false);
   const commandList = [
     {
       id: 'switch-cluster',
@@ -471,14 +473,19 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
 
   // The rows in the exact order they are rendered: Recent while idle,
   // otherwise kinds first and then each category section.
+  // "Ask AI: <question>" leads when the input reads like a question; the
+  // "can X reach Y" network intent stays first when it matches.
+  const askPos = paletteAskPosition(query, results as any[], clusterMode);
   const navItems = useMemo<NavItem[]>(() => {
-    if (showRecent) return recentSearches.map((recent) => ({ kind: 'recent', recent }));
+    if (showRecent && askPos === null) return recentSearches.map((recent) => ({ kind: 'recent', recent }));
     const ordered: NavItem[] = kindDefinitionResults.map((result) => ({ kind: 'result', result }));
     for (const category of sortedCategories) {
       for (const result of groupedResults[category]) ordered.push({ kind: 'result', result });
     }
+    if (askPos === 'first') ordered.unshift({ kind: 'ask' });
+    if (askPos === 'last') ordered.push({ kind: 'ask' });
     return ordered;
-  }, [showRecent, recentSearches, kindDefinitionResults, sortedCategories, groupedResults]);
+  }, [showRecent, recentSearches, kindDefinitionResults, sortedCategories, groupedResults, askPos]);
 
   const navIndexByResult = useMemo(() => {
     const map = new Map<SearchResult, number>();
@@ -533,6 +540,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   };
 
   const activateNavItem = (item: NavItem) => {
+    if (item.kind === 'ask') {
+      onClose();
+      runPaletteAsk(query, currentTab);
+      return;
+    }
     if (item.kind === 'recent') {
       handleRecentResourceSelect(item.recent);
       return;
@@ -649,8 +661,23 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         break;
       }
 
+      case 'Tab': {
+        // Tab always asks the AI about the typed text.
+        if (!query.trim() || query.trim().startsWith('>')) break;
+        e.preventDefault();
+        onClose();
+        runPaletteAsk(query, currentTab);
+        break;
+      }
+
       case 'Enter': {
         e.preventDefault();
+        if ((e.metaKey || e.ctrlKey) && query.trim()) {
+          // ⌘Enter forces Ask AI on any text.
+          onClose();
+          runPaletteAsk(query.replace(/^>\s*/, ''), currentTab);
+          break;
+        }
         const item = navItems[selectedIndex];
         if (item) activateNavItem(item);
         break;
@@ -1010,7 +1037,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
           ref={resultsRef}
           onMouseMove={handleResultsMouseMove}
         >
-          {showRecent && recentSearches.length > 0 && (
+          {showRecent && askPos === null && recentSearches.length > 0 && (
             <div className="command-palette-section">
               <div className="command-palette-section-header">
                 Recent
@@ -1043,7 +1070,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          {!showRecent && results.length === 0 && !loading && query && (
+          {askPos === 'first' && (
+            <PaletteAskRow query={query} navIndex={0} selected={selectedIndex === 0} onHover={handleRowMouseEnter} onPick={() => activateNavItem({ kind: 'ask' })} />
+          )}
+
+          {!showRecent && results.length === 0 && !loading && query && askPos === null && (
             <div className="command-palette-no-results">
               No results found for &quot;{query}&quot;
             </div>
@@ -1473,12 +1504,16 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
               ))}
             </>
           )}
+          {askPos === 'last' && (
+            <PaletteAskRow query={query} navIndex={navItems.length - 1} selected={selectedIndex === navItems.length - 1} onHover={handleRowMouseEnter} onPick={() => activateNavItem({ kind: 'ask' })} />
+          )}
         </div>
 
         <div className="command-palette-footer">
           <div className="command-palette-help">
             <span>↑↓ Navigate</span>
             <span>↵ Select</span>
+            <span>⇥ Ask AI</span>
             <span>esc Close</span>
           </div>
         </div>

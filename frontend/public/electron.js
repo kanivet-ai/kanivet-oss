@@ -248,6 +248,20 @@ function verifyBackendIntegrity(backendPath) {
 
 ipcMain.handle('island:notify', (event, opts) => showIsland(opts));
 
+// AI code locations: let the user pick a repository folder.
+ipcMain.handle('dialog:pickFolder', async (event) => {
+  const { dialog } = require('electron');
+  const win = BrowserWindow.fromWebContents(event.sender);
+  const res = await dialog.showOpenDialog(win, { properties: ['openDirectory'], title: 'Choose a repository folder' });
+  return res.canceled ? null : res.filePaths[0] || null;
+});
+
+// Open a URL with an editor scheme (vscode://, cursor://) from the AI review view.
+ipcMain.handle('shell:openEditorUrl', (event, url) => {
+  if (typeof url === 'string' && /^(vscode|cursor):\/\/file\//.test(url)) return shell.openExternal(url);
+  return false;
+});
+
 ipcMain.handle('write-log', (event, message) => {
   writeLog(message);
 });

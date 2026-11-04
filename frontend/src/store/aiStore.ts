@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { aiApi, AgentCli, Investigation, InvestigationTarget, McpStatus } from '../services/api/ai';
 import { mergeInvestigation } from '../components/ai/aiUtils';
 import { INVESTIGATE_EVENT, type InvestigateRequest } from '../types/health';
+import { askAI, clusterChip, resourceChip, textChip, type AskSeed } from '../components/ai/aiContext';
 
 /** AI & MCP state: settings sheet, server status, and investigations. Kept
  * out of the main store so the feature stays self-contained. */
@@ -27,6 +28,7 @@ interface AIState {
   loadAgents: () => Promise<AgentCli[]>;
 
   investigate: (target: InvestigationTarget, agent?: string) => Promise<void>;
+  investigateLegacy: (target: InvestigationTarget, agent?: string) => Promise<void>;
   select: (id: string) => void;
   cancel: (id: string) => Promise<void>;
   openPanel: () => void;
@@ -88,7 +90,12 @@ export const useAIStore = create<AIState>((set, get) => {
       }
     },
 
-    investigate: async (target, agent) => {
+    investigate: async (target) => {
+      // Investigations are chats now: open the chat panel seeded with the
+      // target, so the user can keep talking to the agent.
+      askAI(seedFromTarget(target));
+    },
+    investigateLegacy: async (target: InvestigationTarget, agent?: string) => {
       set({ panelOpen: true, starting: true, startError: null, pendingTarget: target });
       const agents = get().agents ?? (await get().loadAgents());
       if (!agents.some((a) => a.available)) {
@@ -128,6 +135,24 @@ export const useAIStore = create<AIState>((set, get) => {
     closePanel: () => set({ panelOpen: false }),
   };
 });
+
+/** Turns an investigation target into a chat seed. */
+export function seedFromTarget(t: InvestigationTarget): AskSeed {
+  const chips = [clusterChip(t.cluster)];
+  if (t.name && t.kind) chips.push(resourceChip(t.cluster, { kind: t.kind, apiVersion: t.apiVersion, namespace: t.namespace, name: t.name }));
+  if (t.context) chips.push(textChip('Context', t.context));
+  const label = t.name ? `${t.kind} ${t.namespace ? t.namespace + '/' : ''}${t.name}` : `cluster ${t.cluster}`;
+  return {
+    source: 'investigate',
+    intent: 'ask',
+    cluster: t.cluster,
+    title: `Investigate ${label}`,
+    text: t.question || (t.name
+      ? `Investigate ${label}: is it healthy? If not, find the root cause with evidence and tell me how to fix it.`
+      : 'Find what is currently failing in this cluster, the most likely root causes, and how to fix them.'),
+    chips,
+  };
+}
 
 /** Maps the Issues page's investigate request to an investigation target. */
 export function targetFromInvestigateRequest(req: InvestigateRequest): InvestigationTarget {
