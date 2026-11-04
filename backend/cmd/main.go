@@ -22,6 +22,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/api"
 	"github.com/kanivet/backend/internal/cache"
+	"github.com/kanivet/backend/internal/changes"
 	"github.com/kanivet/backend/internal/cloud"
 	"github.com/kanivet/backend/internal/cluster"
 	"github.com/kanivet/backend/internal/faults"
@@ -381,6 +382,10 @@ func main() {
 	// Setup Incident Timeline service (reuses existing event listener + db)
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())
 	incidentHandler := api.NewIncidentTimelineHandler(incidentService)
+	// Change history, rebuilt from what the cluster keeps (ReplicaSets,
+	// ControllerRevisions, Helm, Argo CD, Flux, managedFields, Events).
+	changesService := changes.NewService(k8sClient, helmService)
+	incidentService.SetChangeSource(changesService.IncidentSource())
 
 	// Register Helm streaming handler (after helmService is created)
 	helmWsHandler := handlers.NewHelmHandler(helmService, wsServer.Hub())
@@ -675,6 +680,7 @@ func main() {
 
 		// Incident Timeline endpoint
 		v1.GET("/incidents/timeline", incidentHandler.GetTimeline)
+		changes.NewHandler(changesService).Register(v1)
 
 		cloudService := cloud.NewService(apiHandler.GetDB())
 		refreshClustersAndBroadcast := func(reason string) {
