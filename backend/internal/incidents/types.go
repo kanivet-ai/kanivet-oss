@@ -37,6 +37,9 @@ type TimelineEntry struct {
 	SourceComponent string    `json:"sourceComponent"`
 	Routine         bool      `json:"routine"`
 	EventIDs        []uint    `json:"eventIds"`
+	// RelatedChanges are IDs of TimelineResponse.Changes that preceded
+	// this entry and may explain it.
+	RelatedChanges []string `json:"relatedChanges,omitempty"`
 }
 
 type TimelineSummary struct {
@@ -50,4 +53,6 @@ type TimelineSummary struct {
 type TimelineResponse struct {
 	Entries []TimelineEntry `json:"entries"`
 	Summary TimelineSummary `json:"summary"`
+	// Changes are the resource changes correlated with entries.
+	Changes []ChangeMarker `json:"changes,omitempty"`
 }

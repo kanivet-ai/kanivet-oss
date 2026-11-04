@@ -13,11 +13,21 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding: 8px 14px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
   border-bottom: 1px solid var(--hair);
-  background: var(--win);
+  background: var(--toolbar);
   align-items: center;
-  min-height: 40px;
+}
+
+.incident-toolbar-title {
+  margin: 0 6px 0 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+  white-space: nowrap;
 }
 
 /* Each group is a segmented control */
@@ -53,7 +63,9 @@
 
 .incident-toolbar input[type="text"] {
   cursor: text;
-  min-width: 180px;
+  flex: 1 1 140px;
+  min-width: 110px;
+  max-width: 260px;
   background: var(--ctrl);
   box-shadow: none;
   font-weight: 400;

@@ -16,6 +16,8 @@ import useResourceNavigation from '../../hooks/useResourceNavigation';
 import { resolveParent, parentFetcher, type ParentRef } from '../../utils/parentResource';
 import { lazyView } from '../../utils/lazyView';
 import { preloadEditor } from '../MonacoEditor';
+import { TOPOLOGY_KINDS, openTopology, refFromItem } from '../topology/topologyNav';
+import { getResourceIcon } from '../../utils/resourceIcons';
 import './TabContent.css';
 
 const HelmReleaseDetailView = lazyView(
@@ -294,6 +296,19 @@ const TabContent = ({ tab, mode = 'detail', onPinClick, isDeleted }: TabContentP
           >
             <span className="ap-action-icon"><ArrowUpIcon /></span>
             <span className="ap-action-label">{`View ${parent.kind}`}</span>
+          </button>
+        </Tooltip>
+      )}
+      {TOPOLOGY_KINDS.has(kind) && (
+        <Tooltip content="Show topology">
+          <button
+            className="tab-content-action-btn priority-low"
+            onClick={() => { const ref = refFromItem(item); if (ref) void openTopology(cluster, { focus: ref }); }}
+            disabled={!hasBasicInfo}
+            aria-label="Show topology"
+          >
+            <span className="ap-action-icon">{getResourceIcon('topology')}</span>
+            <span className="ap-action-label">Topology</span>
           </button>
         </Tooltip>
       )}

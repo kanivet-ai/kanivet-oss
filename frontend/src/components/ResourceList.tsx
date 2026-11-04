@@ -43,14 +43,26 @@ import './ResourceList.css';
 // Full pages other than the cluster overview load on demand (warmed when idle).
 const ClusterSettings = lazyView(() => import('./ClusterSettings'));
 const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
+const GitOpsPage = lazyView(() => import('./gitops/GitOpsPage'));
+const CNPGPage = lazyView(() => import('./cnpg/CNPGPage'));
 const HelmPage = lazyView(() => import('./HelmPage'));
 const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
+const CertificatesPage = lazyView(() => import('./certs/CertificatesPage'));
+const ComparePage = lazyView(() => import('./compare/ComparePage'));
+const TopologyPage = lazyView(() => import('./topology/TopologyPage'));
+const NetworkPage = lazyView(() => import('./network/NetworkPage'));
 const RightsizingDashboard = lazyView(
   () => import('./rightsizing/RightsizingDashboard'),
 );
+const AccessPage = lazyView(() => import('./access/AccessPage'));
+const ChangesFeedPage = lazyView(() => import('./changes/ChangesFeedPage'));
+const ImageInspectorPage = lazyView(() => import('./images/ImageInspectorPage'));
 const IncidentTimelinePage = lazyView(
   () => import('./incidents/IncidentTimelinePage'),
 );
+const UpgradeReadinessPage = lazyView(() => import('./upgrade/UpgradeReadinessPage'));
+const IssuesPage = lazyView(() => import('./health/IssuesPage'));
+const AuditPage = lazyView(() => import('./health/AuditPage'));
 
 
 // Scroll offset of each list, by cluster and list. Kept out of the store: the
@@ -1060,14 +1072,38 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <ClusterSettings key={`cluster-settings-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'FinOpsDashboard' ? (
                       <FinOpsDashboard key={`finops-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'CertificatesDashboard' ? (
+                      <CertificatesPage key={`certificates-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'RightsizingDashboard' ? (
                       <RightsizingDashboard key={`rightsizing-dashboard-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'TopologyView' ? (
+                      <TopologyPage key={`topology-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'NetworkPage' ? (
+                      <NetworkPage key={`network-page-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'HelmReleases' ? (
                       <HelmPage key={`helm-page-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'IncidentTimeline' ? (
                       <IncidentTimelinePage key={`incident-timeline-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'ResourceCompare' ? (
+                      <ComparePage key={`resource-compare-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'UpgradeReadiness' ? (
+                      <UpgradeReadinessPage key={`upgrade-readiness-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'AccessExplorer' ? (
+                      <AccessPage key={`access-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'HealthIssues' ? (
+                      <IssuesPage key={`health-issues-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'HealthAudit' ? (
+                      <AuditPage key={`health-audit-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'ChangesFeed' ? (
+                      <ChangesFeedPage key={`changes-feed-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'ImageInspector' ? (
+                      <ImageInspectorPage key={`image-${tab.id}`} cluster={tab.cluster || currentTab || ''} target={tab.resource?.image} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'GitOpsOverview' ? (
+                      <GitOpsPage key={`gitops-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'CNPGOverview' ? (
+                      <CNPGPage key={`cnpg-${tab.id}`} cluster={currentTab || ''} />
                     ) : (
                       listContent
                     )}

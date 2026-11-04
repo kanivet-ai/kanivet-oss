@@ -1,0 +1,549 @@
+/* Access explorer: page, permission matrix, risks, inspector section. */
+
+.access-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--content);
+  color: var(--text);
+}
+
+.access-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  flex: none;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--hair);
+}
+
+.access-title {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.access-toolbar-spacer { flex: 1; }
+
+.access-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.access-section {
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.access-query,
+.access-subject-head {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.access-query-word {
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.access-select { min-width: 120px; }
+.access-input { width: 220px; }
+.access-input--sm { width: 150px; }
+
+.access-me {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.access-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 28px 16px;
+  font-size: 13px;
+  color: var(--text2);
+  text-align: center;
+}
+
+.access-warning {
+  font-size: 12px;
+  color: var(--text2);
+  background: var(--warning-bg);
+  border-radius: 7px;
+  padding: 6px 10px;
+}
+
+/* Who can… results */
+.access-subject-list,
+.access-paths,
+.access-risk-list,
+.access-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.access-subject-list {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.access-subject + .access-subject { border-top: 1px solid var(--hair); }
+
+.access-subject-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 10px 0 6px;
+  font-size: 13px;
+}
+
+.access-subject-row:hover { background: var(--hover); }
+
+.access-subject-paths {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text3);
+  font-variant-numeric: tabular-nums;
+}
+
+.access-disclosure {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border: 0;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  border-radius: 5px;
+}
+
+.access-chevron {
+  width: 6px;
+  height: 6px;
+  border-right: 1.6px solid currentColor;
+  border-bottom: 1.6px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--duration-fast) var(--ease-quiet);
+}
+
+.access-chevron.is-open { transform: rotate(45deg); }
+
+.access-chip-kind {
+  display: inline-flex;
+  align-items: center;
+  height: 16px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-size: 10.5px;
+  font-weight: 600;
+  flex: none;
+}
+
+.access-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px 0 4px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--inset);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.access-chip:hover { background: var(--hover); }
+.access-chip--static { cursor: default; }
+
+.access-ref {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.access-ref-kind {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.access-ref-text { color: var(--text); }
+
+.access-arrow {
+  color: var(--text3);
+  font-size: 12px;
+}
+
+.access-paths {
+  padding: 2px 10px 8px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.access-path {
+  padding: 6px 10px;
+  background: var(--inset);
+  border-radius: 7px;
+}
+
+.access-path-chain,
+.access-path-rule {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.access-path-rule {
+  margin-top: 3px;
+  color: var(--text2);
+}
+
+.access-path-rule code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text2);
+}
+
+.access-path-meta {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+/* Subject mode */
+.access-split {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) 1fr;
+  height: 100%;
+  min-height: 0;
+}
+
+.access-subject-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  min-height: 0;
+  background: var(--win);
+  border-right: 1px solid var(--hair);
+}
+
+.access-kind-filter { align-self: flex-start; }
+
+.access-picker-list {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.access-picker-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.access-picker-item:hover { background: var(--hover); }
+
+.access-picker-item.is-selected {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.access-picker-item.is-selected .access-chip-kind {
+  background: transparent;
+  color: var(--on-sel2);
+}
+
+.access-picker-item.is-selected .access-picker-count { color: var(--on-sel2); }
+
+.access-picker-name {
+  flex: 1;
+  min-width: 0;
+}
+
+.access-picker-count {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.access-subject-detail {
+  min-width: 0;
+  overflow: auto;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Matrix */
+.access-matrix-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+
+.access-matrix-toolbar { display: flex; }
+.access-matrix-filter { width: 220px; }
+
+.access-matrix-scroll {
+  overflow: auto;
+  max-height: 60vh;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+}
+
+.access-matrix-wrap.is-compact .access-matrix-scroll { max-height: 360px; }
+
+.access-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  font-size: 12.5px;
+}
+
+.access-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  height: 26px;
+  padding: 0 6px;
+  background: var(--card);
+  border-bottom: 1px solid var(--hair);
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text2);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.access-matrix th.access-matrix-res,
+.access-matrix td.access-matrix-res {
+  text-align: left;
+  padding: 0 10px;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.access-matrix td.access-matrix-res .ap-mono { font-size: 11.5px; }
+
+.access-matrix tbody tr { height: 26px; }
+.access-matrix tbody tr:nth-child(odd) { background: var(--stripe); }
+.access-matrix tbody tr:hover { background: var(--hover); }
+
+.access-matrix-cell {
+  text-align: center;
+  border-left: 1px solid var(--hair);
+}
+
+.access-cell {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--ctrl);
+  opacity: 0.35;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: transform var(--duration-fast) var(--ease-quiet);
+}
+
+.access-cell:disabled { cursor: default; }
+
+.access-cell--full { background: var(--green); opacity: 1; }
+.access-cell--wildcard { background: var(--purple); opacity: 1; }
+.access-cell--limited {
+  background: var(--warning-bg);
+  box-shadow: inset 0 0 0 1.5px var(--orange);
+  opacity: 1;
+}
+
+.access-cell:not(:disabled):hover { transform: scale(1.15); }
+
+.access-cell.is-selected { box-shadow: 0 0 0 2px var(--content), 0 0 0 3.5px var(--blue); }
+
+.access-legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.access-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.access-legend .access-cell {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  cursor: default;
+}
+
+.access-legend-hint {
+  margin-left: auto;
+  color: var(--text3);
+}
+
+.access-provenance {
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 10px 0 2px;
+}
+
+.access-provenance-title {
+  padding: 0 12px 4px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.access-provenance-title b {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.access-provenance .access-paths { padding-left: 10px; }
+
+.access-binding-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.access-binding-row .ap-card-row-value { margin-left: auto; }
+
+/* Risks */
+.access-risks-head { display: flex; }
+
+.access-risk-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.access-risk {
+  padding: 10px 12px;
+  background: var(--card);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.access-risks.is-compact .access-risk {
+  padding: 7px 10px;
+  background: var(--inset);
+  box-shadow: none;
+}
+
+.access-risk-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.access-risk-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.access-risk-scope {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.access-risk-detail {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.access-risk-chain {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+}
+
+.access-risk-subjects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.access-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+/* Inspector */
+.access-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 6px var(--property-padding-x) 10px;
+}
+
+.access-inspector .access-empty { padding: 14px 8px; }
+
+.access-inspector-note,
+.access-inspector-subjects {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.access-inspector .access-matrix th,
+.access-inspector .access-matrix td.access-matrix-res { padding: 0 6px; }
+.access-inspector .access-matrix thead th { font-size: 10.5px; }
+.access-inspector .access-legend-hint { display: none; }

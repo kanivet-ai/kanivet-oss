@@ -108,6 +108,8 @@ var categories = []models.Category{
 	{Name: "Cluster", ID: "cluster"},
 	{Name: "Crossplane", ID: "crossplane"},
 	{Name: "Argo CD", ID: "argocd"},
+	{Name: "Flux CD", ID: categoryFlux},
+	{Name: "CloudNativePG", ID: categoryCNPG},
 	{Name: "Custom Resources", ID: "custom"},
 }
 

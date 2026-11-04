@@ -1,0 +1,9 @@
+.deprecated-api-badge {
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+}
+
+.deprecated-api-badge:hover {
+  filter: brightness(0.96);
+}

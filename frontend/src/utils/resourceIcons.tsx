@@ -1,9 +1,13 @@
 import type { ReactNode } from 'react';
+import { UpgradeIcon } from '../components/upgrade/UpgradeIcon';
 import * as K from '../components/icons/kube';
 import HelmIcon from '../components/icons/HelmIcon';
 import CrossplaneIcon from '../components/icons/CrossplaneIcon';
 import ArgoIcon from '../components/icons/ArgoIcon';
+import FluxIcon from '../components/icons/FluxIcon';
+import PostgresIcon from '../components/icons/PostgresIcon';
 import KanivetMark from '../components/icons/KanivetMark';
+import HealthNavIcon from '../components/health/HealthNavIcon';
 import { pluralize } from './pluralization';
 
 type IconRenderer = ReactNode;
@@ -32,6 +36,15 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <K.ConfigIcon />, 'clustersettings');
   register(m, <K.FinOpsIcon />, 'finopsdashboard', 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
+  register(m, <K.CertificatesIcon />, 'certificatesdashboard', 'certificates');
+  register(m, <UpgradeIcon />, 'upgradereadiness', 'upgrade-readiness');
+  register(m, <K.KeyIcon />, 'accessexplorer');
+  register(m, <K.HistoryIcon />, 'changesfeed');
+  register(m, <K.TimelineIcon />, 'incidenttimeline');
+  register(m, <HealthNavIcon kind="issues" />, 'healthissues');
+  register(m, <HealthNavIcon kind="audit" />, 'healthaudit');
+  register(m, <K.TopologyIcon />, 'topologyview', 'topology');
+  register(m, <K.RouteIcon />, 'networkpage');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads
@@ -367,9 +380,14 @@ const buildCategoryIcons = (): Record<string, IconRenderer> => {
   register(m, <K.OverviewIcon />, 'overview');
   register(m, <K.WorkloadsIcon />, 'workloads');
   register(m, <K.ConfigIcon />, 'config', 'configuration', 'cluster-settings');
-  register(m, <K.NetworkIcon />, 'network', 'networking');
+  register(m, <K.NetworkIcon />, 'networking');
+  register(m, <K.RouteIcon />, 'network');
   register(m, <K.StorageIcon />, 'storage');
   register(m, <K.RbacIcon />, 'rbac');
+  register(m, <K.KeyIcon />, 'access');
+  register(m, <K.HistoryIcon />, 'changes');
+  register(m, <K.TimelineIcon />, 'incident-timeline');
+  register(m, <UpgradeIcon />, 'upgrade-readiness');
   register(m, <K.ClusterIcon />, 'cluster');
   register(
     m,
@@ -383,8 +401,12 @@ const buildCategoryIcons = (): Record<string, IconRenderer> => {
   register(m, <HelmIcon />, 'helm', 'helm releases');
   register(m, <K.FinOpsIcon />, 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizing');
+  register(m, <K.CertificatesIcon />, 'certificates');
+  register(m, <K.TopologyIcon />, 'topology');
   register(m, <CrossplaneIcon />, 'crossplane');
   register(m, <ArgoIcon />, 'argocd', 'argo cd', 'argo');
+  register(m, <FluxIcon />, 'flux', 'flux cd', 'gitops');
+  register(m, <PostgresIcon />, 'cnpg', 'cloudnativepg', 'postgres');
   register(
     m,
     <K.VirtualClusterIcon />,

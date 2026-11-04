@@ -1,12 +1,23 @@
+import { IMAGE_REF_KIND, imagePaletteResults, imageRefFromQuery } from './images/imagePalette';
+import { openImageTab } from './images/openImageTab';
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
+import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
+import { integrationCommands, runIntegrationCommand } from './integrations/paletteCommands';
+import { AI_PALETTE_COMMANDS, runAIPaletteCommand } from './ai/aiPalette';
+import { PaletteAskRow, paletteAskPosition, runPaletteAsk } from './ai/PaletteAsk';
+import { parseClusterName } from '../utils/clusterUtils';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { openCompare } from './compare/compareLauncher';
+import { runChangesCommand } from './changes/commands';
 import type { RecentResource, SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
+import { pageResources } from '../store/navigationTargets';
 import { createLatestRequest } from '../utils/latestRequest';
 import {
   dedupeByIdentity,
@@ -18,19 +29,21 @@ import {
   resourceListNode,
 } from '../utils/searchResults';
 import { staleResultLabel } from '../utils/searchFreshness';
+import { openTopology, TOPOLOGY_KINDS } from './topology/topologyNav';
+
+/** "> show topology for <term>": search, then open the pick in the topology view. */
+const TOPOLOGY_PREFIX = /^>\s*show\s+topology\s+for\s*/i;
+import { HEALTH_COMMANDS } from './health/healthCommands';
+import { reachCommandResult, runNetworkCommand, NETWORK_COMMANDS } from './network/networkCommands';
 
 interface CommandPaletteProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const getShortClusterName = (cluster: string): string => {
-  if (cluster.startsWith('arn:aws:eks:')) {
-    const match = cluster.match(/cluster\/(.+)$/);
-    if (match) return match[1];
-  }
-  return cluster;
-};
+/** The name the cluster tab shows (alias, or the parsed EKS/GKE/AKS name). */
+const getShortClusterName = (cluster: string): string =>
+  parseClusterName(cluster, useStore.getState().clusterAliases?.[cluster], useStore.getState().clusterProviders?.[cluster]).displayName || cluster;
 
 /**
  * One row the arrow keys can land on, in the order the rows are painted.
@@ -40,7 +53,8 @@ const getShortClusterName = (cluster: string): string => {
  */
 type NavItem =
   | { kind: 'recent'; recent: RecentResource }
-  | { kind: 'result'; result: SearchResult };
+  | { kind: 'result'; result: SearchResult }
+  | { kind: 'ask' };
 
 const CATEGORY_ORDER = [
   'Workloads',
@@ -70,7 +84,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const [isContextOpen, setIsContextOpen] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [openActionFor, setOpenActionFor] = useState<string | null>(null);
-  const [, setClusterMode] = useState(false);
+  const [clusterMode, setClusterMode] = useState(false);
+  // The user clicked the inspector resource suggestion on the Ask AI row.
+  const [askAddSuggested, setAskAddSuggested] = useState(false);
   const commandList = [
     {
       id: 'switch-cluster',
@@ -78,7 +94,61 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Quickly change the active cluster',
       category: 'Commands',
     },
+    {
+      id: 'open-certificates',
+      name: 'certificates',
+      description: 'Open TLS certificates and expiry for the current cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'compare-resources',
+      name: 'compare resources',
+      description: 'Diff two resources, a resource across clusters, or drift from last-applied/Helm',
+      category: 'Commands',
+    },
+    {
+      id: 'upgrade-readiness',
+      name: 'upgrade readiness',
+      description: 'Check deprecated APIs and node skew before a Kubernetes upgrade',
+      category: 'Commands',
+    },
+    ...ACCESS_COMMANDS,
+    {
+      id: 'show-topology',
+      name: 'show topology for…',
+      description: 'Pick a resource and see how it connects',
+      category: 'Commands',
+    },
+    {
+      id: 'namespace-topology',
+      name: 'topology',
+      description: 'Open the namespace topology graph',
+      category: 'Commands',
+    },
+    ...HEALTH_COMMANDS,
+    ...NETWORK_COMMANDS,
+    {
+      id: 'open-changes',
+      name: 'open changes feed',
+      description: 'Recent rollouts, Helm upgrades and GitOps syncs in the cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'show-history',
+      name: 'show resource history',
+      description: 'Open the History view of the resource in the inspector',
+      category: 'Commands',
+    },
+    ...integrationCommands,
+    {
+      id: 'inspect-image',
+      name: 'inspect image…',
+      description: 'Open a container image: config, layers and files',
+      category: 'Commands',
+    },
+    ...AI_PALETTE_COMMANDS,
   ];
+  const topologyModeRef = useRef(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -121,6 +191,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       }
       searchRequest.cancel();
       setQuery('');
+      topologyModeRef.current = false;
       setResults([]);
       setSelectedIndex(0);
       setShowRecent(true);
@@ -273,6 +344,47 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    if (TOPOLOGY_PREFIX.test(trimmed)) {
+      setClusterMode(false);
+      topologyModeRef.current = true;
+      const term = trimmed.replace(TOPOLOGY_PREFIX, '');
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (term.trim().length >= 2) {
+        searchTimeoutRef.current = setTimeout(() => performSearch(term), 100);
+      } else {
+        searchRequest.cancel();
+        setResults([]);
+        setShowRecent(false);
+        setLoading(false);
+      }
+      return;
+    }
+    topologyModeRef.current = false;
+
+    // "can X reach Y?" checks a network path.
+    const reach = reachCommandResult(trimmed);
+    if (reach) {
+      setResults([reach] as any);
+      setSelectedIndex(0);
+      setShowRecent(false);
+      setLoading(false);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
+      return;
+    }
+
+    // "> inspect image <ref>": offer the typed reference.
+    const imageRef = imageRefFromQuery(trimmed);
+    if (imageRef !== null) {
+      setResults(imagePaletteResults(imageRef, currentTab) as any);
+      setSelectedIndex(0);
+      setShowRecent(false);
+      setLoading(false);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
+      return;
+    }
+
     // Generic commands list: "> <term>"
     const anyCmdPrefix = /^>\s*/;
     if (anyCmdPrefix.test(trimmed)) {
@@ -360,14 +472,39 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
 
   // The rows in the exact order they are rendered: Recent while idle,
   // otherwise kinds first and then each category section.
+  // "Ask AI: <question>" leads when the input reads like a question; the
+  // "can X reach Y" network intent stays first when it matches.
+  const askPos = paletteAskPosition(query, results as any[], clusterMode);
   const navItems = useMemo<NavItem[]>(() => {
-    if (showRecent) return recentSearches.map((recent) => ({ kind: 'recent', recent }));
+    if (showRecent && askPos === null) return recentSearches.map((recent) => ({ kind: 'recent', recent }));
     const ordered: NavItem[] = kindDefinitionResults.map((result) => ({ kind: 'result', result }));
     for (const category of sortedCategories) {
       for (const result of groupedResults[category]) ordered.push({ kind: 'result', result });
     }
+    if (askPos === 'first') ordered.unshift({ kind: 'ask' });
+    else if (askPos === 'last') ordered.push({ kind: 'ask' });
+    else if (askPos === 'after') {
+      // Compact row after the first group: the kinds, else the first category.
+      const firstGroup = kindDefinitionResults.length > 0 ? kindDefinitionResults.length : sortedCategories.length > 0 ? groupedResults[sortedCategories[0]].length : 0;
+      ordered.splice(firstGroup, 0, { kind: 'ask' });
+    }
     return ordered;
-  }, [showRecent, recentSearches, kindDefinitionResults, sortedCategories, groupedResults]);
+  }, [showRecent, recentSearches, kindDefinitionResults, sortedCategories, groupedResults, askPos]);
+  const askNavIndex = navItems.findIndex((item) => item.kind === 'ask');
+  const askRow = (compact: boolean) => (
+    <PaletteAskRow
+      query={query}
+      navIndex={askNavIndex}
+      selected={selectedIndex === askNavIndex}
+      compact={compact}
+      addSuggested={askAddSuggested}
+      onToggleSuggested={setAskAddSuggested}
+      onHover={handleRowMouseEnter}
+      onPick={() => activateNavItem({ kind: 'ask' })}
+    />
+  );
+  const askAfterKinds = askPos === 'after' && kindDefinitionResults.length > 0;
+  const askAfterFirstCategory = askPos === 'after' && kindDefinitionResults.length === 0 && sortedCategories.length > 0;
 
   const navIndexByResult = useMemo(() => {
     const map = new Map<SearchResult, number>();
@@ -422,6 +559,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   };
 
   const activateNavItem = (item: NavItem) => {
+    if (item.kind === 'ask') {
+      onClose();
+      runPaletteAsk(query, currentTab, askAddSuggested);
+      return;
+    }
     if (item.kind === 'recent') {
       handleRecentResourceSelect(item.recent);
       return;
@@ -440,6 +582,77 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         primeClusterSwitch();
         return;
       }
+      if (id === 'open-certificates') {
+        if (currentTab) void useStore.getState().openResourceListTab(pageResources.certificates, currentTab);
+        onClose();
+        return;
+      }
+      if (id === 'compare-resources') {
+        onClose();
+        openCompare();
+        return;
+      }
+      if (id === 'upgrade-readiness') {
+        onClose();
+        void openUpgradeReadiness(currentTab);
+        return;
+      }
+      if (runAccessCommand(id, currentTab)) {
+        onClose();
+        return;
+      }
+      if (id === 'show-topology') {
+        topologyModeRef.current = true;
+        setQuery('> show topology for ');
+        setResults([]);
+        inputRef.current?.focus();
+        return;
+      }
+      if (id === 'namespace-topology' && currentTab) {
+        onClose();
+        void openTopology(currentTab, {});
+        return;
+      }
+      const healthCmd = HEALTH_COMMANDS.find((c) => c.id === id);
+      if (healthCmd) {
+        healthCmd.run(currentTab);
+        onClose();
+        return;
+      }
+      const net = runNetworkCommand(id, sel.resource, currentTab);
+      if (net === 'prime') {
+        setQuery('can ');
+        setResults([]);
+        inputRef.current?.focus();
+        return;
+      }
+      if (net === 'done') {
+        onClose();
+        return;
+      }
+      if (id === 'open-changes' || id === 'show-history') {
+        onClose();
+        runChangesCommand(id);
+        return;
+      }
+      if (runIntegrationCommand(id)) {
+        onClose();
+        return;
+      }
+      if (id === 'inspect-image') {
+        handleInputChange({ target: { value: '> inspect image ' } } as React.ChangeEvent<HTMLInputElement>);
+        inputRef.current?.focus();
+        return;
+      }
+      if (runAIPaletteCommand(id, currentTab)) {
+        onClose();
+        return;
+      }
+    }
+    if (sel?.resource?.kind === IMAGE_REF_KIND) {
+      if (sel.resource.name && currentTab) openImageTab(sel.resource.name, currentTab);
+      onClose();
+      return;
     }
     handleResultSelect(item.result);
   };
@@ -467,8 +680,23 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         break;
       }
 
+      case 'Tab': {
+        // Tab always asks the AI about the typed text.
+        if (!query.trim() || query.trim().startsWith('>')) break;
+        e.preventDefault();
+        onClose();
+        runPaletteAsk(query, currentTab, askAddSuggested);
+        break;
+      }
+
       case 'Enter': {
         e.preventDefault();
+        if ((e.metaKey || e.ctrlKey) && query.trim()) {
+          // ⌘Enter forces Ask AI on any text.
+          onClose();
+          runPaletteAsk(query.replace(/^>\s*/, ''), currentTab, askAddSuggested);
+          break;
+        }
         const item = navItems[selectedIndex];
         if (item) activateNavItem(item);
         break;
@@ -577,10 +805,26 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   // Handle result selection
   const handleResultSelect = async (result: SearchResult) => {
     const { resource } = result;
+    if (resource.kind === 'Command' && resource.id === 'cmd:compare-resources') {
+      onClose();
+      openCompare();
+      return;
+    }
+
+    if (resource.kind === IMAGE_REF_KIND || (resource.kind === 'Command' && resource.id === 'cmd:inspect-image')) {
+      return activateNavItem({ kind: 'result', result } as NavItem);
+    }
 
     // Handle kind definitions differently
     if (resource.kind === 'KindDefinition') {
       return handleKindSelect(result);
+    }
+
+    if (topologyModeRef.current) {
+      const t = describeSearchResource(resource);
+      onClose();
+      void openTopology(t.cluster, { focus: { group: t.group, version: t.version, kind: t.kind, namespace: t.namespace, name: t.name } });
+      return;
     }
 
     // Resolve the plural resource name and the Kind up front. Documents
@@ -760,9 +1004,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     {selectedClusters.length === 0
                       ? 'All clusters'
                       : selectedClusters.length === 1
-                        ? selectedClusters[0].length > 20
-                          ? selectedClusters[0].substring(0, 20) + '...'
-                          : selectedClusters[0]
+                        ? getShortClusterName(selectedClusters[0])
                         : `${selectedClusters.length} clusters`}
                   </span>
                   <span>{isContextOpen ? '▲' : '▼'}</span>
@@ -795,8 +1037,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                           readOnly
                           checked={isClusterSelected(c)}
                         />
-                        <span title={c}>
-                          {c.length > 30 ? c.substring(0, 30) + '...' : c}
+                        <span className="command-palette-context-name" title={c}>
+                          {getShortClusterName(c)}
                         </span>
                       </label>
                     ))}
@@ -812,7 +1054,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
           ref={resultsRef}
           onMouseMove={handleResultsMouseMove}
         >
-          {showRecent && recentSearches.length > 0 && (
+          {showRecent && askPos === null && recentSearches.length > 0 && (
             <div className="command-palette-section">
               <div className="command-palette-section-header">
                 Recent
@@ -845,7 +1087,9 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          {!showRecent && results.length === 0 && !loading && query && (
+          {askPos === 'first' && askRow(false)}
+
+          {!showRecent && results.length === 0 && !loading && query && askPos === null && (
             <div className="command-palette-no-results">
               No results found for &quot;{query}&quot;
             </div>
@@ -898,8 +1142,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
               )}
 
               {/* Show regular resource results */}
-              {sortedCategories.map((category) => (
-                <div key={category} className="command-palette-section">
+              {askAfterKinds && askRow(true)}
+              {sortedCategories.map((category, categoryIndex) => (
+                <React.Fragment key={category}>
+                {categoryIndex === 1 && askAfterFirstCategory && askRow(true)}
+                <div className="command-palette-section">
                   <div className="command-palette-section-header">
                     {category}
                   </div>
@@ -1153,6 +1400,20 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                             </button>
                             {openActionFor === resource.id && (
                               <div className="actions-menu" data-action-menu>
+                                {TOPOLOGY_KINDS.has(describeSearchResource(resource).kind) && (
+                                  <div
+                                    className="actions-menu-item"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenActionFor(null);
+                                      const t = describeSearchResource(resource);
+                                      onClose();
+                                      void openTopology(t.cluster, { focus: { group: t.group, version: t.version, kind: t.kind, namespace: t.namespace, name: t.name } });
+                                    }}
+                                  >
+                                    Topology
+                                  </div>
+                                )}
                                 {kind === 'pods' && (
                                   <>
                                     <div
@@ -1258,15 +1519,19 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     );
                   })}
                 </div>
+                {categoryIndex === 0 && sortedCategories.length === 1 && askAfterFirstCategory && askRow(true)}
+                </React.Fragment>
               ))}
             </>
           )}
+          {(askPos === 'last' || (askPos === 'after' && !askAfterKinds && !askAfterFirstCategory)) && askRow(askPos === 'after')}
         </div>
 
         <div className="command-palette-footer">
           <div className="command-palette-help">
             <span>↑↓ Navigate</span>
             <span>↵ Select</span>
+            <span>⇥ Ask AI</span>
             <span>esc Close</span>
           </div>
         </div>

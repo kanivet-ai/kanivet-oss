@@ -1,0 +1,934 @@
+/* Network page, path diagram and inspector section. Tokens only (DESIGN.md). */
+
+.net-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--content);
+  overflow: hidden;
+}
+
+.net-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--hair);
+  flex-shrink: 0;
+}
+
+.net-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.net-title-icon {
+  display: none;
+  width: 16px;
+  height: 16px;
+  color: var(--blue);
+}
+
+.net-title-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.net-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.net-views {
+  margin-left: 8px;
+}
+
+.net-header-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.net-ns-select {
+  max-width: 220px;
+}
+
+.net-spin {
+  animation: net-spin 0.9s linear infinite;
+}
+
+@keyframes net-spin {
+  to { transform: rotate(360deg); }
+}
+
+.net-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.net-muted {
+  color: var(--text3);
+  font-size: 12px;
+}
+
+.net-ns {
+  color: var(--text3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.net-kind {
+  display: inline-block;
+  margin-right: 6px;
+  color: var(--text3);
+  font-size: 11px;
+}
+
+.is-stale {
+  opacity: 0.6;
+  transition: opacity 160ms var(--ease-quiet);
+}
+
+/* ---- Banners and empty states ---------------------------------------- */
+
+.net-banner {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12.5px;
+  color: var(--text);
+  background: var(--blue-soft);
+}
+
+.net-banner--warning {
+  background: var(--warning-bg);
+}
+
+.net-banner--danger {
+  background: var(--danger-bg);
+}
+
+.net-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 40px 16px;
+  text-align: center;
+}
+
+.net-empty-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.net-empty-text {
+  max-width: 520px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text2);
+}
+
+/* ---- Path form ------------------------------------------------------- */
+
+.net-checker {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.net-form {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 14px;
+}
+
+.net-picker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1 1 240px;
+  min-width: 200px;
+}
+
+.net-picker-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.net-picker-input {
+  width: 100%;
+}
+
+.net-picker-value {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 6px 0 8px;
+  border: none;
+  border-radius: 7px;
+  background: var(--ctrl);
+  color: var(--text);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.net-picker-value:hover {
+  background: var(--ctrl2);
+}
+
+.net-picker-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  color: var(--blue);
+  flex: none;
+}
+
+.net-picker-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.net-picker-kind {
+  color: var(--text3);
+  font-size: 11px;
+  flex: none;
+}
+
+.net-picker-clear {
+  margin-left: auto;
+  display: inline-flex;
+  padding: 2px;
+  border-radius: 4px;
+  color: var(--text3);
+}
+
+.net-picker-clear:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.net-picker-menu {
+  animation: ap-pop 140ms var(--ease-quiet);
+}
+
+.net-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.net-picker-option.is-active {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+.net-picker-option.is-active .net-picker-kind,
+.net-picker-option.is-active .net-picker-ports,
+.net-picker-option.is-active .net-picker-icon {
+  color: var(--on-sel2);
+}
+
+.net-picker-ports {
+  margin-left: auto;
+  color: var(--text3);
+  font-size: 11px;
+  flex: none;
+}
+
+.net-swap {
+  /* Bottom-aligned with the 28px fields beside it. */
+  margin-bottom: 0;
+}
+
+.net-port,
+.net-proto {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.net-port-input {
+  width: 84px;
+}
+
+.net-check-btn {
+  margin-left: auto;
+}
+
+.net-port-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.net-chip {
+  height: 22px;
+  padding: 0 10px;
+  border: none;
+  border-radius: 12px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.net-chip:hover {
+  background: var(--ctrl2);
+}
+
+.net-chip.is-active {
+  background: var(--sel);
+  color: var(--on-sel);
+}
+
+/* ---- Verdict --------------------------------------------------------- */
+
+.net-result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.net-verdict {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 4px 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  background: var(--card);
+}
+
+.net-verdict--allowed {
+  background: var(--success-bg);
+}
+
+.net-verdict--blocked {
+  background: var(--danger-bg);
+}
+
+.net-verdict--partial {
+  background: var(--warning-bg);
+}
+
+.net-verdict-main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.net-verdict-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.net-verdict--allowed .net-verdict-title { color: var(--green); }
+.net-verdict--blocked .net-verdict-title { color: var(--red); }
+.net-verdict--partial .net-verdict-title { color: var(--orange); }
+
+.net-verdict-meta {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.net-verdict-summary {
+  grid-column: 1;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.net-verdict-actions {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+}
+
+.net-verdict-actions .ap-btn svg {
+  margin-right: 4px;
+}
+
+/* ---- Path diagram (self-contained) ----------------------------------- */
+
+.net-path {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.net-strip {
+  display: flex;
+  align-items: flex-start;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  overflow-x: auto;
+}
+
+.net-strip-item {
+  display: flex;
+  align-items: flex-start;
+  flex: 1 1 0;
+  min-width: 72px;
+}
+
+.net-strip-item:first-child {
+  flex: 0 0 auto;
+}
+
+.net-strip-item--unreached {
+  opacity: 0.45;
+}
+
+.net-strip-link {
+  flex: 1;
+  height: 2px;
+  margin-top: 11px;
+  border-radius: 1px;
+  background: var(--hair);
+}
+
+.net-strip-link--success { background: var(--green); }
+.net-strip-link--danger { background: var(--red); }
+.net-strip-link--warning { background: var(--orange); }
+
+.net-strip-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 0 4px;
+  border: none;
+  background: none;
+  color: var(--text2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+
+.net-strip-node:hover .net-strip-label {
+  color: var(--text);
+}
+
+.net-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: #fff;
+  flex: none;
+  background: var(--gray);
+}
+
+.net-glyph svg {
+  width: 70%;
+  height: 70%;
+}
+
+.net-glyph--success { background: var(--green); }
+.net-glyph--danger { background: var(--red); }
+.net-glyph--warning { background: var(--orange); }
+.net-glyph--muted { background: var(--text4); }
+
+.net-hops {
+  padding: 4px 0;
+}
+
+.net-hop {
+  display: flex;
+  gap: 10px;
+  padding: 0 14px;
+}
+
+.net-hop--unreached {
+  opacity: 0.5;
+}
+
+.net-hop-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 10px;
+}
+
+.net-hop-line {
+  flex: 1;
+  width: 2px;
+  margin-top: 4px;
+  background: var(--hair);
+  border-radius: 1px;
+}
+
+.net-hop-body {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 0 10px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.net-hop:last-child .net-hop-body {
+  border-bottom: none;
+}
+
+.net-hop-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.net-hop-kind {
+  width: 76px;
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.net-hop-title {
+  font-size: 13px;
+  color: var(--text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.net-hop-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  padding: 2px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text3);
+  cursor: pointer;
+  transition: transform 140ms var(--ease-quiet);
+}
+
+.net-hop-toggle:hover {
+  background: var(--hover);
+}
+
+.net-hop-toggle.is-open {
+  transform: rotate(90deg);
+}
+
+.net-hop-detail {
+  margin: 2px 0 0 84px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text2);
+}
+
+.net-hop--danger .net-hop-detail { color: var(--text); }
+
+.net-hop-rules {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.net-hop-more {
+  margin: 6px 0 0 84px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--inset);
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.net-hop-policies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-bottom: 4px;
+}
+
+.net-reasons {
+  margin: 0;
+  padding-left: 16px;
+  line-height: 1.55;
+}
+
+/* ---- Probe ------------------------------------------------------------ */
+
+.net-probe {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.net-probe-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.net-probe-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.net-probe-detail {
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.net-probe-cmd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--inset);
+  font-size: 11.5px;
+  overflow-x: auto;
+}
+
+.net-probe-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text2);
+}
+
+.net-probe-confirm p {
+  margin: 0;
+}
+
+.net-probe-confirm code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.net-toggle-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  font-size: 12.5px;
+}
+
+/* ---- Coverage --------------------------------------------------------- */
+
+.net-coverage,
+.net-traffic {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.net-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.net-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+}
+
+.net-tile-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.net-tile-label {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.net-meter {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ctrl);
+  overflow: hidden;
+}
+
+.net-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--green);
+}
+
+.net-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.net-section-label {
+  padding: 0;
+}
+
+.net-table {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.net-tr {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) 56px 130px minmax(120px, 1.4fr) minmax(120px, 1.4fr) 96px;
+  align-items: center;
+  min-height: 30px;
+  padding: 0 12px;
+  gap: 10px;
+  font-size: 12.5px;
+  color: var(--text2);
+  border-top: 1px solid var(--hair);
+}
+
+.net-table--policies .net-tr {
+  grid-template-columns: minmax(240px, 2fr) minmax(140px, 1.4fr) 56px 120px 110px;
+}
+
+.net-table--flows .net-tr {
+  grid-template-columns: minmax(160px, 1.5fr) minmax(180px, 1.7fr) 70px 80px 80px 70px 96px;
+}
+
+.net-tr:nth-child(odd):not(.net-th) {
+  background: var(--stripe);
+}
+
+.net-tr:not(.net-th):hover {
+  background: var(--hover);
+}
+
+.net-th {
+  min-height: 26px;
+  border-top: none;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text2);
+}
+
+.net-td-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.net-td-name .ap-badge {
+  margin-left: 4px;
+}
+
+.net-selector {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.net-policy-list {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Traffic empty state ---------------------------------------------- */
+
+.net-traffic-empty {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.net-sources {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.net-source {
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.net-source-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.net-source-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.net-source-detail {
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.net-hints {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text2);
+  word-break: break-word;
+}
+
+/* ---- Inspector section ------------------------------------------------ */
+
+.net-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.net-inspector-loading {
+  padding: 6px 0;
+}
+
+.net-dir {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.net-dir-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.net-dir-title {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.net-dir-summary {
+  font-size: 12.5px;
+  color: var(--text2);
+  line-height: 1.45;
+}
+
+.net-rules {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  background: var(--inset);
+}
+
+.net-rule {
+  display: flex;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.net-rule-id {
+  flex: none;
+  color: var(--text2);
+  font-weight: 500;
+}
+
+.net-rule-text {
+  color: var(--text2);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.net-peers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 12px;
+}
+
+.net-peer {
+  white-space: nowrap;
+}
+
+.net-svc-ports {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.net-svc {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.net-portmap {
+  display: grid;
+  grid-template-columns: 10px auto auto 1fr;
+  align-items: center;
+  gap: 2px 8px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.net-portmap-arrow {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.net-portmap-detail {
+  grid-column: 2 / -1;
+  color: var(--text3);
+}
+
+.net-inspector-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

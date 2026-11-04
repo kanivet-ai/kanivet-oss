@@ -22,24 +22,35 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/kanivet/backend/internal/api"
 	"github.com/kanivet/backend/internal/cache"
+	"github.com/kanivet/backend/internal/certs"
+	"github.com/kanivet/backend/internal/changes"
 	"github.com/kanivet/backend/internal/cloud"
 	"github.com/kanivet/backend/internal/cluster"
+	"github.com/kanivet/backend/internal/compare"
 	"github.com/kanivet/backend/internal/faults"
 	"github.com/kanivet/backend/internal/finops"
+	"github.com/kanivet/backend/internal/health"
 	"github.com/kanivet/backend/internal/helm"
+	"github.com/kanivet/backend/internal/images"
 	"github.com/kanivet/backend/internal/incidents"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/k8s/podcache"
 	"github.com/kanivet/backend/internal/k8s/watcher"
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
+	"github.com/kanivet/backend/internal/mcp"
+	"github.com/kanivet/backend/internal/mcp/featuretools"
+	"github.com/kanivet/backend/internal/network"
+	"github.com/kanivet/backend/internal/network/traffic"
 	"github.com/kanivet/backend/internal/nodeload"
+	"github.com/kanivet/backend/internal/rbac"
 	"github.com/kanivet/backend/internal/rightsizing"
 	"github.com/kanivet/backend/internal/search"
 	"github.com/kanivet/backend/internal/terminal/infrastructure"
 	"github.com/kanivet/backend/internal/terminal/service"
 	terminalws "github.com/kanivet/backend/internal/terminal/websocket"
 	"github.com/kanivet/backend/internal/themes"
+	"github.com/kanivet/backend/internal/upgrade"
 	kanivetws "github.com/kanivet/backend/internal/websocket"
 	"github.com/kanivet/backend/internal/websocket/handlers"
 )
@@ -189,6 +200,19 @@ func listenOnConfiguredAddr() (net.Listener, error) {
 }
 
 func main() {
+	// `kanivet-backend mcp-stdio [--full]`: stdio MCP bridge for clients that
+	// only launch stdio servers (Claude Desktop). It relays to the running
+	// backend and never starts one; stdout carries only MCP messages.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-stdio" {
+		log.SetOutput(os.Stderr)
+		full := len(os.Args) > 2 && os.Args[2] == "--full"
+		if err := mcp.RunStdioBridge(context.Background(), mcp.DefaultStateDir(), full); err != nil {
+			fmt.Fprintln(os.Stderr, "kanivet mcp-stdio:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Global panic recovery - captures panics in main goroutine then re-panics
 	defer func() {
 		if r := recover(); r != nil {
@@ -243,6 +267,11 @@ func main() {
 	router.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	// MCP endpoints authenticate agents with their own bearer token, so they
+	// are mounted before the UI session-secret middleware.
+	mcpLazy := &mcp.Lazy{}
+	mcpLazy.Mount(router)
 
 	router.Use(localsecurity.SessionSecretMiddleware())
 
@@ -359,6 +388,12 @@ func main() {
 	// Setup Helm service
 	helmService := helm.NewService(k8sClient)
 	helmHandler := helm.NewHandler(helmService)
+	compareService := compare.NewService(k8sClient, helmService)
+	compareHandler := compare.NewHandler(compareService)
+
+	// Upgrade readiness reads Helm release manifests through the Helm service.
+	upgradeService := upgrade.NewService(k8sClient, helmService)
+	upgradeHandler := upgrade.NewHandler(upgradeService)
 
 	// Setup FinOps service
 	finopsService := finops.NewService(k8sClient, cacheInstance.Cache)
@@ -366,9 +401,23 @@ func main() {
 	finopsService.SetMetricsSource(apiHandler.GetMetricsService())
 	finopsHandler := finops.NewHandler(finopsService)
 
+	// RBAC explorer: access graph, who-can, risky grants, own access.
+	rbacService := rbac.NewService(k8sClient, cacheInstance.Cache)
+	rbacHandler := rbac.NewHandler(rbacService)
+
 	// The Nodes list's load columns: pod requests from the shared pod cache,
 	// usage from metrics-server.
 	nodeLoadHandler := nodeload.NewHandler(nodeload.NewService(podCache, apiHandler.GetMetricsService()))
+
+	// Image inspection: registry manifests/layers, cached under ~/.kanivet/images.
+	var imagesHandler *images.Handler
+	var imagesService *images.Service
+	if svc, err := images.NewService(k8sClient, podCache, filepath.Join(homeDir, ".kanivet", "images"), 0); err != nil {
+		log.Printf("image inspection disabled: %v", err)
+	} else {
+		imagesService = svc
+		imagesHandler = images.NewHandler(svc)
+	}
 
 	// Rightsizing reads history through the metrics engine's providers and
 	// prices changes with FinOps rates.
@@ -378,9 +427,47 @@ func main() {
 	// settings change must drop the ones computed from the old values.
 	apiHandler.OnMetricsSettingsChanged(rightsizingService.ForgetCluster)
 
+	// TLS certificate inventory (Secrets, cert-manager, webhook CA bundles).
+	certsService := certs.NewService(k8sClient)
+	certsHandler := certs.NewHandler(certsService)
+	// Expired and expiring certificates show up as health issues.
+	certs.RegisterHealthSource(certsService)
+
+	// Network path analysis reads pods from the shared pod cache; observed
+	// traffic comes from the cluster's Prometheus (Istio / Hubble metrics).
+	networkService, networkHandler := network.Wire(k8sClient, podCache, network.QuerierFunc(func(ctx context.Context, cluster, query string, at time.Time) ([]traffic.Sample, error) {
+		series, err := apiHandler.GetMetricsService().QueryInstant(ctx, cluster, query, at)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]traffic.Sample, 0, len(series))
+		for _, s := range series {
+			if n := len(s.Values); n > 0 {
+				out = append(out, traffic.Sample{Labels: s.Labels, Value: float64(s.Values[n-1])})
+			}
+		}
+		return out, nil
+	}))
+
 	// Setup Incident Timeline service (reuses existing event listener + db)
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())
 	incidentHandler := api.NewIncidentTimelineHandler(incidentService)
+	// Change history, rebuilt from what the cluster keeps (ReplicaSets,
+	// ControllerRevisions, Helm, Argo CD, Flux, managedFields, Events).
+	changesService := changes.NewService(k8sClient, helmService)
+	incidentService.SetChangeSource(changesService.IncidentSource())
+
+	// Issues and audit read the shared pod cache, the stored events the
+	// incident timeline classifies, and a short-lived listing of other kinds.
+	var healthEvents health.EventSource
+	if el := apiHandler.GetEventListener(); el != nil {
+		healthEvents = el.RecentEvents
+	}
+	healthService := health.NewService(
+		health.NewLoader(k8sClient, podCache, healthEvents),
+		health.NewIgnoreStore(filepath.Join(homeDir, ".kanivet", "health", "audit-ignores.json")),
+	)
+	healthHandler := health.NewHandler(healthService)
 
 	// Register Helm streaming handler (after helmService is created)
 	helmWsHandler := handlers.NewHelmHandler(helmService, wsServer.Hub())
@@ -513,6 +600,7 @@ func main() {
 		})
 	}
 
+	var mcpService *mcp.Service
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/clusters", apiHandler.ListClusters)
@@ -567,6 +655,12 @@ func main() {
 		v1.POST("/cluster/nodes/:name/drain", apiHandler.DrainNode)
 		v1.POST("/cluster/nodes/:name/cordon", apiHandler.CordonNode)
 		v1.GET("/cluster/nodes/load", nodeLoadHandler.GetNodeLoad)
+		v1.GET("/cluster/topology/neighbors/:group/:version/:kind/:namespace/:name", apiHandler.GetTopologyNeighbors)
+		v1.GET("/cluster/topology/namespace/:namespace", apiHandler.GetTopologyNamespace)
+		v1.GET("/cluster/topology/overview", apiHandler.GetTopologyOverview)
+		if imagesHandler != nil {
+			imagesHandler.Register(v1)
+		}
 		v1.GET("/cluster/crossplane/check/:group/:version/:kind", apiHandler.CheckCrossplaneResource)
 		v1.GET("/cluster/crossplane/trace/:group/:version/:kind/:namespace/:name", apiHandler.TraceCrossplaneResource)
 		v1.GET("/cluster/argo/detect", apiHandler.GetArgoDetection)
@@ -579,6 +673,18 @@ func main() {
 		v1.POST("/cluster/argo/applications/:namespace/:name/sync", apiHandler.ArgoSyncApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/refresh", apiHandler.ArgoRefreshApplication)
 		v1.POST("/cluster/argo/applications/:namespace/:name/rollback", apiHandler.ArgoRollbackApplication)
+		v1.GET("/cluster/integrations/detect", apiHandler.GetIntegrationsDetection)
+		v1.GET("/cluster/gitops/status", apiHandler.GetGitOpsStatus)
+		v1.GET("/cluster/gitops/flux", apiHandler.GetFluxObjects)
+		v1.GET("/cluster/gitops/flux/:kind/:namespace/:name", apiHandler.GetFluxObject)
+		v1.POST("/cluster/gitops/flux/:kind/:namespace/:name/reconcile", apiHandler.FluxReconcile)
+		v1.POST("/cluster/gitops/flux/:kind/:namespace/:name/suspend", apiHandler.FluxSuspend)
+		v1.POST("/cluster/gitops/flux/:kind/:namespace/:name/resume", apiHandler.FluxResume)
+		v1.GET("/cluster/cnpg/clusters", apiHandler.GetCNPGClusters)
+		v1.GET("/cluster/cnpg/clusters/:namespace/:name", apiHandler.GetCNPGClusterStatus)
+		v1.POST("/cluster/cnpg/clusters/:namespace/:name/backup", apiHandler.CNPGBackupNow)
+		v1.POST("/cluster/cnpg/clusters/:namespace/:name/promote", apiHandler.CNPGPromote)
+		v1.POST("/cluster/cnpg/clusters/:namespace/:name/restart", apiHandler.CNPGRestart)
 		v1.GET("/cluster/resource-schema/:group/:version/:kind", apiHandler.GetResourceSchema)
 
 		// Cluster groups management
@@ -644,6 +750,8 @@ func main() {
 		v1.POST("/themes/download", themeHandler.DownloadTheme)
 
 		// Helm endpoints
+		v1.POST("/compare", compareHandler.Compare)
+		v1.GET("/compare/baselines", compareHandler.Baselines)
 		v1.GET("/helm/releases", helmHandler.ListReleases)
 		v1.GET("/helm/releases/:namespace/:name", helmHandler.GetRelease)
 		v1.GET("/helm/releases/:namespace/:name/values", helmHandler.GetReleaseValues)
@@ -667,14 +775,43 @@ func main() {
 		finops.GET("/pricing-debug", finopsHandler.GetPricingDebug)
 		finops.POST("/preload-pricing", finopsHandler.PreloadPricing)
 
+		ug := v1.Group("/upgrade")
+		ug.GET("/report", upgradeHandler.GetReport)
+		ug.GET("/catalog", upgradeHandler.GetCatalog)
+
+		rbacHandler.Register(v1)
+
 		rs := v1.Group("/rightsizing")
 		rs.GET("/report", rightsizingHandler.GetReport)
 		rs.GET("/workload", rightsizingHandler.GetWorkload)
 		rs.POST("/dismissals", rightsizingHandler.Dismiss)
 		rs.DELETE("/dismissals", rightsizingHandler.Undismiss)
 
+		v1.GET("/certs", certsHandler.List)
+
+		networkHandler.Register(v1.Group("/network"))
+
 		// Incident Timeline endpoint
 		v1.GET("/incidents/timeline", incidentHandler.GetTimeline)
+		changes.NewHandler(changesService).Register(v1)
+
+		// Live issues and best-practice audit
+		healthHandler.Register(v1.Group("/cluster-health"))
+
+		// Built-in MCP server (/mcp, /mcp-readonly) and AI investigations
+		mcpService = mcp.Setup(mcpLazy, v1, mcp.Deps{
+			K8s: k8sClient, Watcher: watcherService, Search: apiHandler.GetSearchService(),
+			Incidents: incidentService, Helm: helmService, FinOps: finopsService,
+			Rightsizing: rightsizingService, Metrics: apiHandler.GetMetricsService(),
+			NodeLoad: nodeload.NewService(podCache, apiHandler.GetMetricsService()), Router: router,
+		})
+		// Feature tools (health, changes, topology, certs, rbac, upgrade,
+		// network, compare, images, GitOps/CNPG) on the same registry.
+		featuretools.Register(featuretools.Deps{
+			Health: healthService, Changes: changesService, Topology: apiHandler.Topology(),
+			Certs: certsService, RBAC: rbacService, Upgrade: upgradeService, Network: networkService,
+			Compare: compareService, Images: imagesService, Router: router,
+		})
 
 		cloudService := cloud.NewService(apiHandler.GetDB())
 		refreshClustersAndBroadcast := func(reason string) {
@@ -728,6 +865,9 @@ func main() {
 	}
 	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
 		fmt.Printf("KANIVET_PORT=%d\n", tcpAddr.Port)
+		if mcpService != nil {
+			mcpService.SetPort(tcpAddr.Port)
+		}
 	}
 
 	srv := &http.Server{Handler: router}

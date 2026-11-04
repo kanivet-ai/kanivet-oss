@@ -441,6 +441,44 @@ export const RightsizingIcon = (p: KubeIconProps) => (
   </Svg>
 );
 
+/** A certificate sheet with a seal: TLS certificates. */
+export const CertificatesIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M9.25 12.25H3.5a1 1 0 0 1-1-1v-7.5a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1V6" />
+    <path d="M5 5.75h5.5M5 8.25h2.5" />
+    <circle cx={11.75} cy={9.25} r={1.75} />
+    <path d="M10.75 10.75 10.25 14l1.5-.9 1.5.9-.5-3.25" />
+  </Svg>
+);
+
+/** A clock with a turning-back arrow: the change history. */
+export const HistoryIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M2.75 8a5.25 5.25 0 1 0 1.55-3.72" />
+    <path d="M2.5 2.5v2.5H5" />
+    <path d="M8 5.25V8l2 1.25" />
+  </Svg>
+);
+
+/** A time axis with marks of unequal length: the incident timeline. */
+export const TimelineIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <path d="M4 2v12" />
+    <Dot cx={4} cy={4.25} r={1.4} />
+    <Dot cx={4} cy={8} r={1.4} />
+    <Dot cx={4} cy={11.75} r={1.4} />
+    <path d="M7 4.25h6.5M7 8h4M7 11.75h5.5" />
+  </Svg>
+);
+
+/** A key: who can do what. */
+export const KeyIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <circle cx={5.25} cy={10.75} r={3} />
+    <path d="M7.4 8.6 13.5 2.5M11.25 4.75l1.75 1.75M9.75 6.25l1.25 1.25" />
+  </Svg>
+);
+
 /** Hexagon with a live core. */
 export const WorkloadsIcon = (p: KubeIconProps) => (
   <Svg {...p}>
@@ -603,5 +641,15 @@ export const PersonIcon = (p: KubeIconProps) => (
   <Svg {...p}>
     <circle cx={8} cy={5.25} r={2.5} />
     <path d="M2.75 14a5.25 5.25 0 0 1 10.5 0" />
+  </Svg>
+);
+
+/** Three linked nodes: the topology graph. */
+export const TopologyIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <circle cx={3.5} cy={8} r={1.75} />
+    <circle cx={12.5} cy={3.75} r={1.75} />
+    <circle cx={12.5} cy={12.25} r={1.75} />
+    <path d="M5.1 7.2 10.9 4.5M5.1 8.8l5.8 2.7" />
   </Svg>
 );

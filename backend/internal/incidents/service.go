@@ -14,13 +14,14 @@ const defaultFetchLimit = 5000
 type Service struct {
 	db       *db.DB
 	listener *events.EventListener
+	changes  ChangeSource
 }
 
 func NewService(database *db.DB, listener *events.EventListener) *Service {
 	return &Service{db: database, listener: listener}
 }
 
-func (s *Service) GetTimeline(_ context.Context, f TimelineFilters) (TimelineResponse, error) {
+func (s *Service) GetTimeline(ctx context.Context, f TimelineFilters) (TimelineResponse, error) {
 	if f.Cluster == "" {
 		return TimelineResponse{}, errors.New("cluster is required")
 	}
@@ -33,5 +34,7 @@ func (s *Service) GetTimeline(_ context.Context, f TimelineFilters) (TimelineRes
 	if err != nil {
 		return TimelineResponse{}, err
 	}
-	return BuildTimeline(rows, f), nil
+	resp := BuildTimeline(rows, f)
+	s.withChanges(ctx, f.Cluster, &resp)
+	return resp, nil
 }

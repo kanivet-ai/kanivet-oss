@@ -1,0 +1,646 @@
+/* Certificates: cluster page, heat strip, inspector card. Tokens only. */
+
+/* ---- Page shell ---------------------------------------------------------- */
+.cert-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--content);
+  overflow: hidden;
+}
+
+.cert-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--hair);
+  flex-shrink: 0;
+}
+
+.cert-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cert-title svg {
+  display: none;
+  width: 16px;
+  height: 16px;
+  color: var(--blue);
+  flex: none;
+}
+
+.cert-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.cert-source-chip {
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.cert-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.cert-search {
+  width: 220px;
+}
+
+.cert-spin {
+  animation: cert-spin 0.9s linear infinite;
+}
+
+@keyframes cert-spin {
+  to { transform: rotate(360deg); }
+}
+
+.cert-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 16px;
+  font-size: 12px;
+  color: var(--text2);
+  background: var(--warning-bg);
+  border-bottom: 1px solid var(--hair);
+}
+
+.cert-banner--error {
+  background: var(--danger-bg);
+  color: var(--text);
+}
+
+.cert-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 14px 16px 0;
+  gap: 14px;
+}
+
+.cert-empty,
+.cert-inline-state {
+  padding: 40px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.cert-inline-state {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: 12.5px;
+}
+
+/* ---- Summary stats ------------------------------------------------------- */
+.cert-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.cert-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 0;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--duration-fast) var(--ease-quiet);
+}
+
+.cert-stat:hover {
+  background: var(--hover);
+}
+
+.cert-stat.active {
+  box-shadow: var(--shadow-card), 0 0 0 2px var(--blue);
+}
+
+.cert-stat-value {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text);
+  letter-spacing: -0.3px;
+}
+
+.cert-stat-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+/* ---- Heat strip ---------------------------------------------------------- */
+.cert-strip-wrap {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.cert-strip-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 8px;
+}
+
+.cert-strip {
+  display: grid;
+  grid-template-columns: 1.4fr repeat(13, 1fr) 1.4fr;
+  gap: 3px;
+  height: 34px;
+}
+
+.cert-bin {
+  --cert-tone: var(--green);
+  position: relative;
+  border: 0;
+  border-radius: 5px;
+  padding: 0;
+  cursor: pointer;
+  background: color-mix(in srgb, var(--cert-tone) calc(18% + var(--cert-bin-level, 0) * 70%), var(--ctrl));
+  transition: transform var(--duration-fast) var(--ease-quiet), box-shadow var(--duration-fast) var(--ease-quiet);
+}
+
+.cert-bin.empty {
+  background: var(--ctrl);
+  cursor: default;
+}
+
+.cert-bin:not(.empty):hover {
+  box-shadow: 0 0 0 1.5px var(--cert-tone);
+}
+
+.cert-bin.active {
+  box-shadow: 0 0 0 2px var(--blue);
+}
+
+.cert-bin--expired { --cert-tone: var(--red); }
+.cert-bin--critical { --cert-tone: var(--orange); }
+.cert-bin--warning { --cert-tone: var(--yellow); }
+.cert-bin--ok { --cert-tone: var(--green); }
+
+.cert-bin-count {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cert-strip-axis {
+  display: grid;
+  grid-template-columns: 1.4fr 2fr 2.3fr 8.7fr 1.4fr;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--text3);
+}
+
+/* ---- Findings ------------------------------------------------------------ */
+.cert-finding {
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.cert-finding-msg {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+/* ---- Filter bar + table -------------------------------------------------- */
+.cert-filterbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cert-count {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.cert-main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 14px;
+  padding-bottom: 16px;
+}
+
+.cert-list {
+  flex: 1;
+  min-width: 0;
+}
+
+.cert-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.cert-table th {
+  height: 26px;
+  padding: 0 10px;
+  text-align: left;
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--text2);
+  border-bottom: 1px solid var(--hair);
+  border-left: 1px solid var(--hair);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.cert-table th:first-child {
+  border-left: 0;
+}
+
+.cert-sort {
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
+.cert-sort.desc {
+  transform: rotate(180deg);
+}
+
+.cert-table td {
+  padding: 6px 10px;
+  vertical-align: top;
+  border-left: 1px solid var(--hair);
+}
+
+.cert-table td:first-child {
+  border-left: 0;
+  white-space: nowrap;
+}
+
+.cert-row {
+  cursor: default;
+}
+
+.cert-row:nth-child(odd) {
+  background: var(--stripe);
+}
+
+.cert-row:hover {
+  background: var(--hover);
+}
+
+.cert-row.selected {
+  background: var(--sel-soft);
+}
+
+.cert-name {
+  font-size: 13px;
+  color: var(--text);
+}
+
+.cert-sub {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.cert-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.cert-days--expired,
+.cert-days--critical { color: var(--red); }
+.cert-days--warning { color: var(--orange); }
+
+.cert-group {
+  margin-bottom: 16px;
+}
+
+.cert-group-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px 6px;
+}
+
+.cert-group-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.cert-group-count {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.cert-group-meta {
+  margin-left: auto;
+  font-size: 11.5px;
+  color: var(--text2);
+}
+
+.cert-detail {
+  width: 360px;
+  flex: none;
+  align-self: flex-start;
+  position: sticky;
+  top: 0;
+  border-radius: 10px;
+  background: var(--win);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+.cert-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 32px;
+  padding: 0 8px 0 14px;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  border-bottom: 1px solid var(--hair);
+}
+
+/* ---- Certificate card ---------------------------------------------------- */
+.cert-inspector {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.cert-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px 14px;
+}
+
+.cert-inspector .cert-card {
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.cert-card-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cert-seal {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--green);
+}
+
+.cert-seal--expired,
+.cert-seal--critical { background: var(--red); }
+.cert-seal--warning { background: var(--orange); }
+.cert-seal--invalid { background: var(--gray); }
+
+.cert-card-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.cert-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cert-card-sub {
+  font-size: 11.5px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cert-card-note {
+  font-size: 12px;
+  color: var(--text2);
+  padding: 6px 0 2px;
+}
+
+.cert-validity-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--ctrl);
+  overflow: hidden;
+}
+
+.cert-validity-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: var(--green);
+  transition: width 180ms var(--ease-quiet);
+}
+
+.cert-validity-fill--expired,
+.cert-validity-fill--critical { background: var(--red); }
+.cert-validity-fill--warning { background: var(--orange); }
+.cert-validity-fill--invalid { background: var(--gray); }
+
+.cert-validity-dates {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.cert-days {
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.cert-section-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  margin-bottom: 6px;
+}
+
+.cert-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cert-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 5px;
+  background: var(--inset);
+  color: var(--text);
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cert-chain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.cert-chain-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 8px 18px;
+}
+
+.cert-chain-item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 10px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--sep);
+}
+
+.cert-chain-node {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--card);
+  box-shadow: inset 0 0 0 1.5px var(--blue);
+}
+
+.cert-chain-subject {
+  font-size: 12.5px;
+  color: var(--text);
+}
+
+.cert-chain-meta {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.cert-props {
+  margin: 0;
+}
+
+.cert-props .ap-card-row {
+  gap: 12px;
+}
+
+.cert-row-top {
+  align-items: flex-start;
+}
+
+.cert-ellipsis {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.cert-usedby {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.cert-usedby-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+.cert-usedby-hosts {
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.cert-issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cert-issue {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--text);
+  padding: 6px 9px;
+  border-radius: 7px;
+  background: var(--warning-bg);
+}
+
+.cert-issue .ap-dot {
+  flex: none;
+  transform: translateY(-1px);
+}
+
+.cert-issue--critical {
+  background: var(--danger-bg);
+}
+
+.cert-issue--block {
+  margin: 0;
+}

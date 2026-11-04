@@ -1,0 +1,372 @@
+.upgrade-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--content);
+  color: var(--text);
+}
+
+.upgrade-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  min-height: 44px;
+  padding: 8px 16px;
+  box-sizing: border-box;
+  background: var(--toolbar);
+  border-bottom: 1px solid var(--hair);
+  flex: none;
+}
+
+.upgrade-toolbar-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+
+.upgrade-toolbar-title h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+}
+
+.upgrade-toolbar-title span {
+  font-size: 12.5px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-toolbar-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upgrade-version {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.upgrade-arrow {
+  color: var(--text3);
+  font-size: 12px;
+}
+
+.upgrade-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.upgrade-body > * {
+  flex: none;
+}
+
+.upgrade-body > .ap-group-label {
+  margin-top: 18px;
+}
+
+.upgrade-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 16px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.upgrade-inline-error {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: 12.5px;
+}
+
+.upgrade-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 14px 16px;
+  border-radius: 10px;
+  background: var(--card);
+  box-shadow: var(--shadow-card);
+}
+
+.upgrade-verdict {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.upgrade-verdict-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.upgrade-verdict-sub {
+  font-size: 12px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.upgrade-stats {
+  display: flex;
+  gap: 8px;
+}
+
+.upgrade-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-width: 78px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--inset);
+  color: var(--text2);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: default;
+  transition: background 140ms var(--ease-quiet);
+}
+
+button.upgrade-stat {
+  cursor: pointer;
+}
+
+button.upgrade-stat:hover {
+  background: var(--hover);
+}
+
+.upgrade-stat[aria-pressed='true'] {
+  box-shadow: 0 0 0 1.5px var(--blue);
+}
+
+.upgrade-stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: var(--text);
+}
+
+.upgrade-stat[data-tone='danger'] .upgrade-stat-value {
+  color: var(--red);
+}
+
+.upgrade-stat[data-tone='warning'] .upgrade-stat-value {
+  color: var(--orange);
+}
+
+.upgrade-stat[data-tone='success'] .upgrade-stat-value {
+  color: var(--green);
+}
+
+.upgrade-notes {
+  margin: 10px 0 0;
+  padding: 0 0 0 18px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.upgrade-filters {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.upgrade-search {
+  flex: 1;
+  min-width: 180px;
+  max-width: 320px;
+}
+
+.upgrade-empty {
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.upgrade-api {
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.upgrade-api-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px 4px;
+}
+
+.upgrade-api-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.upgrade-api-kind {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.upgrade-api-replacement {
+  color: var(--green);
+}
+
+.upgrade-api-none {
+  color: var(--red);
+  font-weight: 500;
+}
+
+.upgrade-api-release {
+  font-size: 11.5px;
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+.upgrade-api-message {
+  padding: 0 14px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.upgrade-api-hint {
+  margin: 8px 14px 0;
+  padding: 7px 10px;
+  border-radius: 7px;
+  background: var(--inset);
+  font-size: 12px;
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.upgrade-api-hint-label {
+  margin-right: 8px;
+  font-weight: 600;
+  color: var(--text2);
+}
+
+.upgrade-api-sources {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--hair);
+}
+
+.upgrade-api-served {
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.upgrade-row {
+  display: grid;
+  grid-template-columns: minmax(140px, 1.3fr) minmax(90px, 0.8fr) auto 10px;
+  align-items: center;
+  gap: 12px;
+  font-size: 12.5px;
+}
+
+.ap-card .upgrade-row:has(.upgrade-row-msg) {
+  grid-template-columns: auto minmax(120px, 1fr) auto minmax(200px, 2.4fr);
+}
+
+.upgrade-row--note {
+  display: block;
+  padding: 8px 14px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.upgrade-row-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-row-meta {
+  font-size: 11.5px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upgrade-row-msg {
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.upgrade-row-source {
+  justify-self: end;
+}
+
+.upgrade-helm-link {
+  border: 0;
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.upgrade-helm-link:hover {
+  filter: brightness(0.95);
+}
+
+.upgrade-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upgrade-check .ap-card-row-value {
+  margin-left: auto;
+  text-align: right;
+}
+
+.upgrade-footnote {
+  margin: 12px 2px 0;
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
+.upgrade-footnote a {
+  color: var(--blue);
+}
+
+/* Cluster settings entry */
+.upgrade-settings-entry {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 12.5px;
+  color: var(--text2);
+}
+
+.upgrade-settings-entry .ap-card-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}

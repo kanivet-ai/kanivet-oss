@@ -11,6 +11,8 @@ export interface TreeNode {
   icon?: string;
   hideCount?: boolean;
   disabled?: boolean;
+  /** The sidebar section a root node is listed under. */
+  section?: string;
 }
 
 export interface PinnedDetail {

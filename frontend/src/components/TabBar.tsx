@@ -26,6 +26,7 @@ import {
 import KeyboardShortcutsEditor from './KeyboardShortcutsEditor';
 import CloudAccountsMenu from './CloudAccountsMenu';
 import ConnectionStatusIndicator from './ConnectionStatusIndicator';
+import AIStatusIndicator from './ai/AIStatusIndicator';
 import './TabBar.css';
 
 interface TabBarProps {
@@ -360,6 +361,7 @@ const TabBar = ({ onOpenSettings }: TabBarProps) => {
         </button>
       </div>
       <div className="tab-bar-controls">
+        <AIStatusIndicator />
         <ConnectionStatusIndicator />
         <button
           className="theme-toggle controls-toggle"

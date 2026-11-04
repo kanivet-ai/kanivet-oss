@@ -6,6 +6,8 @@ import {
   ActionHandlerParams,
 } from '../utils/resourceActions';
 import { failureMessage } from '../utils/errorMessage';
+import { openCompare } from '../components/compare/compareLauncher';
+import { refFromListItem } from '../utils/compareRefs';
 
 interface UseResourceListActionsProps {
   selectedNode: any;
@@ -232,8 +234,15 @@ export function useResourceListActions({
       case 'restart':
         handleBulkRestart();
         break;
+      case 'compare': {
+        const picked = listItems.filter((item: any) => selectedResources.has(getResourceKey(item)));
+        if (picked.length === 2 && currentTab && selectedNode?.data) {
+          openCompare({ a: refFromListItem(picked[0], selectedNode.data, currentTab), b: refFromListItem(picked[1], selectedNode.data, currentTab) });
+        }
+        break;
+      }
     }
-  }, [handleDelete, handleRemoveFinalizers, handleForceRefresh, handleBulkRestart]);
+  }, [handleDelete, handleRemoveFinalizers, handleForceRefresh, handleBulkRestart, listItems, selectedResources, getResourceKey, currentTab, selectedNode]);
 
   const handleActionClick = useCallback((e: React.MouseEvent, item: any) => {
     e.stopPropagation();

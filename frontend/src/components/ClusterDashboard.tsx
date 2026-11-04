@@ -19,6 +19,7 @@ import GCPIcon from './GCPIcon';
 import { getResourceIcon } from '../utils/resourceIcons';
 import { parseClusterName } from '../utils/clusterUtils';
 import ArgoOverviewWidget from './ArgoOverviewWidget';
+import HealthSummaryCard from './health/HealthSummaryCard';
 import {
   DashboardFreshness,
   FRESH_DASHBOARD,
@@ -524,6 +525,8 @@ const ClusterDashboard: React.FC<ClusterDashboardProps> = memo(({ cluster }) => 
       <div className="compact-metrics-row">
         {metrics.map(renderCompactMetricCard)}
       </div>
+
+      <HealthSummaryCard cluster={cluster} />
 
       <ArgoOverviewWidget cluster={cluster} />
 

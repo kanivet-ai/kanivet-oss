@@ -2781,3 +2781,45 @@ body.resizing-width .detail-resize-handle {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Inspector header "More" menu (HeaderOverflow): secondary actions. */
+.resource-actions-row > .header-overflow {
+  position: relative;
+  order: 5;
+}
+
+.resource-actions-row .header-overflow-btn {
+  width: 100% !important;
+}
+
+.header-overflow-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--surface-elev, var(--bg-primary));
+  border: 1px solid var(--border-color);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+
+.header-overflow-menu[hidden] {
+  display: none;
+}
+
+.resource-actions-row .header-overflow-menu .quick-action-btn,
+.resource-actions-row .header-overflow-menu .tab-content-action-btn {
+  width: 100% !important;
+  justify-content: flex-start;
+  background: transparent;
+}
+
+.resource-actions-row .header-overflow-menu .quick-action-btn:hover,
+.resource-actions-row .header-overflow-menu .tab-content-action-btn:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+}

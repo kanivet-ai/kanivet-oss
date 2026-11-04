@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { InspectorAIMenuItems, InspectorAskAI } from '../ai/InspectorAI';
 import * as ScrollArea from '@radix-ui/react-scroll-area';
 import { ChevronDownIcon, ChevronRightIcon, ReloadIcon, TrashIcon, SizeIcon, CubeIcon, BarChartIcon, CheckCircledIcon, PlayIcon } from '@radix-ui/react-icons';
 import useResourceNavigation from '../../hooks/useResourceNavigation';
@@ -11,6 +12,11 @@ import EventsSection from './shared/EventsSection';
 import PodConfigMapsSection from './shared/PodConfigMapsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
+import { ResourceCertificates } from '../certs/ResourceCertificates';
+import { inspectorScope as certScope } from '../certs/certsView';
+import DeprecatedApiBadge from '../upgrade/DeprecatedApiBadge';
+import ResourceHealthSection, { HEALTH_KINDS } from '../health/ResourceHealthSection';
+import NetworkInspectorSection from '../network/NetworkInspectorSection';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -23,6 +29,7 @@ import EndpointsDetailView from './resourceTypes/EndpointsDetailView';
 import RoleDetailView from './resourceTypes/RoleDetailView';
 import RoleBindingDetailView from './resourceTypes/RoleBindingDetailView';
 import ServiceAccountDetailView from './resourceTypes/ServiceAccountDetailView';
+import AccessPermissionsSection, { ACCESS_SECTION_KINDS } from '../access/AccessPermissionsSection';
 import NodeDetailView from './resourceTypes/NodeDetailView';
 import EventDetailView from './resourceTypes/EventDetailView';
 import MetadataSection from './shared/MetadataSection';
@@ -34,6 +41,15 @@ import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
+import CompareActions from '../compare/CompareActions';
+import HeaderOverflow from './HeaderOverflow';
+import InspectorViewSwitch, { supportsHistory, useInspectorView } from '../changes/InspectorViewSwitch';
+import '../changes/Changes.css';
+
+const ResourceHistory = lazyView(() => import('../changes/ResourceHistory'));
+import GitOpsOwnerBadge from '../gitops/GitOpsOwnerBadge';
+import { IntegrationSections } from '../integrations/IntegrationSections';
+import { WorkloadImagesSection } from '../images/InspectImageButton';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -401,6 +417,19 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           ? 'danger'
           : 'info';
   const replicas = renderReplicas();
+  // Kinds without a dedicated view get the generic layout (metadata, metrics,
+  // kind sections, health, spec, conditions).
+  const genericLayout = !isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication;
+  const healthSection = HEALTH_KINDS.has(resource.kind) && metadata.name ? (
+    <ResourceHealthSection
+      key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`}
+      cluster={cluster}
+      resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
+    />
+  ) : null;
+  const hasHistory = supportsHistory(resource.kind);
+  const [inspectorView, setInspectorView] = useInspectorView(metadata.uid);
+  const showHistory = hasHistory && inspectorView === 'history';
 
   return (
     <div className="resource-detail-view">
@@ -417,12 +446,14 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
               </h2>
               <div className="resource-kind-row">
                 <span className="resource-kind-badge">{resource.kind}</span>
+                <DeprecatedApiBadge resource={resource} cluster={cluster} />
                 {metadata.namespace && (
                   <>
                     <span className="resource-subtitle-sep">·</span>
                     <span className="resource-namespace">{metadata.namespace}</span>
                   </>
                 )}
+                <GitOpsOwnerBadge cluster={cluster} resource={resource} />
                 {(phase || replicas) && (
                   <>
                     <span className="resource-subtitle-sep">·</span>
@@ -438,13 +469,21 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="resource-actions-row">
             <QuickActions resource={resource} cluster={cluster} />
             {actions}
-            <DeleteAction resource={resource} cluster={cluster} />
+            <InspectorAskAI resource={resource} cluster={cluster} />
+            {/* Secondary actions live in "More" so the primary row stays short. */}
+            <HeaderOverflow>
+              <CompareActions resource={resource} cluster={cluster} />
+              <InspectorAIMenuItems resource={resource} cluster={cluster} />
+              <DeleteAction resource={resource} cluster={cluster} />
+            </HeaderOverflow>
           </div>
         </div>
       </div>
+      {hasHistory && <InspectorViewSwitch view={inspectorView} onChange={setInspectorView} />}
 
       <ScrollArea.Root className="resource-detail-scroll">
         <ScrollArea.Viewport className="resource-detail-viewport">
+          {showHistory ? <ResourceHistory resource={resource} cluster={cluster} /> : (
           <div className="info-sections">
             {resource.kind === 'CustomResourceDefinition' && <CRDDefinitionView crd={resource} />}
             {resource.kind === 'APIResourceDefinition' && <APIResourceDefinitionView resource={resource} />}
@@ -457,10 +496,23 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             {(resource.kind === 'Role' || resource.kind === 'ClusterRole') && <RoleDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {(resource.kind === 'RoleBinding' || resource.kind === 'ClusterRoleBinding') && <RoleBindingDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {resource.kind === 'ServiceAccount' && <ServiceAccountDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            {ACCESS_SECTION_KINDS.includes(resource.kind) && resource.kind !== 'Pod' && <AccessPermissionsSection resource={resource} cluster={cluster} />}
+            <IntegrationSections cluster={cluster} resource={resource} />
             {isArgoApplication && <ApplicationDetailView cluster={cluster} resource={resource} handleResourceClick={handleResourceClick} />}
             {isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && <CustomResourceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            {certScope(resource) && (
+              <>
+                <PropertyGroup title="Certificate" icon={getResourceIcon('certificates')} persistKey="certificates" defaultOpen>
+                  <ResourceCertificates cluster={cluster} {...certScope(resource)!} />
+                </PropertyGroup>
+                <div className="section-divider" />
+              </>
+            )}
+            {/* Kinds with their own view: health follows what that view shows. */}
+            {!genericLayout && healthSection}
+            {resource.kind === 'Service' && <NetworkInspectorSection resource={resource} cluster={cluster} />}
 
-            {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
+            {genericLayout && (
               <>
                 <MetadataSection metadata={metadata} handleResourceClick={handleResourceClick}>
                   {resource.kind === 'Pod' && spec.nodeName && (
@@ -524,6 +576,8 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                   );
                 })()}
 
+                {resource.kind === 'Pod' && <AccessPermissionsSection resource={resource} cluster={cluster} />}
+
                 {resource.kind === 'Pod' && (
                   <>
                     <ContainersSection resource={resource} cluster={cluster} onVolumeClick={handleResourceClick} />
@@ -553,6 +607,13 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                   </>
                 )}
 
+                {['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob'].includes(resource.kind) && (
+                  <>
+                    <WorkloadImagesSection resource={resource} cluster={cluster} />
+                    <div className="section-divider" />
+                  </>
+                )}
+
                 {['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'].includes(resource.kind) && (
                   <>
                     <PropertyGroup title="Rightsizing" icon={getResourceIcon('rightsizing')} persistKey="rightsizing">
@@ -566,6 +627,11 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     <div className="section-divider" />
                   </>
                 )}
+
+                {/* Metadata and metrics first, then the kind's own sections, then health. */}
+                {healthSection}
+
+                <NetworkInspectorSection resource={resource} cluster={cluster} />
 
                 <SpecificationSection spec={spec} handleResourceClick={handleResourceClick} />
                 <div className="section-divider" />
@@ -583,6 +649,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
               </>
             )}
           </div>
+          )}
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar className="scrollbar" orientation="vertical">
           <ScrollArea.Thumb className="scrollbar-thumb" />

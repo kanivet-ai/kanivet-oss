@@ -4,6 +4,7 @@ import * as Collapsible from '@radix-ui/react-collapsible';
 import PropertyRow from './common/PropertyRow';
 import ClipboardCopy from './common/ClipboardCopy';
 import { Tooltip } from './common/Tooltip';
+import { InspectImageButton } from './images/InspectImageButton';
 import './ContainerDropdown.css';
 
 const ENV_PREVIEW_COUNT = 10;
@@ -327,6 +328,9 @@ const CurrentTerminationStatus: React.FC<{ state: any }> = ({ state }) => {
 const ContainerDropdown: React.FC<ContainerDropdownProps> = ({
   container,
   containerSpec,
+  podName,
+  namespace,
+  cluster,
   portForwards,
   loadingPorts,
   onPortForward,
@@ -345,6 +349,14 @@ const ContainerDropdown: React.FC<ContainerDropdownProps> = ({
           copyText={container.imageID}
           muted
           mono
+        />
+      )}
+
+      {container.image && (
+        <InspectImageButton
+          image={container.image}
+          cluster={cluster}
+          pullContext={{ namespace, pod: podName, container: container.name, imageID: container.imageID || undefined }}
         />
       )}
 

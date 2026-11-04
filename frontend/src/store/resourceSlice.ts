@@ -11,6 +11,17 @@ import { anyCountPending, countsSettled, refetchCountsLater } from './countRefet
 import { liveItemsFor } from './realtimeSlice';
 
 const makeArgoOverviewNode = (cluster: string): TreeNode => ({ id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview', data: { cluster } });
+// Page nodes that lead a category's resource list (Argo apps, GitOps, Postgres).
+const makeGitOpsNode = (cluster: string, categoryId: string): TreeNode => ({ id: categoryId === 'flux' ? 'gitops-overview' : `gitops-overview-${categoryId}`, label: 'GitOps', type: 'gitops', data: { cluster } });
+const makeCNPGOverviewNode = (cluster: string): TreeNode => ({ id: 'cnpg-overview', label: 'PostgreSQL clusters', type: 'cnpg-overview', data: { cluster } });
+const INTEGRATION_CATEGORIES = ['argocd', 'flux', 'crossplane', 'cnpg'];
+
+const categoryPageNodes = (cluster: string, categoryId: string): TreeNode[] => {
+  if (categoryId === 'argocd') return [makeArgoOverviewNode(cluster), makeGitOpsNode(cluster, categoryId)];
+  if (categoryId === 'flux') return [makeGitOpsNode(cluster, categoryId)];
+  if (categoryId === 'cnpg') return [makeCNPGOverviewNode(cluster)];
+  return [];
+};
 
 // Concurrent loads of one cluster's tree share a single run: on startup the
 // hydrate step, the sidebar and the restore effect all ask for it at once.
@@ -144,19 +155,32 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       [{ id: 'crossplane', name: 'Crossplane' }, { id: 'argocd', name: 'Argo CD' }].forEach((cat) => {
         if (!categoryMap.has(cat.id)) categoryMap.set(cat.id, cat);
       });
-      const categoryOrder = ['workloads', 'networking', 'config', 'storage', 'rbac', 'cluster', 'crossplane', 'argocd', 'custom'];
+      const categoryOrder = ['workloads', 'networking', 'config', 'storage', 'rbac', 'cluster', 'custom', 'argocd', 'flux', 'crossplane', 'cnpg'];
       const categories: any[] = [
         ...categoryOrder.filter((id) => categoryMap.has(id)).map((id) => categoryMap.get(id)),
         ...rawCategories.filter((cat: any) => !categoryOrder.includes(cat.id)),
       ];
-      const overviewNode: TreeNode = { id: 'cluster-overview', label: 'Overview', type: 'overview', data: { cluster } };
-      const eventsNode: TreeNode = { id: 'cluster-events', label: 'Events', type: 'resource', hideCount: true, data: { name: 'events', group: '', version: 'v1', kind: 'Event', namespaced: true, cluster } };
-      const helmNode: TreeNode = { id: 'helm-releases', label: 'Helm Releases', type: 'helm', data: { cluster } };
-      const incidentsNode: TreeNode = { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline', data: { cluster } };
-      const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
-      const settingsNode: TreeNode = { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings', data: { cluster } };
-      const rightsizingNode: TreeNode = { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing', data: { cluster } };
-      let vclustersNode: TreeNode = { id: 'virtual-clusters', label: 'Virtual Clusters', type: 'vclusters', data: { cluster }, disabled: disabledActionables.vclusters };
+      const page = (id: string, label: string, type: string, section: string): TreeNode => ({ id, label, type, section, data: { cluster } });
+      const overviewNode = page('cluster-overview', 'Overview', 'overview', 'top');
+      const issuesNode = page('cluster-issues', 'Issues', 'issues', 'top');
+      const auditNode = page('cluster-audit', 'Audit', 'audit', 'top');
+      const eventsNode: TreeNode = { id: 'cluster-events', label: 'Events', type: 'resource', section: 'resources', hideCount: true, data: { name: 'events', group: '', version: 'v1', kind: 'Event', namespaced: true, cluster } };
+      const insightNodes = [
+        page('changes-feed', 'Changes', 'changes', 'insights'),
+        page('incident-timeline', 'Incident Timeline', 'incident-timeline', 'insights'),
+        page('topology', 'Topology', 'topology', 'insights'),
+        page('network-page', 'Network', 'network', 'insights'),
+        page('access-explorer', 'Access', 'access', 'insights'),
+        page('certificates-dashboard', 'Certificates', 'certificates', 'insights'),
+        page('upgrade-readiness', 'Upgrade readiness', 'upgrade-readiness', 'insights'),
+      ];
+      const costNodes = [
+        page('finops-dashboard', 'FinOps', 'finops', 'cost'),
+        page('rightsizing-dashboard', 'Rightsizing', 'rightsizing', 'cost'),
+      ];
+      const helmNode = page('helm-releases', 'Helm Releases', 'helm', 'integrations');
+      const settingsNode = page('cluster-settings', 'Cluster settings', 'cluster-settings', 'bottom');
+      let vclustersNode: TreeNode = { id: 'virtual-clusters', label: 'Virtual Clusters', type: 'vclusters', section: 'integrations', data: { cluster }, disabled: disabledActionables.vclusters };
       if (initialExpandedNodes.has(vclustersNode.id)) {
         const existing = findNodeById(initialState.activeTabs[initialTabIndex]?.state.treeData || [], vclustersNode.id);
         vclustersNode = { ...vclustersNode, expanded: true, children: existing?.children };
@@ -177,10 +201,24 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
           }
           return node;
         });
-        const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
-        const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
+        const byId = new Map(formattedCategories.map((cat) => [cat.id, cat]));
+        const integration = (id: string) => {
+          const cat = byId.get(id);
+          return cat ? [{ ...cat, section: 'integrations' }] : [];
+        };
+        const integrationIds = new Set(INTEGRATION_CATEGORIES);
+        const resourceCategories = formattedCategories
+          .filter((cat) => !integrationIds.has(cat.id))
+          .map((cat) => ({ ...cat, section: 'resources' }));
+        // Sections in order: health, resources, insights, cost, integrations,
+        // settings. The sidebar draws the headers from `section`.
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, issuesNode, auditNode,
+          ...resourceCategories, eventsNode,
+          ...insightNodes,
+          ...costNodes,
+          helmNode, ...integration('argocd'), ...integration('flux'), ...integration('crossplane'), vclustersNode, ...integration('cnpg'),
+          settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };
@@ -287,8 +325,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
 
       const resources = await api.getResources(cluster, metadata.categoryId, true);
       let formattedResources: TreeNode[];
-      if (metadata.categoryId === 'argocd') {
-        formattedResources = [makeArgoOverviewNode(cluster), ...resources.map((res: any) => ({
+      if (['argocd', 'flux', 'cnpg'].includes(metadata.categoryId)) {
+        formattedResources = [...categoryPageNodes(cluster, metadata.categoryId), ...resources.map((res: any) => ({
           id: `${metadata.categoryId}-${res.group || 'core'}-${res.version}-${res.name}`,
           label: res.kind || res.name, type: 'resource', data: res, count: undefined,
         }))];
@@ -339,8 +377,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
           .then((resourcesWithCounts) => {
             const filteredResourcesWithCounts = resourcesWithCounts.filter((res: any) => res.name !== 'replicasets');
             let formattedResourcesWithCounts: TreeNode[];
-            if (metadata.categoryId === 'argocd') {
-              formattedResourcesWithCounts = [makeArgoOverviewNode(cluster), ...filteredResourcesWithCounts.map((res: any) => ({
+            if (['argocd', 'flux', 'cnpg'].includes(metadata.categoryId)) {
+              formattedResourcesWithCounts = [...categoryPageNodes(cluster, metadata.categoryId), ...filteredResourcesWithCounts.map((res: any) => ({
                 id: `${metadata.categoryId}-${res.group || 'core'}-${res.version}-${res.name}`,
                 label: res.kind || res.name, type: 'resource', data: res, count: res.count,
               }))];
