@@ -125,6 +125,16 @@ func TestManagedFieldsEntries(t *testing.T) {
 	}
 }
 
+func TestManagedPathsKeepDottedKeys(t *testing.T) {
+	paths := managedPaths([]byte(`{"f:metadata":{"f:annotations":{"f:meta.helm.sh/release-name":{}}}}`))
+	if len(paths) != 1 || paths[0] != "metadata.annotations[meta.helm.sh/release-name]" {
+		t.Fatalf("%v", paths)
+	}
+	if got := condense(paths, 3); got[0] != paths[0] {
+		t.Fatalf("condense split a key: %v", got)
+	}
+}
+
 func TestSecretManagedFieldsListKeysOnly(t *testing.T) {
 	ts := metav1.NewTime(time.Now())
 	mf := []metav1.ManagedFieldsEntry{{Manager: "kubectl", Time: &ts, FieldsV1: &metav1.FieldsV1{Raw: []byte(`{"f:data":{"f:password":{},"f:user":{}}}`)}}}
@@ -194,7 +204,7 @@ type fakeClients struct {
 }
 
 func (f fakeClients) GetClientForCluster(string) (kubernetes.Interface, error) { return f.typed, nil }
-func (f fakeClients) GetDynamicClient(string) (dynamic.Interface, error)      { return f.dyn, nil }
+func (f fakeClients) GetDynamicClient(string) (dynamic.Interface, error)       { return f.dyn, nil }
 func (f fakeClients) GetResourceName(_, _, _, kind string) string {
 	return strings.ToLower(kind) + "s"
 }

@@ -53,6 +53,10 @@ func managedPaths(raw []byte) []string {
 func managedSegment(k string) string {
 	switch {
 	case strings.HasPrefix(k, "f:"):
+		// Label and annotation keys hold dots: keep them in one segment.
+		if strings.ContainsAny(k[2:], "./") {
+			return "[" + k[2:] + "]"
+		}
 		return k[2:]
 	case strings.HasPrefix(k, "k:"):
 		var key map[string]interface{}
@@ -93,10 +97,32 @@ func condense(paths []string, depth int) []string {
 
 // splitPath splits a.b[c].d into a, b[c], d.
 func splitPath(p string) []string {
-	return strings.Split(p, ".")
+	var out []string
+	depth, start := 0, 0
+	for i, r := range p {
+		switch r {
+		case '[':
+			depth++
+		case ']':
+			depth--
+		case '.':
+			if depth == 0 {
+				if i > start {
+					out = append(out, p[start:i])
+				}
+				start = i + 1
+			}
+		}
+	}
+	if start < len(p) {
+		out = append(out, p[start:])
+	}
+	return out
 }
 
-func joinPath(segs []string) string { return strings.Join(segs, ".") }
+func joinPath(segs []string) string {
+	return strings.Join(segs, ".")
+}
 
 // managedFieldsEntries turns an object's managedFields into "edited by" entries.
 // Status-subresource writes are controller heartbeats and are skipped, as are

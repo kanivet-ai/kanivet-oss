@@ -164,12 +164,7 @@ func argoEntries(subject ResourceRef, app map[string]interface{}) []Entry {
 				rev = fmt.Sprint(rs[0])
 			}
 		}
-		snap := map[string]interface{}{"revision": h["revision"], "revisions": h["revisions"], "source": h["source"], "sources": h["sources"]}
-		for k, v := range snap {
-			if v == nil {
-				delete(snap, k)
-			}
-		}
+		snap := argoSnap(h)
 		e := Entry{
 			ID:          fmt.Sprintf("argocd:%s/%s:%s", appNS, appName, str(h, "id")),
 			Source:      SourceArgoCD,
