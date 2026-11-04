@@ -29,6 +29,7 @@ import (
 	"github.com/kanivet/backend/internal/faults"
 	"github.com/kanivet/backend/internal/finops"
 	"github.com/kanivet/backend/internal/helm"
+	"github.com/kanivet/backend/internal/health"
 	"github.com/kanivet/backend/internal/incidents"
 	"github.com/kanivet/backend/internal/k8s"
 	"github.com/kanivet/backend/internal/k8s/podcache"
@@ -397,6 +398,18 @@ func main() {
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())
 	incidentHandler := api.NewIncidentTimelineHandler(incidentService)
 
+	// Issues and audit read the shared pod cache, the stored events the
+	// incident timeline classifies, and a short-lived listing of other kinds.
+	var healthEvents health.EventSource
+	if el := apiHandler.GetEventListener(); el != nil {
+		healthEvents = el.RecentEvents
+	}
+	healthService := health.NewService(
+		health.NewLoader(k8sClient, podCache, healthEvents),
+		health.NewIgnoreStore(filepath.Join(homeDir, ".kanivet", "health", "audit-ignores.json")),
+	)
+	healthHandler := health.NewHandler(healthService)
+
 	// Register Helm streaming handler (after helmService is created)
 	helmWsHandler := handlers.NewHelmHandler(helmService, wsServer.Hub())
 	wsServer.RegisterHandler("helm", helmWsHandler)
@@ -702,6 +715,9 @@ func main() {
 
 		// Incident Timeline endpoint
 		v1.GET("/incidents/timeline", incidentHandler.GetTimeline)
+
+		// Live issues and best-practice audit
+		healthHandler.Register(v1.Group("/cluster-health"))
 
 		cloudService := cloud.NewService(apiHandler.GetDB())
 		refreshClustersAndBroadcast := func(reason string) {

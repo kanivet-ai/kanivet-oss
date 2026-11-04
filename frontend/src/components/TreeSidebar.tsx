@@ -402,6 +402,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           );
           void recordNavigation('topology', node.id, node.data);
         }
+      } else if (node.type === 'issues' || node.type === 'audit') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(pageResources[node.type], currentTab, isPinned, freshPaneId || undefined);
+          recordNavigation(node.type, node.id, node.data).catch(() => {});
+        }
       } else if (node.type === 'cluster-settings') {
         selectNode(node);
         if (currentTab) {

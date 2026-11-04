@@ -56,6 +56,8 @@ const IncidentTimelinePage = lazyView(
   () => import('./incidents/IncidentTimelinePage'),
 );
 const UpgradeReadinessPage = lazyView(() => import('./upgrade/UpgradeReadinessPage'));
+const IssuesPage = lazyView(() => import('./health/IssuesPage'));
+const AuditPage = lazyView(() => import('./health/AuditPage'));
 
 
 // Scroll offset of each list, by cluster and list. Kept out of the store: the
@@ -1081,6 +1083,10 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <UpgradeReadinessPage key={`upgrade-readiness-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'AccessExplorer' ? (
                       <AccessPage key={`access-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'HealthIssues' ? (
+                      <IssuesPage key={`health-issues-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'HealthAudit' ? (
+                      <AuditPage key={`health-audit-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
                     ) : (

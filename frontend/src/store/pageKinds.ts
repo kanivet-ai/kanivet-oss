@@ -9,6 +9,8 @@ export const PAGE_KINDS = new Set([
   'TopologyView',
   'HelmReleases',
   'IncidentTimeline',
+  'HealthIssues',
+  'HealthAudit',
   'ArgoApplicationsOverview',
   'ResourceCompare',
   'UpgradeReadiness',

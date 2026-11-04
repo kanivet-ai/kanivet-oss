@@ -26,6 +26,7 @@ import { openTopology, TOPOLOGY_KINDS } from './topology/topologyNav';
 
 /** "> show topology for <term>": search, then open the pick in the topology view. */
 const TOPOLOGY_PREFIX = /^>\s*show\s+topology\s+for\s*/i;
+import { HEALTH_COMMANDS } from './health/healthCommands';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -117,6 +118,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Open the namespace topology graph',
       category: 'Commands',
     },
+    ...HEALTH_COMMANDS,
   ];
   const topologyModeRef = useRef(false);
 
@@ -527,6 +529,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       if (id === 'namespace-topology' && currentTab) {
         onClose();
         void openTopology(currentTab, {});
+        return;
+      }
+      const healthCmd = HEALTH_COMMANDS.find((c) => c.id === id);
+      if (healthCmd) {
+        healthCmd.run(currentTab);
+        onClose();
         return;
       }
     }

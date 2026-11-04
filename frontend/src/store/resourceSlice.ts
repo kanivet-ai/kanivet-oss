@@ -154,6 +154,8 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const helmNode: TreeNode = { id: 'helm-releases', label: 'Helm Releases', type: 'helm', data: { cluster } };
       const incidentsNode: TreeNode = { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline', data: { cluster } };
       const accessNode: TreeNode = { id: 'access-explorer', label: 'Access', type: 'access', data: { cluster } };
+      const issuesNode: TreeNode = { id: 'cluster-issues', label: 'Issues', type: 'issues', data: { cluster } };
+      const auditNode: TreeNode = { id: 'cluster-audit', label: 'Audit', type: 'audit', data: { cluster } };
       const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
       const settingsNode: TreeNode = { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings', data: { cluster } };
       const topologyNode: TreeNode = { id: 'topology', label: 'Topology', type: 'topology', data: { cluster } };
@@ -183,7 +185,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, topologyNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, issuesNode, auditNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, topologyNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };

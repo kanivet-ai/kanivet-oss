@@ -5,6 +5,8 @@ export const pageResources: Record<string, any> = {
   certificates: { name: 'certificates-dashboard', group: '', version: 'v1', kind: 'CertificatesDashboard', namespaced: false },
   topology: { name: 'topology', group: '', version: 'v1', kind: 'TopologyView', namespaced: false },
   'incident-timeline': { name: 'incident-timeline', group: '', version: 'v1', kind: 'IncidentTimeline', namespaced: false },
+  issues: { name: 'health-issues', group: '', version: 'v1', kind: 'HealthIssues', namespaced: false },
+  audit: { name: 'health-audit', group: '', version: 'v1', kind: 'HealthAudit', namespaced: false },
   helm: { name: 'helm-releases', group: '', version: 'v1', kind: 'HelmReleases', namespaced: false },
   'argo-overview': { name: 'argo-applications-overview', group: 'argoproj.io', version: 'v1alpha1', kind: 'ArgoApplicationsOverview', namespaced: false },
   compare: { name: 'resource-compare', group: '', version: 'v1', kind: 'ResourceCompare', namespaced: false },
@@ -25,7 +27,9 @@ type PageNodeType =
   | 'cluster-settings'
   | 'upgrade-readiness'
   | 'access'
-  | 'topology';
+  | 'topology'
+  | 'issues'
+  | 'audit';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
@@ -37,6 +41,8 @@ export function pageNode(kind: string, cluster: string | null) {
     CertificatesDashboard: { id: 'certificates-dashboard', label: 'Certificates', type: 'certificates' },
     TopologyView: { id: 'topology', label: 'Topology', type: 'topology' },
     IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
+    HealthIssues: { id: 'cluster-issues', label: 'Issues', type: 'issues' },
+    HealthAudit: { id: 'cluster-audit', label: 'Audit', type: 'audit' },
     HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
     ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
     ResourceCompare: { id: 'resource-compare', label: 'Compare', type: 'compare' },
