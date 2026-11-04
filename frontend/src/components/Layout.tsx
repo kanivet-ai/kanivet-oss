@@ -26,6 +26,7 @@ import {
 import { lazyView, prefetchLazyViewsWhenIdle } from '../utils/lazyView';
 import { ViewErrorBoundary } from './common/ViewErrorBoundary';
 import './Layout.css';
+import { openCompare } from './compare/compareLauncher';
 
 // Not on the first screen: split out, then warmed once the layout has painted.
 const CommandPalette = lazyView(() => import('./CommandPalette'));
@@ -326,6 +327,14 @@ const Layout = () => {
       handler: (e) => {
         e.preventDefault();
         setIsCommandPaletteOpen(true);
+      },
+    },
+    'meta+shift+d': {
+      category: 'global',
+      description: 'Compare resources',
+      handler: (e) => {
+        e.preventDefault();
+        openCompare();
       },
     },
     's+c': {

@@ -4,6 +4,7 @@ import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { openCompare } from './compare/compareLauncher';
 import type { RecentResource, SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
@@ -83,6 +84,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       id: 'open-certificates',
       name: 'certificates',
       description: 'Open TLS certificates and expiry for the current cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'compare-resources',
+      name: 'compare resources',
+      description: 'Diff two resources, a resource across clusters, or drift from last-applied/Helm',
       category: 'Commands',
     },
   ];
@@ -452,6 +459,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         onClose();
         return;
       }
+      if (id === 'compare-resources') {
+        onClose();
+        openCompare();
+        return;
+      }
     }
     handleResultSelect(item.result);
   };
@@ -589,6 +601,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   // Handle result selection
   const handleResultSelect = async (result: SearchResult) => {
     const { resource } = result;
+    if (resource.kind === 'Command' && resource.id === 'cmd:compare-resources') {
+      onClose();
+      openCompare();
+      return;
+    }
 
     // Handle kind definitions differently
     if (resource.kind === 'KindDefinition') {

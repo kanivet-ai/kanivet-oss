@@ -36,6 +36,7 @@ import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
+import CompareActions from '../compare/CompareActions';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -440,6 +441,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="resource-actions-row">
             <QuickActions resource={resource} cluster={cluster} />
             {actions}
+            <CompareActions resource={resource} cluster={cluster} />
             <DeleteAction resource={resource} cluster={cluster} />
           </div>
         </div>
