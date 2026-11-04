@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { aiApi, AgentCli, Investigation, InvestigationTarget, McpStatus } from '../services/api/ai';
 import { mergeInvestigation } from '../components/ai/aiUtils';
+import { INVESTIGATE_EVENT, type InvestigateRequest } from '../types/health';
 
 /** AI & MCP state: settings sheet, server status, and investigations. Kept
  * out of the main store so the feature stays self-contained. */
@@ -127,3 +128,26 @@ export const useAIStore = create<AIState>((set, get) => {
     closePanel: () => set({ panelOpen: false }),
   };
 });
+
+/** Maps the Issues page's investigate request to an investigation target. */
+export function targetFromInvestigateRequest(req: InvestigateRequest): InvestigationTarget {
+  const issue = req.issue;
+  return {
+    cluster: req.cluster,
+    kind: req.resource.kind,
+    apiVersion: req.resource.apiVersion,
+    namespace: req.resource.namespace,
+    name: req.resource.name,
+    context: req.context,
+    question: issue ? `Explain this issue (${issue.title}) on the resource, its root cause and the fix.` : undefined,
+  };
+}
+
+// The Issues page (and anything else) can start an investigation by
+// dispatching INVESTIGATE_EVENT, the same as the inspector's button.
+if (typeof window !== 'undefined') {
+  window.addEventListener(INVESTIGATE_EVENT, (e: Event) => {
+    const detail = (e as CustomEvent<InvestigateRequest>).detail;
+    if (detail?.cluster && detail.resource?.name) void useAIStore.getState().investigate(targetFromInvestigateRequest(detail));
+  });
+}

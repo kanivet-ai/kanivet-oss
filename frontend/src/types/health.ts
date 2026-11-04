@@ -99,6 +99,9 @@ export interface ResourceHealth {
   checks: HealthCheck[];
 }
 
+/** Window event that asks the AI agent to investigate a resource. */
+export const INVESTIGATE_EVENT = 'kanivet:investigate';
+
 /** Detail of the `kanivet:investigate` window event. */
 export interface InvestigateRequest {
   cluster: string;

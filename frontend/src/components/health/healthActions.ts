@@ -2,10 +2,10 @@ import { useStore } from '../../store';
 import { getResourceDetails } from '../../services/api/resources';
 import { kindToResource, parseApiVersion } from '../../utils/resourceUtils';
 import { pageResources } from '../../store/navigationTargets';
-import type { HealthIssue, HealthRef, InvestigateRequest } from '../../types/health';
+import { INVESTIGATE_EVENT, type HealthIssue, type HealthRef, type InvestigateRequest } from '../../types/health';
 
 /** The window event the AI agent listens to for an Investigate click. */
-export const INVESTIGATE_EVENT = 'kanivet:investigate';
+export { INVESTIGATE_EVENT };
 
 const LOG_KINDS = new Set(['Pod', 'Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob']);
 export const canOpenLogs = (ref: HealthRef) => LOG_KINDS.has(ref.kind);
