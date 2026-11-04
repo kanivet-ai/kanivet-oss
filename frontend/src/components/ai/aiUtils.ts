@@ -160,3 +160,22 @@ export function refFromCode(code: string): FindingResource | null {
   if (!m) return null;
   return { kind: m[1], namespace: m[2] || undefined, name: m[4] };
 }
+
+const FEATURE_LABELS: Record<string, string> = {
+  core: 'Core', actions: 'Actions', health: 'Health', changes: 'Changes', topology: 'Topology', certs: 'Certificates',
+  rbac: 'Access (RBAC)', upgrade: 'Upgrade', network: 'Network', compare: 'Compare', images: 'Images',
+  gitops: 'GitOps & CloudNativePG', helm: 'Helm', argo: 'Argo', metrics: 'Metrics & Prometheus', finops: 'Cost',
+  crossplane: 'Crossplane', vcluster: 'vcluster',
+};
+export const featureLabel = (f: string) => FEATURE_LABELS[f] || f;
+
+/** Tools grouped by feature, core first, read tools before write tools. */
+export function groupTools<T extends { feature: string; name: string; write: boolean }>(tools: T[]): [string, T[]][] {
+  const by = new Map<string, T[]>();
+  for (const t of tools) by.set(t.feature || 'core', [...(by.get(t.feature || 'core') || []), t]);
+  const order = Object.keys(FEATURE_LABELS);
+  return [...by.entries()]
+    .sort(([a], [b]) => (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99) || a.localeCompare(b))
+    .map(([f, ts]) => [f, ts.sort((a, b) => Number(a.write) - Number(b.write) || a.name.localeCompare(b.name))]);
+}
+

@@ -20,6 +20,8 @@ export interface McpSetupRecipe {
 export interface McpStatus {
   enabled: boolean;
   allowWrites: boolean;
+  /** exec_pod is registered (on /mcp only). */
+  allowExec: boolean;
   readOnlyUrl: string;
   fullUrl: string;
   token: string;
@@ -124,7 +126,7 @@ export const aiApi = {
   async calls(): Promise<McpCall[]> {
     return (await ax().get('/mcp/calls')).data.calls || [];
   },
-  async updateSettings(patch: { enabled?: boolean; allowWrites?: boolean }): Promise<McpStatus> {
+  async updateSettings(patch: { enabled?: boolean; allowWrites?: boolean; allowExec?: boolean }): Promise<McpStatus> {
     return (await ax().put('/mcp/settings', patch)).data;
   },
   async rotateToken(): Promise<McpStatus> {

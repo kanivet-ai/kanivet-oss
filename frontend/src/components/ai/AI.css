@@ -828,3 +828,18 @@
   display: flex;
   gap: 8px;
 }
+
+.ai-banner.is-warning {
+  margin: 8px 12px;
+  background: var(--warning-bg, var(--danger-bg));
+  color: var(--warning-fg, var(--text));
+}
+
+.ai-tool-group {
+  padding: 10px 12px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text2);
+}

@@ -71,13 +71,59 @@ servers). Rules:
 
 ## Core tools
 
-Read: `list_clusters`, `list_resources`, `get_resource`, `get_events`,
-`get_logs`, `search`, `get_incidents`, `diagnose`, `list_helm_releases`,
+Read: `list_clusters`, `list_namespaces`, `list_resources`, `get_resource`,
+`get_events`, `get_logs`, `get_workload_logs`, `search`, `get_incidents`,
+`diagnose`, `get_dashboard`, `list_packages`, `list_helm_releases`,
 `get_helm_release`, `list_argo_apps`, `get_argo_app`, `get_metrics`,
-`get_costs`, `get_rightsizing`.
+`top_resources`, `get_node_load`, `query_prometheus`, `discover_metrics`,
+`get_prometheus_rules`, `get_costs`, `get_rightsizing`, `crossplane_trace`,
+`list_vclusters`.
 
 Write (`/mcp` only): `restart_workload`, `scale_workload`, `delete_pod`,
-`apply_yaml`, `helm_rollback`, `argo_sync`, `cordon_node`, `drain_node`.
+`apply_yaml`, `patch_resource`, `helm_rollback`, `argo_sync`,
+`manage_argo_rollout`, `manage_cronjob`, `cordon_node`, `drain_node`.
+
+`exec_pod` (destructive, `/mcp` only) is registered only while "Allow agents
+to run commands in pods" (`allowExec` in `mcp.json`) is on; it is off by
+default and its output is not scrubbed. Turning the setting off removes the
+tool from live sessions (`Registry.Unregister`).
+
+## Feature tools (`featuretools/`)
+
+`featuretools.Register` (called from `cmd/main.go` with the feature
+services) adds: `get_issues`, `audit` (health), `get_changes`,
+`get_change_snapshot` (changes), `get_topology`, `get_related` (topology),
+`list_certificates` (certs), `who_can`, `subject_permissions`,
+`risky_grants` (rbac), `upgrade_readiness`, `check_network_path`,
+`network_policy_coverage`, `network_probe` (write, destructive, needs
+`confirm`), `compare_resources`, `get_drift`, `gitops_status`,
+`cnpg_cluster_status`, `flux_reconcile` (write) and `inspect_image`. It
+also registers `diagnose` enrichers (health issues, recent changes under
+`context`) and `get_dashboard` sections (issue counts, audit score).
+
+## Why a result is empty: `reasons`
+
+Read tools never answer a failure with only an error string. They return
+`{"items": [], "reasons": [...]}`, and partial results carry `reasons` too.
+Each reason is `{code, kind?, namespace?, detail}` (`reasons.go`):
+
+| Code | Meaning for the agent |
+| --- | --- |
+| `user_forbidden` | RBAC denies the user; do not retry |
+| `kind_unknown` | no such kind; check the spelling |
+| `kind_not_installed` | the CRD/API is not on this cluster |
+| `namespace_not_found` | the namespace does not exist |
+| `object_not_found` | definitive: the object does not exist |
+| `cache_warming` | retry in a few seconds |
+| `cluster_disconnected` | the cluster is unreachable |
+| `credentials_rejected` | re-authenticate |
+| `truncated` | more results exist; narrow the query |
+| `read_error` | anything else; see `detail` |
+
+Register read tools with `registerRead` (core) or wrap the handler with
+`mcp.Explained`; feature tools use `respond`/`explain` in `featuretools`,
+which also map a feature's `Warnings` to reasons. `mcp.ReasonsDoc` is
+appended to every read tool's description (and stripped from the UI list).
 
 ## Token efficiency
 

@@ -276,7 +276,7 @@ func (s *Service) GetStatus() Status {
 		st.LastCallAt = &last
 	}
 	for _, sp := range s.reg.Specs() {
-		st.Tools = append(st.Tools, ToolInfo{Name: sp.Name, Description: sp.Description, Write: sp.Write, Destructive: sp.Destructive, Feature: sp.Feature})
+		st.Tools = append(st.Tools, ToolInfo{Name: sp.Name, Description: strings.TrimSuffix(sp.Description, ReasonsDoc), Write: sp.Write, Destructive: sp.Destructive, Feature: sp.Feature})
 	}
 	st.Setup = SetupRecipes(s.ReadOnlyURL(), s.FullURL(), set.Token)
 	return st

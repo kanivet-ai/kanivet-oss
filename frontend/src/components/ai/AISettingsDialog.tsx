@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as RDialog from '@radix-ui/react-dialog';
+import { groupTools, featureLabel } from './aiUtils';
 import { Cross2Icon, EyeOpenIcon, EyeClosedIcon, ReloadIcon, CheckIcon, CopyIcon } from '@radix-ui/react-icons';
 import { useAIStore } from '../../store/aiStore';
 import { aiApi, McpCall } from '../../services/api/ai';
@@ -106,7 +107,7 @@ const AISettingsDialog: React.FC = () => {
     return m;
   }, [status]);
 
-  const update = async (patch: { enabled?: boolean; allowWrites?: boolean }) => {
+  const update = async (patch: { enabled?: boolean; allowWrites?: boolean; allowExec?: boolean }) => {
     setBusy(true);
     try {
       setStatus(await aiApi.updateSettings(patch));
@@ -173,6 +174,28 @@ const AISettingsDialog: React.FC = () => {
                       </span>
                       <Toggle label="Allow write tools" on={status.allowWrites} disabled={busy || !status.enabled} onChange={(v) => update({ allowWrites: v })} />
                     </div>
+                    <div className="ap-card-row">
+                      <span className="ai-row-label">
+                        Allow agents to run commands in pods
+                        <span className="ai-muted ai-small">
+                          Adds <code>exec_pod</code> on <code>/mcp</code> only. Its output is raw and can contain secrets.
+                        </span>
+                      </span>
+                      <Toggle
+                        label="Allow agents to run commands in pods"
+                        on={status.allowExec}
+                        disabled={busy || !status.enabled}
+                        onChange={(v) => {
+                          if (v && !window.confirm('Let agents run commands inside your containers? Commands run with your cluster credentials and their output (which may include secrets) goes to the agent unfiltered.')) return;
+                          void update({ allowExec: v });
+                        }}
+                      />
+                    </div>
+                    {status.allowExec && (
+                      <div className="ai-banner is-warning">
+                        Agents connected to <code>/mcp</code> can run commands in any pod you can exec into. Turn this off when you are done.
+                      </div>
+                    )}
                   </div>
 
                   <div className="ap-group-label">Endpoints</div>
@@ -266,7 +289,9 @@ const AISettingsDialog: React.FC = () => {
                   </div>
                   {showTools && (
                     <div className="ap-card ai-section">
-                      {[...readTools, ...writeTools].map((t) => (
+                      {groupTools([...readTools, ...writeTools]).flatMap(([feature, tools]) => [
+                        <div key={`f-${feature}`} className="ai-tool-group">{featureLabel(feature)}</div>,
+                        ...tools.map((t) => (
                         <div key={t.name} className="ap-card-row ai-tool-row">
                           <code className="ai-mono">{t.name}</code>
                           <span className="ai-muted ai-small ai-tool-desc">{t.description.replace(/^DESTRUCTIVE: /, '')}</span>
@@ -276,7 +301,8 @@ const AISettingsDialog: React.FC = () => {
                             </span>
                           )}
                         </div>
-                      ))}
+                        )),
+                      ])}
                     </div>
                   )}
                 </>
