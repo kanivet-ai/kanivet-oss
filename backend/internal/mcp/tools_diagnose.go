@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -42,6 +43,44 @@ type Diagnosis struct {
 	Events   []EventGroup    `json:"events,omitempty"`
 	Logs     []containerLogs `json:"logs,omitempty"`
 	Errors   []string        `json:"errors,omitempty"`
+	// Context holds what other features know about the object (health
+	// issues, recent changes), keyed by enricher name.
+	Context map[string]any `json:"context,omitempty"`
+}
+
+// DiagnoseEnricher adds a feature's view of the object to diagnose. It
+// returns nil when it has nothing to say.
+type DiagnoseEnricher func(ctx context.Context, cluster string, obj Ref) (any, error)
+
+var (
+	enrichMu  sync.RWMutex
+	enrichers = map[string]DiagnoseEnricher{}
+)
+
+// RegisterDiagnoseEnricher adds (or replaces) a named enricher.
+func RegisterDiagnoseEnricher(name string, fn DiagnoseEnricher) {
+	enrichMu.Lock()
+	defer enrichMu.Unlock()
+	enrichers[name] = fn
+}
+
+func (dg *Diagnosis) enrich(ctx context.Context, cluster string) {
+	enrichMu.RLock()
+	defer enrichMu.RUnlock()
+	for name, fn := range enrichers {
+		v, err := fn(ctx, cluster, dg.Object)
+		if err != nil {
+			dg.Errors = append(dg.Errors, name+": "+ScrubText(err.Error()))
+			continue
+		}
+		if v == nil {
+			continue
+		}
+		if dg.Context == nil {
+			dg.Context = map[string]any{}
+		}
+		dg.Context[name] = v
+	}
 }
 
 func (d *Deps) diagnose(ctx context.Context, call *mcpreg.Call, in diagnoseArgs) (any, error) {
@@ -151,6 +190,7 @@ func (d *Deps) diagnose(ctx context.Context, call *mcpreg.Call, in diagnoseArgs)
 		}
 	}
 
+	dg.enrich(ctx, call.Cluster)
 	dg.Findings = dedupeStrings(dg.Findings)
 	dg.Health = verdict(dg)
 	if dg.Findings == nil {

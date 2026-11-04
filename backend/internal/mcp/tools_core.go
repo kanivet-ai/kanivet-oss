@@ -72,7 +72,7 @@ func registerCoreTools(r *mcpreg.Registry, d *Deps) {
 	mcpreg.RegisterOn(r, mcpreg.Spec{
 		Name:        "diagnose",
 		Title:       "Diagnose",
-		Description: "Everything needed to explain one resource in a single call: health verdict and findings, owner chain, related objects (pods, node, services, config refs), deduplicated events and the tail of failing containers' logs.",
+		Description: "Everything needed to explain one resource in a single call: health verdict and findings, owner chain, related objects (pods, node, services, config refs), deduplicated events, the tail of failing containers' logs, and under context the health engine's issues and recent changes for the object when available.",
 	}, d.diagnose)
 
 	registerExtraTools(r, d)

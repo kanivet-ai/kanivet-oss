@@ -423,7 +423,13 @@ func filterNamespace(v any, ns string) any {
 
 // callAPI invokes one of the backend's own REST handlers in-process.
 func (d *Deps) callAPI(ctx context.Context, method, path string, query url.Values, body any) (map[string]any, error) {
-	if d.Router == nil {
+	return CallRouter(ctx, d.Router, method, path, query, body)
+}
+
+// CallRouter invokes one of the backend's REST handlers (/api/v1 + path)
+// in-process and decodes its JSON object response.
+func CallRouter(ctx context.Context, router http.Handler, method, path string, query url.Values, body any) (map[string]any, error) {
+	if router == nil {
 		return nil, errors.New("backend router not available")
 	}
 	var rd *bytes.Reader
@@ -443,7 +449,7 @@ func (d *Deps) callAPI(ctx context.Context, method, path string, query url.Value
 		req.Header.Set("X-Session-Secret", s)
 	}
 	rec := httptest.NewRecorder()
-	d.Router.ServeHTTP(rec, req)
+	router.ServeHTTP(rec, req)
 	var out map[string]any
 	_ = json.Unmarshal(rec.Body.Bytes(), &out)
 	if rec.Code >= http.StatusBadRequest {

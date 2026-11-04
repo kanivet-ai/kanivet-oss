@@ -39,6 +39,7 @@ import (
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
 	"github.com/kanivet/backend/internal/mcp"
+	"github.com/kanivet/backend/internal/mcp/featuretools"
 	"github.com/kanivet/backend/internal/network"
 	"github.com/kanivet/backend/internal/network/traffic"
 	"github.com/kanivet/backend/internal/nodeload"
@@ -374,10 +375,12 @@ func main() {
 	// Setup Helm service
 	helmService := helm.NewService(k8sClient)
 	helmHandler := helm.NewHandler(helmService)
-	compareHandler := compare.NewHandler(compare.NewService(k8sClient, helmService))
+	compareService := compare.NewService(k8sClient, helmService)
+	compareHandler := compare.NewHandler(compareService)
 
 	// Upgrade readiness reads Helm release manifests through the Helm service.
-	upgradeHandler := upgrade.NewHandler(upgrade.NewService(k8sClient, helmService))
+	upgradeService := upgrade.NewService(k8sClient, helmService)
+	upgradeHandler := upgrade.NewHandler(upgradeService)
 
 	// Setup FinOps service
 	finopsService := finops.NewService(k8sClient, cacheInstance.Cache)
@@ -386,7 +389,8 @@ func main() {
 	finopsHandler := finops.NewHandler(finopsService)
 
 	// RBAC explorer: access graph, who-can, risky grants, own access.
-	rbacHandler := rbac.NewHandler(rbac.NewService(k8sClient, cacheInstance.Cache))
+	rbacService := rbac.NewService(k8sClient, cacheInstance.Cache)
+	rbacHandler := rbac.NewHandler(rbacService)
 
 	// The Nodes list's load columns: pod requests from the shared pod cache,
 	// usage from metrics-server.
@@ -394,10 +398,12 @@ func main() {
 
 	// Image inspection: registry manifests/layers, cached under ~/.kanivet/images.
 	var imagesHandler *images.Handler
-	if imagesService, err := images.NewService(k8sClient, podCache, filepath.Join(homeDir, ".kanivet", "images"), 0); err != nil {
+	var imagesService *images.Service
+	if svc, err := images.NewService(k8sClient, podCache, filepath.Join(homeDir, ".kanivet", "images"), 0); err != nil {
 		log.Printf("image inspection disabled: %v", err)
 	} else {
-		imagesHandler = images.NewHandler(imagesService)
+		imagesService = svc
+		imagesHandler = images.NewHandler(svc)
 	}
 
 	// Rightsizing reads history through the metrics engine's providers and
@@ -416,7 +422,7 @@ func main() {
 
 	// Network path analysis reads pods from the shared pod cache; observed
 	// traffic comes from the cluster's Prometheus (Istio / Hubble metrics).
-	_, networkHandler := network.Wire(k8sClient, podCache, network.QuerierFunc(func(ctx context.Context, cluster, query string, at time.Time) ([]traffic.Sample, error) {
+	networkService, networkHandler := network.Wire(k8sClient, podCache, network.QuerierFunc(func(ctx context.Context, cluster, query string, at time.Time) ([]traffic.Sample, error) {
 		series, err := apiHandler.GetMetricsService().QueryInstant(ctx, cluster, query, at)
 		if err != nil {
 			return nil, err
@@ -784,6 +790,13 @@ func main() {
 			Incidents: incidentService, Helm: helmService, FinOps: finopsService,
 			Rightsizing: rightsizingService, Metrics: apiHandler.GetMetricsService(),
 			NodeLoad: nodeload.NewService(podCache, apiHandler.GetMetricsService()), Router: router,
+		})
+		// Feature tools (health, changes, topology, certs, rbac, upgrade,
+		// network, compare, images, GitOps/CNPG) on the same registry.
+		featuretools.Register(featuretools.Deps{
+			Health: healthService, Changes: changesService, Topology: apiHandler.Topology(),
+			Certs: certsService, RBAC: rbacService, Upgrade: upgradeService, Network: networkService,
+			Compare: compareService, Images: imagesService, Router: router,
 		})
 
 		cloudService := cloud.NewService(apiHandler.GetDB())
