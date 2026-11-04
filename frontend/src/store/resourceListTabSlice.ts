@@ -30,6 +30,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       : resourceKind === 'CertificatesDashboard' ? 'Certificates'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
       : resourceKind === 'ResourceCompare' ? 'Compare'
+      : resourceKind === 'UpgradeReadiness' ? 'Upgrade readiness'
       : resourceKind;
 
     const wantedPaneId = paneId || tab.state.focusedCenterPaneId || undefined;

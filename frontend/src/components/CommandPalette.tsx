@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -90,6 +91,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       id: 'compare-resources',
       name: 'compare resources',
       description: 'Diff two resources, a resource across clusters, or drift from last-applied/Helm',
+      category: 'Commands',
+    },
+    {
+      id: 'upgrade-readiness',
+      name: 'upgrade readiness',
+      description: 'Check deprecated APIs and node skew before a Kubernetes upgrade',
       category: 'Commands',
     },
   ];
@@ -462,6 +469,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       if (id === 'compare-resources') {
         onClose();
         openCompare();
+        return;
+      }
+      if (id === 'upgrade-readiness') {
+        onClose();
+        void openUpgradeReadiness(currentTab);
         return;
       }
     }

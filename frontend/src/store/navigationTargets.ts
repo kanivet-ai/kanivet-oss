@@ -7,6 +7,7 @@ export const pageResources: Record<string, any> = {
   helm: { name: 'helm-releases', group: '', version: 'v1', kind: 'HelmReleases', namespaced: false },
   'argo-overview': { name: 'argo-applications-overview', group: 'argoproj.io', version: 'v1alpha1', kind: 'ArgoApplicationsOverview', namespaced: false },
   compare: { name: 'resource-compare', group: '', version: 'v1', kind: 'ResourceCompare', namespaced: false },
+  'upgrade-readiness': { name: 'upgrade-readiness', group: '', version: 'v1', kind: 'UpgradeReadiness', namespaced: false },
   'cluster-settings': { name: 'cluster-settings', group: '', version: 'v1', kind: 'ClusterSettings', namespaced: false },
 };
 
@@ -19,7 +20,8 @@ type PageNodeType =
   | 'incident-timeline'
   | 'helm'
   | 'argo-overview'
-  | 'cluster-settings';
+  | 'cluster-settings'
+  | 'upgrade-readiness';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
@@ -33,6 +35,7 @@ export function pageNode(kind: string, cluster: string | null) {
     HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
     ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
     ResourceCompare: { id: 'resource-compare', label: 'Compare', type: 'compare' },
+    UpgradeReadiness: { id: 'upgrade-readiness', label: 'Upgrade readiness', type: 'upgrade-readiness' },
   };
   const p = pages[kind];
   return p ? { ...p, data: { cluster } } : null;

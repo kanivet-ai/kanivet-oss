@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { UpgradeIcon } from '../components/upgrade/UpgradeIcon';
 import * as K from '../components/icons/kube';
 import HelmIcon from '../components/icons/HelmIcon';
 import CrossplaneIcon from '../components/icons/CrossplaneIcon';
@@ -33,6 +34,7 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <K.FinOpsIcon />, 'finopsdashboard', 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
   register(m, <K.CertificatesIcon />, 'certificatesdashboard', 'certificates');
+  register(m, <UpgradeIcon />, 'upgradereadiness', 'upgrade-readiness');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads

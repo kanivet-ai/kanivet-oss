@@ -42,6 +42,7 @@ import (
 	"github.com/kanivet/backend/internal/terminal/service"
 	terminalws "github.com/kanivet/backend/internal/terminal/websocket"
 	"github.com/kanivet/backend/internal/themes"
+	"github.com/kanivet/backend/internal/upgrade"
 	kanivetws "github.com/kanivet/backend/internal/websocket"
 	"github.com/kanivet/backend/internal/websocket/handlers"
 )
@@ -363,6 +364,9 @@ func main() {
 	helmHandler := helm.NewHandler(helmService)
 	compareHandler := compare.NewHandler(compare.NewService(k8sClient, helmService))
 
+	// Upgrade readiness reads Helm release manifests through the Helm service.
+	upgradeHandler := upgrade.NewHandler(upgrade.NewService(k8sClient, helmService))
+
 	// Setup FinOps service
 	finopsService := finops.NewService(k8sClient, cacheInstance.Cache)
 	finopsService.SetPodLister(podCache)
@@ -675,6 +679,10 @@ func main() {
 		finops.GET("/pricing-status", finopsHandler.GetPricingStatus)
 		finops.GET("/pricing-debug", finopsHandler.GetPricingDebug)
 		finops.POST("/preload-pricing", finopsHandler.PreloadPricing)
+
+		ug := v1.Group("/upgrade")
+		ug.GET("/report", upgradeHandler.GetReport)
+		ug.GET("/catalog", upgradeHandler.GetCatalog)
 
 		rs := v1.Group("/rightsizing")
 		rs.GET("/report", rightsizingHandler.GetReport)

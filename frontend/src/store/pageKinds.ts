@@ -10,4 +10,5 @@ export const PAGE_KINDS = new Set([
   'IncidentTimeline',
   'ArgoApplicationsOverview',
   'ResourceCompare',
+  'UpgradeReadiness',
 ]);
