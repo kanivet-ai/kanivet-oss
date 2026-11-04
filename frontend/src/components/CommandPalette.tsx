@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
+import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -99,6 +100,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Check deprecated APIs and node skew before a Kubernetes upgrade',
       category: 'Commands',
     },
+    ...ACCESS_COMMANDS,
   ];
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -474,6 +476,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       if (id === 'upgrade-readiness') {
         onClose();
         void openUpgradeReadiness(currentTab);
+        return;
+      }
+      if (runAccessCommand(id, currentTab)) {
+        onClose();
         return;
       }
     }

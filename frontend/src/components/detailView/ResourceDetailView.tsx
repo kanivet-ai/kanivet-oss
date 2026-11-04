@@ -26,6 +26,7 @@ import EndpointsDetailView from './resourceTypes/EndpointsDetailView';
 import RoleDetailView from './resourceTypes/RoleDetailView';
 import RoleBindingDetailView from './resourceTypes/RoleBindingDetailView';
 import ServiceAccountDetailView from './resourceTypes/ServiceAccountDetailView';
+import AccessPermissionsSection, { ACCESS_SECTION_KINDS } from '../access/AccessPermissionsSection';
 import NodeDetailView from './resourceTypes/NodeDetailView';
 import EventDetailView from './resourceTypes/EventDetailView';
 import MetadataSection from './shared/MetadataSection';
@@ -463,6 +464,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             {(resource.kind === 'Role' || resource.kind === 'ClusterRole') && <RoleDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {(resource.kind === 'RoleBinding' || resource.kind === 'ClusterRoleBinding') && <RoleBindingDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {resource.kind === 'ServiceAccount' && <ServiceAccountDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            {ACCESS_SECTION_KINDS.includes(resource.kind) && resource.kind !== 'Pod' && <AccessPermissionsSection resource={resource} cluster={cluster} />}
             {isArgoApplication && <ApplicationDetailView cluster={cluster} resource={resource} handleResourceClick={handleResourceClick} />}
             {isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && <CustomResourceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {certScope(resource) && (
@@ -537,6 +539,8 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     </>
                   );
                 })()}
+
+                {resource.kind === 'Pod' && <AccessPermissionsSection resource={resource} cluster={cluster} />}
 
                 {resource.kind === 'Pod' && (
                   <>

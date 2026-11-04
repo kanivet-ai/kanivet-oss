@@ -402,6 +402,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
           );
           void recordNavigation('cluster-settings', node.id, node.data);
         }
+      } else if (node.type === 'access') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(pageResources.access, currentTab, isPinned, freshPaneId || undefined);
+          void recordNavigation('access', node.id, node.data);
+        }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');
         selectNode(node);

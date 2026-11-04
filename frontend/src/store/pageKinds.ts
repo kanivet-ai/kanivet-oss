@@ -11,4 +11,5 @@ export const PAGE_KINDS = new Set([
   'ArgoApplicationsOverview',
   'ResourceCompare',
   'UpgradeReadiness',
+  'AccessExplorer',
 ]);

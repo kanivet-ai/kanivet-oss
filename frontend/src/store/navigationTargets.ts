@@ -9,6 +9,7 @@ export const pageResources: Record<string, any> = {
   compare: { name: 'resource-compare', group: '', version: 'v1', kind: 'ResourceCompare', namespaced: false },
   'upgrade-readiness': { name: 'upgrade-readiness', group: '', version: 'v1', kind: 'UpgradeReadiness', namespaced: false },
   'cluster-settings': { name: 'cluster-settings', group: '', version: 'v1', kind: 'ClusterSettings', namespaced: false },
+  access: { name: 'access-explorer', group: '', version: 'v1', kind: 'AccessExplorer', namespaced: false },
 };
 
 type PageNodeType =
@@ -21,7 +22,8 @@ type PageNodeType =
   | 'helm'
   | 'argo-overview'
   | 'cluster-settings'
-  | 'upgrade-readiness';
+  | 'upgrade-readiness'
+  | 'access';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
@@ -36,6 +38,7 @@ export function pageNode(kind: string, cluster: string | null) {
     ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
     ResourceCompare: { id: 'resource-compare', label: 'Compare', type: 'compare' },
     UpgradeReadiness: { id: 'upgrade-readiness', label: 'Upgrade readiness', type: 'upgrade-readiness' },
+    AccessExplorer: { id: 'access-explorer', label: 'Access', type: 'access' },
   };
   const p = pages[kind];
   return p ? { ...p, data: { cluster } } : null;
