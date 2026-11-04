@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { openUpgradeReadiness } from './upgrade/openUpgradeReadiness';
 import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
 import { integrationCommands, runIntegrationCommand } from './integrations/paletteCommands';
+import { AI_PALETTE_COMMANDS, runAIPaletteCommand } from './ai/aiPalette';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -144,6 +145,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Open a container image: config, layers and files',
       category: 'Commands',
     },
+    ...AI_PALETTE_COMMANDS,
   ];
   const topologyModeRef = useRef(false);
 
@@ -609,6 +611,10 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       if (id === 'inspect-image') {
         handleInputChange({ target: { value: '> inspect image ' } } as React.ChangeEvent<HTMLInputElement>);
         inputRef.current?.focus();
+        return;
+      }
+      if (runAIPaletteCommand(id, currentTab)) {
+        onClose();
         return;
       }
     }

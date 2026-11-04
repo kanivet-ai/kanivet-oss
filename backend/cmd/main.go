@@ -38,6 +38,7 @@ import (
 	"github.com/kanivet/backend/internal/k8s/watcher"
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
+	"github.com/kanivet/backend/internal/mcp"
 	"github.com/kanivet/backend/internal/network"
 	"github.com/kanivet/backend/internal/network/traffic"
 	"github.com/kanivet/backend/internal/nodeload"
@@ -252,6 +253,11 @@ func main() {
 	router.GET("/api/v1/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
+
+	// MCP endpoints authenticate agents with their own bearer token, so they
+	// are mounted before the UI session-secret middleware.
+	mcpLazy := &mcp.Lazy{}
+	mcpLazy.Mount(router)
 
 	router.Use(localsecurity.SessionSecretMiddleware())
 
@@ -573,6 +579,7 @@ func main() {
 		})
 	}
 
+	var mcpService *mcp.Service
 	v1 := router.Group("/api/v1")
 	{
 		v1.GET("/clusters", apiHandler.ListClusters)
@@ -769,6 +776,14 @@ func main() {
 		// Live issues and best-practice audit
 		healthHandler.Register(v1.Group("/cluster-health"))
 
+		// Built-in MCP server (/mcp, /mcp-readonly) and AI investigations
+		mcpService = mcp.Setup(mcpLazy, v1, mcp.Deps{
+			K8s: k8sClient, Watcher: watcherService, Search: apiHandler.GetSearchService(),
+			Incidents: incidentService, Helm: helmService, FinOps: finopsService,
+			Rightsizing: rightsizingService, Metrics: apiHandler.GetMetricsService(),
+			NodeLoad: nodeload.NewService(podCache, apiHandler.GetMetricsService()), Router: router,
+		})
+
 		cloudService := cloud.NewService(apiHandler.GetDB())
 		refreshClustersAndBroadcast := func(reason string) {
 			cacheInstance.Delete("clusters")
@@ -821,6 +836,9 @@ func main() {
 	}
 	if tcpAddr, ok := listener.Addr().(*net.TCPAddr); ok {
 		fmt.Printf("KANIVET_PORT=%d\n", tcpAddr.Port)
+		if mcpService != nil {
+			mcpService.SetPort(tcpAddr.Port)
+		}
 	}
 
 	srv := &http.Server{Handler: router}

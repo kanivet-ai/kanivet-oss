@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import InvestigateButton from '../ai/InvestigateButton';
 import * as ScrollArea from '@radix-ui/react-scroll-area';
 import { ChevronDownIcon, ChevronRightIcon, ReloadIcon, TrashIcon, SizeIcon, CubeIcon, BarChartIcon, CheckCircledIcon, PlayIcon } from '@radix-ui/react-icons';
 import useResourceNavigation from '../../hooks/useResourceNavigation';
@@ -460,6 +461,9 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             <QuickActions resource={resource} cluster={cluster} />
             {actions}
             <CompareActions resource={resource} cluster={cluster} />
+            <InvestigateButton
+              target={{ cluster, kind: resource.kind, apiVersion: resource.apiVersion, namespace: resource.metadata?.namespace, name: resource.metadata?.name }}
+            />
             <DeleteAction resource={resource} cluster={cluster} />
           </div>
         </div>
