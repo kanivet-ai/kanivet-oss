@@ -108,7 +108,7 @@ const IncidentTimelinePage: React.FC<Props> = ({ cluster }) => {
       {!error && (loading && !data ? (
         <div className="incident-empty">Loading…</div>
       ) : (
-        <IncidentTimelineList entries={data?.entries || []} onOpenResource={handleOpenResource} />
+        <IncidentTimelineList entries={data?.entries || []} onOpenResource={handleOpenResource} changes={data?.changes} cluster={cluster} />
       ))}
     </div>
   );

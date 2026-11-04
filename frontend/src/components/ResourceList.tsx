@@ -53,6 +53,7 @@ const RightsizingDashboard = lazyView(
   () => import('./rightsizing/RightsizingDashboard'),
 );
 const AccessPage = lazyView(() => import('./access/AccessPage'));
+const ChangesFeedPage = lazyView(() => import('./changes/ChangesFeedPage'));
 const IncidentTimelinePage = lazyView(
   () => import('./incidents/IncidentTimelinePage'),
 );
@@ -1090,6 +1091,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <IssuesPage key={`health-issues-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'HealthAudit' ? (
                       <AuditPage key={`health-audit-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
+                    ) : tab.resource?.kind === 'ChangesFeed' ? (
+                      <ChangesFeedPage key={`changes-feed-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
                     ) : (

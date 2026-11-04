@@ -12,6 +12,7 @@ export const PAGE_KINDS = new Set([
   'IncidentTimeline',
   'HealthIssues',
   'HealthAudit',
+  'ChangesFeed',
   'ArgoApplicationsOverview',
   'ResourceCompare',
   'UpgradeReadiness',

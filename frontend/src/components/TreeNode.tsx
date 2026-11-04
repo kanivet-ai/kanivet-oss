@@ -85,11 +85,12 @@ export const nodeHasChevron = (n: any): boolean =>
   n.type !== 'incident-timeline' &&
   n.type !== 'issues' &&
   n.type !== 'audit' &&
+  n.type !== 'changes' &&
   n.type !== 'access';
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'network', 'topology', 'certificates', 'cluster-settings', 'incident-timeline', 'issues', 'audit', 'access']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'network', 'topology', 'certificates', 'cluster-settings', 'incident-timeline', 'changes', 'issues', 'audit', 'access']);
 
 const nodeMatchesSearch = (
   node: any,

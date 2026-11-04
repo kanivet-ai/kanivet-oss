@@ -1,13 +1,16 @@
 import React from 'react';
-import { IncidentTimelineEntry } from '../../types/incidents';
+import { IncidentChangeMarker, IncidentTimelineEntry } from '../../types/incidents';
+import IncidentRelatedChanges from '../changes/IncidentRelatedChanges';
 import { formatAge } from '../../utils/formatters';
 
 interface Props {
   entry: IncidentTimelineEntry;
   onOpenResource?: (entry: IncidentTimelineEntry) => void;
+  related?: IncidentChangeMarker[];
+  cluster?: string;
 }
 
-const IncidentTimelineCard: React.FC<Props> = ({ entry, onOpenResource }) => {
+const IncidentTimelineCard: React.FC<Props> = ({ entry, onOpenResource, related, cluster }) => {
   const handleClick = () => onOpenResource?.(entry);
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -35,6 +38,7 @@ const IncidentTimelineCard: React.FC<Props> = ({ entry, onOpenResource }) => {
         <span className="incident-name">{entry.name}</span>
       </div>
       <div className="incident-message">{entry.message}</div>
+      {related && related.length > 0 && cluster && <IncidentRelatedChanges changes={related} cluster={cluster} />}
     </div>
   );
 };

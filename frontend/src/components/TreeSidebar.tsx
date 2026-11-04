@@ -13,12 +13,12 @@ import DebugPanel from './DebugPanel';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
 import useDebounce from '../hooks/useDebounce';
 import { useStore } from '../store';
+import { pageResources } from '../store/navigationTargets';
 import { useShallow } from 'zustand/react/shallow';
 
 const EMPTY_TREE: any[] = [];
 import { createTreeNavigationHandlers } from '../utils/keyboardShortcuts';
 import api from '../services/api';
-import { pageResources } from '../store/navigationTargets';
 import './TreeSidebar.css';
 
 interface TreeSidebarProps {
@@ -435,6 +435,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         if (currentTab) {
           await openResourceListTab(pageResources.access, currentTab, isPinned, freshPaneId || undefined);
           void recordNavigation('access', node.id, node.data);
+        }
+      } else if (node.type === 'changes') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(pageResources.changes, currentTab, isPinned, freshPaneId || undefined);
+          void recordNavigation('changes', node.id, node.data);
         }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');

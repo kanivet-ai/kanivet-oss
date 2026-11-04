@@ -23,6 +23,7 @@ import (
 	"github.com/kanivet/backend/internal/api"
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/certs"
+	"github.com/kanivet/backend/internal/changes"
 	"github.com/kanivet/backend/internal/cloud"
 	"github.com/kanivet/backend/internal/cluster"
 	"github.com/kanivet/backend/internal/compare"
@@ -415,6 +416,10 @@ func main() {
 	// Setup Incident Timeline service (reuses existing event listener + db)
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())
 	incidentHandler := api.NewIncidentTimelineHandler(incidentService)
+	// Change history, rebuilt from what the cluster keeps (ReplicaSets,
+	// ControllerRevisions, Helm, Argo CD, Flux, managedFields, Events).
+	changesService := changes.NewService(k8sClient, helmService)
+	incidentService.SetChangeSource(changesService.IncidentSource())
 
 	// Issues and audit read the shared pod cache, the stored events the
 	// incident timeline classifies, and a short-lived listing of other kinds.
@@ -735,6 +740,7 @@ func main() {
 
 		// Incident Timeline endpoint
 		v1.GET("/incidents/timeline", incidentHandler.GetTimeline)
+		changes.NewHandler(changesService).Register(v1)
 
 		// Live issues and best-practice audit
 		healthHandler.Register(v1.Group("/cluster-health"))
