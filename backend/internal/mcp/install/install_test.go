@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -116,7 +117,7 @@ func TestCursorInstallMergeBackupModeAndOutdated(t *testing.T) {
 	if k["url"] != target.ReadOnlyURL || k["headers"].(map[string]any)["Authorization"] != "Bearer tok-1" {
 		t.Fatalf("entry: %v", k)
 	}
-	if fi, _ := os.Stat(p); fi.Mode().Perm() != 0o644 {
+	if fi, _ := os.Stat(p); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o644 {
 		t.Fatalf("mode changed to %v", fi.Mode().Perm())
 	}
 	if len(backups(t, p)) != 1 {
@@ -183,7 +184,8 @@ func TestWindsurfCreatesFilePrivately(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := filepath.Join(home, ".codeium", "windsurf", "mcp_config.json")
-	if fi, _ := os.Stat(p); fi == nil || fi.Mode().Perm() != 0o600 {
+	// Windows has no Unix permission bits, so only the existence check applies there.
+	if fi, _ := os.Stat(p); fi == nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Fatalf("new file mode: %v", fi)
 	}
 	k := readJSON(t, p)["mcpServers"].(map[string]any)["kanivet"].(map[string]any)

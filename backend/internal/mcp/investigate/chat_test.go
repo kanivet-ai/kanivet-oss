@@ -281,6 +281,9 @@ func newRepo(t *testing.T) string {
 	runGit(t, dir, "init", "-q", "-b", "main")
 	runGit(t, dir, "config", "user.email", "t@x")
 	runGit(t, dir, "config", "user.name", "t")
+	// Windows runners default to core.autocrlf=true, which would restore files
+	// with CRLF endings and break the byte-for-byte assertions below.
+	runGit(t, dir, "config", "core.autocrlf", "false")
 	os.WriteFile(filepath.Join(dir, "deploy.yaml"), []byte("replicas: 1\n"), 0o644)
 	os.WriteFile(filepath.Join(dir, "values.yaml"), []byte("memory: 128Mi\n"), 0o644)
 	runGit(t, dir, "add", ".")
