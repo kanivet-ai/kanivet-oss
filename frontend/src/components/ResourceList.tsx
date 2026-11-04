@@ -45,6 +45,7 @@ const ClusterSettings = lazyView(() => import('./ClusterSettings'));
 const ArgoApplicationsPage = lazyView(() => import('./ArgoApplicationsPage'));
 const HelmPage = lazyView(() => import('./HelmPage'));
 const FinOpsDashboard = lazyView(() => import('./finops/FinOpsDashboard'));
+const ComparePage = lazyView(() => import('./compare/ComparePage'));
 const RightsizingDashboard = lazyView(
   () => import('./rightsizing/RightsizingDashboard'),
 );
@@ -1066,6 +1067,8 @@ const ResourceList = ({ paneId, isFocusedPane, onRequestPaneClose }: ResourceLis
                       <HelmPage key={`helm-page-${tab.id}`} cluster={currentTab || ''} />
                     ) : tab.resource?.kind === 'IncidentTimeline' ? (
                       <IncidentTimelinePage key={`incident-timeline-${tab.id}`} cluster={currentTab || ''} />
+                    ) : tab.resource?.kind === 'ResourceCompare' ? (
+                      <ComparePage key={`resource-compare-${tab.id}`} cluster={tab.cluster || currentTab || ''} />
                     ) : tab.resource?.kind === 'ArgoApplicationsOverview' ? (
                       <ArgoApplicationsPage key={`argo-apps-${tab.id}`} cluster={currentTab || ''} />
                     ) : (

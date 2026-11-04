@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { TrashIcon, ExclamationTriangleIcon, ReloadIcon, UpdateIcon, ChevronDownIcon, Cross2Icon } from '@radix-ui/react-icons';
+import { TrashIcon, ExclamationTriangleIcon, ReloadIcon, UpdateIcon, ChevronDownIcon, Cross2Icon, MixIcon } from '@radix-ui/react-icons';
 import './BulkActionsDropdown.css';
 
 interface BulkActionsDropdownProps {
@@ -108,6 +108,15 @@ const BulkActionsDropdown = ({
               >
                 <ReloadIcon className="bulk-action-icon" />
                 Force Refresh
+              </div>
+            )}
+            {selectedCount === 2 && !isHelmRelease() && (
+              <div
+                className="bulk-action-item"
+                onClick={() => handleActionClick('compare')}
+              >
+                <MixIcon className="bulk-action-icon" />
+                Compare
               </div>
             )}
             {isRestartable() && (
