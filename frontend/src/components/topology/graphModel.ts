@@ -16,6 +16,8 @@ export interface TopoNode {
   status?: string;
   owner?: string;
   missing?: boolean;
+  /** Application from labels or Helm release (backend), when set. */
+  app?: string;
 }
 
 export interface TopoEdge {
