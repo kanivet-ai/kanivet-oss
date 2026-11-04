@@ -92,3 +92,20 @@ func (h *Handler) GetTopologyNamespace(c *gin.Context) {
 	}
 	h.respond(c, http.StatusOK, g, nil)
 }
+
+// GetTopologyOverview: GET /cluster/topology/overview, the per-namespace
+// health rollup behind the cluster view.
+func (h *Handler) GetTopologyOverview(c *gin.Context) {
+	cluster, ok := h.requireCluster(c)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	ov, err := h.Topology().ClusterOverview(ctx, cluster)
+	if err != nil {
+		h.respond(c, topologyStatus(err), nil, err)
+		return
+	}
+	h.respond(c, http.StatusOK, ov, nil)
+}

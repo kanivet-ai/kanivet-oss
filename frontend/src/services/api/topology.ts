@@ -39,3 +39,26 @@ export async function getNamespaceTopology(
   const res = await apiClient.getAxios().get(`/cluster/topology/namespace/${encodeURIComponent(namespace)}`, { params, signal });
   return res.data as TopoGraph;
 }
+
+export type OverviewHealth = 'healthy' | 'warning' | 'error' | 'unknown';
+export interface HealthCounts { healthy: number; warning: number; error: number; unknown: number }
+
+export interface NamespaceSummary {
+  namespace: string;
+  health: OverviewHealth;
+  pods: HealthCounts;
+  workloads: HealthCounts;
+  apps?: string[];
+  appCount: number;
+}
+
+export interface TopologyOverview {
+  namespaces: NamespaceSummary[];
+  warnings?: string[];
+}
+
+/** Per-namespace health rollups for the cluster view. */
+export async function getTopologyOverview(cluster: string, signal?: AbortSignal): Promise<TopologyOverview> {
+  const res = await apiClient.getAxios().get('/cluster/topology/overview', { params: { cluster }, signal });
+  return res.data as TopologyOverview;
+}

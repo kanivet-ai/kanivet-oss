@@ -28,7 +28,7 @@ func (f *fakeSource) List(_ context.Context, k KindSpec, ns string) ([]*unstruct
 	}
 	var out []*unstructured.Unstructured
 	for _, o := range f.objs {
-		if o.GetKind() == k.Kind && o.GetNamespace() == ns {
+		if o.GetKind() == k.Kind && (ns == "" || o.GetNamespace() == ns) {
 			out = append(out, o.DeepCopy())
 		}
 	}

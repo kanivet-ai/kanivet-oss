@@ -104,6 +104,11 @@ func (s *ClientSource) List(ctx context.Context, k KindSpec, namespace string) (
 			u.SetUID(m.UID)
 			u.SetOwnerReferences(m.OwnerReferences)
 			u.SetLabels(m.Labels)
+			// Only the Helm release name: other annotations (last-applied
+			// configuration) can carry a Secret's payload.
+			if rel := m.Annotations["meta.helm.sh/release-name"]; rel != "" {
+				u.SetAnnotations(map[string]string{"meta.helm.sh/release-name": rel})
+			}
 			out = append(out, u)
 		}
 		return out, nil
