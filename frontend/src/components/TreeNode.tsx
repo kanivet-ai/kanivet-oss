@@ -8,6 +8,8 @@ import {
   useSyncExternalStore,
   memo,
 } from 'react';
+import HealthNavBadge from './health/HealthNavBadge';
+import HealthNavIcon from './health/HealthNavIcon';
 import clsx from 'clsx';
 import { getResourceIcon, getCategoryIcon } from '../utils/resourceIcons';
 import { useStore } from '../store';
@@ -77,11 +79,13 @@ export const nodeHasChevron = (n: any): boolean =>
   n.type !== 'finops' &&
   n.type !== 'rightsizing' &&
   n.type !== 'cluster-settings' &&
-  n.type !== 'incident-timeline';
+  n.type !== 'incident-timeline' &&
+  n.type !== 'issues' &&
+  n.type !== 'audit';
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline', 'issues', 'audit']);
 
 const nodeMatchesSearch = (
   node: any,
@@ -375,6 +379,8 @@ const TreeNode = ({
                     ? getCategoryIcon('rightsizing')
                   : node.type === 'cluster-settings'
                     ? getCategoryIcon('cluster-settings')
+                  : node.type === 'issues' || node.type === 'audit'
+                    ? <HealthNavIcon kind={node.type} />
                   : node.type === 'helm'
                     ? getCategoryIcon('helm')
                     : node.type === 'resource'
@@ -390,6 +396,7 @@ const TreeNode = ({
           <div className="tree-node-label-wrapper">
             <span className="tree-node-label">{node.label}</span>
           </div>
+          {node.type === 'issues' && <HealthNavBadge cluster={node.data?.cluster} />}
         </div>
       </div>
       {expanded && node.children && (

@@ -18,6 +18,7 @@ import {
   resourceListNode,
 } from '../utils/searchResults';
 import { staleResultLabel } from '../utils/searchFreshness';
+import { HEALTH_COMMANDS } from './health/healthCommands';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -78,6 +79,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Quickly change the active cluster',
       category: 'Commands',
     },
+    ...HEALTH_COMMANDS,
   ];
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -438,6 +440,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const id = String(sel.resource.id || '').replace(/^cmd:/, '');
       if (id === 'switch-cluster') {
         primeClusterSwitch();
+        return;
+      }
+      const healthCmd = HEALTH_COMMANDS.find((c) => c.id === id);
+      if (healthCmd) {
+        healthCmd.run(currentTab);
+        onClose();
         return;
       }
     }

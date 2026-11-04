@@ -11,6 +11,7 @@ import EventsSection from './shared/EventsSection';
 import PodConfigMapsSection from './shared/PodConfigMapsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
+import ResourceHealthSection, { HEALTH_KINDS } from '../health/ResourceHealthSection';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -448,6 +449,10 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="info-sections">
             {resource.kind === 'CustomResourceDefinition' && <CRDDefinitionView crd={resource} />}
             {resource.kind === 'APIResourceDefinition' && <APIResourceDefinitionView resource={resource} />}
+            {(resource.kind === 'Node' || resource.kind === 'Service') && metadata.name && (
+              <ResourceHealthSection key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`} cluster={cluster}
+                resource={{ apiVersion: 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }} />
+            )}
             {resource.kind === 'Node' && <NodeDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {(resource.kind === 'Event' || resource.kind === 'events') && <EventDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {resource.kind === 'Service' && <ServiceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
@@ -551,6 +556,14 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     </MetricsPropertyGroup>
                     <div className="section-divider" />
                   </>
+                )}
+
+                {HEALTH_KINDS.has(resource.kind) && metadata.name && (
+                  <ResourceHealthSection
+                    key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`}
+                    cluster={cluster}
+                    resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
+                  />
                 )}
 
                 {['Deployment', 'StatefulSet', 'DaemonSet', 'Job', 'CronJob'].includes(resource.kind) && (

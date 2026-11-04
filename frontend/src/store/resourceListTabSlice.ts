@@ -28,6 +28,8 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
       : resourceKind === 'RightsizingDashboard' ? 'Rightsizing'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
+      : resourceKind === 'HealthIssues' ? 'Issues'
+      : resourceKind === 'HealthAudit' ? 'Audit'
       : resourceKind;
 
     const wantedPaneId = paneId || tab.state.focusedCenterPaneId || undefined;
