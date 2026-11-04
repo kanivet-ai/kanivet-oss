@@ -28,6 +28,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
       : resourceKind === 'RightsizingDashboard' ? 'Rightsizing'
       : resourceKind === 'CertificatesDashboard' ? 'Certificates'
+      : resourceKind === 'NetworkPage' ? 'Network'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
       : resourceKind === 'ResourceCompare' ? 'Compare'
       : resourceKind === 'UpgradeReadiness' ? 'Upgrade readiness'

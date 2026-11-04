@@ -15,6 +15,7 @@ import { ResourceCertificates } from '../certs/ResourceCertificates';
 import { inspectorScope as certScope } from '../certs/certsView';
 import DeprecatedApiBadge from '../upgrade/DeprecatedApiBadge';
 import ResourceHealthSection, { HEALTH_KINDS } from '../health/ResourceHealthSection';
+import NetworkInspectorSection from '../network/NetworkInspectorSection';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -483,6 +484,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
               </>
             )}
             {TOPOLOGY_SECTION_KINDS.has(resource.kind) && <TopologySection resource={resource} cluster={cluster} />}
+            {resource.kind === 'Service' && <NetworkInspectorSection resource={resource} cluster={cluster} />}
 
             {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
               <>
@@ -600,6 +602,8 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     <div className="section-divider" />
                   </>
                 )}
+
+                <NetworkInspectorSection resource={resource} cluster={cluster} />
 
                 <SpecificationSection spec={spec} handleResourceClick={handleResourceClick} />
                 <div className="section-divider" />

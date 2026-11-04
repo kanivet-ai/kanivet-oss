@@ -27,6 +27,7 @@ import { openTopology, TOPOLOGY_KINDS } from './topology/topologyNav';
 /** "> show topology for <term>": search, then open the pick in the topology view. */
 const TOPOLOGY_PREFIX = /^>\s*show\s+topology\s+for\s*/i;
 import { HEALTH_COMMANDS } from './health/healthCommands';
+import { reachCommandResult, runNetworkCommand, NETWORK_COMMANDS } from './network/networkCommands';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -119,6 +120,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       category: 'Commands',
     },
     ...HEALTH_COMMANDS,
+    ...NETWORK_COMMANDS,
   ];
   const topologyModeRef = useRef(false);
 
@@ -333,6 +335,18 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     }
     topologyModeRef.current = false;
 
+    // "can X reach Y?" checks a network path.
+    const reach = reachCommandResult(trimmed);
+    if (reach) {
+      setResults([reach] as any);
+      setSelectedIndex(0);
+      setShowRecent(false);
+      setLoading(false);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
+      return;
+    }
+
     // Generic commands list: "> <term>"
     const anyCmdPrefix = /^>\s*/;
     if (anyCmdPrefix.test(trimmed)) {
@@ -534,6 +548,17 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const healthCmd = HEALTH_COMMANDS.find((c) => c.id === id);
       if (healthCmd) {
         healthCmd.run(currentTab);
+        onClose();
+        return;
+      }
+      const net = runNetworkCommand(id, sel.resource, currentTab);
+      if (net === 'prime') {
+        setQuery('can ');
+        setResults([]);
+        inputRef.current?.focus();
+        return;
+      }
+      if (net === 'done') {
         onClose();
         return;
       }

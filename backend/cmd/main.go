@@ -36,6 +36,8 @@ import (
 	"github.com/kanivet/backend/internal/k8s/watcher"
 	"github.com/kanivet/backend/internal/localsecurity"
 	"github.com/kanivet/backend/internal/logger"
+	"github.com/kanivet/backend/internal/network"
+	"github.com/kanivet/backend/internal/network/traffic"
 	"github.com/kanivet/backend/internal/nodeload"
 	"github.com/kanivet/backend/internal/rbac"
 	"github.com/kanivet/backend/internal/rightsizing"
@@ -394,6 +396,22 @@ func main() {
 	certsService := certs.NewService(k8sClient)
 	certsHandler := certs.NewHandler(certsService)
 
+	// Network path analysis reads pods from the shared pod cache; observed
+	// traffic comes from the cluster's Prometheus (Istio / Hubble metrics).
+	_, networkHandler := network.Wire(k8sClient, podCache, network.QuerierFunc(func(ctx context.Context, cluster, query string, at time.Time) ([]traffic.Sample, error) {
+		series, err := apiHandler.GetMetricsService().QueryInstant(ctx, cluster, query, at)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]traffic.Sample, 0, len(series))
+		for _, s := range series {
+			if n := len(s.Values); n > 0 {
+				out = append(out, traffic.Sample{Labels: s.Labels, Value: float64(s.Values[n-1])})
+			}
+		}
+		return out, nil
+	}))
+
 	// Setup Incident Timeline service (reuses existing event listener + db)
 	incidentService := incidents.NewService(apiHandler.GetDB(), apiHandler.GetEventListener())
 	incidentHandler := api.NewIncidentTimelineHandler(incidentService)
@@ -712,6 +730,8 @@ func main() {
 		rs.DELETE("/dismissals", rightsizingHandler.Undismiss)
 
 		v1.GET("/certs", certsHandler.List)
+
+		networkHandler.Register(v1.Group("/network"))
 
 		// Incident Timeline endpoint
 		v1.GET("/incidents/timeline", incidentHandler.GetTimeline)

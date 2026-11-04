@@ -4,6 +4,7 @@ export const pageResources: Record<string, any> = {
   rightsizing: { name: 'rightsizing-dashboard', group: '', version: 'v1', kind: 'RightsizingDashboard', namespaced: false },
   certificates: { name: 'certificates-dashboard', group: '', version: 'v1', kind: 'CertificatesDashboard', namespaced: false },
   topology: { name: 'topology', group: '', version: 'v1', kind: 'TopologyView', namespaced: false },
+  network: { name: 'network-page', group: '', version: 'v1', kind: 'NetworkPage', namespaced: false },
   'incident-timeline': { name: 'incident-timeline', group: '', version: 'v1', kind: 'IncidentTimeline', namespaced: false },
   issues: { name: 'health-issues', group: '', version: 'v1', kind: 'HealthIssues', namespaced: false },
   audit: { name: 'health-audit', group: '', version: 'v1', kind: 'HealthAudit', namespaced: false },
@@ -29,7 +30,8 @@ type PageNodeType =
   | 'access'
   | 'topology'
   | 'issues'
-  | 'audit';
+  | 'audit'
+  | 'network';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
@@ -40,6 +42,7 @@ export function pageNode(kind: string, cluster: string | null) {
     RightsizingDashboard: { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing' },
     CertificatesDashboard: { id: 'certificates-dashboard', label: 'Certificates', type: 'certificates' },
     TopologyView: { id: 'topology', label: 'Topology', type: 'topology' },
+    NetworkPage: { id: 'network-page', label: 'Network', type: 'network' },
     IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
     HealthIssues: { id: 'cluster-issues', label: 'Issues', type: 'issues' },
     HealthAudit: { id: 'cluster-audit', label: 'Audit', type: 'audit' },

@@ -7,6 +7,7 @@ export const PAGE_KINDS = new Set([
   'RightsizingDashboard',
   'CertificatesDashboard',
   'TopologyView',
+  'NetworkPage',
   'HelmReleases',
   'IncidentTimeline',
   'HealthIssues',

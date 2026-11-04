@@ -37,6 +37,7 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <UpgradeIcon />, 'upgradereadiness', 'upgrade-readiness');
   register(m, <K.RbacIcon />, 'accessexplorer');
   register(m, <K.TopologyIcon />, 'topologyview', 'topology');
+  register(m, <K.NetworkIcon />, 'networkpage');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads

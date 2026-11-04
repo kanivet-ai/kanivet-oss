@@ -431,9 +431,12 @@ func slim(p *corev1.Pod) *corev1.Pod {
 			InitContainers:    slimContainers(p.Spec.InitContainers),
 			Overhead:          p.Spec.Overhead,
 			PriorityClassName: p.Spec.PriorityClassName,
+			// Network path analysis reads these.
+			HostNetwork: p.Spec.HostNetwork,
 		},
 		Status: corev1.PodStatus{
 			Phase:                 p.Status.Phase,
+			PodIP:                 p.Status.PodIP,
 			Conditions:            p.Status.Conditions,
 			Reason:                p.Status.Reason,
 			StartTime:             p.Status.StartTime,
@@ -458,7 +461,7 @@ func slimContainers(in []corev1.Container) []corev1.Container {
 	}
 	out := make([]corev1.Container, len(in))
 	for i, c := range in {
-		out[i] = corev1.Container{Name: c.Name, Image: c.Image, Resources: c.Resources, RestartPolicy: c.RestartPolicy}
+		out[i] = corev1.Container{Name: c.Name, Image: c.Image, Resources: c.Resources, RestartPolicy: c.RestartPolicy, Ports: c.Ports}
 		// Rightsizing tells JVMs apart by how their heap is sized, so the
 		// JVM options survive slimming; nothing else in env or args does.
 		for _, e := range c.Env {

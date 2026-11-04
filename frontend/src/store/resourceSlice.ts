@@ -161,6 +161,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const topologyNode: TreeNode = { id: 'topology', label: 'Topology', type: 'topology', data: { cluster } };
       const rightsizingNode: TreeNode = { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing', data: { cluster } };
       const certificatesNode: TreeNode = { id: 'certificates-dashboard', label: 'Certificates', type: 'certificates', data: { cluster } };
+      const networkNode: TreeNode = { id: 'network-page', label: 'Network', type: 'network', data: { cluster } };
       let vclustersNode: TreeNode = { id: 'virtual-clusters', label: 'Virtual Clusters', type: 'vclusters', data: { cluster }, disabled: disabledActionables.vclusters };
       if (initialExpandedNodes.has(vclustersNode.id)) {
         const existing = findNodeById(initialState.activeTabs[initialTabIndex]?.state.treeData || [], vclustersNode.id);
@@ -185,7 +186,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, issuesNode, auditNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, topologyNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, issuesNode, auditNode, finopsNode, rightsizingNode, networkNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, topologyNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };
