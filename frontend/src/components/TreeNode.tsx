@@ -77,13 +77,14 @@ export const nodeHasChevron = (n: any): boolean =>
   n.type !== 'finops' &&
   n.type !== 'rightsizing' &&
   n.type !== 'certificates' &&
+  n.type !== 'topology' &&
   n.type !== 'cluster-settings' &&
   n.type !== 'incident-timeline' &&
   n.type !== 'access';
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'certificates', 'cluster-settings', 'incident-timeline', 'access']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'topology', 'certificates', 'cluster-settings', 'incident-timeline', 'access']);
 
 const nodeMatchesSearch = (
   node: any,
@@ -379,6 +380,8 @@ const TreeNode = ({
                       ? getCategoryIcon('certificates')
                   : node.type === 'access'
                     ? getCategoryIcon('access')
+                  : node.type === 'topology'
+                    ? getCategoryIcon('topology')
                   : node.type === 'cluster-settings'
                     ? getCategoryIcon('cluster-settings')
                   : node.type === 'helm'

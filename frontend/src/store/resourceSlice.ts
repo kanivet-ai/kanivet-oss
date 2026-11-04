@@ -156,6 +156,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const accessNode: TreeNode = { id: 'access-explorer', label: 'Access', type: 'access', data: { cluster } };
       const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
       const settingsNode: TreeNode = { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings', data: { cluster } };
+      const topologyNode: TreeNode = { id: 'topology', label: 'Topology', type: 'topology', data: { cluster } };
       const rightsizingNode: TreeNode = { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing', data: { cluster } };
       const certificatesNode: TreeNode = { id: 'certificates-dashboard', label: 'Certificates', type: 'certificates', data: { cluster } };
       let vclustersNode: TreeNode = { id: 'virtual-clusters', label: 'Virtual Clusters', type: 'vclusters', data: { cluster }, disabled: disabledActionables.vclusters };
@@ -182,7 +183,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, topologyNode, certificatesNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };

@@ -22,6 +22,10 @@ import {
   resourceListNode,
 } from '../utils/searchResults';
 import { staleResultLabel } from '../utils/searchFreshness';
+import { openTopology, TOPOLOGY_KINDS } from './topology/topologyNav';
+
+/** "> show topology for <term>": search, then open the pick in the topology view. */
+const TOPOLOGY_PREFIX = /^>\s*show\s+topology\s+for\s*/i;
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -101,7 +105,20 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       category: 'Commands',
     },
     ...ACCESS_COMMANDS,
+    {
+      id: 'show-topology',
+      name: 'show topology for…',
+      description: 'Pick a resource and see how it connects',
+      category: 'Commands',
+    },
+    {
+      id: 'namespace-topology',
+      name: 'topology',
+      description: 'Open the namespace topology graph',
+      category: 'Commands',
+    },
   ];
+  const topologyModeRef = useRef(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const searchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -144,6 +161,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       }
       searchRequest.cancel();
       setQuery('');
+      topologyModeRef.current = false;
       setResults([]);
       setSelectedIndex(0);
       setShowRecent(true);
@@ -295,6 +313,23 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       searchRequest.cancel();
       return;
     }
+
+    if (TOPOLOGY_PREFIX.test(trimmed)) {
+      setClusterMode(false);
+      topologyModeRef.current = true;
+      const term = trimmed.replace(TOPOLOGY_PREFIX, '');
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      if (term.trim().length >= 2) {
+        searchTimeoutRef.current = setTimeout(() => performSearch(term), 100);
+      } else {
+        searchRequest.cancel();
+        setResults([]);
+        setShowRecent(false);
+        setLoading(false);
+      }
+      return;
+    }
+    topologyModeRef.current = false;
 
     // Generic commands list: "> <term>"
     const anyCmdPrefix = /^>\s*/;
@@ -482,6 +517,18 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         onClose();
         return;
       }
+      if (id === 'show-topology') {
+        topologyModeRef.current = true;
+        setQuery('> show topology for ');
+        setResults([]);
+        inputRef.current?.focus();
+        return;
+      }
+      if (id === 'namespace-topology' && currentTab) {
+        onClose();
+        void openTopology(currentTab, {});
+        return;
+      }
     }
     handleResultSelect(item.result);
   };
@@ -628,6 +675,13 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
     // Handle kind definitions differently
     if (resource.kind === 'KindDefinition') {
       return handleKindSelect(result);
+    }
+
+    if (topologyModeRef.current) {
+      const t = describeSearchResource(resource);
+      onClose();
+      void openTopology(t.cluster, { focus: { group: t.group, version: t.version, kind: t.kind, namespace: t.namespace, name: t.name } });
+      return;
     }
 
     // Resolve the plural resource name and the Kind up front. Documents
@@ -1200,6 +1254,20 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                             </button>
                             {openActionFor === resource.id && (
                               <div className="actions-menu" data-action-menu>
+                                {TOPOLOGY_KINDS.has(describeSearchResource(resource).kind) && (
+                                  <div
+                                    className="actions-menu-item"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setOpenActionFor(null);
+                                      const t = describeSearchResource(resource);
+                                      onClose();
+                                      void openTopology(t.cluster, { focus: { group: t.group, version: t.version, kind: t.kind, namespace: t.namespace, name: t.name } });
+                                    }}
+                                  >
+                                    Topology
+                                  </div>
+                                )}
                                 {kind === 'pods' && (
                                   <>
                                     <div

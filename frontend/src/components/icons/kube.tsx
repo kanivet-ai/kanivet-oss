@@ -614,3 +614,13 @@ export const PersonIcon = (p: KubeIconProps) => (
     <path d="M2.75 14a5.25 5.25 0 0 1 10.5 0" />
   </Svg>
 );
+
+/** Three linked nodes: the topology graph. */
+export const TopologyIcon = (p: KubeIconProps) => (
+  <Svg {...p}>
+    <circle cx={3.5} cy={8} r={1.75} />
+    <circle cx={12.5} cy={3.75} r={1.75} />
+    <circle cx={12.5} cy={12.25} r={1.75} />
+    <path d="M5.1 7.2 10.9 4.5M5.1 8.8l5.8 2.7" />
+  </Svg>
+);

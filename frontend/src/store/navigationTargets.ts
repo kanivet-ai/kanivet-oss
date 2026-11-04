@@ -3,6 +3,7 @@ export const pageResources: Record<string, any> = {
   finops: { name: 'finops-dashboard', group: '', version: 'v1', kind: 'FinOpsDashboard', namespaced: false },
   rightsizing: { name: 'rightsizing-dashboard', group: '', version: 'v1', kind: 'RightsizingDashboard', namespaced: false },
   certificates: { name: 'certificates-dashboard', group: '', version: 'v1', kind: 'CertificatesDashboard', namespaced: false },
+  topology: { name: 'topology', group: '', version: 'v1', kind: 'TopologyView', namespaced: false },
   'incident-timeline': { name: 'incident-timeline', group: '', version: 'v1', kind: 'IncidentTimeline', namespaced: false },
   helm: { name: 'helm-releases', group: '', version: 'v1', kind: 'HelmReleases', namespaced: false },
   'argo-overview': { name: 'argo-applications-overview', group: 'argoproj.io', version: 'v1alpha1', kind: 'ArgoApplicationsOverview', namespaced: false },
@@ -23,7 +24,8 @@ type PageNodeType =
   | 'argo-overview'
   | 'cluster-settings'
   | 'upgrade-readiness'
-  | 'access';
+  | 'access'
+  | 'topology';
 
 /** The tree node of a tab that shows a page rather than a resource list. */
 export function pageNode(kind: string, cluster: string | null) {
@@ -33,6 +35,7 @@ export function pageNode(kind: string, cluster: string | null) {
     FinOpsDashboard: { id: 'finops-dashboard', label: 'FinOps', type: 'finops' },
     RightsizingDashboard: { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing' },
     CertificatesDashboard: { id: 'certificates-dashboard', label: 'Certificates', type: 'certificates' },
+    TopologyView: { id: 'topology', label: 'Topology', type: 'topology' },
     IncidentTimeline: { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline' },
     HelmReleases: { id: 'helm-releases', label: 'Helm Releases', type: 'helm' },
     ArgoApplicationsOverview: { id: 'argo-overview', label: 'Apps Overview', type: 'argo-overview' },
