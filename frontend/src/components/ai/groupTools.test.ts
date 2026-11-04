@@ -14,3 +14,16 @@ describe('groupTools', () => {
     expect(g[1][1].map((t) => t.name)).toEqual(['exec_pod', 'restart_workload']);
   });
 });
+
+describe('client install labels', async () => {
+  const { clientStateLabel, clientStateTone } = await import('./aiUtils');
+  it('names every state', () => {
+    expect(clientStateLabel('installed', 'readonly')).toBe('Installed (read-only)');
+    expect(clientStateLabel('outdated', 'full')).toBe('Outdated (full)');
+    expect(clientStateLabel('not_installed')).toBe('Detected');
+    expect(clientStateLabel('not_detected')).toBe('Not installed');
+    expect(clientStateLabel('blocked')).toBe('Blocked by policy');
+    expect(clientStateTone('blocked')).toBe('danger');
+    expect(clientStateTone('outdated')).toBe('warning');
+  });
+});

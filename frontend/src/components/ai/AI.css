@@ -843,3 +843,59 @@
   text-transform: uppercase;
   color: var(--text2);
 }
+
+/* One-click client install list */
+.ai-clients-bar {
+  gap: 8px;
+  justify-content: flex-start;
+}
+
+.ai-clients-update-all {
+  margin-left: auto;
+}
+
+.ai-client + .ai-client {
+  border-top: 1px solid var(--border-color);
+}
+
+.ai-client-row .ai-row-label {
+  gap: 8px;
+}
+
+.ai-client-row .ai-row-right {
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.ai-client-detail {
+  padding: 0 12px 10px 28px;
+  overflow-wrap: anywhere;
+}
+
+.ai-client-detail.is-blocked {
+  color: var(--danger-fg);
+}
+
+.ai-confirm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 12px 10px 28px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--surface-elev, var(--bg-primary));
+}
+
+.ai-confirm-code {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ai-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}

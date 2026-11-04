@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as RDialog from '@radix-ui/react-dialog';
 import { groupTools, featureLabel } from './aiUtils';
+import ClientInstallList from './ClientInstallList';
 import { Cross2Icon, EyeOpenIcon, EyeClosedIcon, ReloadIcon, CheckIcon, CopyIcon } from '@radix-ui/react-icons';
 import { useAIStore } from '../../store/aiStore';
 import { aiApi, McpCall } from '../../services/api/ai';
@@ -74,6 +75,7 @@ const AISettingsDialog: React.FC = () => {
   const [readOnly, setReadOnly] = useState(true);
   const [busy, setBusy] = useState(false);
   const [showTools, setShowTools] = useState(false);
+  const [showManual, setShowManual] = useState(false);
 
   useEffect(() => {
     if (!settingsOpen) return;
@@ -225,6 +227,15 @@ const AISettingsDialog: React.FC = () => {
                   </div>
 
                   <div className="ap-group-label">Connect an agent</div>
+                  <ClientInstallList stamp={`${status.token}|${status.readOnlyUrl}`} />
+
+                  <div className="ap-group-label ai-label-row">
+                    <span>Manual setup</span>
+                    <button type="button" className="ap-btn ap-btn--sm ap-btn--ghost" onClick={() => setShowManual(!showManual)}>
+                      {showManual ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  {showManual && (
                   <div className="ap-card ai-section ai-setup">
                     <div className="ai-setup-bar">
                       <div className="ap-segmented" role="tablist">
@@ -251,6 +262,7 @@ const AISettingsDialog: React.FC = () => {
                       </div>
                     )}
                   </div>
+                  )}
 
                   <div className="ap-group-label">Investigations</div>
                   <div className="ap-card ai-section">

@@ -117,6 +117,32 @@ export interface Investigation {
   toolCalls: number;
 }
 
+export type ClientState = 'not_detected' | 'not_installed' | 'installed' | 'outdated' | 'blocked' | 'unknown';
+export type InstallMode = 'readonly' | 'full';
+
+/** One agent client row of the one-click install list. */
+export interface McpClientStatus {
+  id: string;
+  label: string;
+  state: ClientState;
+  mode?: InstallMode;
+  detail?: string;
+  where: string;
+  restartHint?: boolean;
+  deeplink?: string;
+  canInstall: boolean;
+}
+
+/** What an install or removal will change (shown before confirming). */
+export interface McpInstallPlan {
+  id: string;
+  action: 'install' | 'uninstall';
+  files?: string[];
+  commands?: string[];
+  backup?: boolean;
+  note?: string;
+}
+
 const ax = () => apiClient.getAxios();
 
 export const aiApi = {
@@ -128,6 +154,21 @@ export const aiApi = {
   },
   async updateSettings(patch: { enabled?: boolean; allowWrites?: boolean; allowExec?: boolean }): Promise<McpStatus> {
     return (await ax().put('/mcp/settings', patch)).data;
+  },
+  async clients(): Promise<{ clients: McpClientStatus[]; error?: string }> {
+    return (await ax().get('/mcp/clients')).data;
+  },
+  async installPlan(id: string, action: 'install' | 'uninstall', mode: InstallMode): Promise<McpInstallPlan> {
+    return (await ax().get(`/mcp/clients/${id}/plan`, { params: { action, mode } })).data;
+  },
+  async installClient(id: string, mode: InstallMode): Promise<{ client: McpClientStatus; error?: string }> {
+    return (await ax().post(`/mcp/clients/${id}/install`, { mode })).data;
+  },
+  async uninstallClient(id: string): Promise<{ client: McpClientStatus; error?: string }> {
+    return (await ax().post(`/mcp/clients/${id}/uninstall`)).data;
+  },
+  async updateAllClients(): Promise<{ clients: McpClientStatus[]; error?: string }> {
+    return (await ax().post('/mcp/clients/update-all')).data;
   },
   async rotateToken(): Promise<McpStatus> {
     return (await ax().post('/mcp/token/rotate')).data;

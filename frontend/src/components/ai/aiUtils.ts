@@ -179,3 +179,26 @@ export function groupTools<T extends { feature: string; name: string; write: boo
     .map(([f, ts]) => [f, ts.sort((a, b) => Number(a.write) - Number(b.write) || a.name.localeCompare(b.name))]);
 }
 
+
+/** Badge text for a client's install state. */
+export function clientStateLabel(state: string, mode?: string): string {
+  const m = mode === 'full' ? 'full' : 'read-only';
+  switch (state) {
+    case 'installed': return `Installed (${m})`;
+    case 'outdated': return `Outdated (${m})`;
+    case 'not_installed': return 'Detected';
+    case 'blocked': return 'Blocked by policy';
+    case 'not_detected': return 'Not installed';
+    default: return 'Unknown';
+  }
+}
+
+/** Badge/dot tone for a client's install state. */
+export function clientStateTone(state: string): 'success' | 'warning' | 'danger' | 'muted' {
+  switch (state) {
+    case 'installed': return 'success';
+    case 'outdated': return 'warning';
+    case 'blocked': return 'danger';
+    default: return 'muted';
+  }
+}
