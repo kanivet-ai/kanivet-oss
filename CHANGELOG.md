@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.7.0...v0.8.0) (2026-11-02)
+
+
+### Features
+
+* **nodes:** show nodepool, capacity, zone and load in the node list ([#65](https://github.com/kanivet-ai/kanivet-oss/issues/65)) ([1de1c31](https://github.com/kanivet-ai/kanivet-oss/commit/1de1c3134d583902c155582cf7b1802994f94db2))
+
+
+### Bug Fixes
+
+* **nodes:** read version and system info from nodeInfo in node list ([#64](https://github.com/kanivet-ai/kanivet-oss/issues/64)) ([a62f9ec](https://github.com/kanivet-ai/kanivet-oss/commit/a62f9ecc1ef23a8e761f431cfc53f5d8a0d31815))
+
 ## [0.7.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.6.1...v0.7.0) (2026-10-24)
 
 
