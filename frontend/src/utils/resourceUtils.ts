@@ -32,6 +32,13 @@ export const getResourceCategory = (
     return 'argocd';
   }
 
+  if (apiGroup.endsWith('.toolkit.fluxcd.io')) {
+    return 'flux';
+  }
+  if (apiGroup === 'postgresql.cnpg.io') {
+    return 'cnpg';
+  }
+
   // Check if it's a Crossplane resource
   if (apiGroup.includes('crossplane.io')) {
     return 'crossplane';

@@ -1,0 +1,227 @@
+/* Unified GitOps page. Table, pivots and toolbar come from ArgoApplicationsPage.css. */
+.gitops-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  height: 44px;
+  padding: 0 14px;
+  background: var(--win);
+  border-bottom: 1px solid var(--hair);
+  flex: none;
+}
+
+.gitops-title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.gitops-title-text {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.2px;
+  color: var(--text);
+}
+
+.gitops-subtitle {
+  font-size: 12px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
+.gitops-embedded {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.gitops-table .argo-apps-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.gitops-tool {
+  display: inline-flex;
+  color: var(--blue);
+  flex: none;
+}
+
+.gitops-name-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.gitops-name-link:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+.gitops-ns {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.gitops-col-kind { width: 120px; }
+.gitops-col-actions { width: 160px; }
+
+.gitops-kind,
+.gitops-detail,
+.gitops-source {
+  color: var(--text2) !important;
+  font-size: 12.5px;
+}
+
+.gitops-source {
+  max-width: 260px;
+}
+
+.gitops-actions {
+  text-align: right;
+}
+
+.gitops-actions .ap-btn + .ap-btn {
+  margin-left: 4px;
+}
+
+.argo-apps-table tbody tr.focused .gitops-tool,
+.argo-apps-table tbody tr.focused .gitops-name-link {
+  color: var(--on-sel);
+}
+
+.argo-apps-table tbody tr.focused .gitops-ns,
+.argo-apps-table tbody tr.focused .gitops-kind,
+.argo-apps-table tbody tr.focused .gitops-detail,
+.argo-apps-table tbody tr.focused .gitops-source {
+  color: var(--on-sel2) !important;
+}
+
+.gitops-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  gap: 4px;
+  font-size: 13px;
+  color: var(--text2);
+}
+
+.gitops-empty p {
+  margin: 0;
+}
+
+.gitops-empty-hint {
+  font-size: 12px;
+  color: var(--text3);
+}
+
+/* ---- Inspector sections (Flux objects, owner badge) ------------------- */
+.gitops-owner-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.gitops-owner-badge:hover {
+  background: color-mix(in srgb, var(--blue) 18%, transparent);
+}
+
+.gitops-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.gitops-section-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 0 14px;
+}
+
+.gitops-message {
+  margin: 0 14px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: var(--inset);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.gitops-message--danger {
+  background: var(--danger-bg);
+  color: var(--red);
+}
+
+.gitops-inventory {
+  display: flex;
+  flex-direction: column;
+}
+
+.gitops-inventory-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 26px;
+  padding: 0 14px;
+  border-bottom: 1px solid var(--hair);
+  font-size: 12.5px;
+}
+
+.gitops-inventory-row:last-child {
+  border-bottom: 0;
+}
+
+.gitops-inventory-kind {
+  width: 140px;
+  flex: none;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gitops-inventory-ns {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text3);
+}
+
+.gitops-inventory-more {
+  padding: 6px 14px;
+  border: 0;
+  background: none;
+  color: var(--blue);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}

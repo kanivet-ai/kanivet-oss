@@ -49,6 +49,8 @@ describe('getCategoryIcon', () => {
       'Cluster',
       'Crossplane',
       'Argo CD',
+      'Flux CD',
+      'CloudNativePG',
       'Custom Resources',
     ];
     for (const name of names)

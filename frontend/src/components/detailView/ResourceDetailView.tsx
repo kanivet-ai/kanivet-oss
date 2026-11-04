@@ -34,6 +34,8 @@ import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
+import GitOpsOwnerBadge from '../gitops/GitOpsOwnerBadge';
+import { IntegrationSections } from '../integrations/IntegrationSections';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -423,6 +425,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     <span className="resource-namespace">{metadata.namespace}</span>
                   </>
                 )}
+                <GitOpsOwnerBadge cluster={cluster} resource={resource} />
                 {(phase || replicas) && (
                   <>
                     <span className="resource-subtitle-sep">·</span>
@@ -457,6 +460,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             {(resource.kind === 'Role' || resource.kind === 'ClusterRole') && <RoleDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {(resource.kind === 'RoleBinding' || resource.kind === 'ClusterRoleBinding') && <RoleBindingDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {resource.kind === 'ServiceAccount' && <ServiceAccountDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            <IntegrationSections cluster={cluster} resource={resource} />
             {isArgoApplication && <ApplicationDetailView cluster={cluster} resource={resource} handleResourceClick={handleResourceClick} />}
             {isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && <CustomResourceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
 

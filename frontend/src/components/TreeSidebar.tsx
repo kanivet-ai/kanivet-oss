@@ -6,6 +6,7 @@ import {
   useRef,
   useMemo,
 } from 'react';
+import { pageResources } from '../store/navigationTargets';
 import TreeNode, { TreeCursorContext, createTreeCursor } from './TreeNode';
 import { findTreeResourceNode } from '../utils/searchResults';
 import ScrollContainer from './ScrollContainer';
@@ -311,7 +312,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
-      } else if (node.type === 'argo-overview') {
+      } else if (node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview') {
         selectNode(node);
         if (currentTab) {
           const argoOverviewResource = {
@@ -328,6 +329,13 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             freshPaneId || undefined,
           );
           recordNavigation('argo-overview', node.id, node.data).catch(() => {});
+        }
+      } else if (node.type === 'gitops' || node.type === 'cnpg-overview') {
+        selectNode(node);
+        if (currentTab) {
+          const page = pageResources[node.type];
+          await openResourceListTab(page, currentTab, isPinned, freshPaneId || undefined);
+          recordNavigation(node.type, node.id, node.data).catch(() => {});
         }
       } else if (node.type === 'helm') {
         console.log('Node is helm, opening helm releases tab...');
@@ -499,7 +507,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         if (focusArea !== 'tree' || !focusedNodeId) return;
         e.preventDefault();
         const node = nodeIndexMap.get(focusedNodeId);
-        if (node && (node.type === 'resource' || node.type === 'argo-overview')) {
+        if (node && (node.type === 'resource' || node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview')) {
           const event = new CustomEvent('centerPane:split', {
             detail: { paneId: 'root', direction: 'vertical' },
           });
@@ -567,7 +575,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
-        if (node.type === 'resource' || node.type === 'argo-overview') {
+        if (node.type === 'resource' || node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview') {
           await handleNodeClick(node, false);
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {
@@ -596,7 +604,7 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
         setNavMode('keyboard');
         const node = nodeIndexMap.get(focusedNodeId);
         if (!node || node.disabled) return;
-        if (node.type === 'resource' || node.type === 'argo-overview') {
+        if (node.type === 'resource' || node.type === 'argo-overview' || node.type === 'gitops' || node.type === 'cnpg-overview') {
           await handleNodeClick(node, false);
         } else if (node.type === 'apiVersion') {
           if (!node.expanded) {

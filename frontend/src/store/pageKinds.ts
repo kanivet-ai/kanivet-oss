@@ -8,4 +8,6 @@ export const PAGE_KINDS = new Set([
   'HelmReleases',
   'IncidentTimeline',
   'ArgoApplicationsOverview',
+  'GitOpsOverview',
+  'CNPGOverview',
 ]);
