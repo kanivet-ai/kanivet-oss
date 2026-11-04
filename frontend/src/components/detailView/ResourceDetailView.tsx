@@ -34,6 +34,7 @@ import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
+import { TOPOLOGY_SECTION_KINDS } from '../topology/topologyNav';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -44,6 +45,7 @@ const ConfigMapDetailView = lazyView(
 const SecretDetailView = lazyView(
   () => import('./resourceTypes/SecretDetailView'),
 );
+const TopologySection = lazyView(() => import('../topology/TopologySection'));
 const ApplicationDetailView = lazyView(
   () => import('./resourceTypes/ApplicationDetailView'),
 );
@@ -459,6 +461,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             {resource.kind === 'ServiceAccount' && <ServiceAccountDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {isArgoApplication && <ApplicationDetailView cluster={cluster} resource={resource} handleResourceClick={handleResourceClick} />}
             {isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && <CustomResourceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            {TOPOLOGY_SECTION_KINDS.has(resource.kind) && <TopologySection resource={resource} cluster={cluster} />}
 
             {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
               <>

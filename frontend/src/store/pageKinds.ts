@@ -5,6 +5,7 @@ export const PAGE_KINDS = new Set([
   'ClusterDashboard',
   'FinOpsDashboard',
   'RightsizingDashboard',
+  'TopologyView',
   'HelmReleases',
   'IncidentTimeline',
   'ArgoApplicationsOverview',

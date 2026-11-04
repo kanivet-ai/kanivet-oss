@@ -384,6 +384,17 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
+      } else if (node.type === 'topology') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(
+            { name: 'topology', group: '', version: 'v1', kind: 'TopologyView', namespaced: false },
+            currentTab,
+            isPinned,
+            freshPaneId || undefined,
+          );
+          void recordNavigation('topology', node.id, node.data);
+        }
       } else if (node.type === 'cluster-settings') {
         selectNode(node);
         if (currentTab) {
