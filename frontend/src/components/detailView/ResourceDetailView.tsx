@@ -11,6 +11,7 @@ import EventsSection from './shared/EventsSection';
 import PodConfigMapsSection from './shared/PodConfigMapsSection';
 import ContainerDropdown from '../ContainerDropdown';
 import { WorkloadRightsizingCard } from '../rightsizing/WorkloadRightsizingCard';
+import NetworkInspectorSection from '../network/NetworkInspectorSection';
 import api from '../../services/api';
 import ClipboardCopy from '../common/ClipboardCopy';
 import { useStore } from '../../store';
@@ -459,6 +460,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
             {resource.kind === 'ServiceAccount' && <ServiceAccountDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {isArgoApplication && <ApplicationDetailView cluster={cluster} resource={resource} handleResourceClick={handleResourceClick} />}
             {isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && <CustomResourceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
+            {resource.kind === 'Service' && <NetworkInspectorSection resource={resource} cluster={cluster} />}
 
             {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
               <>
@@ -566,6 +568,8 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     <div className="section-divider" />
                   </>
                 )}
+
+                <NetworkInspectorSection resource={resource} cluster={cluster} />
 
                 <SpecificationSection spec={spec} handleResourceClick={handleResourceClick} />
                 <div className="section-divider" />

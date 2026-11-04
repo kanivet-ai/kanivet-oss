@@ -18,6 +18,7 @@ import {
   resourceListNode,
 } from '../utils/searchResults';
 import { staleResultLabel } from '../utils/searchFreshness';
+import { reachCommandResult, runNetworkCommand, NETWORK_COMMANDS } from './network/networkCommands';
 
 interface CommandPaletteProps {
   isOpen: boolean;
@@ -78,6 +79,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       description: 'Quickly change the active cluster',
       category: 'Commands',
     },
+    ...NETWORK_COMMANDS,
   ];
 
   const inputRef = useRef<HTMLInputElement>(null);
@@ -273,6 +275,18 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       return;
     }
 
+    // "can X reach Y?" checks a network path.
+    const reach = reachCommandResult(trimmed);
+    if (reach) {
+      setResults([reach] as any);
+      setSelectedIndex(0);
+      setShowRecent(false);
+      setLoading(false);
+      if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
+      searchRequest.cancel();
+      return;
+    }
+
     // Generic commands list: "> <term>"
     const anyCmdPrefix = /^>\s*/;
     if (anyCmdPrefix.test(trimmed)) {
@@ -438,6 +452,17 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const id = String(sel.resource.id || '').replace(/^cmd:/, '');
       if (id === 'switch-cluster') {
         primeClusterSwitch();
+        return;
+      }
+      const net = runNetworkCommand(id, sel.resource, currentTab);
+      if (net === 'prime') {
+        setQuery('can ');
+        setResults([]);
+        inputRef.current?.focus();
+        return;
+      }
+      if (net === 'done') {
+        onClose();
         return;
       }
     }

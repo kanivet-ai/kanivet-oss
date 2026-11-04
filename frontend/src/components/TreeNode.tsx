@@ -76,12 +76,13 @@ export const nodeHasChevron = (n: any): boolean =>
   n.type !== 'vcluster' &&
   n.type !== 'finops' &&
   n.type !== 'rightsizing' &&
+  n.type !== 'network' &&
   n.type !== 'cluster-settings' &&
   n.type !== 'incident-timeline';
 
 // Nodes that open a tab: a click opens it as a preview, a second click within
 // the double-click window pins it.
-const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'cluster-settings', 'incident-timeline']);
+const OPENS_TAB = new Set(['resource', 'overview', 'argo-overview', 'helm', 'finops', 'rightsizing', 'network', 'cluster-settings', 'incident-timeline']);
 
 const nodeMatchesSearch = (
   node: any,
@@ -373,6 +374,8 @@ const TreeNode = ({
                   ? getCategoryIcon('finops')
                   : node.type === 'rightsizing'
                     ? getCategoryIcon('rightsizing')
+                  : node.type === 'network'
+                    ? getCategoryIcon('network')
                   : node.type === 'cluster-settings'
                     ? getCategoryIcon('cluster-settings')
                   : node.type === 'helm'

@@ -32,6 +32,7 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <K.ConfigIcon />, 'clustersettings');
   register(m, <K.FinOpsIcon />, 'finopsdashboard', 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
+  register(m, <K.NetworkIcon />, 'networkpage');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads

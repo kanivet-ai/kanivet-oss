@@ -371,6 +371,17 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             console.error('Error recording navigation:', error);
           });
         }
+      } else if (node.type === 'network') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(
+            { name: 'network-page', group: '', version: 'v1', kind: 'NetworkPage', namespaced: false },
+            currentTab,
+            isPinned,
+            freshPaneId || undefined,
+          );
+          recordNavigation('network', node.id, node.data).catch(() => {});
+        }
       } else if (node.type === 'rightsizing') {
         selectNode(node);
         if (currentTab) {
