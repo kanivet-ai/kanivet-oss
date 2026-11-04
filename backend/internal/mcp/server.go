@@ -108,7 +108,12 @@ func DefaultStateDir() string {
 func (s *Service) Store() *Store { return s.store }
 
 // SetPort records the port the backend listens on, for endpoint URLs.
-func (s *Service) SetPort(p int) { s.port.Store(int64(p)) }
+func (s *Service) SetPort(p int) {
+	s.port.Store(int64(p))
+	if s.store.Settings().Port != p {
+		_, _ = s.store.Update(func(st *Settings) { st.Port = p })
+	}
+}
 
 // BaseURL is http://127.0.0.1:<port>.
 func (s *Service) BaseURL() string {
@@ -338,6 +343,7 @@ func orDefault(s, d string) string {
 // RegisterAPI adds the UI-facing routes under /api/v1/mcp.
 func (s *Service) RegisterAPI(v1 *gin.RouterGroup) {
 	g := v1.Group("/mcp")
+	s.registerInstallAPI(g)
 	g.GET("/status", func(c *gin.Context) { c.JSON(http.StatusOK, s.GetStatus()) })
 	g.GET("/calls", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"calls": s.store.Calls(200)})

@@ -20,6 +20,8 @@ type Settings struct {
 	// output is raw and can contain secrets.
 	AllowExec bool   `json:"allowExec,omitempty"`
 	Token     string `json:"token"`
+	// Port is the backend's current port, for the stdio bridge.
+	Port int `json:"port,omitempty"`
 }
 
 // Store owns the persisted settings, the live call log and the cluster the

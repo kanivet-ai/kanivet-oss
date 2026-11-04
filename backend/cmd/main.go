@@ -200,6 +200,19 @@ func listenOnConfiguredAddr() (net.Listener, error) {
 }
 
 func main() {
+	// `kanivet-backend mcp-stdio [--full]`: stdio MCP bridge for clients that
+	// only launch stdio servers (Claude Desktop). It relays to the running
+	// backend and never starts one; stdout carries only MCP messages.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-stdio" {
+		log.SetOutput(os.Stderr)
+		full := len(os.Args) > 2 && os.Args[2] == "--full"
+		if err := mcp.RunStdioBridge(context.Background(), mcp.DefaultStateDir(), full); err != nil {
+			fmt.Fprintln(os.Stderr, "kanivet mcp-stdio:", err)
+			os.Exit(1)
+		}
+		return
+	}
+
 	// Global panic recovery - captures panics in main goroutine then re-panics
 	defer func() {
 		if r := recover(); r != nil {
