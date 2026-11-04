@@ -28,6 +28,7 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       : resourceKind === 'FinOpsDashboard' ? 'FinOps'
       : resourceKind === 'RightsizingDashboard' ? 'Rightsizing'
       : resourceKind === 'IncidentTimeline' ? 'Incidents'
+      : resourceKind === 'ImageInspector' ? (resource.title || 'Image')
       : resourceKind;
 
     const wantedPaneId = paneId || tab.state.focusedCenterPaneId || undefined;
@@ -44,7 +45,9 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       const sameGV = (rt.resource.group || '') === resourceGroup && (rt.resource.version || '') === resourceVersion;
       const sameName = (rt.resource.name || '').toLowerCase() === (resource.name || '').toLowerCase();
       const sameKind = (rt.resource.kind || '').toLowerCase() === (resource.kind || '').toLowerCase();
-      return samePane && sameCluster && sameGV && (sameName || sameKind);
+      // Image tabs share a kind but each names its own image.
+      const kindMatches = sameKind && resourceKind !== 'ImageInspector';
+      return samePane && sameCluster && sameGV && (sameName || kindMatches);
     });
 
     const preferredId = (tab.state.activeResourceListTabByPane || {})[paneKey];

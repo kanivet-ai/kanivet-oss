@@ -34,6 +34,7 @@ import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
+import { WorkloadImagesSection } from '../images/InspectImageButton';
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -549,6 +550,13 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                         />
                       </div>
                     </MetricsPropertyGroup>
+                    <div className="section-divider" />
+                  </>
+                )}
+
+                {['Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob'].includes(resource.kind) && (
+                  <>
+                    <WorkloadImagesSection resource={resource} cluster={cluster} />
                     <div className="section-divider" />
                   </>
                 )}
