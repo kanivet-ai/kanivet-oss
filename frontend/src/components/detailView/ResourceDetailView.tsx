@@ -43,7 +43,6 @@ import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
 import CompareActions from '../compare/CompareActions';
 import HeaderOverflow from './HeaderOverflow';
-import { TOPOLOGY_SECTION_KINDS } from '../topology/topologyNav';
 import InspectorViewSwitch, { supportsHistory, useInspectorView } from '../changes/InspectorViewSwitch';
 import '../changes/Changes.css';
 
@@ -61,7 +60,6 @@ const ConfigMapDetailView = lazyView(
 const SecretDetailView = lazyView(
   () => import('./resourceTypes/SecretDetailView'),
 );
-const TopologySection = lazyView(() => import('../topology/TopologySection'));
 const ApplicationDetailView = lazyView(
   () => import('./resourceTypes/ApplicationDetailView'),
 );
@@ -419,6 +417,16 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           ? 'danger'
           : 'info';
   const replicas = renderReplicas();
+  // Kinds without a dedicated view get the generic layout (metadata, metrics,
+  // kind sections, health, spec, conditions).
+  const genericLayout = !isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication;
+  const healthSection = HEALTH_KINDS.has(resource.kind) && metadata.name ? (
+    <ResourceHealthSection
+      key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`}
+      cluster={cluster}
+      resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
+    />
+  ) : null;
   const hasHistory = supportsHistory(resource.kind);
   const [inspectorView, setInspectorView] = useInspectorView(metadata.uid);
   const showHistory = hasHistory && inspectorView === 'history';
@@ -480,14 +488,6 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="info-sections">
             {resource.kind === 'CustomResourceDefinition' && <CRDDefinitionView crd={resource} />}
             {resource.kind === 'APIResourceDefinition' && <APIResourceDefinitionView resource={resource} />}
-            {/* Health and issues lead the inspector for every kind the engine checks. */}
-            {HEALTH_KINDS.has(resource.kind) && metadata.name && (
-              <ResourceHealthSection
-                key={`${resource.kind}/${metadata.namespace || ''}/${metadata.name}`}
-                cluster={cluster}
-                resource={{ apiVersion: resource.apiVersion || 'v1', kind: resource.kind, namespace: metadata.namespace, name: metadata.name }}
-              />
-            )}
             {resource.kind === 'Node' && <NodeDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
             {(resource.kind === 'Event' || resource.kind === 'events') && <EventDetailView resource={resource} handleResourceClick={handleResourceClick} />}
             {resource.kind === 'Service' && <ServiceDetailView resource={resource} cluster={cluster} handleResourceClick={handleResourceClick} />}
@@ -509,10 +509,11 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                 <div className="section-divider" />
               </>
             )}
-            {TOPOLOGY_SECTION_KINDS.has(resource.kind) && <TopologySection resource={resource} cluster={cluster} />}
+            {/* Kinds with their own view: health follows what that view shows. */}
+            {!genericLayout && healthSection}
             {resource.kind === 'Service' && <NetworkInspectorSection resource={resource} cluster={cluster} />}
 
-            {!isCustomResource() && !SPECIAL_KINDS.includes(resource.kind) && !isArgoApplication && (
+            {genericLayout && (
               <>
                 <MetadataSection metadata={metadata} handleResourceClick={handleResourceClick}>
                   {resource.kind === 'Pod' && spec.nodeName && (
@@ -627,6 +628,9 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
                     <div className="section-divider" />
                   </>
                 )}
+
+                {/* Metadata and metrics first, then the kind's own sections, then health. */}
+                {healthSection}
 
                 <NetworkInspectorSection resource={resource} cluster={cluster} />
 

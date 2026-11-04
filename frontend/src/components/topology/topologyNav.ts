@@ -44,12 +44,6 @@ export const TOPOLOGY_KINDS = new Set([
   'HorizontalPodAutoscaler', 'PodDisruptionBudget', 'NetworkPolicy',
 ]);
 
-/** Kinds that get the topology section open in the inspector by default. */
-export const TOPOLOGY_SECTION_KINDS = new Set([
-  'Deployment', 'StatefulSet', 'DaemonSet', 'ReplicaSet', 'Job', 'CronJob', 'Pod',
-  'Service', 'Ingress', 'HTTPRoute', 'Gateway',
-]);
-
 export function refFromItem(item: any): TopologyRef | null {
   const kind = item?.kind;
   const name = item?.metadata?.name || item?.name;

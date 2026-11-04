@@ -99,7 +99,8 @@ export const IssueActions: React.FC<{ cluster: string; issue: HealthIssue }> = (
 export const IssueRow: React.FC<{ cluster: string; issue: HealthIssue; compact?: boolean; now?: number }> = ({ cluster, issue, compact, now }) => {
   const [open, setOpen] = useState(false);
   const age = ageLabel(issue.since, now);
-  const hasMore = !compact && ((issue.affected?.length || 0) > 0 || !!issue.hint);
+  // In the inspector (compact) a click shows the whole message.
+  const hasMore = compact || (issue.affected?.length || 0) > 0 || !!issue.hint;
   return (
     <div className={`health-issue${open ? ' is-open' : ''}`}>
       <div className="health-issue-main" onClick={() => hasMore && setOpen((o) => !o)} role={hasMore ? 'button' : undefined}>
@@ -121,7 +122,7 @@ export const IssueRow: React.FC<{ cluster: string; issue: HealthIssue; compact?:
         {age && <span className="health-issue-age ap-tnum" title={issue.since}>{age}</span>}
         <IssueActions cluster={cluster} issue={issue} />
       </div>
-      {open && hasMore && (
+      {open && !compact && (
         <div className="health-issue-more">
           {issue.hint && <div className="health-issue-hint">{issue.hint}</div>}
           {(issue.affected?.length || 0) > 0 && (

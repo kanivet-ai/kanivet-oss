@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import type { HealthFinding } from '../../types/health';
 import { FixSnippet, SeverityDot } from './HealthParts';
+import ExpandIcon from '../icons/ExpandIcon';
 
 /** One audit finding; expands to the explanation, the fix and ignore actions. */
 export const FindingRow: React.FC<{
@@ -11,12 +12,24 @@ export const FindingRow: React.FC<{
 }> = ({ cluster, f, check, onIgnore }) => {
   const [open, setOpen] = useState(false);
   return (
-    <div className={`health-finding${f.ignored ? ' is-ignored' : ''}`}>
-      <div className="health-finding-main" role="button" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+    <div className={`health-finding${f.ignored ? ' is-ignored' : ''}${open ? ' is-open' : ''}`}>
+      <div
+        className="health-finding-main"
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen((o) => !o)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); } }}
+        aria-expanded={open}
+      >
         <SeverityDot severity={f.severity} />
-        <span className="health-finding-title">{check?.title || f.checkId}</span>
-        <span className="health-finding-msg">{f.container ? `${f.container}: ` : ''}{f.message}</span>
+        <div className="health-finding-text">
+          <span className="health-finding-title">{check?.title || f.checkId}</span>
+          <span className="health-finding-msg" title={open ? undefined : `${f.container ? `${f.container}: ` : ''}${f.message}`}>
+            {f.container ? `${f.container}: ` : ''}{f.message}
+          </span>
+        </div>
         {f.ignored && <span className="ap-badge ap-badge--sm">ignored</span>}
+        <span className="health-finding-chevron" aria-hidden="true"><ExpandIcon expanded={open} /></span>
       </div>
       {open && check && (
         <div className="health-finding-more">
