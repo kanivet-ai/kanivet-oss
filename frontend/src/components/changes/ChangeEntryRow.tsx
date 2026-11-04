@@ -1,6 +1,8 @@
 import React from 'react';
 import type { ChangeEntry } from '../../types/changes';
 import ResourceLink from '../ResourceLink';
+import AIButton from '../ai/AIButton';
+import { changeSeed } from '../ai/aiContext';
 import { formatAge } from '../../utils/formatters';
 import { CATEGORY_LABELS, SOURCE_LABELS, apiVersionOf, categoryBadgeClass, formatClock, primaryCategory } from '../../utils/changes';
 
@@ -52,6 +54,14 @@ const ChangeEntryRow: React.FC<Props> = ({ entry, cluster, selected, baseline, s
           <span className="chg-time ap-tnum" title={new Date(entry.time).toLocaleString()}>
             {formatClock(entry.time)} · {formatAge(entry.time)}
           </span>
+          {entry.categories.some((c) => c !== 'event') && (
+            <AIButton variant="icon" label="What did this change, and did it cause an incident?" seed={() => changeSeed(cluster,
+              { kind: entry.subject.kind, apiVersion: apiVersionOf(entry.subject), namespace: entry.subject.namespace || undefined, name: entry.subject.name },
+              entry.title,
+              [`${entry.title} at ${entry.time} (source ${entry.source}${entry.revision ? `, revision ${entry.revision}` : ''}${entry.actor ? `, by ${entry.actor}` : ''})`,
+                entry.summary || '', entry.fields?.length ? `Fields: ${entry.fields.join(', ')}` : '',
+                ...(entry.diff || []).slice(0, 60).map((d: any) => `${d.type || 'changed'} ${d.path}: ${d.from ?? d.old ?? ''} -> ${d.to ?? d.new ?? ''}`)].filter(Boolean).join('\n'))} />
+          )}
         </div>
         {showSubject && (
           <div className="chg-subject">

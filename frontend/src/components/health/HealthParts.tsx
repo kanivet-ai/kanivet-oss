@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { CheckIcon, ClipboardCopyIcon, FileTextIcon, MagicWandIcon, ReaderIcon, EnterIcon } from '@radix-ui/react-icons';
+import { CheckIcon, ClipboardCopyIcon, FileTextIcon, ReaderIcon, EnterIcon } from '@radix-ui/react-icons';
 import ResourceLink from '../ResourceLink';
 import type { HealthIssue, HealthRef, HealthSeverity } from '../../types/health';
 import { ageLabel, SEVERITY_DOT, SEVERITY_LABEL, scoreTone } from './healthView';
-import { canOpenLogs, investigate, openInspector, openLogs, openYamlEditor } from './healthActions';
+import { canOpenLogs, openInspector, openLogs, openYamlEditor } from './healthActions';
+import AIButton from '../ai/AIButton';
+import { issueFixSeed, issueInvestigateSeed } from '../ai/aiContext';
 import './Health.css';
 
 export const ScoreRing: React.FC<{ score: number; size?: number; label?: string }> = ({ score, size = 64, label }) => {
@@ -87,10 +89,8 @@ export const IssueActions: React.FC<{ cluster: string; issue: HealthIssue }> = (
         onClick={(e) => { e.stopPropagation(); void openInspector(cluster, issue.resource); }}>
         <EnterIcon />
       </button>
-      <button type="button" className="ap-icon-btn ap-icon-btn--sm" title="Investigate with the assistant" aria-label="Investigate"
-        onClick={(e) => { e.stopPropagation(); investigate(cluster, issue.resource, issue); }}>
-        <MagicWandIcon />
-      </button>
+      <AIButton variant="icon" label="Investigate with AI" seed={() => issueInvestigateSeed(cluster, issue)} />
+      <AIButton label="Fix with AI" seed={() => issueFixSeed(cluster, issue)} />
     </div>
   );
 };

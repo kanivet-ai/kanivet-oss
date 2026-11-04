@@ -237,3 +237,25 @@ export function looksLikeQuestion(raw: string): boolean {
   const plain = words.filter((w) => /^[a-z']+$/.test(w)).length;
   return words.length >= 4 && plain >= 3;
 }
+
+/**
+ * Where the palette's "Ask AI" row goes: first when the input reads like a
+ * question, after the network "can X reach Y" result when that matched, and
+ * nowhere for ">" commands, cluster switching or plain resource searches.
+ */
+export function paletteAskPosition(query: string, results: { resource?: { id?: string } }[], clusterMode: boolean): 'first' | 'last' | null {
+  const q = query.trim();
+  if (clusterMode || q.startsWith('>') || !looksLikeQuestion(q)) return null;
+  if (results.some((r) => r.resource?.id === 'cmd:can-reach-run')) return 'last';
+  return 'first';
+}
+
+/** Text form of a rightsizing workload report for the prompt. */
+export function rightsizingDetail(w: any): string {
+  const fmt = (r: any) => (r ? [`request ${r.request ?? '-'}`, r.limit != null ? `limit ${r.limit}` : '', `recommended ${r.recommended ?? '-'}`, r.recommendedLimit != null ? `recommended limit ${r.recommendedLimit}` : '', r.p95 != null ? `p95 ${r.p95}` : '', r.max != null ? `max ${r.max}` : ''].filter(Boolean).join(', ') : '-');
+  return [
+    `Verdict: ${w.verdict}${w.confidence ? ` (confidence ${w.confidence})` : ''}${w.monthlySavings ? `, monthly savings ${w.monthlySavings}` : ''}`,
+    ...(w.containers || []).map((c: any) => `- container ${c.container}: CPU ${fmt(c.cpu)} (millicores); memory ${fmt(c.memory)} (bytes)`),
+    w.change?.summary ? `Last change: ${w.change.summary}` : '',
+  ].filter(Boolean).join('\n');
+}

@@ -13,6 +13,8 @@ import {
   useRightsizingPrefs,
   useRightsizingReport,
 } from './useRightsizingReport';
+import AIButton from '../ai/AIButton';
+import { rightsizingDetail, rightsizingSeed } from '../ai/aiContext';
 import './Rightsizing.css';
 
 interface Props {
@@ -122,6 +124,10 @@ export const WorkloadRightsizingCard: React.FC<Props> = ({
         >
           Evidence
         </button>
+        {(w.verdict === 'over-provisioned' || w.verdict === 'under-provisioned' || w.verdict === 'no-requests') && (
+          <AIButton label="Apply with AI" title="Apply this recommendation in code or in the cluster"
+            seed={() => rightsizingSeed(cluster, { kind: w.kind, namespace: w.namespace, name: w.name }, rightsizingDetail(w))} />
+        )}
       </div>
       <div className="rs-card-rows">
         {w.containers.map((c) => (

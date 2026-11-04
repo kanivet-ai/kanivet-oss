@@ -2,6 +2,7 @@ import React from 'react';
 import { SparkleIcon } from './AIIcons';
 import { askAI, type AskSeed } from './aiContext';
 import './AI.css';
+import './AIChat.css';
 
 interface Props {
   label: string;

@@ -4,6 +4,8 @@ import { addHealthIgnore, getHealthAudit, listHealthIgnores, removeHealthIgnore 
 import type { HealthAuditReport, HealthCategory, HealthCheckResult, HealthFinding, HealthIgnore } from '../../types/health';
 import { findingsByResource, ignoreFor, refKey, SEVERITY_BADGE, SEVERITY_LABEL } from './healthView';
 import { FindingRow } from './FindingRow';
+import AIButton from '../ai/AIButton';
+import { auditBulkFixSeed } from '../ai/aiContext';
 import { HealthEmpty, RefLink, ScoreRing, SeverityDot, UnavailableNote } from './HealthParts';
 import './Health.css';
 
@@ -141,6 +143,10 @@ const AuditPage: React.FC<{ cluster: string }> = ({ cluster }) => {
                 <div className="ap-group-label health-section-label">
                   {selectedCheck ? `Resources failing "${checkById.get(selectedCheck)?.title}"` : 'Findings by resource'}
                   {selectedCheck && <button type="button" className="ap-btn ap-btn--ghost ap-btn--sm" onClick={() => setSelectedCheck(null)}>Show all</button>}
+                  {selectedCheck && checkById.get(selectedCheck) && findings.some((f) => !f.ignored) && (
+                    <AIButton label="Fix all failing with AI" title={`Fix every resource failing "${checkById.get(selectedCheck)?.title}"`}
+                      seed={() => auditBulkFixSeed(cluster, checkById.get(selectedCheck)!, findings.filter((f) => !f.ignored))} />
+                  )}
                 </div>
                 {byResource.length === 0 && <HealthEmpty title="No findings" />}
                 {byResource.slice(0, 200).map((g) => (

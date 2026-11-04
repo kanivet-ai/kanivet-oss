@@ -2,6 +2,9 @@ import React, { useState } from 'react';
 import { ExternalLinkIcon } from '@radix-ui/react-icons';
 import { CostRecommendation, formatCost } from '../../types/finops';
 import { workloadResource } from './finopsView';
+import AIButton from '../ai/AIButton';
+import { rightsizingDetail, rightsizingSeed } from '../ai/aiContext';
+import { useStore } from '../../store';
 import './SavingsOpportunities.css';
 
 interface Props {
@@ -22,6 +25,7 @@ const COLLAPSED_COUNT = 5;
 
 export const SavingsOpportunities: React.FC<Props> = ({ recommendations, onOpenWorkload, onOpenNode, onOpenRightsizing }) => {
   const [expanded, setExpanded] = useState(false);
+  const cluster = useStore((s) => s.currentTab);
   if (recommendations.length === 0) return null;
 
   const visible = expanded ? recommendations : recommendations.slice(0, COLLAPSED_COUNT);
@@ -62,6 +66,12 @@ export const SavingsOpportunities: React.FC<Props> = ({ recommendations, onOpenW
                 )}
               </div>
               <div className="savings-text">{r.recommendation}</div>
+              {cluster && r.kind && r.kind !== 'Node' && !r.vclusterNamespace && (
+                <div className="savings-ai">
+                  <AIButton label="Apply with AI" seed={() => rightsizingSeed(cluster, { kind: r.kind!, namespace: r.namespace || undefined, name: r.resource },
+                    [`${TYPE_LABEL[r.type] ?? r.type}: ${r.recommendation}`, r.projectedSavings > 0 ? `Projected savings ${formatCost(r.projectedSavings)}/mo` : '', r.rightsizing ? rightsizingDetail(r.rightsizing) : ''].filter(Boolean).join('\n'), 'finops')} />
+                </div>
+              )}
             </div>
             <div className="savings-amount">
               {r.projectedSavings > 0 ? (

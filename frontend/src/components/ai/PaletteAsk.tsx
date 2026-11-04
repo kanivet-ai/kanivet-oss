@@ -1,24 +1,12 @@
 import React, { useMemo } from 'react';
 import { SparkleIcon } from './AIIcons';
-import { askAI, looksLikeQuestion } from './aiContext';
+import { askAI } from './aiContext';
 import { currentContextChips } from './currentContext';
 import { ChipView } from './ChatParts';
 import './AI.css';
 import './AIChat.css';
 
-const REACH_ID = 'cmd:can-reach-run';
-
-/**
- * Where the palette's "Ask AI" row goes: first when the input reads like a
- * question, after the network "can X reach Y" result when that matched, and
- * nowhere for ">" commands, cluster switching or plain resource searches.
- */
-export function paletteAskPosition(query: string, results: { resource?: { id?: string } }[], clusterMode: boolean): 'first' | 'last' | null {
-  const q = query.trim();
-  if (clusterMode || q.startsWith('>') || !looksLikeQuestion(q)) return null;
-  if (results.some((r) => r.resource?.id === REACH_ID)) return 'last';
-  return 'first';
-}
+export { paletteAskPosition } from './aiContext';
 
 /** Opens the diagnosis sheet for the typed question with the current context. */
 export function runPaletteAsk(query: string, cluster: string | null) {

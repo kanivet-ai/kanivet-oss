@@ -956,3 +956,24 @@
   margin-left: auto;
   flex: none;
 }
+
+/* ---- Entry-point placement (kept small; pages own their layout) ---------- */
+.health-finding-ai,
+.access-risk-ai {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.cert-ai-row,
+.savings-ai {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 4px;
+}
+
+.ai-menu-item .ai-btn-icon {
+  color: var(--ai-accent);
+}

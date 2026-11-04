@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { getUpgradeReport } from '../../services/api/upgrade';
 import type { UpgradeAPIFinding, UpgradeAffectedResource, UpgradeReport } from '../../types/upgrade';
 import ResourceLink from '../ResourceLink';
+import AIButton from '../ai/AIButton';
+import { deprecatedApiSeed } from '../ai/aiContext';
 import NodeLink from '../NodeLink';
 import { useStore } from '../../store';
 import { SEVERITY_LABEL, SEVERITY_TONE, SeverityFilter, matchesQuery, sourceCounts, sourceLabel } from './upgradeView';
@@ -244,6 +246,18 @@ const APIGroup: React.FC<{ finding: UpgradeAPIFinding; cluster: string }> = ({ f
         <span className="upgrade-api-release ap-tnum">
           {f.removedIn ? `${f.alreadyRemoved ? 'Removed' : 'Removed in'} ${f.removedIn}` : `Deprecated ${f.deprecatedIn}`}
         </span>
+        {f.resources.length > 0 && (
+          <AIButton label="Migrate with AI" title={`Migrate ${f.resources.length} ${f.kind} off ${f.apiVersion}`} seed={() => {
+            const first = f.resources[0];
+            const seed = deprecatedApiSeed(cluster, { kind: f.kind, apiVersion: first.liveApiVersion || f.apiVersion, namespace: first.namespace, name: first.name },
+              { deprecatedApi: `${f.apiVersion} ${f.kind}`, replacement: f.replacement, removedIn: f.removedIn, notes: [f.message, f.hint].filter(Boolean).join('\n') });
+            if (f.resources.length > 1) {
+              seed.text = `Migrate every ${f.kind} still using ${f.apiVersion}${f.replacement ? ` to ${f.replacement}` : ''} (${f.resources.length}). Update the manifests, Helm charts or Kustomize sources that define them.`;
+              seed.chips = [...(seed.chips || []), { type: 'text', label: `${f.resources.length} affected`, text: f.resources.map((r) => `- ${f.kind} ${r.namespace ? r.namespace + '/' : ''}${r.name} (source: ${r.source}${r.helmRelease ? ' ' + r.helmRelease : ''})`).join('\n') }];
+            }
+            return seed;
+          }} />
+        )}
       </header>
       <div className="upgrade-api-message">{f.message}</div>
       <div className="upgrade-api-hint"><span className="upgrade-api-hint-label">Migration</span>{f.hint}</div>
