@@ -42,6 +42,7 @@ import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
 import CompareActions from '../compare/CompareActions';
+import HeaderOverflow from './HeaderOverflow';
 import { TOPOLOGY_SECTION_KINDS } from '../topology/topologyNav';
 import InspectorViewSwitch, { supportsHistory, useInspectorView } from '../changes/InspectorViewSwitch';
 import '../changes/Changes.css';
@@ -460,11 +461,14 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           <div className="resource-actions-row">
             <QuickActions resource={resource} cluster={cluster} />
             {actions}
-            <CompareActions resource={resource} cluster={cluster} />
             <InvestigateButton
               target={{ cluster, kind: resource.kind, apiVersion: resource.apiVersion, namespace: resource.metadata?.namespace, name: resource.metadata?.name }}
             />
-            <DeleteAction resource={resource} cluster={cluster} />
+            {/* Secondary actions live in "More" so the primary row stays short. */}
+            <HeaderOverflow>
+              <CompareActions resource={resource} cluster={cluster} />
+              <DeleteAction resource={resource} cluster={cluster} />
+            </HeaderOverflow>
           </div>
         </div>
       </div>
