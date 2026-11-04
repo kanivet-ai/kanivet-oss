@@ -100,6 +100,9 @@ export const Composer: React.FC<{
   running?: boolean;
   chips?: ContextChip[];
   onRemoveChip?: (i: number) => void;
+  /** A resource offered as context; clicking adds it. */
+  suggestion?: ContextChip | null;
+  onAddSuggestion?: () => void;
   initial?: string;
   placeholder?: string;
   autoFocus?: boolean;
@@ -107,7 +110,7 @@ export const Composer: React.FC<{
   onStop?: () => void;
   onChange?: (text: string) => void;
   startedAt?: number;
-}> = ({ running, chips, onRemoveChip, initial = '', placeholder = 'Reply, ask a follow-up or steer the agent…', autoFocus, onSend, onStop, onChange, startedAt }) => {
+}> = ({ running, chips, onRemoveChip, suggestion, onAddSuggestion, initial = '', placeholder = 'Reply, ask a follow-up or steer the agent…', autoFocus, onSend, onStop, onChange, startedAt }) => {
   const [text, setText] = useState(initial);
   const ta = useRef<HTMLTextAreaElement>(null);
   useEffect(() => setText(initial), [initial]);
@@ -128,8 +131,15 @@ export const Composer: React.FC<{
   };
   return (
     <div className="ai-composer">
-      {chips && chips.length > 0 && (
-        <div className="ai-chips ai-composer-chips">{chips.map((c, i) => <ChipView key={i} c={c} onRemove={onRemoveChip ? () => onRemoveChip(i) : undefined} />)}</div>
+      {((chips && chips.length > 0) || suggestion) && (
+        <div className="ai-chips ai-composer-chips">
+          {chips?.map((c, i) => <ChipView key={i} c={c} onRemove={onRemoveChip ? () => onRemoveChip(i) : undefined} />)}
+          {suggestion && (
+            <button type="button" className="ai-palette-suggest" title={`Add ${suggestion.label} to the context`} onClick={onAddSuggestion}>
+              + {suggestion.kind} {suggestion.name || suggestion.label}
+            </button>
+          )}
+        </div>
       )}
       <div className="ai-composer-row">
         <textarea
@@ -176,13 +186,15 @@ const RunningLine: React.FC<{ startedAt: number }> = ({ startedAt }) => {
 
 /** Composer wired to the store for the active chat. */
 export const ChatComposer: React.FC<{ chat: Chat | null; autoFocus?: boolean }> = ({ chat, autoFocus }) => {
-  const { send, cancel, draftChips, removeDraftChip, draftText, setDraft } = useAIChatStore();
+  const { send, cancel, draftChips, removeDraftChip, draftText, setDraft, draftSuggestion, addDraftSuggestion } = useAIChatStore();
   const last = chat?.messages[chat.messages.length - 1];
   return (
     <Composer
       running={chat?.running}
       chips={chat ? undefined : draftChips}
       onRemoveChip={chat ? undefined : removeDraftChip}
+      suggestion={chat ? null : draftSuggestion}
+      onAddSuggestion={addDraftSuggestion}
       initial={chat ? '' : draftText}
       placeholder={chat ? undefined : 'Ask about your cluster, a resource or a fix…'}
       autoFocus={autoFocus}

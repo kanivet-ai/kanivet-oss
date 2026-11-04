@@ -8,7 +8,7 @@ import { ChatComposer, ChatMessages } from './ChatThread';
 import FixChooser from './FixChooser';
 import CodeReview from './CodeReview';
 import { timeAgo } from './aiUtils';
-import { currentContextChips } from './currentContext';
+import { currentContextChips, inspectorResourceChip } from './currentContext';
 import './AI.css';
 import './AIChat.css';
 
@@ -115,7 +115,7 @@ const ChatPanel: React.FC = () => {
           {chat && <div className="ai-panel-sub ap-truncate">{chat.cluster || 'no cluster'}{chat.code ? ` · ${chat.code.repo.split(/[\\/]/).pop()} @ ${chat.code.branch}` : ''}</div>}
         </div>
         <button type="button" className={`ap-icon-btn${view === 'history' ? ' is-active' : ''}`} onClick={() => setView(view === 'history' ? 'chat' : 'history')} aria-label="Past chats" title="Past chats"><CounterClockwiseClockIcon /></button>
-        <button type="button" className="ap-icon-btn" onClick={() => newChat(currentContextChips())} aria-label="New chat" title="New chat (⌘J)"><PlusIcon /></button>
+        <button type="button" className="ap-icon-btn" onClick={() => newChat(currentContextChips(), inspectorResourceChip())} aria-label="New chat" title="New chat (⌘J)"><PlusIcon /></button>
         <button type="button" className="ap-icon-btn" onClick={closePanel} aria-label="Close AI chat" title="Close (Esc)"><Cross2Icon /></button>
       </div>
       {view !== 'history' && view !== 'review' && !pendingFix && <div className="ai-chat-meta"><ChatHeaderInfo chat={chat} /></div>}

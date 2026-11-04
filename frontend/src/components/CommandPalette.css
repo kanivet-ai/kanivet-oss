@@ -694,3 +694,11 @@
   background: var(--hair);
   margin: 5px 8px;
 }
+
+.command-palette-context-button > span:first-child,
+.command-palette-context-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

@@ -1,4 +1,5 @@
 import type { ChatMode, ContextChip } from '../../services/api/aiChat';
+import { parseClusterName } from '../../utils/clusterUtils';
 
 /** A resource reference as the feature pages have it. */
 export interface AIRef {
@@ -42,7 +43,8 @@ export function refLabel(r: AIRef): string {
   return r.namespace ? `${r.kind} ${r.namespace}/${r.name}` : `${r.kind} ${r.name}`;
 }
 
-export const clusterChip = (cluster: string): ContextChip => ({ type: 'cluster', label: cluster, cluster });
+/** The cluster chip, labelled with the same display name the cluster tab shows. */
+export const clusterChip = (cluster: string, alias?: string): ContextChip => ({ type: 'cluster', label: parseClusterName(cluster, alias).displayName || cluster, cluster });
 export const namespaceChip = (cluster: string, namespace: string): ContextChip => ({ type: 'namespace', label: `ns ${namespace}`, cluster, namespace });
 
 export function resourceChip(cluster: string, r: AIRef, includeYaml = true): ContextChip {
@@ -215,39 +217,100 @@ const QUESTION_STARTS = [
   'should', 'explain', 'show me', 'find', 'tell me', 'help', 'diagnose', 'investigate', 'summarize', 'summarise', 'compare',
 ];
 
-/**
- * Cheap local heuristic: true when palette input looks like a question for
- * the AI rather than a resource search or a ">" command.
- */
-export function looksLikeQuestion(raw: string): boolean {
-  const s = raw.trim();
-  if (s.length < 3 || s.startsWith('>') || s.startsWith('/') || s.startsWith(':')) return false;
-  const lower = s.toLowerCase();
-  // Structured search syntax stays a search.
-  if (/^[\w.-]+:\S/.test(lower) && !lower.includes(' ')) return false; // kind:pod, ns:prod
-  if (/^[\w.-]+=[\w.-]+$/.test(lower)) return false; // app=web
-  if (/^[\w.-]+\/[\w.-]+$/.test(lower)) return false; // ns/name
-  if (s.includes('?')) return true;
-  const words = lower.split(/\s+/).filter(Boolean);
-  if (words.length < 2) return false;
+/** Kind names and short names that make a word read as a resource search. */
+const KIND_WORDS = new Set([
+  'pod', 'pods', 'po', 'deploy', 'deploys', 'deployment', 'deployments', 'svc', 'service', 'services', 'node', 'nodes', 'no',
+  'ns', 'namespace', 'namespaces', 'rs', 'replicaset', 'replicasets', 'sts', 'statefulset', 'statefulsets', 'ds', 'daemonset',
+  'daemonsets', 'job', 'jobs', 'cronjob', 'cronjobs', 'cj', 'ing', 'ingress', 'ingresses', 'cm', 'configmap', 'configmaps',
+  'secret', 'secrets', 'pvc', 'pvcs', 'pv', 'pvs', 'sa', 'hpa', 'hpas', 'event', 'events', 'ev', 'crd', 'crds', 'role', 'roles',
+]);
+
+function isCommandOrStructured(lower: string): boolean {
+  if (lower.startsWith('>') || lower.startsWith('/') || lower.startsWith(':')) return true;
+  if (/^[\w.-]+:\S/.test(lower) && !lower.includes(' ')) return true; // kind:pod, ns:prod
+  if (/^[\w.-]+=[\w.-]+$/.test(lower)) return true; // app=web
+  if (/^[\w.-]+\/[\w.-]+$/.test(lower)) return true; // ns/name
+  return false;
+}
+
+function words(lower: string): string[] {
+  return lower.replace(/\?/g, ' ').split(/\s+/).filter(Boolean);
+}
+
+/** Words left after a leading interrogative phrase, or -1 when there is none. */
+function afterInterrogative(ws: string[]): number {
+  const joined = ws.join(' ');
   for (const q of QUESTION_STARTS) {
-    if (lower === q || lower.startsWith(q + ' ')) return true;
+    if (joined === q || joined.startsWith(q + ' ')) return ws.length - q.split(' ').length;
   }
-  // Several plain words that do not look like identifiers.
-  const plain = words.filter((w) => /^[a-z']+$/.test(w)).length;
-  return words.length >= 4 && plain >= 3;
+  return -1;
 }
 
 /**
- * Where the palette's "Ask AI" row goes: first when the input reads like a
- * question, after the network "can X reach Y" result when that matched, and
- * nowhere for ">" commands, cluster switching or plain resource searches.
+ * Cheap local heuristic: true when palette input is a real question for the
+ * AI (interrogative plus enough content, or a sentence that is not a resource
+ * search). Short kind/name lookups like "pod ?" or "nginx?" are searches.
  */
-export function paletteAskPosition(query: string, results: { resource?: { id?: string } }[], clusterMode: boolean): 'first' | 'last' | null {
+export function looksLikeQuestion(raw: string): boolean {
+  const s = raw.trim();
+  if (s.length < 3) return false;
+  const lower = s.toLowerCase();
+  if (isCommandOrStructured(lower)) return false;
+  const ws = words(lower);
+  if (ws.length === 0) return false;
+  if (afterInterrogative(ws) >= 2) return true;
+  // A short "kind name" or "name?" lookup stays a search.
+  if (ws.length <= 2) return false;
+  if (s.includes('?')) return true;
+  // More than three plain words that are not just kinds and identifiers.
+  const plain = ws.filter((w) => /^[a-z']+$/.test(w) && !KIND_WORDS.has(w)).length;
+  return ws.length >= 4 && plain >= 3;
+}
+
+/** Input that might be a question but reads as a search first ("pod ?", "redis down?"). */
+export function maybeQuestion(raw: string): boolean {
+  const s = raw.trim();
+  if (s.length < 2) return false;
+  const lower = s.toLowerCase();
+  if (isCommandOrStructured(lower)) return false;
+  return s.includes('?') || afterInterrogative(words(lower)) >= 1;
+}
+
+/**
+ * Where the palette's "Ask AI" row goes: 'first' for real questions, 'after'
+ * the first result group (compact) for search-like input that might still be
+ * a question, 'last' after the network "can X reach Y" result, and nowhere
+ * for ">" commands, cluster switching or plain resource searches.
+ */
+export function paletteAskPosition(query: string, results: { resource?: { id?: string } }[], clusterMode: boolean): 'first' | 'after' | 'last' | null {
   const q = query.trim();
-  if (clusterMode || q.startsWith('>') || !looksLikeQuestion(q)) return null;
-  if (results.some((r) => r.resource?.id === 'cmd:can-reach-run')) return 'last';
-  return 'first';
+  if (clusterMode || q.startsWith('>')) return null;
+  if (looksLikeQuestion(q)) {
+    if (results.some((r) => r.resource?.id === 'cmd:can-reach-run')) return 'last';
+    return 'first';
+  }
+  if (maybeQuestion(q)) return 'after';
+  return null;
+}
+
+/**
+ * Whether the question refers to a resource: it names it, or says "this
+ * pod" / "this deployment" / "it" about the one open in the inspector.
+ */
+export function questionRefersTo(query: string, r: { kind: string; name: string }): boolean {
+  const lower = query.toLowerCase();
+  const name = r.name.toLowerCase();
+  if (name && lower.includes(name)) return true;
+  // A typed prefix of the name that is clearly an identifier (e.g. "reconciliation-worker").
+  const ws = words(lower);
+  if (ws.some((w) => w.length >= 6 && /[-.\d]/.test(w) && name.startsWith(w))) return true;
+  const kind = r.kind.toLowerCase();
+  const nouns = ['resource', 'one', 'workload', kind, kind + 's'];
+  const short = Object.entries({ deployment: 'deploy', service: 'svc', statefulset: 'sts', daemonset: 'ds', configmap: 'cm' }).find(([k]) => k === kind);
+  if (short) nouns.push(short[1]);
+  const re = new RegExp(`\\b(this|that|the selected|the open)\\s+(${nouns.map((n) => n.replace(/[^a-z0-9]/g, '')).join('|')})\\b`);
+  if (re.test(lower)) return true;
+  return /\b(it|its|it's)\b/.test(lower);
 }
 
 /** Text form of a rightsizing workload report for the prompt. */

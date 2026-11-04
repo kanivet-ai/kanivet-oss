@@ -6,6 +6,7 @@ import { ACCESS_COMMANDS, runAccessCommand } from './access/accessCommands';
 import { integrationCommands, runIntegrationCommand } from './integrations/paletteCommands';
 import { AI_PALETTE_COMMANDS, runAIPaletteCommand } from './ai/aiPalette';
 import { PaletteAskRow, paletteAskPosition, runPaletteAsk } from './ai/PaletteAsk';
+import { parseClusterName } from '../utils/clusterUtils';
 import './CommandPalette.css';
 import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
@@ -40,13 +41,9 @@ interface CommandPaletteProps {
   onClose: () => void;
 }
 
-const getShortClusterName = (cluster: string): string => {
-  if (cluster.startsWith('arn:aws:eks:')) {
-    const match = cluster.match(/cluster\/(.+)$/);
-    if (match) return match[1];
-  }
-  return cluster;
-};
+/** The name the cluster tab shows (alias, or the parsed EKS/GKE/AKS name). */
+const getShortClusterName = (cluster: string): string =>
+  parseClusterName(cluster, useStore.getState().clusterAliases?.[cluster], useStore.getState().clusterProviders?.[cluster]).displayName || cluster;
 
 /**
  * One row the arrow keys can land on, in the order the rows are painted.
@@ -88,6 +85,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const [categoryFilter, setCategoryFilter] = useState<string>('All');
   const [openActionFor, setOpenActionFor] = useState<string | null>(null);
   const [clusterMode, setClusterMode] = useState(false);
+  // The user clicked the inspector resource suggestion on the Ask AI row.
+  const [askAddSuggested, setAskAddSuggested] = useState(false);
   const commandList = [
     {
       id: 'switch-cluster',
@@ -483,9 +482,29 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       for (const result of groupedResults[category]) ordered.push({ kind: 'result', result });
     }
     if (askPos === 'first') ordered.unshift({ kind: 'ask' });
-    if (askPos === 'last') ordered.push({ kind: 'ask' });
+    else if (askPos === 'last') ordered.push({ kind: 'ask' });
+    else if (askPos === 'after') {
+      // Compact row after the first group: the kinds, else the first category.
+      const firstGroup = kindDefinitionResults.length > 0 ? kindDefinitionResults.length : sortedCategories.length > 0 ? groupedResults[sortedCategories[0]].length : 0;
+      ordered.splice(firstGroup, 0, { kind: 'ask' });
+    }
     return ordered;
   }, [showRecent, recentSearches, kindDefinitionResults, sortedCategories, groupedResults, askPos]);
+  const askNavIndex = navItems.findIndex((item) => item.kind === 'ask');
+  const askRow = (compact: boolean) => (
+    <PaletteAskRow
+      query={query}
+      navIndex={askNavIndex}
+      selected={selectedIndex === askNavIndex}
+      compact={compact}
+      addSuggested={askAddSuggested}
+      onToggleSuggested={setAskAddSuggested}
+      onHover={handleRowMouseEnter}
+      onPick={() => activateNavItem({ kind: 'ask' })}
+    />
+  );
+  const askAfterKinds = askPos === 'after' && kindDefinitionResults.length > 0;
+  const askAfterFirstCategory = askPos === 'after' && kindDefinitionResults.length === 0 && sortedCategories.length > 0;
 
   const navIndexByResult = useMemo(() => {
     const map = new Map<SearchResult, number>();
@@ -542,7 +561,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
   const activateNavItem = (item: NavItem) => {
     if (item.kind === 'ask') {
       onClose();
-      runPaletteAsk(query, currentTab);
+      runPaletteAsk(query, currentTab, askAddSuggested);
       return;
     }
     if (item.kind === 'recent') {
@@ -666,7 +685,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         if (!query.trim() || query.trim().startsWith('>')) break;
         e.preventDefault();
         onClose();
-        runPaletteAsk(query, currentTab);
+        runPaletteAsk(query, currentTab, askAddSuggested);
         break;
       }
 
@@ -675,7 +694,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
         if ((e.metaKey || e.ctrlKey) && query.trim()) {
           // ⌘Enter forces Ask AI on any text.
           onClose();
-          runPaletteAsk(query.replace(/^>\s*/, ''), currentTab);
+          runPaletteAsk(query.replace(/^>\s*/, ''), currentTab, askAddSuggested);
           break;
         }
         const item = navItems[selectedIndex];
@@ -985,9 +1004,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     {selectedClusters.length === 0
                       ? 'All clusters'
                       : selectedClusters.length === 1
-                        ? selectedClusters[0].length > 20
-                          ? selectedClusters[0].substring(0, 20) + '...'
-                          : selectedClusters[0]
+                        ? getShortClusterName(selectedClusters[0])
                         : `${selectedClusters.length} clusters`}
                   </span>
                   <span>{isContextOpen ? '▲' : '▼'}</span>
@@ -1020,8 +1037,8 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                           readOnly
                           checked={isClusterSelected(c)}
                         />
-                        <span title={c}>
-                          {c.length > 30 ? c.substring(0, 30) + '...' : c}
+                        <span className="command-palette-context-name" title={c}>
+                          {getShortClusterName(c)}
                         </span>
                       </label>
                     ))}
@@ -1070,9 +1087,7 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
             </div>
           )}
 
-          {askPos === 'first' && (
-            <PaletteAskRow query={query} navIndex={0} selected={selectedIndex === 0} onHover={handleRowMouseEnter} onPick={() => activateNavItem({ kind: 'ask' })} />
-          )}
+          {askPos === 'first' && askRow(false)}
 
           {!showRecent && results.length === 0 && !loading && query && askPos === null && (
             <div className="command-palette-no-results">
@@ -1127,8 +1142,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
               )}
 
               {/* Show regular resource results */}
-              {sortedCategories.map((category) => (
-                <div key={category} className="command-palette-section">
+              {askAfterKinds && askRow(true)}
+              {sortedCategories.map((category, categoryIndex) => (
+                <React.Fragment key={category}>
+                {categoryIndex === 1 && askAfterFirstCategory && askRow(true)}
+                <div className="command-palette-section">
                   <div className="command-palette-section-header">
                     {category}
                   </div>
@@ -1501,12 +1519,12 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
                     );
                   })}
                 </div>
+                {categoryIndex === 0 && sortedCategories.length === 1 && askAfterFirstCategory && askRow(true)}
+                </React.Fragment>
               ))}
             </>
           )}
-          {askPos === 'last' && (
-            <PaletteAskRow query={query} navIndex={navItems.length - 1} selected={selectedIndex === navItems.length - 1} onHover={handleRowMouseEnter} onPick={() => activateNavItem({ kind: 'ask' })} />
-          )}
+          {(askPos === 'last' || (askPos === 'after' && !askAfterKinds && !askAfterFirstCategory)) && askRow(askPos === 'after')}
         </div>
 
         <div className="command-palette-footer">

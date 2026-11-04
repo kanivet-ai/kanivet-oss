@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { aiChatApi, type Chat, type ChatMode, type ChatSummary, type ContextChip, type Proposal } from '../services/api/aiChat';
-import { ASK_AI_EVENT, dedupeChips, type AskSeed } from '../components/ai/aiContext';
+import { ASK_AI_EVENT, dedupeChips, questionRefersTo, type AskSeed } from '../components/ai/aiContext';
 
 export type ChatView = 'chat' | 'history' | 'review';
 
@@ -22,6 +22,8 @@ interface AIChatState {
   /** Composer state for a chat that does not exist yet. */
   draftText: string;
   draftChips: ContextChip[];
+  /** The inspector resource offered (not attached) for a new chat. */
+  draftSuggestion: ContextChip | null;
   draftSeed: AskSeed | null;
   /** A fix waiting for the user to pick "in code" or "in cluster". */
   pendingFix: AskSeed | null;
@@ -38,7 +40,8 @@ interface AIChatState {
   closeSheet: () => void;
   closePanel: () => void;
   setView: (v: ChatView) => void;
-  newChat: (chips?: ContextChip[]) => void;
+  newChat: (chips?: ContextChip[], suggestion?: ContextChip | null) => void;
+  addDraftSuggestion: () => void;
   setDraft: (text: string, chips?: ContextChip[]) => void;
   removeDraftChip: (i: number) => void;
   send: (text: string, chips?: ContextChip[]) => Promise<void>;
@@ -114,7 +117,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => {
       });
       set((s) => ({
         chats: { ...s.chats, [c.id]: c }, activeId: c.id, view: 'chat', busy: false,
-        draftText: '', draftChips: [], draftSeed: null, pendingFix: null,
+        draftText: '', draftChips: [], draftSuggestion: null, draftSeed: null, pendingFix: null,
       }));
       poll(c.id);
       void get().loadList();
@@ -137,6 +140,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => {
     list: [],
     draftText: '',
     draftChips: [],
+    draftSuggestion: null,
     draftSeed: null,
     pendingFix: null,
     agentId: readPref('kanivet.ai.agent', ''),
@@ -157,7 +161,7 @@ export const useAIChatStore = create<AIChatState>((set, get) => {
         return;
       }
       if (seed.autoSend === false) {
-        set({ activeId: null, view: 'chat', draftText: seed.text, draftChips: chips, draftSeed: seed, pendingFix: null });
+        set({ activeId: null, view: 'chat', draftText: seed.text, draftChips: chips, draftSuggestion: null, draftSeed: seed, pendingFix: null });
         return;
       }
       set({ pendingFix: null });
@@ -174,13 +178,18 @@ export const useAIChatStore = create<AIChatState>((set, get) => {
       set({ view });
       if (view === 'history') void get().loadList();
     },
-    newChat: (chips) => set({ activeId: null, view: 'chat', pendingFix: null, draftText: '', draftChips: chips || [], draftSeed: null, error: null }),
+    newChat: (chips, suggestion) => set({ activeId: null, view: 'chat', pendingFix: null, draftText: '', draftChips: chips || [], draftSuggestion: suggestion || null, draftSeed: null, error: null }),
+    addDraftSuggestion: () => set((s) => (s.draftSuggestion ? { draftChips: dedupeChips([...s.draftChips, s.draftSuggestion]), draftSuggestion: null } : {})),
     setDraft: (text, chips) => set((s) => ({ draftText: text, draftChips: chips ?? s.draftChips })),
     removeDraftChip: (i) => set((s) => ({ draftChips: s.draftChips.filter((_, j) => j !== i) })),
     send: async (text, chips) => {
       const id = get().activeId;
       if (!id) {
-        await create(get().draftSeed, text, chips ?? get().draftChips);
+        // The offered inspector resource goes along only when the question refers to it.
+        const sug = get().draftSuggestion;
+        const base = chips ?? get().draftChips;
+        const refers = sug && questionRefersTo(text, { kind: sug.kind || '', name: sug.name || '' });
+        await create(get().draftSeed, text, refers && sug ? dedupeChips([...base, sug]) : base);
         return;
       }
       set({ error: null });

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { auditBulkFixSeed, auditFixSeed, dedupeChips, issueFixSeed, looksLikeQuestion, paletteAskPosition, resourceAskSeed } from './aiContext';
+import { auditBulkFixSeed, auditFixSeed, clusterChip, dedupeChips, issueFixSeed, looksLikeQuestion, paletteAskPosition, questionRefersTo, resourceAskSeed } from './aiContext';
 import { groupEvents, messageResources, stripPatchBlocks, toolVerb } from './chatUtils';
 
 describe('looksLikeQuestion (palette Ask AI heuristic)', () => {
@@ -16,8 +16,16 @@ describe('looksLikeQuestion (palette Ask AI heuristic)', () => {
     ['show me failing jobs', true],
     ['find pods without limits', true],
     ['explain the ingress for shop', true],
-    ['pods?', true],
+    ['why are pods failing in orbitpay?', true],
+    ['pods in orbitpay failing?', true],
     ['the checkout service keeps timing out', true],
+    // short kind/name lookups are searches first, even with "?"
+    ['pod ?', false],
+    ['pods?', false],
+    ['pods', false],
+    ['nginx?', false],
+    ['redis down?', false],
+    ['why pods', false],
     // plain resource searches stay searches
     ['nginx', false],
     ['checkout-7d9f', false],
@@ -42,11 +50,37 @@ describe('looksLikeQuestion (palette Ask AI heuristic)', () => {
 describe('paletteAskPosition', () => {
   it('leads for questions, follows the network intent, never hijacks commands', () => {
     expect(paletteAskPosition('why is web down?', [], false)).toBe('first');
+    expect(paletteAskPosition('why is checkout crashing', [], false)).toBe('first');
+    expect(paletteAskPosition('pods in orbitpay failing?', [], false)).toBe('first');
+    expect(paletteAskPosition('pod ?', [], false)).toBe('after');
+    expect(paletteAskPosition('nginx?', [], false)).toBe('after');
     expect(paletteAskPosition('nginx', [], false)).toBeNull();
     expect(paletteAskPosition('> show topology', [], false)).toBeNull();
     expect(paletteAskPosition('why is web down?', [], true)).toBeNull();
     const reach = [{ resource: { id: 'cmd:can-reach-run' } }];
     expect(paletteAskPosition('can web reach db on 5432?', reach, false)).toBe('last');
+  });
+});
+
+describe('questionRefersTo (attach the inspector resource only when asked about)', () => {
+  const pod = { kind: 'Pod', name: 'reconciliation-worker-29897150-abcde' };
+  it.each([
+    ['pod ?', false],
+    ['why are pods failing in orbitpay?', false],
+    ['why is this pod crashing', true],
+    ['is it healthy', true],
+    ['what is wrong with reconciliation-worker', true],
+    ['logs for reconciliation-worker-29897150-abcde', true],
+    ['why is this deployment slow', false],
+  ] as [string, boolean][])('%s → %s', (q, want) => {
+    expect(questionRefersTo(q, pod)).toBe(want);
+  });
+});
+
+describe('clusterChip', () => {
+  it('labels EKS ARNs with the cluster name the tab shows', () => {
+    expect(clusterChip('arn:aws:eks:eu-west-2:864672256020:cluster/sre-benchmarking').label).toBe('sre-benchmarking');
+    expect(clusterChip('kind-dev', 'Dev').label).toBe('Dev');
   });
 });
 
