@@ -13,6 +13,7 @@ import DebugPanel from './DebugPanel';
 import { useRegisteredKeyboard } from '../hooks/useRegisteredKeyboard';
 import useDebounce from '../hooks/useDebounce';
 import { useStore } from '../store';
+import { pageResources } from '../store/navigationTargets';
 import { useShallow } from 'zustand/react/shallow';
 
 const EMPTY_TREE: any[] = [];
@@ -394,6 +395,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             freshPaneId || undefined,
           );
           void recordNavigation('cluster-settings', node.id, node.data);
+        }
+      } else if (node.type === 'changes') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(pageResources.changes, currentTab, isPinned, freshPaneId || undefined);
+          void recordNavigation('changes', node.id, node.data);
         }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');

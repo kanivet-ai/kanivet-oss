@@ -15,6 +15,8 @@ export interface IncidentTimelineEntry {
   sourceComponent: string;
   routine: boolean;
   eventIds: number[];
+  /** IDs into IncidentTimelineResponse.changes that preceded this entry. */
+  relatedChanges?: string[];
 }
 
 export interface IncidentTimelineSummary {
@@ -28,6 +30,22 @@ export interface IncidentTimelineSummary {
 export interface IncidentTimelineResponse {
   entries: IncidentTimelineEntry[];
   summary: IncidentTimelineSummary;
+  /** Resource changes (rollouts, upgrades, syncs) correlated with entries. */
+  changes?: IncidentChangeMarker[];
+}
+
+export interface IncidentChangeMarker {
+  id: string;
+  source: string;
+  time: string;
+  group: string;
+  version: string;
+  kind: string;
+  namespace: string;
+  name: string;
+  title: string;
+  summary?: string;
+  categories: string[];
 }
 
 export interface IncidentTimelineFilters {

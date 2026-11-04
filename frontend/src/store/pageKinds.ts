@@ -7,5 +7,6 @@ export const PAGE_KINDS = new Set([
   'RightsizingDashboard',
   'HelmReleases',
   'IncidentTimeline',
+  'ChangesFeed',
   'ArgoApplicationsOverview',
 ]);

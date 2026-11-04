@@ -4,6 +4,7 @@ import api from '../services/api';
 import { search as searchResources } from '../services/api/search';
 import { useStore } from '../store';
 import { useShallow } from 'zustand/react/shallow';
+import { runChangesCommand } from './changes/commands';
 import type { RecentResource, SearchResult } from '../types/search';
 import logger from '../utils/logger';
 import { getResourceIcon } from '../utils/resourceIcons';
@@ -76,6 +77,18 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       id: 'switch-cluster',
       name: 'switch cluster',
       description: 'Quickly change the active cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'open-changes',
+      name: 'open changes feed',
+      description: 'Recent rollouts, Helm upgrades and GitOps syncs in the cluster',
+      category: 'Commands',
+    },
+    {
+      id: 'show-history',
+      name: 'show resource history',
+      description: 'Open the History view of the resource in the inspector',
       category: 'Commands',
     },
   ];
@@ -438,6 +451,11 @@ const CommandPalette: React.FC<CommandPaletteProps> = ({ isOpen, onClose }) => {
       const id = String(sel.resource.id || '').replace(/^cmd:/, '');
       if (id === 'switch-cluster') {
         primeClusterSwitch();
+        return;
+      }
+      if (id === 'open-changes' || id === 'show-history') {
+        onClose();
+        runChangesCommand(id);
         return;
       }
     }

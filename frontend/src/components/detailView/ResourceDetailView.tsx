@@ -34,6 +34,10 @@ import { failureMessage } from '../../utils/errorMessage';
 import { getResourceIcon } from '../../utils/resourceIcons';
 import { lazyView } from '../../utils/lazyView';
 import { collectPodConfigMapRefs } from '../../utils/podConfigMapRefs';
+import InspectorViewSwitch, { supportsHistory, useInspectorView } from '../changes/InspectorViewSwitch';
+import '../changes/Changes.css';
+
+const ResourceHistory = lazyView(() => import('../changes/ResourceHistory'));
 
 // Charts (chart.js) and the Monaco-backed views load on demand, warmed when idle.
 const PodMetrics = lazyView(() => import('../PodMetrics'));
@@ -401,6 +405,9 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           ? 'danger'
           : 'info';
   const replicas = renderReplicas();
+  const hasHistory = supportsHistory(resource.kind);
+  const [inspectorView, setInspectorView] = useInspectorView(metadata.uid);
+  const showHistory = hasHistory && inspectorView === 'history';
 
   return (
     <div className="resource-detail-view">
@@ -442,9 +449,11 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
           </div>
         </div>
       </div>
+      {hasHistory && <InspectorViewSwitch view={inspectorView} onChange={setInspectorView} />}
 
       <ScrollArea.Root className="resource-detail-scroll">
         <ScrollArea.Viewport className="resource-detail-viewport">
+          {showHistory ? <ResourceHistory resource={resource} cluster={cluster} /> : (
           <div className="info-sections">
             {resource.kind === 'CustomResourceDefinition' && <CRDDefinitionView crd={resource} />}
             {resource.kind === 'APIResourceDefinition' && <APIResourceDefinitionView resource={resource} />}
@@ -583,6 +592,7 @@ const ResourceDetailView = ({ resource, cluster, actions, mode = 'detail' }: { r
               </>
             )}
           </div>
+          )}
         </ScrollArea.Viewport>
         <ScrollArea.Scrollbar className="scrollbar" orientation="vertical">
           <ScrollArea.Thumb className="scrollbar-thumb" />
