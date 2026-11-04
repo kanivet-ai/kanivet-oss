@@ -32,6 +32,7 @@ const buildKindIcons = (): Record<string, IconRenderer> => {
   register(m, <K.ConfigIcon />, 'clustersettings');
   register(m, <K.FinOpsIcon />, 'finopsdashboard', 'finops');
   register(m, <K.RightsizingIcon />, 'rightsizingdashboard', 'rightsizing');
+  register(m, <K.RbacIcon />, 'accessexplorer');
   register(m, <K.EventIcon />, 'event');
 
   // Workloads
@@ -370,6 +371,7 @@ const buildCategoryIcons = (): Record<string, IconRenderer> => {
   register(m, <K.NetworkIcon />, 'network', 'networking');
   register(m, <K.StorageIcon />, 'storage');
   register(m, <K.RbacIcon />, 'rbac');
+  register(m, <K.RbacIcon />, 'access');
   register(m, <K.ClusterIcon />, 'cluster');
   register(
     m,

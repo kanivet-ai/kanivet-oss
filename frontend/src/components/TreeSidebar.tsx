@@ -18,6 +18,7 @@ import { useShallow } from 'zustand/react/shallow';
 const EMPTY_TREE: any[] = [];
 import { createTreeNavigationHandlers } from '../utils/keyboardShortcuts';
 import api from '../services/api';
+import { pageResources } from '../store/navigationTargets';
 import './TreeSidebar.css';
 
 interface TreeSidebarProps {
@@ -394,6 +395,12 @@ const TreeSidebar = ({ mode: _mode }: TreeSidebarProps = {}) => {
             freshPaneId || undefined,
           );
           void recordNavigation('cluster-settings', node.id, node.data);
+        }
+      } else if (node.type === 'access') {
+        selectNode(node);
+        if (currentTab) {
+          await openResourceListTab(pageResources.access, currentTab, isPinned, freshPaneId || undefined);
+          void recordNavigation('access', node.id, node.data);
         }
       } else if (node.type === 'incident-timeline') {
         console.log('Node is incident-timeline, opening incidents tab...');

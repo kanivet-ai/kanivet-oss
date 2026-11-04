@@ -153,6 +153,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
       const eventsNode: TreeNode = { id: 'cluster-events', label: 'Events', type: 'resource', hideCount: true, data: { name: 'events', group: '', version: 'v1', kind: 'Event', namespaced: true, cluster } };
       const helmNode: TreeNode = { id: 'helm-releases', label: 'Helm Releases', type: 'helm', data: { cluster } };
       const incidentsNode: TreeNode = { id: 'incident-timeline', label: 'Incident Timeline', type: 'incident-timeline', data: { cluster } };
+      const accessNode: TreeNode = { id: 'access-explorer', label: 'Access', type: 'access', data: { cluster } };
       const finopsNode: TreeNode = { id: 'finops-dashboard', label: 'FinOps', type: 'finops', data: { cluster } };
       const settingsNode: TreeNode = { id: 'cluster-settings', label: 'Cluster settings', type: 'cluster-settings', data: { cluster } };
       const rightsizingNode: TreeNode = { id: 'rightsizing-dashboard', label: 'Rightsizing', type: 'rightsizing', data: { cluster } };
@@ -180,7 +181,7 @@ export const createResourceSlice: StateCreator<StoreState, [], [], ResourceSlice
         const clusterIdx = formattedCategories.findIndex(cat => cat.id === 'cluster');
         const crossplaneIdx = formattedCategories.findIndex(cat => cat.id === 'crossplane');
         const treeDataWithOverview: TreeNode[] = [
-          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
+          overviewNode, finopsNode, rightsizingNode, ...formattedCategories.slice(0, clusterIdx + 1), eventsNode, incidentsNode, accessNode, helmNode, vclustersNode, ...formattedCategories.slice(crossplaneIdx), settingsNode,
         ];
         const updatedTabs = [...state.activeTabs];
         updatedTabs[tabIndex] = { ...updatedTabs[tabIndex], state: { ...updatedTabs[tabIndex].state, treeData: treeDataWithOverview } };
