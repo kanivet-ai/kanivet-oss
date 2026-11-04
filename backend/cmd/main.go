@@ -567,6 +567,8 @@ func main() {
 		v1.POST("/cluster/nodes/:name/drain", apiHandler.DrainNode)
 		v1.POST("/cluster/nodes/:name/cordon", apiHandler.CordonNode)
 		v1.GET("/cluster/nodes/load", nodeLoadHandler.GetNodeLoad)
+		v1.GET("/cluster/topology/neighbors/:group/:version/:kind/:namespace/:name", apiHandler.GetTopologyNeighbors)
+		v1.GET("/cluster/topology/namespace/:namespace", apiHandler.GetTopologyNamespace)
 		v1.GET("/cluster/crossplane/check/:group/:version/:kind", apiHandler.CheckCrossplaneResource)
 		v1.GET("/cluster/crossplane/trace/:group/:version/:kind/:namespace/:name", apiHandler.TraceCrossplaneResource)
 		v1.GET("/cluster/argo/detect", apiHandler.GetArgoDetection)
