@@ -104,6 +104,7 @@ const ComparePage: React.FC<{ cluster: string }> = ({ cluster }) => {
           )}
         </div>
         <div className="compare-toolbar-actions">
+          <span className="compare-toolbar-label">Include</span>
           <div className="ap-segmented ap-segmented--sm" role="group" aria-label="Normalization">
             {TOGGLES.filter((t) => !t.driftOnly || isDrift).map((t) => (
               <button

@@ -46,6 +46,12 @@
   gap: 8px;
 }
 
+.compare-toolbar-label {
+  margin-right: -2px;
+  font-size: 11.5px;
+  color: var(--text3);
+}
+
 /* ---- pickers ------------------------------------------------------------ */
 
 .compare-pickers {
@@ -405,4 +411,11 @@
   .compare-swap {
     justify-self: center;
   }
+}
+
+/* Image refs differ at the tag: truncate from the start so it stays visible. */
+.compare-insight--image .compare-insight-a,
+.compare-insight--image .compare-insight-b {
+  direction: rtl;
+  text-align: left;
 }
