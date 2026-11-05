@@ -24,6 +24,7 @@ import (
 	"github.com/kanivet/backend/internal/cache"
 	"github.com/kanivet/backend/internal/certs"
 	"github.com/kanivet/backend/internal/changes"
+	"github.com/kanivet/backend/internal/cis"
 	"github.com/kanivet/backend/internal/cloud"
 	"github.com/kanivet/backend/internal/cluster"
 	"github.com/kanivet/backend/internal/compare"
@@ -463,11 +464,15 @@ func main() {
 	if el := apiHandler.GetEventListener(); el != nil {
 		healthEvents = el.RecentEvents
 	}
+	healthLoader := health.NewLoader(k8sClient, podCache, healthEvents)
 	healthService := health.NewService(
-		health.NewLoader(k8sClient, podCache, healthEvents),
+		healthLoader,
 		health.NewIgnoreStore(filepath.Join(homeDir, ".kanivet", "health", "audit-ignores.json")),
 	)
 	healthHandler := health.NewHandler(healthService)
+	// CIS benchmark over the same snapshot, plus kubelet configz and scanners.
+	cisService := cis.NewService(k8sClient, healthLoader, rbacService,
+		cis.NewOverrideStore(filepath.Join(homeDir, ".kanivet", "health", "cis-overrides.json")))
 
 	// Register Helm streaming handler (after helmService is created)
 	helmWsHandler := handlers.NewHelmHandler(helmService, wsServer.Hub())
@@ -797,6 +802,7 @@ func main() {
 
 		// Live issues and best-practice audit
 		healthHandler.Register(v1.Group("/cluster-health"))
+		cis.NewHandler(cisService).Register(v1.Group("/cluster-health/cis"))
 
 		// Built-in MCP server (/mcp, /mcp-readonly) and AI investigations
 		mcpService = mcp.Setup(mcpLazy, v1, mcp.Deps{
@@ -811,6 +817,7 @@ func main() {
 			Health: healthService, Changes: changesService, Topology: apiHandler.Topology(),
 			Certs: certsService, RBAC: rbacService, Upgrade: upgradeService, Network: networkService,
 			Compare: compareService, Images: imagesService, Router: router,
+			CIS: cisService,
 		})
 
 		cloudService := cloud.NewService(apiHandler.GetDB())

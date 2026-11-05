@@ -12,6 +12,7 @@ import (
 
 	"github.com/kanivet/backend/internal/certs"
 	"github.com/kanivet/backend/internal/changes"
+	"github.com/kanivet/backend/internal/cis"
 	"github.com/kanivet/backend/internal/compare"
 	"github.com/kanivet/backend/internal/health"
 	"github.com/kanivet/backend/internal/images"
@@ -28,7 +29,7 @@ func allDeps() Deps {
 		Health: &health.Service{}, Changes: &changes.Service{}, Topology: &topology.Service{},
 		Certs: &certs.Service{}, RBAC: &rbac.Service{}, Upgrade: &upgrade.Service{},
 		Network: &network.Service{}, Compare: &compare.Service{}, Images: &images.Service{},
-		Router: http.NotFoundHandler(),
+		Router: http.NotFoundHandler(), CIS: &cis.Service{},
 	}
 }
 
@@ -36,7 +37,7 @@ var readTools = []string{
 	"get_issues", "audit", "get_changes", "get_change_snapshot", "get_topology", "get_related",
 	"list_certificates", "who_can", "subject_permissions", "risky_grants", "upgrade_readiness",
 	"check_network_path", "network_policy_coverage", "compare_resources", "get_drift",
-	"gitops_status", "cnpg_cluster_status", "inspect_image",
+	"gitops_status", "cnpg_cluster_status", "inspect_image", "cis_benchmark", "detect_provider",
 }
 
 var writeTools = []string{"network_probe", "flux_reconcile"}
