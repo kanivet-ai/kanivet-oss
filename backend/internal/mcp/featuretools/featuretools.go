@@ -15,6 +15,7 @@ import (
 
 	"github.com/kanivet/backend/internal/certs"
 	"github.com/kanivet/backend/internal/changes"
+	"github.com/kanivet/backend/internal/cis"
 	"github.com/kanivet/backend/internal/compare"
 	"github.com/kanivet/backend/internal/health"
 	"github.com/kanivet/backend/internal/images"
@@ -37,6 +38,7 @@ type Deps struct {
 	Network  *network.Service
 	Compare  *compare.Service
 	Images   *images.Service
+	CIS      *cis.Service
 	// Router serves the integration endpoints (GitOps, CNPG, Flux) in-process.
 	Router http.Handler
 }
@@ -76,6 +78,9 @@ func RegisterOn(r *mcpreg.Registry, d Deps) {
 	}
 	if d.Router != nil {
 		registerIntegrations(r, d.Router)
+	}
+	if d.CIS != nil {
+		registerCIS(r, d.CIS)
 	}
 	registerDiagnose(d)
 }

@@ -7,9 +7,13 @@ import { FindingRow } from './FindingRow';
 import AIButton from '../ai/AIButton';
 import { auditBulkFixSeed } from '../ai/aiContext';
 import { HealthEmpty, RefLink, ScoreRing, SeverityDot, UnavailableNote } from './HealthParts';
+import CISView from './cis/CISView';
+import { AUDIT_VIEW_EVENT, takePendingAuditView } from './cis/openCis';
 import './Health.css';
 
-type View = 'checks' | 'resources' | 'namespaces';
+type View = 'checks' | 'resources' | 'namespaces' | 'cis';
+
+const VIEW_LABEL: Record<View, string> = { checks: 'Checks', resources: 'Resources', namespaces: 'Namespaces', cis: 'CIS' };
 
 const CATEGORY_LABEL: Record<HealthCategory, string> = { security: 'Security', reliability: 'Reliability', efficiency: 'Efficiency' };
 
@@ -34,13 +38,22 @@ export function useAudit(cluster: string) {
 
 const AuditPage: React.FC<{ cluster: string }> = ({ cluster }) => {
   const { report, error, loading, load } = useAudit(cluster);
-  const [view, setView] = useState<View>('checks');
+  const [view, setView] = useState<View>(() => (takePendingAuditView() as View | null) || 'checks');
+  useEffect(() => {
+    const on = (e: Event) => {
+      const d = (e as CustomEvent<{ cluster: string; view: View }>).detail;
+      if (d?.cluster === cluster) { takePendingAuditView(); setView(d.view); }
+    };
+    window.addEventListener(AUDIT_VIEW_EVENT, on);
+    return () => window.removeEventListener(AUDIT_VIEW_EVENT, on);
+  }, [cluster]);
   const [includeSystem, setIncludeSystem] = useState(false);
   const [selectedCheck, setSelectedCheck] = useState<string | null>(null);
   const [ignores, setIgnores] = useState<HealthIgnore[]>([]);
   const [showIgnored, setShowIgnored] = useState(false);
 
-  useEffect(() => { void load({ includeSystem }); }, [load, includeSystem]);
+  const auditActive = view !== 'cis';
+  useEffect(() => { if (auditActive) void load({ includeSystem }); }, [load, includeSystem, auditActive]);
   useEffect(() => { listHealthIgnores(cluster).then(setIgnores).catch(() => {}); }, [cluster]);
 
   const checkById = useMemo(() => new Map((report?.checks || []).map((c) => [c.id, c])), [report]);
@@ -59,6 +72,18 @@ const AuditPage: React.FC<{ cluster: string }> = ({ cluster }) => {
     await load({ includeSystem });
   };
 
+  const segmented = (
+    <div className="ap-segmented" role="tablist">
+      {(['checks', 'resources', 'namespaces', 'cis'] as View[]).map((v) => (
+        <button key={v} type="button" role="tab" data-active={view === v} className={view === v ? 'is-active' : undefined} onClick={() => setView(v)}>
+          {VIEW_LABEL[v]}
+        </button>
+      ))}
+    </div>
+  );
+
+  if (view === 'cis') return <CISView cluster={cluster} segmented={segmented} />;
+
   return (
     <div className="health-page">
       <div className="health-toolbar">
@@ -69,13 +94,7 @@ const AuditPage: React.FC<{ cluster: string }> = ({ cluster }) => {
           </span>
         </div>
         <div className="health-toolbar-controls">
-          <div className="ap-segmented" role="tablist">
-            {(['checks', 'resources', 'namespaces'] as View[]).map((v) => (
-              <button key={v} type="button" role="tab" data-active={view === v} className={view === v ? 'is-active' : undefined} onClick={() => setView(v)}>
-                {v === 'checks' ? 'Checks' : v === 'resources' ? 'Resources' : 'Namespaces'}
-              </button>
-            ))}
-          </div>
+          {segmented}
           <label className="ap-toggle-label health-check-label">
             <input type="checkbox" className="ap-checkbox" checked={includeSystem} onChange={(e) => setIncludeSystem(e.target.checked)} />
             System namespaces

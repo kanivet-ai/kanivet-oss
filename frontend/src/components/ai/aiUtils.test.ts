@@ -7,6 +7,7 @@ import {
   mergeInvestigation,
   parseInline,
   parseMarkdown,
+  splitTableRow,
   prettyClient,
   refFromCode,
   timeAgo,
@@ -102,5 +103,49 @@ describe('markdown', () => {
     expect(refFromCode('Pod/prod/web-1')).toEqual({ kind: 'Pod', namespace: 'prod', name: 'web-1' });
     expect(refFromCode('Node/ip-10-0-0-1.ec2.internal')).toEqual({ kind: 'Node', namespace: undefined, name: 'ip-10-0-0-1.ec2.internal' });
     expect(refFromCode('kubectl get pods')).toBeNull();
+  });
+});
+
+describe('parseMarkdown tables', () => {
+  it('reads a GFM table with alignment, inline code and ragged rows', () => {
+    const md = [
+      'Pods below:',
+      '| Pod | Restarts | Status |',
+      '|:----|---------:|:------:|',
+      '| `Pod/orbitpay/web-1` | 3 | CrashLoopBackOff |',
+      '| web-2 | 0 |',
+      '',
+      'done',
+    ].join('\n');
+    const blocks = parseMarkdown(md);
+    expect(blocks.map((b) => b.type)).toEqual(['p', 'table', 'p']);
+    const t = blocks[1];
+    if (t.type !== 'table') throw new Error('not a table');
+    expect(t.header).toEqual(['Pod', 'Restarts', 'Status']);
+    expect(t.align).toEqual(['left', 'right', 'center']);
+    expect(t.rows).toEqual([
+      ['`Pod/orbitpay/web-1`', '3', 'CrashLoopBackOff'],
+      ['web-2', '0', ''],
+    ]);
+  });
+
+  it('works without outer pipes and keeps pipes inside code or escaped', () => {
+    const blocks = parseMarkdown('a | b\n--- | ---\n`x|y` | c \\| d');
+    const t = blocks[0];
+    if (t.type !== 'table') throw new Error('not a table');
+    expect(t.rows[0]).toEqual(['`x|y`', 'c | d']);
+  });
+
+  it('does not treat a lone pipe line or a rule as a table', () => {
+    expect(parseMarkdown('a | b\nnext line').map((b) => b.type)).toEqual(['p']);
+    expect(parseMarkdown('above\n\n---\n\nbelow').map((b) => b.type)).toEqual(['p', 'hr', 'p']);
+  });
+
+  it('reads blockquotes', () => {
+    expect(parseMarkdown('> note one\n> note two')).toEqual([{ type: 'quote', text: 'note one note two' }]);
+  });
+
+  it('splits rows', () => {
+    expect(splitTableRow('| a | b |')).toEqual(['a', 'b']);
   });
 });
