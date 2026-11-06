@@ -457,3 +457,43 @@ describe('failed and authoritative syncs', () => {
     expect(names(r.removed || [])).toEqual(['gone']);
   });
 });
+
+// A listing whose sync counts more rows than arrived lost a page on the way.
+// It used to come back as a plain successful sync, which the slice took for a
+// complete list and showed as live with the rows missing.
+describe('a listing that closes with rows missing', () => {
+  const row = (i: number) => ({ name: `pod-${i}`, namespace: 'ns', uid: `u${i}`, resourceVersion: '10' });
+  const rows = (from: number, to: number, epoch: number) =>
+    Array.from({ length: to - from }, (_, k) => ({ action: 'added' as const, item: row(from + k), epoch }));
+
+  it('is reported incomplete, not as a completed listing', () => {
+    // The 100..300 chunk of epoch 7 was dropped under backpressure.
+    const s = newRealtimeSession();
+    let items: any[] = [];
+    items = applyRealtimeEvents(items, rows(0, 100, 7), s).items;
+    items = applyRealtimeEvents(items, rows(300, 400, 7), s).items;
+    const r = applyRealtimeEvents(items, [{ action: 'sync', epoch: 7, itemCount: 400 }], s);
+    expect(r.incomplete).toBe(true);
+    expect(r.completedEpoch).toBeUndefined();
+    expect(r.items.length).toBe(200);
+  });
+
+  it('is not reported incomplete once a later listing in the batch completes', () => {
+    const s = newRealtimeSession();
+    const r = applyRealtimeEvents([], [
+      ...rows(0, 1, 1),
+      { action: 'sync', epoch: 1, itemCount: 2 },
+      ...rows(0, 2, 2),
+      { action: 'sync', epoch: 2, itemCount: 2 },
+    ], s);
+    expect(r.incomplete).toBeUndefined();
+    expect(r.completedEpoch).toBe(2);
+  });
+
+  it('is not flagged for a complete listing', () => {
+    const s = newRealtimeSession();
+    const r = applyRealtimeEvents([], [...rows(0, 3, 1), { action: 'sync', epoch: 1, itemCount: 3 }], s);
+    expect(r.incomplete).toBeUndefined();
+    expect(r.completedEpoch).toBe(1);
+  });
+});

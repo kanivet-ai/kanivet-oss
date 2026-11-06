@@ -48,6 +48,8 @@ interface RealtimeRuntime {
   // A subscribe sent again after the backend lost the list; backs off.
   resubscribeTimer: ReturnType<typeof setTimeout> | null;
   resubscribeAttempt: number;
+  // Listings in a row that closed with rows missing; reset by a complete one.
+  incompleteAttempt: number;
 }
 
 // Subscriptions of tabs the user switched away from stay open, up to this
@@ -69,7 +71,15 @@ const RESUBSCRIBE_BASE_MS = 1000;
 const RESUBSCRIBE_MAX_MS = 30000;
 // Backend error codes after which only a new subscribe brings the list back:
 // it lost track of what this client has, or its watch stopped.
+// 'timeout' is not one of them: it says the list is still in flight, and that
+// list sends its own rows and sync when it is done.
 const RESUBSCRIBE_CODES = new Set(['desynced', 'watch_stopped']);
+// A listing that closes with fewer rows than it said it had lost a page on
+// the way. The list is asked for again, on the resubscribe backoff, this many
+// times in a row before it is reported as not updating; a complete listing,
+// from a retry or from the backend's own resync, resets the count.
+const MAX_INCOMPLETE_RESUBSCRIBES = 5;
+const INCOMPLETE_LIST_MESSAGE = 'Some rows of the list did not arrive.';
 
 // A list that is still arriving is re-sorted and re-rendered whole on every
 // flush, so its flushes are spaced out as it grows: the usual window up to
@@ -231,6 +241,7 @@ export const createRealtimeSlice: StateCreator<
     if (complete) {
       rt.failing = null;
       rt.resubscribeAttempt = 0;
+      rt.incompleteAttempt = 0;
       if (rt.resubscribeTimer) {
         clearTimeout(rt.resubscribeTimer);
         rt.resubscribeTimer = null;
@@ -277,6 +288,23 @@ export const createRealtimeSlice: StateCreator<
       if (rt.failing?.errorCode === 'watch_stopped') api.unsubscribe(rt.topic, rt.onEvent);
       subscribe(rt);
     }, delay);
+  };
+
+  // A listing closed with rows missing. What is shown is a subset, so it is
+  // not presented as live, and the list is asked for again, a bounded number
+  // of times in a row on the resubscribe backoff.
+  const markIncomplete = (rt: RealtimeRuntime) => {
+    rt.synced = false;
+    if (rt.incompleteAttempt >= MAX_INCOMPLETE_RESUBSCRIBES) {
+      if (rt.failing?.errorCode !== 'incomplete') {
+        markFailing(rt, { error: INCOMPLETE_LIST_MESSAGE, errorCode: 'incomplete', since: Date.now() });
+      }
+      return;
+    }
+    rt.incompleteAttempt++;
+    const prev = get().topicHealth?.[rt.topic];
+    writeHealth(rt.topic, { live: false, failing: rt.failing, lastSyncAt: prev?.lastSyncAt });
+    scheduleResubscribe(rt);
   };
 
   // Reports rt's load as failed when no list arrived in time.
@@ -327,7 +355,8 @@ export const createRealtimeSlice: StateCreator<
   };
 
   // What a batch says about the list: it arrived ('ok', complete), its rows
-  // are arriving ('streamed'), or the backend could not read it ('failed').
+  // are arriving ('streamed'), the backend could not read it ('failed'), or
+  // it closed with rows missing ('incomplete').
   const outcomeOf = (rt: RealtimeRuntime, result: ApplyResult, events: RealtimeEvent[]) => {
     if (result.failure) {
       const failure: TopicFailure = {
@@ -337,6 +366,10 @@ export const createRealtimeSlice: StateCreator<
       };
       markFailing(rt, failure, result.failure.lastSyncAt || undefined);
       return 'failed' as const;
+    }
+    if (result.incomplete) {
+      markIncomplete(rt);
+      return 'incomplete' as const;
     }
     if (result.syncSeen) {
       let lastSyncAt: number | undefined;
@@ -537,7 +570,15 @@ export const createRealtimeSlice: StateCreator<
         (activeListTab.resource.name || '').toLowerCase() === (resNow.name || '').toLowerCase()
         || (activeListTab.resource.kind || '').toLowerCase() === (resNow.kind || '').toLowerCase()
       );
-    const baseItems = state.listItems?.length ? state.listItems : (activeListTabMatches ? (activeListTab.items || []) : []);
+    // The runtime's own list is what its events apply to. state.listItems can
+    // lag it or hold another writer's copy (a tab switch, a pane move with an
+    // older snapshot), and applying a batch to that copy would make the rows
+    // it lacks vanish until a reload. Until the runtime has rows of its own
+    // (rows from a cache put on screen after it started), the screen's are
+    // the base.
+    const baseItems = rt.synced || rt.items.length
+      ? rt.items
+      : state.listItems?.length ? state.listItems : (activeListTabMatches ? (activeListTab.items || []) : []);
 
     const result = applyRealtimeEvents(baseItems, events, rt.session);
     rt.items = result.items;
@@ -574,6 +615,11 @@ export const createRealtimeSlice: StateCreator<
     const patch: any = { listSync };
     if (outcome === 'failed') {
       patch.isLoadingListItems = false;
+      patch.loadError = rt.failing?.error;
+    } else if (outcome === 'incomplete') {
+      // The rows stay on screen, shown as syncing until a whole list arrives.
+      patch.isLoadingListItems = false;
+      patch.hasReceivedInitialListData = false;
       patch.loadError = rt.failing?.error;
     } else if (outcome) {
       patch.isLoadingListItems = false;
@@ -718,6 +764,7 @@ export const createRealtimeSlice: StateCreator<
       loadTimer: null,
       resubscribeTimer: null,
       resubscribeAttempt: 0,
+      incompleteAttempt: 0,
     };
     rt.onEvent = (evt: any) => {
       if (rt.session.stopped || !evt.isBatch || !evt.events) return;
@@ -882,6 +929,14 @@ export const createRealtimeSlice: StateCreator<
       if (forceRefresh && !existing.synced) {
         existing.sort = { ...sort };
         subscribe(existing);
+      }
+      // Another writer may have put an older copy of the list on screen;
+      // the subscription's own list is the current one.
+      if (existing.synced && tabState.listItems !== existing.items) {
+        const selectedItem = tabState.selectedItem
+          ? (findItem(existing.session, existing.items, itemKey(tabState.selectedItem)) ?? tabState.selectedItem)
+          : tabState.selectedItem;
+        commitList(res, existing.items, {}, selectedItem);
       }
       return;
     }

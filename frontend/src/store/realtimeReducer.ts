@@ -37,6 +37,10 @@ export interface ApplyResult {
   completedEpoch?: number;
   // A sync that was not a failure arrived in this batch.
   syncSeen: boolean;
+  // The batch's last sync closed a listing with fewer rows than it said it
+  // had (a page was dropped on the way): the rows are a subset, nothing was
+  // pruned, and the list must be asked for again.
+  incomplete?: boolean;
   // Set when the last sync of the batch was a failed one.
   failure?: SyncFailure;
   // Objects a completed listing no longer has, dropped without a deleted event
@@ -122,6 +126,7 @@ export function applyRealtimeEvents(
   let changed = false;
   let completedEpoch: number | undefined;
   let syncSeen = false;
+  let incomplete = false;
   let failure: SyncFailure | undefined;
   let removedByListing: any[] | undefined;
 
@@ -133,6 +138,7 @@ export function applyRealtimeEvents(
       }
       syncSeen = true;
       failure = undefined;
+      incomplete = false;
       const e = ev.epoch || 0;
       if (e > 0) {
         const seen = s.epochSeen.get(e) || new Set<string>();
@@ -147,6 +153,8 @@ export function applyRealtimeEvents(
             }
           }
           completedEpoch = e;
+        } else {
+          incomplete = true;
         }
         for (const k of [...s.epochSeen.keys()]) {
           if (k <= e) {
@@ -229,6 +237,7 @@ export function applyRealtimeEvents(
 
   const extra = {
     ...(failure && { failure }),
+    ...(incomplete && { incomplete }),
     ...(removedByListing && { removed: removedByListing }),
   };
   if (!changed) return { items: baseItems, changed, completedEpoch, syncSeen, ...extra };

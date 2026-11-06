@@ -17,16 +17,18 @@ import (
 // fakeWatch is a watchAPI that tracks refcounts the way the real manager
 // does, and notes any StopWatch that had nothing to release.
 type fakeWatch struct {
-	mu         sync.Mutex
-	refs       int
-	underflow  int
-	stops      int
-	startErr   error
-	onStart    func()
-	resyncs    int
-	onResync   func(call int)
-	resyncCall []time.Time
-	desyncs    []bool
+	mu        sync.Mutex
+	refs      int
+	underflow int
+	stops     int
+	startErr  error
+	onStart   func()
+	resyncs   int
+	onResync  func(call int)
+	// resyncFails makes Resync report it replayed nothing (call is 1-based).
+	resyncFails func(call int) bool
+	resyncCall  []time.Time
+	desyncs     []bool
 }
 
 func (f *fakeWatch) StartWatch(cluster, group, version, kind, namespace, sortBy, sortOrder string) error {
@@ -53,16 +55,17 @@ func (f *fakeWatch) StopWatch(cluster, group, version, kind, namespace string) {
 	f.refs--
 }
 
-func (f *fakeWatch) Resync(topic string) {
+func (f *fakeWatch) Resync(topic string) bool {
 	f.mu.Lock()
 	f.resyncs++
 	n := f.resyncs
 	f.resyncCall = append(f.resyncCall, time.Now())
-	hook := f.onResync
+	hook, fails := f.onResync, f.resyncFails
 	f.mu.Unlock()
 	if hook != nil {
 		hook(n)
 	}
+	return fails == nil || !fails(n)
 }
 
 func (f *fakeWatch) SetDesynced(topic string, desynced bool) {
@@ -310,6 +313,48 @@ func TestResyncKeepsRetryingADesyncedTopicSlowly(t *testing.T) {
 	if resyncCount(f) != settled {
 		t.Fatal("resyncs went on after a pass went through")
 	}
+}
+
+// A resync that replayed nothing (the topic's list was still in flight when
+// it gave up waiting) used to count as done: the topic was left on whatever
+// partial list the drop had left, with nothing running again. It now reruns
+// after the cooldown until a pass replays.
+func TestResyncThatReplayedNothingRunsAgainAfterCooldown(t *testing.T) {
+	f := &fakeWatch{resyncFails: func(call int) bool { return call == 1 }}
+	r := newTestCoordinator(f)
+	r.cooldown = 30 * time.Millisecond
+	r.request("items:t")
+	waitFor(t, "the rerun", func() bool { return resyncCount(f) >= 2 })
+	time.Sleep(150 * time.Millisecond)
+	if n := resyncCount(f); n != 2 {
+		t.Fatalf("%d resyncs, want exactly 2 (one failed, one that went through)", n)
+	}
+	f.mu.Lock()
+	gap := f.resyncCall[1].Sub(f.resyncCall[0])
+	f.mu.Unlock()
+	if gap < r.cooldown {
+		t.Fatalf("rerun came %v after the failed pass, before the %v cooldown", gap, r.cooldown)
+	}
+}
+
+// A topic whose resync never replays is retried on the slow delays, not in a
+// tight loop, and reported desynced.
+func TestResyncThatKeepsReplayingNothingBacksOff(t *testing.T) {
+	f := &fakeWatch{resyncFails: func(int) bool { return true }}
+	r := newTestCoordinator(f)
+	r.cooldown = 10 * time.Millisecond
+	r.slowRetries = []time.Duration{100 * time.Millisecond}
+	r.request("items:t")
+	time.Sleep(300 * time.Millisecond)
+	n := resyncCount(f)
+	// maxReruns+1 quick passes, then one slow retry every 100ms at most.
+	if n < r.maxReruns+1 || n > r.maxReruns+1+3 {
+		t.Fatalf("%d resyncs in 300ms, want about %d", n, r.maxReruns+3)
+	}
+	if got := f.desyncReports(); len(got) != 1 || !got[0] {
+		t.Fatalf("reports %v, want one desynced", got)
+	}
+	r.topicClosed("items:t")
 }
 
 // A client that keeps losing the resync cannot make it loop quickly forever.

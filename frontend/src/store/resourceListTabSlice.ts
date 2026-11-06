@@ -327,7 +327,10 @@ export const createResourceListTabSlice: StateCreator<StoreState, [], [], Resour
       const perPane = tab.state.activeResourceListTabByPane || {};
       const next = { ...perPane, [normalizedTarget]: dup.id };
       const ns = dup.selectedNamespaces;
-      get().updateCurrentTabState({ activeResourceListTabByPane: next, activeResourceListTab: dup.id, listItems: dup.items, selectedItem: dup.selectedItem, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all' });
+      // The duplicate's stored items are its last snapshot; its open
+      // subscription, if any, has the current rows.
+      const { items } = withLiveItems(dup);
+      get().updateCurrentTabState({ activeResourceListTabByPane: next, activeResourceListTab: dup.id, listItems: items, selectedItem: dup.selectedItem, selectedNamespaces: ns, selectedNamespace: ns.length > 0 ? ns[0] : 'all' });
       return;
     }
     get().updateCurrentTabState({

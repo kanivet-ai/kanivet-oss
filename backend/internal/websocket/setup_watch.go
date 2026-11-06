@@ -13,7 +13,9 @@ import (
 type watchAPI interface {
 	StartWatch(cluster, group, version, kind, namespace, sortBy, sortOrder string) error
 	StopWatch(cluster, group, version, kind, namespace string)
-	Resync(topic string)
+	// Resync reports false when it could not replay the topic yet (its list
+	// is still in flight); the coordinator then tries again.
+	Resync(topic string) bool
 }
 
 // watchRefs keeps the watcher's refcount balanced against the live
@@ -204,12 +206,15 @@ func (r *resyncCoordinator) run(topic string, st *resyncState, delay time.Durati
 		st.rerun = false
 		r.mu.Unlock()
 
-		r.api.Resync(topic)
+		replayed := r.api.Resync(topic)
 
 		r.mu.Lock()
 		st.running = false
 		st.last = time.Now()
-		again := st.rerun && !st.gone
+		// A pass that replayed nothing (the topic's list was still in
+		// flight) leaves the client where the drop left it: it counts as
+		// a lost pass and runs again after the cooldown, like a drop.
+		again := (st.rerun || !replayed) && !st.gone
 		// A pass that lost nothing caught the subscribers up; one whose
 		// topic emptied has nobody left to tell.
 		cleared := !again && st.desynced
