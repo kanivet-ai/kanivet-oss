@@ -570,7 +570,15 @@ export const createRealtimeSlice: StateCreator<
         (activeListTab.resource.name || '').toLowerCase() === (resNow.name || '').toLowerCase()
         || (activeListTab.resource.kind || '').toLowerCase() === (resNow.kind || '').toLowerCase()
       );
-    const baseItems = state.listItems?.length ? state.listItems : (activeListTabMatches ? (activeListTab.items || []) : []);
+    // The runtime's own list is what its events apply to. state.listItems can
+    // lag it or hold another writer's copy (a tab switch, a pane move with an
+    // older snapshot), and applying a batch to that copy would make the rows
+    // it lacks vanish until a reload. Until the runtime has rows of its own
+    // (rows from a cache put on screen after it started), the screen's are
+    // the base.
+    const baseItems = rt.synced || rt.items.length
+      ? rt.items
+      : state.listItems?.length ? state.listItems : (activeListTabMatches ? (activeListTab.items || []) : []);
 
     const result = applyRealtimeEvents(baseItems, events, rt.session);
     rt.items = result.items;
@@ -921,6 +929,14 @@ export const createRealtimeSlice: StateCreator<
       if (forceRefresh && !existing.synced) {
         existing.sort = { ...sort };
         subscribe(existing);
+      }
+      // Another writer may have put an older copy of the list on screen;
+      // the subscription's own list is the current one.
+      if (existing.synced && tabState.listItems !== existing.items) {
+        const selectedItem = tabState.selectedItem
+          ? (findItem(existing.session, existing.items, itemKey(tabState.selectedItem)) ?? tabState.selectedItem)
+          : tabState.selectedItem;
+        commitList(res, existing.items, {}, selectedItem);
       }
       return;
     }

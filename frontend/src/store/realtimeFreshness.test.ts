@@ -408,6 +408,29 @@ describe('open details of objects a resync drops', () => {
   });
 });
 
+// The list on screen is the subscription's own. Its events used to be applied
+// to whatever state.listItems held, so an older copy written there by another
+// path (a tab switch, a pane move) became the list, missing rows for good.
+describe('the list a live batch applies to', () => {
+  it('is the subscription list, not an older copy on screen', async () => {
+    const store = makeStore();
+    await open(store, 'pods', [item('a'), item('b'), item('c')]);
+    store.getState().updateCurrentTabState({ listItems: [item('a')] });
+    emit('pods', [{ action: 'modified', item: item('b', '2') }]);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(names(shown(store).listItems)).toEqual(['a', 'b', 'c']);
+    expect(shown(store).listItems[1].resourceVersion).toBe('2');
+  });
+
+  it('is put back on screen when the same list is started again', async () => {
+    const store = makeStore();
+    await open(store, 'pods', [item('a'), item('b'), item('c')]);
+    store.getState().updateCurrentTabState({ listItems: [item('a')] });
+    await start(store);
+    expect(names(shown(store).listItems)).toEqual(['a', 'b', 'c']);
+  });
+});
+
 // A listing whose sync says it has more rows than arrived lost a page on the
 // way (dropped under backpressure). It used to be taken as a complete list:
 // shown live with the rows missing, and nothing asked for it again.
