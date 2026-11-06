@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -94,16 +95,17 @@ func TestReadKubeletsGroupsAndSamples(t *testing.T) {
 	}
 	nodes = append(nodes, nodeIn("b-0", "pool-b"), nodeIn("b-1", "pool-b"))
 	nodes = append(nodes, corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: "fargate-1", Labels: map[string]string{"eks.amazonaws.com/compute-type": "fargate"}}})
-	reads := 0
+	// ReadKubelets reads nodes concurrently, so the counter must be atomic.
+	var reads atomic.Int32
 	st := ReadKubelets(context.Background(), nodes, func(_ context.Context, n string) ([]byte, error) {
-		reads++
+		reads.Add(1)
 		if n == "b-1" {
 			return nil, errors.New("timeout")
 		}
 		return good, nil
 	})
-	if st.Sampled != 5 || reads != 5 || st.Total != 8 {
-		t.Fatalf("sampled %d reads %d total %d", st.Sampled, reads, st.Total)
+	if st.Sampled != 5 || reads.Load() != 5 || st.Total != 8 {
+		t.Fatalf("sampled %d reads %d total %d", st.Sampled, reads.Load(), st.Total)
 	}
 	// pool-a (3 nodes, one config), pool-b ok, pool-b error, fargate.
 	if len(st.Groups) != 4 {
