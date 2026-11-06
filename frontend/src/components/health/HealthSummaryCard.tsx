@@ -3,7 +3,10 @@ import { getHealthAudit } from '../../services/api/health';
 import { useIssues } from './healthStore';
 import { openHealthPage } from './healthActions';
 import { IssueRow, ScoreRing } from './HealthParts';
+import { getCisReport } from '../../services/api/cis';
+import { openCisBenchmark } from './cis/openCis';
 import './Health.css';
+import './cis/CIS.css';
 
 /** The overview's health card: open issues by severity, the top few, and the audit score. */
 const HealthSummaryCard: React.FC<{ cluster: string }> = ({ cluster }) => {
@@ -12,6 +15,13 @@ const HealthSummaryCard: React.FC<{ cluster: string }> = ({ cluster }) => {
   useEffect(() => {
     let live = true;
     getHealthAudit(cluster).then((r) => { if (live) setScore(r.score); }).catch(() => {});
+    return () => { live = false; };
+  }, [cluster]);
+  const [cis, setCis] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    setCis(null);
+    getCisReport(cluster).then((r) => { if (live) setCis(r.score); }).catch(() => {});
     return () => { live = false; };
   }, [cluster]);
 
@@ -32,10 +42,17 @@ const HealthSummaryCard: React.FC<{ cluster: string }> = ({ cluster }) => {
           {report && report.issues.length === 0 && <div className="health-summary-ok">Nothing is broken right now.</div>}
           {report?.issues.slice(0, 3).map((i) => <IssueRow key={i.id} cluster={cluster} issue={i} />)}
         </div>
-        <button type="button" className="health-summary-score" onClick={() => void openHealthPage(cluster, 'audit')} title="Open Audit">
-          {score !== null ? <ScoreRing score={score} size={52} label="Audit score" /> : <div className="ap-skeleton health-ring-skeleton" />}
-          <span className="health-summary-title">Audit</span>
-        </button>
+        <div className="health-summary-scorecol">
+          <button type="button" className="health-summary-score" onClick={() => void openHealthPage(cluster, 'audit')} title="Open Audit">
+            {score !== null ? <ScoreRing score={score} size={52} label="Audit score" /> : <div className="ap-skeleton health-ring-skeleton" />}
+            <span className="health-summary-title">Audit</span>
+          </button>
+          {cis !== null && (
+            <button type="button" className="health-summary-cis" onClick={() => void openCisBenchmark(cluster)} title="Open the CIS benchmark">
+              CIS {cis}%
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

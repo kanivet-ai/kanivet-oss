@@ -1,0 +1,16 @@
+{
+  "apiVersion": "aquasecurity.github.io/v1alpha1",
+  "kind": "ClusterComplianceReport",
+  "metadata": {"name": "eks-cis-1.4"},
+  "spec": {"compliance": {"id": "eks-cis-1.4", "title": "AWS EKS CIS Foundations v1.4"}},
+  "status": {
+    "updateTimestamp": "2026-11-05T06:00:00Z",
+    "detailReport": {
+      "results": [
+        {"id": "3.1.1", "name": "kubeconfig file permissions", "checks": [{"success": true}, {"success": true}]},
+        {"id": "3.1.2", "name": "kubeconfig file ownership", "checks": [{"success": true}, {"success": false}]},
+        {"id": "4.1.1", "name": "cluster-admin", "checks": []}
+      ]
+    }
+  }
+}

@@ -1,6 +1,7 @@
 import { useStore } from '../../store';
 import { openHealthPage } from './healthActions';
 import { refreshIssues } from './healthStore';
+import { openCisBenchmark } from './cis/openCis';
 
 export interface PaletteCommand {
   id: string;
@@ -25,6 +26,13 @@ export const HEALTH_COMMANDS: PaletteCommand[] = [
     description: 'Best-practice audit with scores and fixes',
     category: 'Commands',
     run: (c) => { if (c) void openHealthPage(c, 'audit'); },
+  },
+  {
+    id: 'health-cis',
+    name: 'cis benchmark',
+    description: 'CIS Kubernetes Benchmark compliance for this cluster\'s provider',
+    category: 'Commands',
+    run: (c) => { if (c) void openCisBenchmark(c); },
   },
   {
     id: 'health-refresh',

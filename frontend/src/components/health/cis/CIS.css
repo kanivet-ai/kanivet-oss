@@ -1,0 +1,499 @@
+/* CIS benchmark view inside Audit. Tokens only (DESIGN.md). */
+
+.cis-provider-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--ctrl);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  transition: background 120ms var(--ease-quiet);
+}
+
+.cis-provider-chip:hover {
+  background: var(--hover);
+}
+.cis-provider-chip[aria-expanded='true'] {
+  background: var(--card);
+  box-shadow: var(--shadow-pill);
+}
+.cis-provider-manual {
+  color: var(--text3);
+  font-weight: 400;
+}
+
+.cis-provider-pop {
+  padding: 0;
+}
+.cis-provider-pop-body {
+  padding: 12px 14px;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.cis-provider-pop-head {
+  margin-bottom: 8px;
+}
+.cis-provider-pop-title {
+  font-size: 14px;
+  font-weight: 600;
+}
+.cis-provider-pop-sub {
+  color: var(--text2);
+  font-size: 12px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+.cis-pop-label {
+  padding: 6px 0 4px;
+}
+.cis-pop-empty {
+  color: var(--text3);
+}
+
+.cis-evidence-row {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--hair);
+}
+
+.cis-evidence-row:last-of-type {
+  border-bottom: 0;
+}
+.cis-evidence-signal {
+  color: var(--text2);
+}
+
+.cis-evidence-value {
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cis-provider-facts {
+  margin: 8px 0;
+  color: var(--text2);
+  font-size: 12px;
+}
+
+.cis-override {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--hair);
+  color: var(--text2);
+}
+
+.cis-profile-select {
+  max-width: 260px;
+}
+.cis-section-select {
+  max-width: 220px;
+}
+.cis-search {
+  width: 180px;
+}
+
+.cis-note {
+  gap: 8px;
+}
+.cis-note--info,
+.cis-note--provider,
+.cis-note--scanner {
+  background: var(--blue-soft);
+}
+
+.cis-loading-hint {
+  font-size: 12px;
+  color: var(--text2);
+  padding: 0 2px 10px;
+}
+
+.cis-ring-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 84px;
+  height: 84px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 8px var(--ctrl);
+  color: var(--text3);
+  font-size: 20px;
+  font-weight: 600;
+  flex: none;
+}
+
+.cis-ring-empty--sm {
+  width: 44px;
+  height: 44px;
+  box-shadow: inset 0 0 0 4px var(--ctrl);
+  font-size: 14px;
+}
+
+.cis-score-others {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+
+.cis-score-others button {
+  border: 0;
+  border-radius: 5px;
+  background: var(--ctrl);
+  color: var(--text2);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  height: 18px;
+  padding: 0 7px;
+  cursor: pointer;
+}
+
+.cis-score-others button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.cis-section-card {
+  border: 0;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 10px 14px;
+  gap: 10px;
+  min-width: 170px;
+}
+
+.cis-section-card:hover {
+  background: var(--hover);
+}
+.cis-section-card.is-selected {
+  box-shadow:
+    var(--shadow-card),
+    inset 0 0 0 2px rgba(var(--blue-rgb), 0.55);
+}
+.cis-section-text {
+  min-width: 0;
+}
+.cis-section-text .health-score-title {
+  font-size: 12.5px;
+}
+
+.cis-filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 14px 14px;
+}
+
+.cis-status-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.cis-group-label {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+.cis-group-id {
+  color: var(--text3);
+  margin-right: 2px;
+}
+.cis-group-counts {
+  display: inline-flex;
+  gap: 8px;
+  font-weight: 500;
+}
+.cis-count {
+  color: var(--text3);
+}
+.cis-count--fail {
+  color: var(--danger-fg);
+}
+
+.cis-control {
+  border-bottom: 1px solid var(--hair);
+}
+.cis-control:last-child {
+  border-bottom: 0;
+}
+
+.cis-control-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px 8px 14px;
+  font-size: 12.5px;
+  cursor: pointer;
+  outline: none;
+}
+
+.cis-control-main:hover {
+  background: var(--hover);
+}
+.cis-control-main:focus-visible {
+  box-shadow: inset 0 0 0 2px rgba(var(--blue-rgb), 0.45);
+}
+
+.cis-control-main > .ap-badge,
+.cis-control-main > .cis-control-src,
+.cis-control-main > .cis-control-scored {
+  margin-top: 1px;
+}
+
+.cis-control-id {
+  flex: none;
+  width: 46px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--text2);
+  padding-top: 1px;
+}
+
+.cis-control-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.cis-control-title {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.cis-control-msg {
+  color: var(--text2);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  word-break: break-word;
+}
+
+.cis-control.is-open .cis-control-msg {
+  display: block;
+  -webkit-line-clamp: unset;
+}
+
+.cis-control-src,
+.cis-control-scored {
+  flex: none;
+  font-size: 11px;
+  color: var(--text3);
+  white-space: nowrap;
+}
+
+.cis-status {
+  flex: none;
+  min-width: 52px;
+  justify-content: center;
+}
+
+.cis-control-ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  opacity: 0.55;
+  transition: opacity 120ms var(--ease-quiet);
+}
+
+.cis-control-main:hover .cis-control-ai,
+.cis-control-ai:focus-within {
+  opacity: 1;
+}
+
+.cis-control-more {
+  padding: 0 14px 12px 70px;
+  font-size: 12px;
+  color: var(--text2);
+}
+
+.cis-control-more > .health-check-expl:first-child {
+  margin-top: 0;
+}
+
+.cis-more-label {
+  display: block;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  margin: 10px 0 4px;
+}
+
+.cis-manual {
+  margin-top: 8px;
+  padding: 8px 10px;
+  border-radius: 7px;
+  background: var(--blue-soft);
+  color: var(--text);
+  line-height: 1.45;
+}
+
+.cis-manual .cis-more-label {
+  margin-top: 0;
+}
+
+.cis-evidence {
+  margin-top: 2px;
+}
+
+.cis-value-row,
+.cis-pool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+  min-width: 0;
+}
+
+.cis-value-name {
+  flex: none;
+  font-size: 11px;
+  color: var(--text);
+}
+
+.cis-value-val {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cis-pool-name {
+  flex: none;
+  font-weight: 600;
+  color: var(--text);
+}
+.cis-pool-count {
+  flex: none;
+  color: var(--text3);
+  font-size: 11px;
+}
+.cis-pool-nodes {
+  display: inline-flex;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+}
+
+.cis-resources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.cis-remediation .health-check-expl {
+  margin: 0;
+}
+
+.cis-legal {
+  margin: 6px 16px 0;
+  font-size: 11px;
+  color: var(--text3);
+  line-height: 1.5;
+}
+
+/* Overview card: the small "CIS 78%" link under the audit ring. */
+.health-summary-cis {
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text2);
+  cursor: pointer;
+  padding: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.health-summary-cis:hover {
+  color: var(--blue);
+  text-decoration: underline;
+}
+
+.health-summary-scorecol {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  border-left: 1px solid var(--hair);
+}
+
+.health-summary-scorecol .health-summary-score {
+  border-left: 0;
+  flex: 1;
+}
+.health-summary-scorecol .health-summary-cis {
+  padding: 0 16px 10px;
+  text-align: center;
+}
+
+.cis-scores {
+  align-items: stretch;
+  flex-wrap: nowrap;
+}
+.cis-scores > .health-score-card--main {
+  flex: none;
+}
+
+.cis-sections {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 10px;
+}
+
+.cis-group-label {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text2);
+  cursor: pointer;
+  text-align: left;
+}
+
+.cis-group-label:hover {
+  color: var(--text);
+}
+.cis-group-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.cis-group-name svg {
+  color: var(--text3);
+}
+.cis-group.is-collapsed {
+  margin-bottom: 6px;
+}
