@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.9.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.8.0...v0.9.0) (2026-11-06)
+
+
+### Features
+
+* MCP server, AI chat and remediation, and cluster insight features ([#67](https://github.com/kanivet-ai/kanivet-oss/issues/67)) ([be6c0b1](https://github.com/kanivet-ai/kanivet-oss/commit/be6c0b1279e3c7f8d469a7b11815b14004250517))
+
+
+### Bug Fixes
+
+* **lists:** stop lists from staying partly empty after a lost resync ([#70](https://github.com/kanivet-ai/kanivet-oss/issues/70)) ([07da84c](https://github.com/kanivet-ai/kanivet-oss/commit/07da84c71334b2b65141e709a54361d58c2cba35))
+
 ## [0.8.0](https://github.com/kanivet-ai/kanivet-oss/compare/v0.7.0...v0.8.0) (2026-11-02)
 
 
