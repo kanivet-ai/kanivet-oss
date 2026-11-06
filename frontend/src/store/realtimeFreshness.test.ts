@@ -407,3 +407,83 @@ describe('open details of objects a resync drops', () => {
     expect(names(shown(store).listItems)).toEqual(['a']);
   });
 });
+
+// A listing whose sync says it has more rows than arrived lost a page on the
+// way (dropped under backpressure). It used to be taken as a complete list:
+// shown live with the rows missing, and nothing asked for it again.
+describe('a listing that closes with rows missing', () => {
+  const partialSnapshot = (name: string, items: any[], itemCount: number, epoch: number) =>
+    emit(name, [...items.map((i) => ({ action: 'added', item: i })), { type: 'sync_complete', itemCount, epoch }], true, epoch);
+
+  it('is not shown as live and asks for the list again', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    await start(store);
+    ws.subscribes.length = 0;
+    partialSnapshot('pods', [item('a'), item('b')], 4, 1);
+    await vi.advanceTimersByTimeAsync(200);
+
+    expect(names(shown(store).listItems)).toEqual(['a', 'b']);
+    expect(shown(store).isLoadingListItems).toBe(false);
+    expect(shown(store).hasReceivedInitialListData).toBe(false);
+    expect(health(store, 'pods').live).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(800);
+    expect(ws.subscribes).toEqual([topicIn('A', 'pods')]);
+
+    // The full list arrives: live, and nothing more is asked for.
+    snapshot('pods', [item('a'), item('b'), item('c'), item('d')], 2);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(names(shown(store).listItems)).toEqual(['a', 'b', 'c', 'd']);
+    expect(shown(store).hasReceivedInitialListData).toBe(true);
+    expect(health(store, 'pods').live).toBe(true);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(ws.subscribes).toHaveLength(1);
+  });
+
+  it('turns a live list back to syncing when a resync of it comes up short', async () => {
+    const store = makeStore();
+    await open(store, 'pods', [item('a'), item('b'), item('c')]);
+    expect(health(store, 'pods').live).toBe(true);
+    partialSnapshot('pods', [item('a')], 3, 2);
+    await vi.advanceTimersByTimeAsync(200);
+    // Nothing is pruned by a listing that is not whole.
+    expect(names(shown(store).listItems)).toEqual(['a', 'b', 'c']);
+    expect(shown(store).hasReceivedInitialListData).toBe(false);
+    expect(health(store, 'pods').live).toBe(false);
+  });
+
+  it('asks again with backoff, a bounded number of times in a row', async () => {
+    const store = makeStore();
+    select(store, 'pods');
+    await start(store);
+    ws.subscribes.length = 0;
+
+    partialSnapshot('pods', [item('a')], 2, 1);
+    await vi.advanceTimersByTimeAsync(999);
+    expect(ws.subscribes).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ws.subscribes).toHaveLength(1);
+
+    partialSnapshot('pods', [item('a')], 2, 2);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(ws.subscribes).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(ws.subscribes).toHaveLength(2);
+
+    for (let epoch = 3; epoch <= 12; epoch++) {
+      partialSnapshot('pods', [item('a')], 2, epoch);
+      await vi.advanceTimersByTimeAsync(40_000);
+    }
+    expect(ws.subscribes).toHaveLength(5);
+    expect(health(store, 'pods').live).toBe(false);
+    expect(health(store, 'pods').failing?.errorCode).toBe('incomplete');
+    expect(shown(store).loadError).toBeTruthy();
+
+    // A complete listing, from the backend's own resync, makes it live again.
+    snapshot('pods', [item('a'), item('b')], 13);
+    await vi.advanceTimersByTimeAsync(200);
+    expect(health(store, 'pods')).toMatchObject({ live: true, failing: null });
+    expect(shown(store).loadError).toBeUndefined();
+  });
+});
