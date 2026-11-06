@@ -590,9 +590,78 @@ func (s *Service) StopAllForCluster(cluster string) {
 // used to recover a client that missed a live update due to backpressure,
 // instead of letting it silently desync. The topic's stored sort preference is
 // honored so the resynced list matches the client's view.
-func (s *Service) Resync(topic string) {
+//
+// It reports whether the subscribers are taken care of: the snapshot went out,
+// there is no watch left to replay, or another snapshot pass (a long relist)
+// holds the topic and one replay is queued to run as soon as that pass
+// releases it; requests queued behind the same pass coalesce into one. It
+// reports false when the topic's first list is still in flight after
+// cachedDataSyncWait: nothing could be replayed, and the caller must try again.
+func (s *Service) Resync(topic string) bool {
+	listed, listErr := s.waitFirstList(topic)
+	if !listed {
+		return false
+	}
+	if !s.manager.HasWatch(topic) {
+		return true
+	}
+	unlock, ok := s.tryLockTopicPassOrQueue(topic)
+	if !ok {
+		log.Printf("k8s watcher: resync of %s queued behind the snapshot pass in flight", topic)
+		return true
+	}
+	defer unlock()
 	sortBy, sortOrder := s.hub.GetSortPreference(topic)
-	s.sendCachedData(topic, sortBy, sortOrder)
+	s.replayLocked(topic, sortBy, sortOrder, listErr, time.Now())
+	return true
+}
+
+// runQueuedReplay is the replay a Resync queued behind a busy pass, started
+// once that pass released the topic. If another pass took the topic in
+// between, the replay queues behind that one in turn instead of waiting.
+func (s *Service) runQueuedReplay(topic string) {
+	if !s.manager.HasWatch(topic) {
+		return
+	}
+	var listErr error
+	s.syncStateMu.RLock()
+	status := s.syncState[topic]
+	s.syncStateMu.RUnlock()
+	if status != nil {
+		select {
+		case <-status.done:
+			listErr = status.err
+		default:
+			// A first list is in flight: it sends its own rows and sync.
+			return
+		}
+	}
+	unlock, ok := s.tryLockTopicPassOrQueue(topic)
+	if !ok {
+		return
+	}
+	defer unlock()
+	sortBy, sortOrder := s.hub.GetSortPreference(topic)
+	s.replayLocked(topic, sortBy, sortOrder, listErr, time.Now())
+}
+
+// waitFirstList waits up to cachedDataSyncWait for the topic's first list and
+// returns its error, reporting false if it is still in flight.
+func (s *Service) waitFirstList(topic string) (bool, error) {
+	s.syncStateMu.RLock()
+	status := s.syncState[topic]
+	s.syncStateMu.RUnlock()
+	if status == nil {
+		return true, nil
+	}
+	t := time.NewTimer(cachedDataSyncWait)
+	defer t.Stop()
+	select {
+	case <-status.done:
+		return true, status.err
+	case <-t.C:
+		return false, nil
+	}
 }
 
 // cachedDataSyncWait is how long a late subscriber waits for the topic's first
@@ -601,23 +670,15 @@ var cachedDataSyncWait = 30 * time.Second
 
 func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 	t0 := time.Now()
-	s.syncStateMu.RLock()
-	status := s.syncState[topic]
-	s.syncStateMu.RUnlock()
-	var listErr error
-	if status != nil {
-		select {
-		case <-status.done:
-			// A failed first list leaves nothing confirmed to replay, but
-			// the subscriber must still leave its loading state: it gets
-			// what the cache holds, flagged, like the first one did.
-			listErr = status.err
-		case <-time.After(cachedDataSyncWait):
-			if s.manager.HasWatch(topic) {
-				s.sendListPending(topic)
-			}
-			return
+	// A failed first list leaves nothing confirmed to replay, but the
+	// subscriber must still leave its loading state: it gets what the cache
+	// holds, flagged, like the first one did.
+	listed, listErr := s.waitFirstList(topic)
+	if !listed {
+		if s.manager.HasWatch(topic) {
+			s.sendListPending(topic)
 		}
+		return
 	}
 	if !s.manager.HasWatch(topic) {
 		return
@@ -631,6 +692,12 @@ func (s *Service) sendCachedData(topic, sortBy, sortOrder string) {
 		return
 	}
 	defer unlock()
+	s.replayLocked(topic, sortBy, sortOrder, listErr, t0)
+}
+
+// replayLocked sends the cached snapshot of a topic whose pass the caller
+// holds, closed by its sync_complete.
+func (s *Service) replayLocked(topic, sortBy, sortOrder string, listErr error, t0 time.Time) {
 	// Live events go out after the snapshot's pages, as each page may be
 	// older than they are: held from before the snapshot is read until
 	// sync_complete, they are flushed just ahead of it.

@@ -449,6 +449,9 @@ func TestReplayWaitsForTheRelistInFlight(t *testing.T) {
 	close(l.release)
 	<-listed
 	<-replayed
+	// The resync found the relist holding the topic and queued its replay
+	// behind it, to run once the relist is done.
+	waitFor(t, "the queued replay", func() bool { return len(hub.syncCompletes()) >= 2 })
 
 	syncs := hub.syncCompletes()
 	if len(syncs) != 2 || syncs[0].Epoch >= syncs[1].Epoch {
