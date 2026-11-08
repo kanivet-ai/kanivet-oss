@@ -18,6 +18,7 @@ Built for developers, platform engineers, and SREs, Kanivet brings Kubernetes cl
 - **Search cluster resources:** find resources across your cluster data to move from an issue to the relevant object.
 - **Edit Kubernetes YAML:** inspect, create, and update resource definitions in the built-in editor.
 - **Use terminals and port forwarding:** open pod shells and forward pod or service ports to your local machine.
+- **Check CIS Kubernetes Benchmark compliance:** Audit's CIS view detects the provider (EKS, GKE, AKS, OpenShift, k3s, RKE2, kind, kubeadm, ...), runs the matching profile read-only, and merges Trivy Operator, Kubescape and kube-bench results.
 
 ### Crossplane, GitOps, and cloud integrations
 
@@ -138,6 +139,8 @@ Keep each PR focused on one change. Include a summary, related issues, validatio
 ## License
 
 Original project code is licensed under [Apache-2.0](LICENSE) and documentation prose under [CC-BY-4.0](LICENSES/CC-BY-4.0.txt). Third-party material retains its own licenses and notices as described in [LICENSING.md](LICENSING.md).
+
+The CIS Benchmarks are © Center for Internet Security. Kanivet refers to their controls by number only; control titles, descriptions and remediation notes in the app are Kanivet's own summaries, not CIS text, and its results are not a certified CIS assessment.
 
 ## Contributors
 

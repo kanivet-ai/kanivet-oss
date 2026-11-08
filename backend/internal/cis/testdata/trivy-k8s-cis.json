@@ -1,0 +1,25 @@
+{
+  "apiVersion": "aquasecurity.github.io/v1alpha1",
+  "kind": "ClusterComplianceReport",
+  "metadata": {"name": "k8s-cis-1.23"},
+  "spec": {
+    "cron": "0 */6 * * *",
+    "reportType": "summary",
+    "compliance": {"id": "k8s-cis-1.23", "title": "CIS Kubernetes Benchmarks v1.23", "version": "1.0"}
+  },
+  "status": {
+    "updateTimestamp": "2026-11-05T08:00:00Z",
+    "summary": {"failCount": 2, "passCount": 3},
+    "summaryReport": {
+      "id": "k8s-cis-1.23",
+      "title": "CIS Kubernetes Benchmarks v1.23",
+      "controlCheck": [
+        {"id": "1.1.1", "name": "Ensure that the API server pod specification file permissions are set", "severity": "HIGH", "totalFail": 0},
+        {"id": "1.1.2", "name": "API server pod specification file ownership", "severity": "HIGH", "totalFail": 1},
+        {"id": "4.2.4", "name": "kubelet read-only port", "severity": "HIGH", "totalFail": 3},
+        {"id": "5.1.1", "name": "cluster-admin role", "severity": "HIGH"},
+        {"id": "5.7.4", "name": "default namespace", "severity": "MEDIUM", "totalFail": 0}
+      ]
+    }
+  }
+}

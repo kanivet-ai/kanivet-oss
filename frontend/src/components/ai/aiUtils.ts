@@ -90,7 +90,36 @@ export type MdBlock =
   | { type: 'p'; text: string }
   | { type: 'ul'; items: string[] }
   | { type: 'ol'; items: string[] }
-  | { type: 'code'; text: string };
+  | { type: 'code'; text: string }
+  | { type: 'table'; header: string[]; align: ('left' | 'center' | 'right' | null)[]; rows: string[][] }
+  | { type: 'quote'; text: string }
+  | { type: 'hr' };
+
+/** Split one GFM table row into trimmed cells, honouring escaped pipes and pipes inside `code`. */
+export function splitTableRow(line: string): string[] {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|') && !t.endsWith('\\|')) t = t.slice(0, -1);
+  const cells: string[] = [];
+  let cur = '';
+  let inCode = false;
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (c === '\\' && t[i + 1] === '|') { cur += '|'; i++; continue; }
+    if (c === '`') inCode = !inCode;
+    if (c === '|' && !inCode) { cells.push(cur.trim()); cur = ''; continue; }
+    cur += c;
+  }
+  cells.push(cur.trim());
+  return cells;
+}
+
+const TABLE_SEP = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)*\|?\s*$/;
+const isTableRow = (l: string) => l.includes('|') && l.trim() !== '';
+/** A table starts at a pipe row directly followed by a `---|:--:` separator row. */
+const tableStartsAt = (lines: string[], i: number) =>
+  i + 1 < lines.length && isTableRow(lines[i]) && TABLE_SEP.test(lines[i + 1]) && lines[i + 1].includes('-');
+const HR = /^\s*([-*_])(\s*\1){2,}\s*$/;
 
 /** A deliberately small markdown reader for agent reports. */
 export function parseMarkdown(md: string): MdBlock[] {
@@ -105,6 +134,32 @@ export function parseMarkdown(md: string): MdBlock[] {
       while (i < lines.length && !lines[i].startsWith('```')) body.push(lines[i++]);
       i++;
       blocks.push({ type: 'code', text: body.join('\n') });
+      continue;
+    }
+    if (tableStartsAt(lines, i)) {
+      const header = splitTableRow(line);
+      const align = splitTableRow(lines[i + 1]).map((c) =>
+        c.startsWith(':') && c.endsWith(':') ? 'center' : c.endsWith(':') ? 'right' : c.startsWith(':') ? 'left' : null,
+      );
+      i += 2;
+      const rows: string[][] = [];
+      while (i < lines.length && isTableRow(lines[i]) && !lines[i].startsWith('```')) {
+        const cells = splitTableRow(lines[i++]);
+        // Pad or trim to the header width so ragged agent output still lines up.
+        rows.push(header.map((_, k) => cells[k] ?? ''));
+      }
+      blocks.push({ type: 'table', header, align: header.map((_, k) => align[k] ?? null), rows });
+      continue;
+    }
+    if (HR.test(line)) {
+      blocks.push({ type: 'hr' });
+      i++;
+      continue;
+    }
+    if (/^\s*>/.test(line)) {
+      const body: string[] = [];
+      while (i < lines.length && /^\s*>/.test(lines[i])) body.push(lines[i++].replace(/^\s*>\s?/, ''));
+      blocks.push({ type: 'quote', text: body.join(' ') });
       continue;
     }
     const h = /^(#{1,6})\s+(.*)$/.exec(line);
@@ -130,7 +185,14 @@ export function parseMarkdown(md: string): MdBlock[] {
       continue;
     }
     const para: string[] = [];
-    while (i < lines.length && lines[i].trim() !== '' && !/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s)/.test(lines[i])) para.push(lines[i++]);
+    while (
+      i < lines.length &&
+      lines[i].trim() !== '' &&
+      !/^(#{1,6}\s|```|\s*[-*]\s|\s*\d+[.)]\s|\s*>)/.test(lines[i]) &&
+      !HR.test(lines[i]) &&
+      !tableStartsAt(lines, i)
+    )
+      para.push(lines[i++]);
     blocks.push({ type: 'p', text: para.join(' ') });
   }
   return blocks;

@@ -47,6 +47,33 @@ export const Markdown: React.FC<{ md: string; cluster: string }> = ({ md, cluste
           return <ol key={i}>{b.items.map((it, j) => <li key={j}><Inline text={it} cluster={cluster} /></li>)}</ol>;
         case 'code':
           return <pre key={i} className="ai-code">{b.text}</pre>;
+        case 'table':
+          return (
+            <div key={i} className="ai-md-table-wrap">
+              <table className="ai-md-table">
+                <thead>
+                  <tr>
+                    {b.header.map((h, j) => (
+                      <th key={j} style={b.align[j] ? { textAlign: b.align[j]! } : undefined}><Inline text={h} cluster={cluster} /></th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {b.rows.map((r, j) => (
+                    <tr key={j}>
+                      {r.map((c, k) => (
+                        <td key={k} style={b.align[k] ? { textAlign: b.align[k]! } : undefined}><Inline text={c} cluster={cluster} /></td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        case 'quote':
+          return <blockquote key={i} className="ai-md-quote"><Inline text={b.text} cluster={cluster} /></blockquote>;
+        case 'hr':
+          return <hr key={i} className="ai-md-hr" />;
         default:
           return <p key={i}><Inline text={b.text} cluster={cluster} /></p>;
       }
