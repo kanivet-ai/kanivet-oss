@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/version"
 )
 
 var smartIndexingDelay = 30 * time.Second
@@ -781,14 +782,39 @@ func (s *Service) preferredAPIResources(cluster string, resources []metav1.APIRe
 			out = append(out, r)
 			continue
 		}
-		if s.k8sClient == nil {
-			continue
-		}
-		if preferred, ok := s.k8sClient.PreferredVersion(cluster, r.Group); ok && r.Version == preferred && out[idx].Version != preferred {
+		if s.betterVersion(cluster, r.Group, r.Version, out[idx].Version) {
 			out[idx] = r
 		}
 	}
 	return out
+}
+
+// betterVersion reports whether candidate should replace current as the
+// version used for a group's resource. The group's preferred version wins;
+// otherwise the more stable version does (v1 over v1beta1 over v1alpha1), so
+// a deprecated beta API is never chosen while its GA version is served.
+func (s *Service) betterVersion(cluster, group, candidate, current string) bool {
+	if s.k8sClient != nil {
+		if preferred, ok := s.k8sClient.PreferredVersion(cluster, group); ok {
+			if current == preferred {
+				return false
+			}
+			if candidate == preferred {
+				return true
+			}
+		}
+	}
+	return version.CompareKubeAwareVersionStrings(candidate, current) > 0
+}
+
+// PreferredAPIResources returns the cluster's discovered resources with one
+// entry per group+resource, at the version the watchers should use.
+func (s *Service) PreferredAPIResources(cluster string) ([]metav1.APIResource, error) {
+	resources, err := s.ListAPIResources(cluster)
+	if err != nil {
+		return nil, err
+	}
+	return s.preferredAPIResources(cluster, resources), nil
 }
 
 // apiResources shares the API handler's discovery cache entry, and its
