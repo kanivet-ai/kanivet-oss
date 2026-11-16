@@ -109,7 +109,7 @@ func (b *WatcherBridge) startWatchersWithResourceVersions(cluster string) {
 	log.Printf("Starting watchers for cluster %s with resource version tracking", cluster)
 
 	// Discover API resources
-	resources, err := b.searchService.ListAPIResources(cluster)
+	resources, err := b.searchService.PreferredAPIResources(cluster)
 	if err != nil {
 		log.Printf("Failed to list API resources for %s: %v", cluster, err)
 		return
@@ -190,7 +190,7 @@ func (b *WatcherBridge) StartAllWatchersForCluster(cluster string) {
 // startAllWatchers starts watchers for all discovered resources
 func (b *WatcherBridge) startAllWatchers(cluster string) {
 	// Discover API resources
-	resources, err := b.searchService.ListAPIResources(cluster)
+	resources, err := b.searchService.PreferredAPIResources(cluster)
 	if err != nil {
 		log.Printf("Failed to list API resources for %s: %v", cluster, err)
 		return

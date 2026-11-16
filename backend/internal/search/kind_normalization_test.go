@@ -125,6 +125,25 @@ func TestPreferredAPIResourcesKeepsOnePerResource(t *testing.T) {
 		t.Fatalf("want 2 resources, got %d", len(out))
 	}
 	if out[0].Version != "v2" {
-		t.Fatalf("without preference data the first served version is kept, got %s", out[0].Version)
+		t.Fatalf("without preference data the most stable version is kept, got %s", out[0].Version)
+	}
+}
+
+// VolumeAttributesClass is GA in storage.k8s.io/v1 since Kubernetes 1.34 and
+// its v1beta1 version is deprecated. Discovery can list the beta version
+// first, and the deprecated version must not be the one watched or indexed.
+func TestPreferredAPIResourcesPrefersGAOverBeta(t *testing.T) {
+	s := newTestSearchService()
+	in := []metav1.APIResource{
+		{Name: "volumeattributesclasses", Kind: "VolumeAttributesClass", Group: "storage.k8s.io", Version: "v1beta1"},
+		{Name: "volumeattributesclasses", Kind: "VolumeAttributesClass", Group: "storage.k8s.io", Version: "v1alpha1"},
+		{Name: "volumeattributesclasses", Kind: "VolumeAttributesClass", Group: "storage.k8s.io", Version: "v1"},
+	}
+	out := s.preferredAPIResources("c", in)
+	if len(out) != 1 {
+		t.Fatalf("want 1 resource, got %d", len(out))
+	}
+	if out[0].Version != "v1" {
+		t.Fatalf("want storage.k8s.io/v1, got %s", out[0].Version)
 	}
 }
