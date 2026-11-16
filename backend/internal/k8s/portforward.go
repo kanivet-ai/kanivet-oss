@@ -7,7 +7,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -26,6 +29,11 @@ type PortForward struct {
 	RemotePort int
 	Active     bool
 	CreatedAt  time.Time
+	// SourceName and SourceKind are what the user forwarded from (pod or service).
+	SourceName string
+	SourceKind string
+	// SourcePort is the service port when the forward was created from a Service.
+	SourcePort int
 	stopChan   chan struct{}
 	readyChan  chan struct{}
 }
@@ -52,8 +60,8 @@ func NewPortForwardManager(client *Client) *PortForwardManager {
 // CreatePortForward opens a forward to pod:port, or hands back the one
 // already open to the same target. Stopping it stops it for everyone holding
 // it, which is what the user's own port-forwards want.
-func (m *PortForwardManager) CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
-	return m.create(cluster, namespace, podName, remotePort, true)
+func (m *PortForwardManager) CreatePortForward(cluster, namespace, podName string, remotePort, preferredLocalPort int) (*PortForward, error) {
+	return m.create(cluster, namespace, podName, remotePort, true, preferredLocalPort)
 }
 
 // CreatePrivatePortForward always opens a new forward under an ID nobody else
@@ -61,16 +69,15 @@ func (m *PortForwardManager) CreatePortForward(cluster, namespace, podName strin
 // another of Kanivet's own users) is still reading through, and nobody else's
 // Stop can tear down the owner's.
 func (m *PortForwardManager) CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
-	return m.create(cluster, namespace, podName, remotePort, false)
+	return m.create(cluster, namespace, podName, remotePort, false, 0)
 }
 
-func (m *PortForwardManager) create(cluster, namespace, podName string, remotePort int, shared bool) (*PortForward, error) {
+func (m *PortForwardManager) create(cluster, namespace, podName string, remotePort int, shared bool, preferredLocalPort int) (*PortForward, error) {
 	log.Printf("Creating port forward for %s/%s:%d in cluster %s", namespace, podName, remotePort, cluster)
 
-	// Find an available local port
-	localPort, err := m.findAvailablePort()
+	localPort, err := m.allocateLocalPort(preferredLocalPort)
 	if err != nil {
-		return nil, fmt.Errorf("failed to find available port: %w", err)
+		return nil, err
 	}
 	log.Printf("Found available local port: %d", localPort)
 
@@ -80,27 +87,34 @@ func (m *PortForwardManager) create(cluster, namespace, podName string, remotePo
 	}
 
 	m.mu.Lock()
-	// Check if already exists
 	if existing, ok := m.forwards[id]; ok && existing.Active {
 		m.mu.Unlock()
 		log.Printf("Port forward already exists for %s", id)
 		return existing, nil
 	}
 
-	pf := &PortForward{
-		ID:         id,
-		Cluster:    cluster,
-		Namespace:  namespace,
-		PodName:    podName,
-		LocalPort:  localPort,
-		RemotePort: remotePort,
-		Active:     false,
-		CreatedAt:  time.Now(),
-		stopChan:   make(chan struct{}, 1),
-		readyChan:  make(chan struct{}),
+	var pf *PortForward
+	if existing, ok := m.forwards[id]; ok && !existing.Active {
+		existing.LocalPort = localPort
+		existing.Active = false
+		existing.stopChan = make(chan struct{}, 1)
+		existing.readyChan = make(chan struct{})
+		pf = existing
+	} else {
+		pf = &PortForward{
+			ID:         id,
+			Cluster:    cluster,
+			Namespace:  namespace,
+			PodName:    podName,
+			LocalPort:  localPort,
+			RemotePort: remotePort,
+			Active:     false,
+			CreatedAt:  time.Now(),
+			stopChan:   make(chan struct{}, 1),
+			readyChan:  make(chan struct{}),
+		}
+		m.forwards[id] = pf
 	}
-
-	m.forwards[id] = pf
 	m.mu.Unlock()
 
 	// Start the port forward in a goroutine
@@ -108,7 +122,11 @@ func (m *PortForwardManager) create(cluster, namespace, podName string, remotePo
 		if err := m.start(pf); err != nil {
 			log.Printf("Port forward %s failed: %v", id, err)
 			m.mu.Lock()
-			delete(m.forwards, id)
+			if strings.Contains(id, "#") {
+				delete(m.forwards, id)
+			} else if existing, ok := m.forwards[id]; ok {
+				existing.Active = false
+			}
 			m.mu.Unlock()
 		}
 	}()
@@ -128,7 +146,11 @@ func (m *PortForwardManager) create(cluster, namespace, podName string, remotePo
 			m.mu.Unlock()
 			return nil, fmt.Errorf("port forward failed to start")
 		}
-		delete(m.forwards, id)
+		if strings.Contains(id, "#") {
+			delete(m.forwards, id)
+		} else if existing, ok := m.forwards[id]; ok {
+			existing.Active = false
+		}
 		m.mu.Unlock()
 		// Try to stop the goroutine
 		select {
@@ -200,7 +222,9 @@ func (m *PortForwardManager) startPortForward(pf *PortForward) error {
 		m.mu.Lock()
 		if storedPF, ok := m.forwards[pf.ID]; ok && storedPF == pf {
 			storedPF.Active = false
-			delete(m.forwards, pf.ID)
+			if strings.Contains(pf.ID, "#") {
+				delete(m.forwards, pf.ID)
+			}
 			log.Printf("Port forward %s cleaned up after ForwardPorts exit", pf.ID)
 		}
 		m.mu.Unlock()
@@ -230,6 +254,18 @@ func (m *PortForwardManager) startPortForward(pf *PortForward) error {
 	return nil
 }
 
+func (m *PortForwardManager) stopTunnel(pf *PortForward, id string) {
+	if pf.Active && pf.stopChan != nil {
+		select {
+		case pf.stopChan <- struct{}{}:
+			log.Printf("Successfully sent stop signal for %s", id)
+		default:
+			log.Printf("Stop channel might be closed for %s", id)
+		}
+	}
+	pf.Active = false
+}
+
 func (m *PortForwardManager) StopPortForward(id string) error {
 	log.Printf("Stopping port forward: %s", id)
 
@@ -239,23 +275,68 @@ func (m *PortForwardManager) StopPortForward(id string) error {
 	pf, ok := m.forwards[id]
 	if !ok {
 		log.Printf("Port forward not found (already stopped?): %s", id)
-		// Don't return an error if the port forward doesn't exist - it may have already been cleaned up
 		return nil
 	}
 
-	if pf.Active && pf.stopChan != nil {
-		select {
-		case pf.stopChan <- struct{}{}:
-			log.Printf("Successfully sent stop signal for %s", id)
-		default:
-			log.Printf("Stop channel might be closed for %s", id)
-		}
-		pf.Active = false
+	m.stopTunnel(pf, id)
+	if strings.Contains(id, "#") {
+		delete(m.forwards, id)
+		log.Printf("Port forward %s removed (private)", id)
+		return nil
 	}
-
-	delete(m.forwards, id)
-	log.Printf("Port forward %s removed from active forwards", id)
+	log.Printf("Port forward %s stopped (record kept)", id)
 	return nil
+}
+
+func (m *PortForwardManager) RemovePortForward(id string) error {
+	log.Printf("Removing port forward record: %s", id)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	pf, ok := m.forwards[id]
+	if !ok {
+		return nil
+	}
+	m.stopTunnel(pf, id)
+	delete(m.forwards, id)
+	return nil
+}
+
+func (m *PortForwardManager) findForward(id string) (*PortForward, bool) {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil, false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if pf, ok := m.forwards[id]; ok {
+		return pf, true
+	}
+	if strings.Contains(id, "%") {
+		decoded, err := url.PathUnescape(id)
+		if err == nil {
+			if pf, ok := m.forwards[decoded]; ok {
+				return pf, true
+			}
+		}
+	}
+	return nil, false
+}
+
+// ResumePortForward starts a stopped user forward again, keeping its metadata and local port.
+func (m *PortForwardManager) ResumePortForward(id string) (*PortForward, error) {
+	pf, ok := m.findForward(id)
+	if !ok {
+		return nil, fmt.Errorf("port forward not found: %s", id)
+	}
+	if pf.Active {
+		return pf, nil
+	}
+	if strings.Contains(id, "#") {
+		return nil, fmt.Errorf("cannot resume private forward %s", id)
+	}
+	return m.create(pf.Cluster, pf.Namespace, pf.PodName, pf.RemotePort, true, pf.LocalPort)
 }
 
 func (m *PortForwardManager) GetPortForward(id string) (*PortForward, bool) {
@@ -263,6 +344,42 @@ func (m *PortForwardManager) GetPortForward(id string) (*PortForward, bool) {
 	defer m.mu.RUnlock()
 	pf, ok := m.forwards[id]
 	return pf, ok
+}
+
+// ListPortForwards returns user-visible forwards (shared), active or stopped.
+// Private forwards Kanivet opens for metrics and probes use IDs with a "#" suffix.
+func (m *PortForwardManager) ListPortForwards(cluster string) []*PortForward {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]*PortForward, 0, len(m.forwards))
+	for _, pf := range m.forwards {
+		if strings.Contains(pf.ID, "#") {
+			continue
+		}
+		if cluster != "" && pf.Cluster != cluster {
+			continue
+		}
+		out = append(out, pf)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].CreatedAt.Equal(out[j].CreatedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].CreatedAt.After(out[j].CreatedAt)
+	})
+	return out
+}
+
+func (m *PortForwardManager) allocateLocalPort(preferred int) (int, error) {
+	if preferred > 0 {
+		listener, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", preferred))
+		if err != nil {
+			return 0, fmt.Errorf("local port %d is not available: %w", preferred, err)
+		}
+		_ = listener.Close()
+		return preferred, nil
+	}
+	return m.findAvailablePort()
 }
 
 func (m *PortForwardManager) findAvailablePort() (int, error) {

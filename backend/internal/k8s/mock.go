@@ -175,7 +175,7 @@ func (m *MockClient) CreateResource(ctx context.Context, cluster string, gvr sch
 	return nil, fmt.Errorf("not implemented in mock")
 }
 
-func (m *MockClient) CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
+func (m *MockClient) CreatePortForward(cluster, namespace, podName string, remotePort, localPort int) (*PortForward, error) {
 	return nil, fmt.Errorf("not implemented in mock")
 }
 
@@ -187,8 +187,20 @@ func (m *MockClient) StopPortForward(id string) error {
 	return fmt.Errorf("not implemented in mock")
 }
 
+func (m *MockClient) RemovePortForward(id string) error {
+	return fmt.Errorf("not implemented in mock")
+}
+
+func (m *MockClient) ResumePortForward(id string) (*PortForward, error) {
+	return nil, fmt.Errorf("not implemented in mock")
+}
+
 func (m *MockClient) GetPortForward(id string) (*PortForward, bool) {
 	return nil, false
+}
+
+func (m *MockClient) ListPortForwards(cluster string) []*PortForward {
+	return nil
 }
 
 func (m *MockClient) GetPodLogs(ctx context.Context, cluster, namespace, name, container, tailLines string) (string, error) {

@@ -10,7 +10,46 @@ import (
 	"github.com/gin-gonic/gin"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/kanivet/backend/internal/k8s"
 )
+
+func portForwardListItem(pf *k8s.PortForward) gin.H {
+	name := pf.SourceName
+	if name == "" {
+		name = pf.PodName
+	}
+	kind := strings.ToLower(pf.SourceKind)
+	if kind == "" {
+		kind = "pod"
+	}
+	item := gin.H{
+		"id":         pf.ID,
+		"cluster":    pf.Cluster,
+		"namespace":  pf.Namespace,
+		"podName":    pf.PodName,
+		"name":       name,
+		"kind":       kind,
+		"localPort":  pf.LocalPort,
+		"remotePort": pf.RemotePort,
+		"active":     pf.Active,
+		"createdAt":  pf.CreatedAt,
+	}
+	if pf.SourcePort > 0 {
+		item["servicePort"] = pf.SourcePort
+	}
+	return item
+}
+
+func (h *Handler) ListPortForwards(c *gin.Context) {
+	cluster := c.Query("cluster")
+	forwards := h.k8s.ListPortForwards(cluster)
+	items := make([]gin.H, 0, len(forwards))
+	for _, pf := range forwards {
+		items = append(items, portForwardListItem(pf))
+	}
+	h.respond(c, http.StatusOK, gin.H{"portForwards": items}, nil)
+}
 
 func (h *Handler) CreatePortForward(c *gin.Context) {
 	cluster, ok := h.requireCluster(c)
@@ -28,6 +67,7 @@ func (h *Handler) CreatePortForward(c *gin.Context) {
 
 	var request struct {
 		RemotePort int `json:"remotePort" binding:"required"`
+		LocalPort  int `json:"localPort"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("invalid request body: %v", err))
@@ -36,21 +76,17 @@ func (h *Handler) CreatePortForward(c *gin.Context) {
 
 	log.Printf("Creating port forward to remote port %d", request.RemotePort)
 
-	pf, err := h.k8s.CreatePortForward(cluster, namespace, podName, request.RemotePort)
+	pf, err := h.k8s.CreatePortForward(cluster, namespace, podName, request.RemotePort, request.LocalPort)
 	if err != nil {
 		log.Printf("Failed to create port forward: %v", err)
 		h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to create port forward: %v", err))
 		return
 	}
 
+	pf.SourceName = podName
+	pf.SourceKind = "Pod"
 	log.Printf("Port forward created successfully: %+v", pf)
-	h.respond(c, http.StatusOK, gin.H{
-		"id":         pf.ID,
-		"localPort":  pf.LocalPort,
-		"remotePort": pf.RemotePort,
-		"active":     pf.Active,
-		"createdAt":  pf.CreatedAt,
-	}, nil)
+	h.respond(c, http.StatusOK, portForwardListItem(pf), nil)
 }
 
 func (h *Handler) CreateServicePortForward(c *gin.Context) {
@@ -68,7 +104,8 @@ func (h *Handler) CreateServicePortForward(c *gin.Context) {
 	log.Printf("Service port forward request: cluster=%s, namespace=%s, service=%s", cluster, namespace, serviceName)
 
 	var request struct {
-		Port int `json:"port" binding:"required"`
+		Port      int `json:"port" binding:"required"`
+		LocalPort int `json:"localPort"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil {
 		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("invalid request body: %v", err))
@@ -201,29 +238,96 @@ func (h *Handler) CreateServicePortForward(c *gin.Context) {
 
 	log.Printf("Creating port forward to pod %s on port %d (service port %d)", selectedPod.Name, targetPort, request.Port)
 
-	pf, err := h.k8s.CreatePortForward(cluster, namespace, selectedPod.Name, targetPort)
+	pf, err := h.k8s.CreatePortForward(cluster, namespace, selectedPod.Name, targetPort, request.LocalPort)
 	if err != nil {
 		log.Printf("Failed to create port forward: %v", err)
 		h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to create port forward: %v", err))
 		return
 	}
 
+	pf.SourceName = serviceName
+	pf.SourceKind = "Service"
+	pf.SourcePort = request.Port
 	log.Printf("Service port forward created successfully: %+v", pf)
-	h.respond(c, http.StatusOK, gin.H{
-		"id":         pf.ID,
-		"localPort":  pf.LocalPort,
-		"remotePort": pf.RemotePort,
-		"active":     pf.Active,
-		"createdAt":  pf.CreatedAt,
-	}, nil)
+	h.respond(c, http.StatusOK, portForwardListItem(pf), nil)
 }
 
-func (h *Handler) StopPortForward(c *gin.Context) {
+func portForwardIDParam(c *gin.Context) string {
 	id := c.Param("id")
 	if len(id) > 0 && id[0] == '/' {
 		id = id[1:]
 	}
+	return id
+}
+
+func (h *Handler) StartPortForwardByID(c *gin.Context) {
+	var body struct {
+		ID          string `json:"id"`
+		Cluster     string `json:"cluster"`
+		Namespace   string `json:"namespace"`
+		PodName     string `json:"podName"`
+		RemotePort  int    `json:"remotePort"`
+		LocalPort   int    `json:"localPort"`
+		Kind        string `json:"kind"`
+		Name        string `json:"name"`
+		ServicePort int    `json:"servicePort"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil {
+		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("invalid request body: %v", err))
+		return
+	}
+	if strings.TrimSpace(body.ID) == "" {
+		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("port forward id required"))
+		return
+	}
+
+	pf, err := h.k8s.ResumePortForward(body.ID)
+	if err != nil && strings.Contains(err.Error(), "not found") {
+		cluster := strings.TrimSpace(body.Cluster)
+		namespace := strings.TrimSpace(body.Namespace)
+		podName := strings.TrimSpace(body.PodName)
+		if cluster == "" || namespace == "" || podName == "" || body.RemotePort <= 0 {
+			h.respond(c, http.StatusNotFound, nil, err)
+			return
+		}
+		pf, err = h.k8s.CreatePortForward(cluster, namespace, podName, body.RemotePort, body.LocalPort)
+		if err == nil && strings.EqualFold(strings.TrimSpace(body.Kind), "service") {
+			if name := strings.TrimSpace(body.Name); name != "" {
+				pf.SourceName = name
+				pf.SourceKind = "Service"
+			}
+			if body.ServicePort > 0 {
+				pf.SourcePort = body.ServicePort
+			}
+		}
+	}
+	if err != nil {
+		if strings.Contains(err.Error(), "not found") {
+			h.respond(c, http.StatusNotFound, nil, err)
+		} else {
+			h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to start port forward: %v", err))
+		}
+		return
+	}
+	h.respond(c, http.StatusOK, portForwardListItem(pf), nil)
+}
+
+func (h *Handler) stopPortForwardCore(c *gin.Context, id string, remove bool) {
+	if id == "" {
+		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("port forward id required"))
+		return
+	}
 	log.Printf("Received request to stop port forward: %s", id)
+
+	if remove {
+		err := h.k8s.RemovePortForward(id)
+		if err != nil {
+			h.respond(c, http.StatusInternalServerError, nil, fmt.Errorf("failed to remove port forward: %v", err))
+			return
+		}
+		h.respond(c, http.StatusOK, gin.H{"success": true}, nil)
+		return
+	}
 
 	err := h.k8s.StopPortForward(id)
 	if err != nil {
@@ -235,4 +339,20 @@ func (h *Handler) StopPortForward(c *gin.Context) {
 		return
 	}
 	h.respond(c, http.StatusOK, gin.H{"success": true}, nil)
+}
+
+func (h *Handler) StopPortForward(c *gin.Context) {
+	h.stopPortForwardCore(c, portForwardIDParam(c), c.Query("remove") == "1")
+}
+
+func (h *Handler) StopPortForwardByID(c *gin.Context) {
+	var body struct {
+		ID     string `json:"id"`
+		Remove bool   `json:"remove"`
+	}
+	if err := c.ShouldBindJSON(&body); err != nil || body.ID == "" {
+		h.respond(c, http.StatusBadRequest, nil, fmt.Errorf("port forward id required"))
+		return
+	}
+	h.stopPortForwardCore(c, body.ID, body.Remove || c.Query("remove") == "1")
 }

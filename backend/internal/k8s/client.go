@@ -65,10 +65,13 @@ type Interface interface {
 	UpdateResource(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace, name string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error)
 	CreateResource(ctx context.Context, cluster string, gvr schema.GroupVersionResource, namespace, name string, obj *unstructured.Unstructured) (*unstructured.Unstructured, error)
 
-	CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error)
+	CreatePortForward(cluster, namespace, podName string, remotePort, localPort int) (*PortForward, error)
 	CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error)
 	StopPortForward(id string) error
+	RemovePortForward(id string) error
+	ResumePortForward(id string) (*PortForward, error)
 	GetPortForward(id string) (*PortForward, bool)
+	ListPortForwards(cluster string) []*PortForward
 
 	GetPodLogs(ctx context.Context, cluster, namespace, name, container, tailLines string) (string, error)
 
@@ -1772,8 +1775,8 @@ func (c *Client) CreateResource(ctx context.Context, cluster string, gvr schema.
 	return result, nil
 }
 
-func (c *Client) CreatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
-	return c.portForwardManager.CreatePortForward(cluster, namespace, podName, remotePort)
+func (c *Client) CreatePortForward(cluster, namespace, podName string, remotePort, localPort int) (*PortForward, error) {
+	return c.portForwardManager.CreatePortForward(cluster, namespace, podName, remotePort, localPort)
 }
 
 func (c *Client) CreatePrivatePortForward(cluster, namespace, podName string, remotePort int) (*PortForward, error) {
@@ -1784,8 +1787,20 @@ func (c *Client) StopPortForward(id string) error {
 	return c.portForwardManager.StopPortForward(id)
 }
 
+func (c *Client) RemovePortForward(id string) error {
+	return c.portForwardManager.RemovePortForward(id)
+}
+
+func (c *Client) ResumePortForward(id string) (*PortForward, error) {
+	return c.portForwardManager.ResumePortForward(id)
+}
+
 func (c *Client) GetPortForward(id string) (*PortForward, bool) {
 	return c.portForwardManager.GetPortForward(id)
+}
+
+func (c *Client) ListPortForwards(cluster string) []*PortForward {
+	return c.portForwardManager.ListPortForwards(cluster)
 }
 
 func (c *Client) GetPodLogs(ctx context.Context, cluster, namespace, name, container, tailLines string) (string, error) {
